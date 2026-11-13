@@ -1,0 +1,6 @@
+{
+  "name": "ZUPIRUS Quant Lab",
+  "description": "Hệ thống mô phỏng giao dịch định lượng XAUUSD M15 tự vận hành, kiểm định walk-forward và đối soát đa tác tử.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

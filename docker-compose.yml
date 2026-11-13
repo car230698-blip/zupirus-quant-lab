@@ -1,0 +1,33 @@
+name: zupirus-quant-lab
+
+services:
+  zupirus-quant-lab:
+    container_name: zupirus-quant-lab-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Chỉ bind vào loopback 127.0.0.1:3100 trên VPS (mở qua SSH tunnel từ máy trạm người vận hành)
+    ports:
+      - "127.0.0.1:3100:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - EXECUTION_MODE=SIMULATION_ONLY
+      - DATA_DIR=/app/data/runtime
+      - REPLAY_FILE=/app/data/xauusd_m15_replay.json
+      - REPLAY_INTERVAL_MS=800
+      - AUTO_START_LOOP=true
+    volumes:
+      - zupirus_quant_lab_data:/app/data/runtime
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  zupirus_quant_lab_data:
+    name: zupirus_quant_lab_data
