@@ -25,7 +25,9 @@ interface ApiStateResponse {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('USER_PORTFOLIO');
-  const [activeRole, setActiveRole] = useState<UserRole>('ADMIN');
+  const [activeRole, setActiveRole] = useState<UserRole>('VIEWER');
+  const [authToken, setAuthToken] = useState('');
+  const [tokenInput, setTokenInput] = useState('');
   const [data, setData] = useState<ApiStateResponse | null>(null);
   const [costComparison, setCostComparison] =
     useState<DualCostStressComparison | null>(null);
@@ -43,10 +45,10 @@ export default function App() {
 
   const buildHeaders = useCallback(
     (extra?: Record<string, string>): Record<string, string> => ({
-      'X-Zupirus-Role': activeRole,
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...(extra || {}),
     }),
-    [activeRole]
+    [authToken]
   );
 
   const fetchSystemState = useCallback(async () => {
@@ -56,7 +58,12 @@ export default function App() {
       const res = await fetch('/api/state', {
         headers: buildHeaders(),
       });
+      if (res.status === 401) {
+        setData(null);
+        throw new Error('Nhập token Admin hoặc Người xem để truy cập.');
+      }
       if (res.status === 403) {
+        setData(null);
         const errJson = await res.json().catch(() => null);
         setRbacNoticeVi(
           errJson?.messageVi ||
@@ -71,6 +78,7 @@ export default function App() {
         throw new Error(`Máy chủ phản hồi mã lỗi HTTP ${res.status}`);
       }
       const json = (await res.json()) as ApiStateResponse;
+      setActiveRole(json.currentRole ?? 'VIEWER');
       setData(json);
       setErrorMessage(null);
       setRbacNoticeVi(null);
@@ -306,24 +314,18 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <div className="flex items-center gap-1.5">
-              <label htmlFor="role-select" className="text-slate-400 whitespace-nowrap">
-                Vai trò (RBAC):
-              </label>
-              <select
-                id="role-select"
-                value={activeRole}
-                onChange={(e) => {
-                  setRbacNoticeVi(null);
-                  setActiveRole(e.target.value as UserRole);
-                }}
-                className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs font-mono text-slate-200"
-              >
-                <option value="ADMIN">ADMIN (Quản trị & Điều khiển)</option>
-                <option value="VIEWER">VIEWER (Người xem — Chỉ đọc)</option>
-                <option value="COLLECTOR">COLLECTOR (Bộ thu MT5 — Chỉ gửi tick)</option>
-              </select>
-            </div>
+            <form className="flex items-center gap-2" onSubmit={(event) => {
+              event.preventDefault();
+              setData(null);
+              setActiveRole('VIEWER');
+              setAuthToken(tokenInput.trim());
+            }}>
+              <label htmlFor="dashboard-token" className="text-slate-400">Token truy cập</label>
+              <input id="dashboard-token" type="password" autoComplete="off" value={tokenInput}
+                onChange={event => setTokenInput(event.target.value)}
+                className="w-32 rounded border border-slate-800 bg-slate-900 px-2 py-1" />
+              <button className="rounded border border-slate-700 px-2 py-1">Đăng nhập</button>
+            </form>
 
             <div className="flex items-center gap-1.5">
               <label htmlFor="ui-state-select" className="text-slate-400 whitespace-nowrap">
@@ -359,18 +361,7 @@ export default function App() {
               </strong>
               {rbacNoticeVi}
             </div>
-            {activeRole !== 'ADMIN' && (
-              <button
-                type="button"
-                onClick={() => {
-                  setRbacNoticeVi(null);
-                  setActiveRole('ADMIN');
-                }}
-                className="px-3 py-1 bg-amber-400 text-slate-950 font-medium rounded hover:bg-amber-300 transition-colors whitespace-nowrap shrink-0"
-              >
-                Chuyển về ADMIN
-              </button>
-            )}
+
           </div>
         )}
 

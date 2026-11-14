@@ -24,6 +24,7 @@ export interface QuantServerOptions {
   ticksFilePath?: string;
   replayIntervalMs?: number;
   autoStart?: boolean;
+  liveTicks?: boolean;
   attachFrontend?: boolean;
   strictAuth?: boolean;
   adminToken?: string;
@@ -53,21 +54,23 @@ export async function createQuantServer(
     customOptions?.autoStart ??
     process.env.AUTO_START_LOOP !== 'false';
 
-  const adminToken =
-    customOptions?.adminToken ||
-    process.env.ADMIN_AUTH_TOKEN ||
-    'zupirus-admin-demo-token';
-  const viewerToken =
-    customOptions?.viewerToken ||
-    process.env.VIEWER_AUTH_TOKEN ||
-    'zupirus-viewer-demo-token';
-  const collectorToken =
-    customOptions?.collectorToken ||
-    process.env.COLLECTOR_AUTH_TOKEN ||
-    'zupirus-collector-demo-token';
-  const strictAuth =
-    customOptions?.strictAuth ??
-    process.env.ENFORCE_STRICT_AUTH === 'true';
+  const strictAuth = customOptions?.strictAuth ?? process.env.ENFORCE_STRICT_AUTH !== 'false';
+  const adminToken = customOptions?.adminToken || process.env.ADMIN_AUTH_TOKEN;
+  const viewerToken = customOptions?.viewerToken || process.env.VIEWER_AUTH_TOKEN;
+  const collectorToken = customOptions?.collectorToken || process.env.COLLECTOR_AUTH_TOKEN;
+  const tokens = [adminToken, viewerToken, collectorToken].filter(Boolean);
+  if (new Set(tokens).size !== tokens.length ||
+      (strictAuth && tokens.some(token => token?.startsWith('zupirus-') && token.endsWith('-demo-token')))) {
+    throw new Error('Cấu hình token riêng cho từng vai trò.');
+  }
+  const liveTicks = customOptions?.liveTicks ?? process.env.QUANT_DATA_SOURCE === 'MT5_DEMO_LIVE';
+  const requireReplay: express.RequestHandler = (_req, res, next) => {
+    if (liveTicks) {
+      res.status(409).json({ error: 'REPLAY_ONLY', messageVi: 'Điều khiển này chỉ dùng cho phiên replay.' });
+      return;
+    }
+    next();
+  };
 
   const orchestrator = new QuantLabOrchestrator({
     dataDir,
@@ -75,6 +78,7 @@ export async function createQuantServer(
     ticksFilePath: customOptions?.ticksFilePath ?? process.env.TICKS_FILE,
     replayIntervalMs,
     autoStart,
+    liveTicks,
     brokerSchedule: customOptions?.brokerSchedule,
   });
 
@@ -84,10 +88,10 @@ export async function createQuantServer(
     explicitAuthAttempt: boolean;
   } {
     const authHeader = req.headers.authorization;
-    const roleHeader = req.headers['x-zupirus-role'];
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice('Bearer '.length).trim();
+      if (!token) return { authenticated: false, role: null, explicitAuthAttempt: true };
       if (token === adminToken) {
         return { authenticated: true, role: 'ADMIN', explicitAuthAttempt: true };
       }
@@ -100,31 +104,12 @@ export async function createQuantServer(
       return { authenticated: false, role: null, explicitAuthAttempt: true };
     }
 
-    if (typeof roleHeader === 'string' && roleHeader.trim().length > 0) {
-      const normalized = roleHeader.trim().toUpperCase();
-      if (
-        normalized === 'ADMIN' ||
-        normalized === 'VIEWER' ||
-        normalized === 'COLLECTOR'
-      ) {
-        if (strictAuth) {
-          return { authenticated: false, role: null, explicitAuthAttempt: true };
-        }
-        return {
-          authenticated: true,
-          role: normalized as UserRole,
-          explicitAuthAttempt: true,
-        };
-      }
-      return { authenticated: false, role: null, explicitAuthAttempt: true };
-    }
-
     if (strictAuth) {
       return { authenticated: false, role: null, explicitAuthAttempt: false };
     }
 
     // Default local preview & test compatibility when no auth headers are sent
-    return { authenticated: true, role: 'ADMIN', explicitAuthAttempt: false };
+    return { authenticated: true, role: 'VIEWER', explicitAuthAttempt: false };
   }
 
   function requireRoles(
@@ -365,6 +350,7 @@ export async function createQuantServer(
   app.post(
     '/api/control/step',
     requireRoles(['ADMIN']),
+    requireReplay,
     (_req, res) => {
       const trace = orchestrator.stepNextReplayCandle();
       res.json({
@@ -378,6 +364,7 @@ export async function createQuantServer(
   app.post(
     '/api/control/toggle-loop',
     requireRoles(['ADMIN']),
+    requireReplay,
     (_req, res) => {
       const state = orchestrator.getState();
       if (state.isLoopRunning) {
@@ -395,6 +382,7 @@ export async function createQuantServer(
   app.post(
     '/api/control/reset',
     requireRoles(['ADMIN']),
+    requireReplay,
     (_req, res) => {
       const state = orchestrator.resetSimulation(true);
       res.json({

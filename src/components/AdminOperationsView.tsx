@@ -139,7 +139,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
           <button
             type="button"
             onClick={onToggleLoop}
-            disabled={state.isReplayComplete}
+            disabled={state.isReplayComplete || activeRole !== 'ADMIN' || state.dataSourceTelemetry?.sourceMode === 'MT5_DEMO_LIVE'}
             className="px-3.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
             {state.isReplayComplete ? 'Đã hoàn tất phát lại'
@@ -148,7 +148,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
           <button
             type="button"
             onClick={onStepSingleCandle}
-            disabled={state.isReplayComplete}
+            disabled={state.isReplayComplete || activeRole !== 'ADMIN' || state.dataSourceTelemetry?.sourceMode === 'MT5_DEMO_LIVE'}
             className="px-3.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
             Bước thêm 1 nến M15
@@ -156,7 +156,8 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
           <button
             type="button"
             onClick={onResetSimulation}
-            className="px-3.5 py-2 text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            disabled={activeRole !== 'ADMIN' || state.dataSourceTelemetry?.sourceMode === 'MT5_DEMO_LIVE'}
+            className="px-3.5 py-2 text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-40 text-amber-300 border border-amber-500/40 rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
             Chạy lại từ đầu (Reset)
           </button>

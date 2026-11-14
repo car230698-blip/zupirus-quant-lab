@@ -330,7 +330,15 @@ export class DurableTickIngestor {
       onClosedCandleBuilt,
     } = params;
 
-    const batchId = (payload.batchId || '').trim();
+    if (!payload || typeof payload.batchId !== 'string' || !Array.isArray(payload.ticks) ||
+        [payload.rawSymbol, payload.symbol, payload.collectorId].some(
+          value => value !== undefined && typeof value !== 'string'
+        ) || payload.ticks.some(tick => !tick || typeof tick !== 'object' ||
+          (tick.rawSymbol !== undefined && typeof tick.rawSymbol !== 'string') ||
+          (tick.sourceTickId !== undefined && typeof tick.sourceTickId !== 'string'))) {
+      throw new Error('Lô báo giá không đúng định dạng.');
+    }
+    const batchId = payload.batchId.trim();
     if (!batchId) {
       throw new Error('Thiếu mã định danh lô dữ liệu (batchId).');
     }
@@ -415,7 +423,7 @@ export class DurableTickIngestor {
       if (
         !tickSymbol.valid ||
         !Number.isSafeInteger(timeMs) ||
-        timeMs <= 0 ||
+        timeMs <= 0 || timeMs > 8.64e15 ||
         !Number.isFinite(bid) ||
         !Number.isFinite(ask) ||
         bid <= 0 ||

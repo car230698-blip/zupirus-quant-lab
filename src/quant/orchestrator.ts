@@ -66,6 +66,7 @@ export interface OrchestratorOptions {
   ticksFilePath?: string;
   replayIntervalMs?: number;
   autoStart?: boolean;
+  liveTicks?: boolean;
   brokerSchedule?: Partial<BrokerSessionScheduleConfig>;
 }
 
@@ -75,12 +76,21 @@ export class QuantLabOrchestrator {
   private readonly dataset: ReplayDataset;
   private readonly ticks?: TickReplay;
   private state: QuantSystemState;
+  private readonly liveTicks: boolean;
+  private processingBatch = false;
   private timer: NodeJS.Timeout | null = null;
   private lastHeartbeatSystemMs: number = Date.now();
 
   constructor(options: OrchestratorOptions) {
     this.dataset = ensureReplayDatasetFile(options.replayFilePath);
-    this.ticks = options.ticksFilePath ? new TickReplay(options.ticksFilePath) : undefined;
+    this.liveTicks = options.liveTicks === true;
+    if (this.liveTicks) {
+      this.dataset.candles = [];
+      this.dataset.metadata = { ...this.dataset.metadata, datasetId: 'MT5-XAUUSD-LIVE',
+        sourceDescription: 'Bid/Ask từ MT5 demo', syntheticDisclosure: 'Khớp lệnh mô phỏng.',
+        totalCandles: 0 };
+    }
+    this.ticks = !this.liveTicks && options.ticksFilePath ? new TickReplay(options.ticksFilePath) : undefined;
     const ticks = this.ticks;
     if (ticks && this.dataset.candles.some((candle) => ticks.within(candle).next().done)) {
       throw new Error('Dữ liệu tick thiếu báo giá trong ít nhất một nến phát lại.');
@@ -94,7 +104,7 @@ export class QuantLabOrchestrator {
       intervalMs
     );
     this.state = state;
-    const replayMode = this.ticks ? 'TICK' : 'BAR';
+    const replayMode = this.ticks || this.liveTicks ? 'TICK' : 'BAR';
     if (
       state.replayCursorIndex > 0 &&
       ((state.replayMode ?? 'BAR') !== replayMode ||
@@ -111,6 +121,12 @@ export class QuantLabOrchestrator {
     }
     if (!this.state.tickIngestionState) {
       this.state.tickIngestionState = createInitialTickIngestionState('REPLAY_DATASET');
+    }
+    if (this.liveTicks) {
+      const telemetry = this.state.tickIngestionState.telemetry;
+      if (telemetry.sourceMode !== 'MT5_DEMO_LIVE') {
+        this.state.tickIngestionState = createInitialTickIngestionState('MT5_DEMO_LIVE');
+      }
     }
     this.state.dataSourceTelemetry = this.state.tickIngestionState.telemetry;
     this.state.slOvershootP95 = computeSlOvershootP95Buffer(this.state.closedPositions);
@@ -365,57 +381,88 @@ export class QuantLabOrchestrator {
     payload: TickBatchPayload,
     systemTime: string = new Date().toISOString()
   ): Promise<TickBatchIngestResult> {
+    if (!this.liveTicks) {
+      throw new Error('API tick cần QUANT_DATA_SOURCE=MT5_DEMO_LIVE và thư mục trạng thái riêng.');
+    }
     return this.ingestor.enqueueIngest(() => {
-      this.lastHeartbeatSystemMs = Date.now();
-      if (!this.state.tickIngestionState) {
-        this.state.tickIngestionState = createInitialTickIngestionState('MT5_DEMO_LIVE');
+      const previous = structuredClone(this.state);
+      const previousCandleCount = this.dataset.candles.length;
+      const previousHeartbeat = this.lastHeartbeatSystemMs;
+      this.processingBatch = true;
+      let result: TickBatchIngestResult;
+      try {
+        result = this.applyTickBatch(payload, systemTime);
+        this.storage.saveState(this.state, true);
+      } catch (error) {
+        this.state = previous;
+        this.dataset.candles.length = previousCandleCount;
+        this.dataset.metadata.totalCandles = previousCandleCount;
+        this.lastHeartbeatSystemMs = previousHeartbeat;
+        throw error;
+      } finally {
+        this.processingBatch = false;
       }
-      if (!this.state.brokerSchedule) {
-        this.state.brokerSchedule = cloneBrokerSchedule();
+      // The snapshot is authoritative. A diagnostic log error must not undo an ACK.
+      try {
+        for (const entry of this.state.journal.slice(previous.journal.length)) {
+          this.storage.appendJournalToDisk(entry);
+        }
+      } catch (error) {
+        console.error('Không ghi được bản sao nhật ký tick:', error);
       }
-
-      const result = this.ingestor.processBatch({
-        payload,
-        ingestionState: this.state.tickIngestionState,
-        schedule: this.state.brokerSchedule,
-        systemTime,
-        onLiveQuoteAccepted: (quote, _rawSymbol, sysTime) => {
-          this.handleLiveQuoteOnOpenPositions(quote, sysTime);
-        },
-        onClosedCandleBuilt: (
-          closedCandle,
-          barQuotes,
-          firstQuoteAfterClose,
-          sysTime
-        ) => {
-          if (!this.dataset.candles.some((c) => c.candleId === closedCandle.candleId)) {
-            this.dataset.candles.push(closedCandle);
-            this.dataset.metadata.totalCandles = this.dataset.candles.length;
-            this.state.totalReplayCandles = Math.max(
-              this.state.totalReplayCandles,
-              this.dataset.candles.length
-            );
-          }
-          this.processClosedCandle(
-            closedCandle,
-            sysTime,
-            barQuotes,
-            firstQuoteAfterClose
-          );
-        },
-      });
-
-      this.state.dataSourceTelemetry = this.state.tickIngestionState.telemetry;
-      if (this.state.dataSourceTelemetry.lastQuoteMarketTime) {
-        this.state.lastScheduleEvaluation = evaluateMarketSchedule(
-          this.state.dataSourceTelemetry.lastQuoteMarketTime,
-          this.state.brokerSchedule
-        );
-      }
-      this.state.lastUpdatedSystemTime = systemTime;
-      this.storage.saveState(this.state);
       return result;
     });
+  }
+
+  private applyTickBatch(payload: TickBatchPayload, systemTime: string): TickBatchIngestResult {
+    this.lastHeartbeatSystemMs = Date.now();
+    if (!this.state.tickIngestionState) {
+      this.state.tickIngestionState = createInitialTickIngestionState('MT5_DEMO_LIVE');
+    }
+    if (!this.state.brokerSchedule) {
+      this.state.brokerSchedule = cloneBrokerSchedule();
+    }
+
+    const result = this.ingestor.processBatch({
+      payload,
+      ingestionState: this.state.tickIngestionState,
+      schedule: this.state.brokerSchedule,
+      systemTime,
+      onLiveQuoteAccepted: (quote, _rawSymbol, sysTime) => {
+        this.handleLiveQuoteOnOpenPositions(quote, sysTime);
+      },
+      onClosedCandleBuilt: (
+        closedCandle,
+        barQuotes,
+        firstQuoteAfterClose,
+        sysTime
+      ) => {
+        if (!this.dataset.candles.some((c) => c.candleId === closedCandle.candleId)) {
+          this.dataset.candles.push(closedCandle);
+          this.dataset.metadata.totalCandles = this.dataset.candles.length;
+          this.state.totalReplayCandles = Math.max(
+            this.state.totalReplayCandles,
+            this.dataset.candles.length
+          );
+        }
+        this.processClosedCandle(
+          closedCandle,
+          sysTime,
+          barQuotes,
+          firstQuoteAfterClose
+        );
+      },
+    });
+
+    this.state.dataSourceTelemetry = this.state.tickIngestionState.telemetry;
+    if (this.state.dataSourceTelemetry.lastQuoteMarketTime) {
+      this.state.lastScheduleEvaluation = evaluateMarketSchedule(
+        this.state.dataSourceTelemetry.lastQuoteMarketTime,
+        this.state.brokerSchedule
+      );
+    }
+    this.state.lastUpdatedSystemTime = systemTime;
+    return result;
   }
 
   /**
@@ -516,7 +563,7 @@ export class QuantLabOrchestrator {
   }
 
   public startAutoLoop(): void {
-    if (this.timer) return;
+    if (this.liveTicks || this.timer) return;
     if (this.state.isReplayComplete) return;
 
     this.state.isLoopRunning = true;
@@ -566,6 +613,7 @@ export class QuantLabOrchestrator {
   }
 
   public resetSimulation(autoStart: boolean = true): QuantSystemState {
+    if (this.liveTicks) throw new Error('Chỉ hỗ trợ đặt lại trong chế độ replay.');
     this.stopAutoLoop();
     this.state = this.storage.resetStorage(
       this.dataset.candles.length,
@@ -614,6 +662,7 @@ export class QuantLabOrchestrator {
    * Processes the next closed M15 candle from the deterministic replay dataset.
    */
   public stepNextReplayCandle(): CycleTraceRecord | null {
+    if (this.liveTicks) return null;
     if (this.state.replayCursorIndex >= this.dataset.candles.length) {
       this.state.isReplayComplete = true;
       this.stopAutoLoop();
@@ -681,7 +730,7 @@ export class QuantLabOrchestrator {
       this.state.teamExecutionStatus.lastErrorVi = validation.reasonVi;
       this.state.teamExecutionStatus.recoveryStatusVi =
         'Đã từ chối nến không hợp lệ và giữ nguyên trạng thái sổ cái.';
-      this.storage.saveState(this.state);
+      if (!this.processingBatch) this.storage.saveState(this.state);
       return invalidTrace;
     }
 
@@ -884,7 +933,7 @@ export class QuantLabOrchestrator {
     const executionCandle = quote
       ? { ...candle, spreadPts: Math.ceil((quote.ask - quote.bid) * 100 - 1e-8) }
       : candle;
-    const canQuote = !this.ticks || quote !== undefined;
+    const canQuote = (!this.liveTicks && !this.ticks) || quote !== undefined;
 
     if (
       canQuote &&
@@ -1060,7 +1109,7 @@ export class QuantLabOrchestrator {
     if (
       scheduledLearningCycles.includes(nextIndex) ||
       recurringLearningCycle ||
-      nextIndex === this.dataset.candles.length
+      (!this.liveTicks && nextIndex === this.dataset.candles.length)
     ) {
       const lrResult = this.runResearchAndValidationCycle(
         cycleId,
@@ -1111,7 +1160,7 @@ export class QuantLabOrchestrator {
     };
 
     this.state.cycleTraces.push(trace);
-    this.storage.saveState(this.state);
+    if (!this.processingBatch) this.storage.saveState(this.state);
     return trace;
   }
 
@@ -1152,7 +1201,7 @@ export class QuantLabOrchestrator {
       activePolicy,
       baselinePolicy,
       allPolicies: this.state.policies,
-      minSamplesPerRegime: this.ticks
+      minSamplesPerRegime: this.ticks || this.liveTicks
         ? Math.max(TICK_MIN_SAMPLES_PER_REGIME, customMinSamples ?? 0)
         : customMinSamples,
       degradationLossThresholdUsd: customDegradationThresholdUsd,
@@ -1296,7 +1345,7 @@ export class QuantLabOrchestrator {
       ...entry,
     };
     this.state.journal.push(fullEntry);
-    this.storage.appendJournalToDisk(fullEntry);
+    if (!this.processingBatch) this.storage.appendJournalToDisk(fullEntry);
     return fullEntry;
   }
 

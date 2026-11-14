@@ -28,6 +28,7 @@ import { reconcileClosedPosition } from '../src/quant/reconciliation.ts';
 import { latestClosedContext } from '../src/quant/timeframes.ts';
 import { TickReplay } from '../src/quant/tickReplay.ts';
 import { applyValidationCapacity, executeWalkForwardLearningRun } from '../src/quant/researchTeam.ts';
+import { DurableQuantStorage } from '../src/quant/storage.ts';
 import { QuantLabOrchestrator } from '../src/quant/orchestrator.ts';
 import { createQuantServer } from '../server.ts';
 import { ExecutionMode, M15Candle, ShadowCandidateOutcome, SimulatedPosition } from '../src/quant/types.ts';
@@ -874,6 +875,8 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         replayFilePath: path.join(tmpDir, 'replay.json'),
         autoStart: false,
         attachFrontend: false,
+        liveTicks: true,
+        collectorToken: 'test-local-collector-key',
       });
 
       const server = app.listen(0);
@@ -882,7 +885,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
       const baseUrl = `http://127.0.0.1:${port}`;
       const collectorHeaders = {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer zupirus-collector-demo-token',
+        Authorization: 'Bearer test-local-collector-key',
       };
 
       try {
@@ -960,6 +963,23 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         const ack2 = await batch2Res.json();
         assert.equal(ack2.closedCandlesEmitted.length, 1);
 
+        assert.equal(orchestrator.stepNextReplayCandle(), null);
+        const next = {
+          batchId: 'RETRY-INVALID', rawSymbol: 'XAUUSDm',
+          ticks: [{ timeMs: tNextBar + 1, bid: 3961.5, ask: 3961.7 }],
+        };
+        await assert.rejects(orchestrator.ingestTickBatch({
+          ...next, ticks: [{ ...next.ticks[0], sourceTickId: 42 as unknown as string }],
+        }), /đúng định dạng/);
+        const saveState = DurableQuantStorage.prototype.saveState;
+        try {
+          DurableQuantStorage.prototype.saveState = () => { throw new Error('disk failure fixture'); };
+          await assert.rejects(orchestrator.ingestTickBatch(next), /disk failure fixture/);
+        } finally {
+          DurableQuantStorage.prototype.saveState = saveState;
+        }
+        assert.equal((await orchestrator.ingestTickBatch(next)).acceptedTicks, 1);
+
         const stateBeforeRestart = orchestrator.getState();
         assert.equal(stateBeforeRestart.dataSourceTelemetry?.sourceMode, 'MT5_DEMO_LIVE');
         assert.equal(stateBeforeRestart.dataSourceTelemetry?.canonicalSymbol, 'XAUUSD');
@@ -971,6 +991,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
           dataDir: path.join(tmpDir, 'runtime'),
           replayFilePath: path.join(tmpDir, 'replay.json'),
           autoStart: false,
+          liveTicks: true,
         });
         const retryAfterRestart = await restarted.ingestTickBatch({
           batchId: 'BATCH-CLOSE-BAR-002',
@@ -1001,6 +1022,8 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         replayFilePath: path.join(tmpDir, 'replay.json'),
         autoStart: false,
         attachFrontend: false,
+        liveTicks: true,
+        collectorToken: 'test-local-collector-key',
       });
 
       const server = app.listen(0);
@@ -1020,7 +1043,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
             '--vps-url',
             baseUrl,
             '--token',
-            'zupirus-collector-demo-token',
+            'test-local-collector-key',
           ],
           { encoding: 'utf8' }
         );
@@ -1293,7 +1316,10 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         replayFilePath: path.join(tmpDir, 'replay.json'),
         autoStart: false,
         attachFrontend: false,
-        strictAuth: true,
+        liveTicks: true,
+        adminToken: 'test-local-admin-key',
+        viewerToken: 'test-local-viewer-key',
+        collectorToken: 'test-local-collector-key',
       });
 
       const server = app.listen(0);
@@ -1311,7 +1337,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer zupirus-collector-demo-token',
+            Authorization: 'Bearer test-local-collector-key',
           },
           body: JSON.stringify({
             batchId: 'RBAC-BATCH-1',
@@ -1330,19 +1356,19 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         assert.equal(collectorIngestRes.status, 200);
 
         const collectorStateRes = await fetch(`${baseUrl}/api/state`, {
-          headers: { Authorization: 'Bearer zupirus-collector-demo-token' },
+          headers: { Authorization: 'Bearer test-local-collector-key' },
         });
         assert.equal(collectorStateRes.status, 403);
 
         const collectorStepRes = await fetch(`${baseUrl}/api/control/step`, {
           method: 'POST',
-          headers: { Authorization: 'Bearer zupirus-collector-demo-token' },
+          headers: { Authorization: 'Bearer test-local-collector-key' },
         });
         assert.equal(collectorStepRes.status, 403);
 
         // 3. VIEWER role: allowed on /api/state (including delayed load), forbidden (403) on /api/control/step and /api/ingest/ticks
         const viewerStateRes = await fetch(`${baseUrl}/api/state?delayMs=50`, {
-          headers: { Authorization: 'Bearer zupirus-viewer-demo-token' },
+          headers: { Authorization: 'Bearer test-local-viewer-key' },
         });
         assert.equal(viewerStateRes.status, 200);
         const viewerData = await viewerStateRes.json();
@@ -1351,7 +1377,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
 
         const viewerControlRes = await fetch(`${baseUrl}/api/control/step`, {
           method: 'POST',
-          headers: { Authorization: 'Bearer zupirus-viewer-demo-token' },
+          headers: { Authorization: 'Bearer test-local-viewer-key' },
         });
         assert.equal(viewerControlRes.status, 403);
 
@@ -1359,7 +1385,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer zupirus-viewer-demo-token',
+            Authorization: 'Bearer test-local-viewer-key',
           },
           body: JSON.stringify({ batchId: 'V', collectorId: 'V', ticks: [] }),
         });
@@ -1368,9 +1394,13 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         // 4. ADMIN role: allowed on both /api/state and /api/control/step
         const adminStepRes = await fetch(`${baseUrl}/api/control/step`, {
           method: 'POST',
-          headers: { Authorization: 'Bearer zupirus-admin-demo-token' },
+          headers: { Authorization: 'Bearer test-local-admin-key' },
         });
-        assert.equal(adminStepRes.status, 200);
+        assert.equal(adminStepRes.status, 409);
+        const forgedRole = await fetch(`${baseUrl}/api/control/step`, {
+          method: 'POST', headers: { 'X-Zupirus-Role': 'ADMIN' },
+        });
+        assert.equal(forgedRole.status, 401);
       } finally {
         server.close();
       }
@@ -1379,4 +1409,3 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
     }
   });
 });
-
