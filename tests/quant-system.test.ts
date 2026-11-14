@@ -215,6 +215,21 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
     assert.equal(volVeto.vetoed, true);
     assert.equal(volVeto.vetoCode, 'MAX_VOLUME_EXCEEDED');
 
+    const sizedOrder = evaluateRiskGate({
+      cycleId: 'CYCLE-0025',
+      candle: normalCandle,
+      signalId: 'SIG-SIZED',
+      candidate: { ...eligible, entryPrice: 3968.89, stopLoss: 3957.97 },
+      openPositions: [],
+      currentDrawdownPct: 0,
+      dailyDrawdownPct: 0,
+      riskLimits: limits,
+      requestedLots: 0.5,
+      accountEquityUsd: 10000,
+    });
+    assert.equal(sizedOrder.approved, true);
+    assert.equal(sizedOrder.approvedLots, 0.08);
+
     // 4d. Bộ học bị chặn nếu cố sửa đổi giới hạn rủi ro cốt lõi
     const tamperedLimits = { ...limits, maxTotalDrawdownPct: 25.0 };
     assert.throws(

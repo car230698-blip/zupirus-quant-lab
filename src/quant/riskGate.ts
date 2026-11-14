@@ -1,3 +1,4 @@
+import { COMMISSION_PER_LOT_SIDE_USD, CONTRACT_SIZE_OZ, computeDeterministicSlippagePts } from './simBroker.ts';
 import {
   M15Candle,
   RiskDecision,
@@ -70,6 +71,7 @@ export function evaluateRiskGate(params: {
   dailyDrawdownPct: number;
   riskLimits: RiskLimitsConfig;
   requestedLots?: number;
+  accountEquityUsd?: number;
   systemTime?: string;
 }): RiskDecision {
   const {
@@ -82,6 +84,7 @@ export function evaluateRiskGate(params: {
     dailyDrawdownPct,
     riskLimits,
     requestedLots = 0.5,
+    accountEquityUsd,
     systemTime = new Date().toISOString(),
   } = params;
 
@@ -286,6 +289,26 @@ export function evaluateRiskGate(params: {
     };
   }
 
+  // Round down to the simulated broker's 0.01-lot increment.
+  const stopDistance = Math.abs(candidate.entryPrice - candidate.stopLoss);
+  const costPerLot = CONTRACT_SIZE_OZ * (stopDistance + candle.spreadPts * 0.01 +
+    2 * computeDeterministicSlippagePts(candle) * 0.01 + 0.02) +
+    2 * COMMISSION_PER_LOT_SIDE_USD;
+  const approvedLots = accountEquityUsd === undefined ? requestedLots :
+    Math.min(requestedLots, Math.floor(
+      (accountEquityUsd * riskLimits.defaultRiskPerTradePct / 100 / costPerLot) * 100
+    ) / 100);
+  if (!Number.isFinite(approvedLots) || approvedLots < 0.01) {
+    return {
+      cycleId, candleId: candle.candleId, signalId, marketTime: candle.closeTime, systemTime,
+      approved: false, vetoed: true, requestedLots, approvedLots: 0,
+      currentOpenPositions: currentOpenCount, currentDrawdownPct, dailyDrawdownPct,
+      spreadPts: candle.spreadPts, limitsChecked: { ...riskLimits },
+      vetoCode: 'MAX_VOLUME_EXCEEDED',
+      reasonVi: 'Ngân sách rủi ro không đủ cho 0,01 lot ở khoảng cách dừng lỗ hiện tại.',
+    };
+  }
+
   return {
     cycleId,
     candleId: candle.candleId,
@@ -295,13 +318,13 @@ export function evaluateRiskGate(params: {
     approved: true,
     vetoed: false,
     requestedLots,
-    approvedLots: requestedLots,
+    approvedLots,
     currentOpenPositions: currentOpenCount,
     currentDrawdownPct,
     dailyDrawdownPct,
     spreadPts: candle.spreadPts,
     limitsChecked: { ...riskLimits },
-    reasonVi: `ĐẠT KIỂM TRA RỦI RO: Vị thế mở ${currentOpenCount}/${riskLimits.maxOpenPositions}, khối lượng ${requestedLots} lot, sụt giảm ${currentDrawdownPct.toFixed(
+    reasonVi: `ĐẠT KIỂM TRA RỦI RO: Vị thế mở ${currentOpenCount}/${riskLimits.maxOpenPositions}, khối lượng ${approvedLots} lot, sụt giảm ${currentDrawdownPct.toFixed(
       2
     )}%, spread ${candle.spreadPts} pts hợp lệ.`,
   };

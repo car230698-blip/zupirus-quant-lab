@@ -8,8 +8,8 @@ import {
   StrategyCandidateEvaluation,
 } from './types.ts';
 
-const CONTRACT_SIZE_OZ = 100; // 1 lot XAUUSD = 100 oz
-const COMMISSION_PER_LOT_SIDE_USD = 3.5; // $7.00 round-turn per 1.0 lot
+export const CONTRACT_SIZE_OZ = 100; // 1 lot XAUUSD = 100 oz
+export const COMMISSION_PER_LOT_SIDE_USD = 3.5; // $7.00 round-turn per 1.0 lot
 
 export const EXIT_REASON_LABELS_VI: Record<PositionExitReason, string> = {
   TP2_FULL_TARGET: 'Chốt lời toàn bộ tại mục tiêu TP2',
@@ -33,7 +33,7 @@ export function assertSimulationOnlyBroker(mode: ExecutionMode): void {
   }
 }
 
-function computeDeterministicSlippagePts(candle: M15Candle): number {
+export function computeDeterministicSlippagePts(candle: M15Candle): number {
   const raw = 2 + Math.floor((candle.volume % 700) / 250);
   return Math.max(1, Math.min(6, raw));
 }

@@ -491,6 +491,7 @@ export class QuantLabOrchestrator {
           dailyDrawdownPct: this.state.currentDrawdownPct,
           riskLimits: this.state.riskLimits,
           requestedLots: 0.5,
+          accountEquityUsd: this.state.equityUsd,
           systemTime,
         });
 
