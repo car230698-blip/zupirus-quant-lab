@@ -544,6 +544,7 @@ export interface QuantSystemState {
   highWaterMarkEquityUsd: number;
   currentDrawdownPct: number;
   maxDrawdownPct: number;
+  dailyDrawdown?: { marketDateUtc: string; peakEquityUsd: number; currentPct: number };
 
   // Idempotency registries
   processedCandleIds: string[];

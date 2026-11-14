@@ -807,3 +807,38 @@ it('Tick replay fills at Ask and preserves TP1 before a later Bid stop in the sa
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it('Daily drawdown resets at the UTC boundary and restores from a legacy equity curve', () => {
+  const directory = createTempDir('daily-drawdown');
+  try {
+    const dataset = buildDeterministicReplayDataset();
+    const options = { dataDir: directory, replayFilePath: path.join(directory, 'replay.json'), autoStart: false };
+    const app = new QuantLabOrchestrator(options);
+    const state = app.getState();
+    const signalBar = dataset.candles[0];
+    const midnight = Date.parse('2026-03-03T00:00:00Z');
+    const bar = (time: number) => ({ ...signalBar, candleId: String(time),
+      openTime: new Date(time - 900_000).toISOString(), closeTime: new Date(time).toISOString() });
+
+    state.highWaterMarkEquityUsd = 10_000;
+    const closedPosition = { netPnlUsd: -500 } as (typeof state.closedPositions)[number];
+    state.closedPositions.push(closedPosition);
+    app.processClosedCandle(bar(midnight - 900_000));
+    assert.equal(state.dailyDrawdown?.currentPct, 5);
+    assert.equal(state.currentDrawdownPct, 5);
+
+    closedPosition.netPnlUsd = -595;
+    app.processClosedCandle(bar(midnight));
+    assert.deepEqual(state.dailyDrawdown, { marketDateUtc: '2026-03-03', peakEquityUsd: 9500, currentPct: 1 });
+    assert.equal(state.currentDrawdownPct, 5.95);
+
+    const saved = JSON.parse(fs.readFileSync(app.getStoragePaths().stateFilePath, 'utf8'));
+    delete saved.dailyDrawdown;
+    fs.writeFileSync(app.getStoragePaths().stateFilePath, JSON.stringify(saved));
+    const recovered = new QuantLabOrchestrator(options).getState();
+    assert.deepEqual(recovered.dailyDrawdown, state.dailyDrawdown);
+    assert.equal(recovered.maxDrawdownPct, 5.95);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

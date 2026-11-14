@@ -188,7 +188,10 @@ export const UserPortfolioView: React.FC<UserPortfolioViewProps> = ({
             {state.currentDrawdownPct.toFixed(2)}%
           </div>
           <div className="mt-2 text-xs text-slate-400 font-mono tabular-nums">
-            Sụt giảm tối đa: {state.maxDrawdownPct.toFixed(2)}% · Trần rủi ro: {state.riskLimits.maxTotalDrawdownPct.toFixed(1)}%
+            Toàn phiên tối đa: {state.maxDrawdownPct.toFixed(2)}% / {state.riskLimits.maxTotalDrawdownPct.toFixed(1)}%
+          </div>
+          <div className="text-xs text-slate-400">
+            Trong ngày UTC: {(state.dailyDrawdown?.currentPct ?? 0).toFixed(2)}% / {state.riskLimits.maxDailyDrawdownPct.toFixed(1)}%
           </div>
         </div>
 

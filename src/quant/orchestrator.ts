@@ -76,6 +76,7 @@ export class QuantLabOrchestrator {
     state.replayMode = replayMode;
     state.replayDatasetId = this.dataset.metadata.datasetId;
     this.restoreOpenShadows();
+    this.restoreDailyDrawdown();
     this.state.replayIntervalMs = intervalMs;
     const activePolicy = this.state.policies.find((policy) => policy.policyId === this.state.activePolicyId);
     if (activePolicy && !activePolicy.isBaseline && activePolicy.learnerVersion !== LEARNER_VERSION) {
@@ -90,6 +91,35 @@ export class QuantLabOrchestrator {
     if (options.autoStart !== false && !this.state.isReplayComplete) {
       this.startAutoLoop();
     }
+  }
+
+  private restoreDailyDrawdown(): void {
+    if (this.state.dailyDrawdown || !this.state.lastProcessedMarketTime) return;
+    let previousEquity = this.state.initialBalanceUsd;
+    let marketDateUtc = '';
+    let peakEquityUsd = previousEquity;
+    for (const point of this.state.equityCurve) {
+      const date = new Date(point.marketTime).toISOString().slice(0, 10);
+      peakEquityUsd = Math.max(date === marketDateUtc ? peakEquityUsd : previousEquity, point.equityUsd);
+      marketDateUtc = date;
+      previousEquity = point.equityUsd;
+    }
+    const lastDate = new Date(this.state.lastProcessedMarketTime).toISOString().slice(0, 10);
+    this.state.dailyDrawdown = {
+      marketDateUtc: lastDate,
+      peakEquityUsd: marketDateUtc === lastDate ? peakEquityUsd : previousEquity,
+      currentPct: 0,
+    };
+    this.updateDailyDrawdown();
+  }
+
+  private updateDailyDrawdown(): void {
+    const daily = this.state.dailyDrawdown;
+    if (!daily) return;
+    daily.peakEquityUsd = Math.max(daily.peakEquityUsd, this.state.equityUsd);
+    daily.currentPct = daily.peakEquityUsd > 0
+      ? Number(((daily.peakEquityUsd - this.state.equityUsd) / daily.peakEquityUsd * 100).toFixed(2))
+      : 0;
   }
 
   private closeShadow(outcome: ShadowCandidateOutcome, position: SimulatedPosition, candleIndex: number) {
@@ -337,6 +367,11 @@ export class QuantLabOrchestrator {
       return invalidTrace;
     }
 
+    const marketDateUtc = new Date(candle.closeTime).toISOString().slice(0, 10);
+    if (this.state.dailyDrawdown?.marketDateUtc !== marketDateUtc) {
+      this.state.dailyDrawdown = { marketDateUtc, peakEquityUsd: this.state.equityUsd, currentPct: 0 };
+    }
+
     // Advance cursor & register processed candleId
     this.state.replayCursorIndex = nextIndex;
     this.state.processedCandleIds.push(candle.candleId);
@@ -516,7 +551,7 @@ export class QuantLabOrchestrator {
           candidate: selected,
           openPositions: this.state.openPositions,
           currentDrawdownPct: this.state.currentDrawdownPct,
-          dailyDrawdownPct: this.state.currentDrawdownPct,
+          dailyDrawdownPct: this.state.dailyDrawdown.currentPct,
           riskLimits: this.state.riskLimits,
           requestedLots: 0.5,
           accountEquityUsd: decisionEquityUsd,
@@ -850,6 +885,8 @@ export class QuantLabOrchestrator {
     this.state.equityUsd = Number(
       (this.state.balanceUsd + openUnrealizedPnl).toFixed(2)
     );
+
+    this.updateDailyDrawdown();
 
     if (this.state.equityUsd > this.state.highWaterMarkEquityUsd) {
       this.state.highWaterMarkEquityUsd = this.state.equityUsd;
