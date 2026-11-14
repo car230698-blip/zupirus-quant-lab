@@ -550,7 +550,7 @@ export class QuantLabOrchestrator {
     // candidates on this opportunity are tracked in parallel for comparison!
     // ========================================================================
     const shadowOutcomeIds: string[] = [];
-    if (regimeClassification.allowTrading) {
+    if (regimeClassification.allowTrading && candle.spreadPts <= this.state.riskLimits.maxSpreadPtsAllowed) {
       const baselineTarget = baselinePolicy.mapping[regimeClassification.regime];
       for (const cand of candidates) {
         if (cand.eligibleToEnter) {

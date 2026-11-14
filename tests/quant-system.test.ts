@@ -77,6 +77,11 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
       'Phải có vị thế thực hiện đóng một phần (50%) tại TP1 trước khi đóng hết'
     );
 
+    const highSpread = finalState.cycleTraces.find((trace) => trace.candle.spreadPts === 48);
+    assert.ok(highSpread);
+    assert.ok(highSpread.coordinatorDecision?.candidatesConsidered.some((candidate) => candidate.eligibleToEnter));
+    assert.deepEqual(highSpread.shadowOutcomeIds, []);
+
     assert.equal(finalState.learningRuns.length, 5);
     assert.equal(finalState.activePolicyId, BASELINE_POLICY_ID,
       'Bộ phát lại ngắn giữ chính sách cơ sở khi chưa đủ bằng chứng ngoài mẫu');
