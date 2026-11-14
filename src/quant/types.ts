@@ -330,6 +330,7 @@ export interface ShadowCandidateOutcome {
   expectedEntryPrice: number;
   fillEntryPrice: number;
   entrySlippagePts?: number;
+  riskSizedVolumeLots?: number;
   avgExitPrice?: number;
   grossPnlUsd: number;
   totalCostUsd: number;

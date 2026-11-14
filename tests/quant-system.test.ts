@@ -82,6 +82,13 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
     assert.ok(highSpread.coordinatorDecision?.candidatesConsidered.some((candidate) => candidate.eligibleToEnter));
     assert.deepEqual(highSpread.shadowOutcomeIds, []);
 
+    const selectedShadows = finalState.shadowOutcomes.filter((sample) => sample.wasSelectedByActivePolicy);
+    assert.ok(selectedShadows.length > 0);
+    for (const shadow of selectedShadows) {
+      const trace = finalState.cycleTraces.find((cycle) => cycle.cycleId === shadow.cycleId);
+      assert.equal(shadow.riskSizedVolumeLots, trace?.riskDecision?.approvedLots);
+    }
+
     assert.equal(finalState.learningRuns.length, 5);
     assert.equal(finalState.activePolicyId, BASELINE_POLICY_ID,
       'Bộ phát lại ngắn giữ chính sách cơ sở khi chưa đủ bằng chứng ngoài mẫu');

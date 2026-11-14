@@ -113,6 +113,7 @@ export class QuantLabOrchestrator {
         wasSelectedByActivePolicy: outcome.wasSelectedByActivePolicy,
         wasSelectedByBaselinePolicy: outcome.wasSelectedByBaselinePolicy,
         livePositionId: outcome.wasSelectedByActivePolicy ? trace.openedPositionId : undefined,
+        volumeLots: outcome.riskSizedVolumeLots ?? 0.5,
       });
       for (const later of traces) {
         if (later.candleIndex <= trace.candleIndex || !later.validation.valid) continue;
@@ -456,6 +457,7 @@ export class QuantLabOrchestrator {
       this.state.policies.find((p) => p.policyId === this.state.baselinePolicyId) ||
       this.state.policies[0];
 
+    const decisionEquityUsd = this.state.equityUsd;
     const coordinatorDecision = selectStrategyForCycle(
       cycleId,
       candle,
@@ -491,7 +493,7 @@ export class QuantLabOrchestrator {
           dailyDrawdownPct: this.state.currentDrawdownPct,
           riskLimits: this.state.riskLimits,
           requestedLots: 0.5,
-          accountEquityUsd: this.state.equityUsd,
+          accountEquityUsd: decisionEquityUsd,
           systemTime,
         });
 
@@ -553,8 +555,19 @@ export class QuantLabOrchestrator {
     const shadowOutcomeIds: string[] = [];
     if (regimeClassification.allowTrading && candle.spreadPts <= this.state.riskLimits.maxSpreadPtsAllowed) {
       const baselineTarget = baselinePolicy.mapping[regimeClassification.regime];
+      const researchLimits = {
+        ...this.state.riskLimits, killSwitchActive: false, haltNewPositionsByLearner: false,
+      };
       for (const cand of candidates) {
         if (cand.eligibleToEnter) {
+          // Counterfactual entries share decision-time equity and order limits.
+          // Portfolio occupancy and the active account halt apply to execution only.
+          const order = evaluateRiskGate({
+            cycleId, candle, signalId: `SHDW-${cycleId}-${cand.strategyId}-${cand.version}`,
+            candidate: cand, openPositions: [], currentDrawdownPct: 0, dailyDrawdownPct: 0,
+            riskLimits: researchLimits, requestedLots: 0.5, accountEquityUsd: decisionEquityUsd, systemTime,
+          });
+          if (!order.approved) continue;
           const wasActive =
             coordinatorDecision.action === 'SELECT_STRATEGY' &&
             coordinatorDecision.selectedCandidate?.strategyId === cand.strategyId &&
@@ -575,6 +588,7 @@ export class QuantLabOrchestrator {
             wasSelectedByActivePolicy: wasActive,
             wasSelectedByBaselinePolicy: wasBaseline,
             livePositionId: wasActive ? openedPositionId : undefined,
+            volumeLots: order.approvedLots,
           });
 
           shadowOutcomeIds.push(outcome.shadowId);
@@ -688,7 +702,7 @@ export class QuantLabOrchestrator {
       decisionMarketTime,
       systemTime,
       triggerReasonVi,
-      allShadowOutcomes: this.state.shadowOutcomes,
+      allShadowOutcomes: this.state.shadowOutcomes.filter((sample) => sample.riskSizedVolumeLots !== undefined),
       reconciledPositions: this.state.closedPositions,
       activePolicy,
       baselinePolicy,

@@ -17,7 +17,7 @@ import {
   WalkForwardExclusionLog,
 } from './types.ts';
 
-export const LEARNER_VERSION = 'LEARNER_WF_V2.0';
+export const LEARNER_VERSION = 'LEARNER_WF_V2.1';
 export const RANKING_FORMULA_TEXT =
   'Score = Mean(NetPnL_1xCost) - 0.35 * (MaxDD / N) + 0.25 * Mean(NetPnL_2xCost)';
 export const DEFAULT_MIN_SAMPLES_PER_REGIME = 2;
@@ -99,6 +99,7 @@ export function createShadowOutcomeFromCandidate(params: {
   wasSelectedByActivePolicy: boolean;
   wasSelectedByBaselinePolicy: boolean;
   livePositionId?: string;
+  volumeLots: number;
 }): { outcome: ShadowCandidateOutcome; shadowPosition: SimulatedPosition } {
   const {
     cycleId,
@@ -109,6 +110,7 @@ export function createShadowOutcomeFromCandidate(params: {
     wasSelectedByActivePolicy,
     wasSelectedByBaselinePolicy,
     livePositionId,
+    volumeLots,
   } = params;
 
   const shadowId = `SHDW-${cycleId}-${candidate.strategyId}-${candidate.version}`;
@@ -121,7 +123,7 @@ export function createShadowOutcomeFromCandidate(params: {
     regime,
     openedUnderPolicyId: 'SHADOW_EVAL',
     candidate,
-    volumeLots: 0.5,
+    volumeLots,
   });
 
   const outcome: ShadowCandidateOutcome = {
@@ -141,6 +143,7 @@ export function createShadowOutcomeFromCandidate(params: {
     expectedEntryPrice: shadowPos.expectedEntryPrice,
     fillEntryPrice: shadowPos.fillEntryPrice,
     entrySlippagePts: shadowPos.deals[0]?.slippagePts,
+    riskSizedVolumeLots: volumeLots,
     grossPnlUsd: shadowPos.grossPnlUsd,
     totalCostUsd: shadowPos.totalCostUsd,
     netPnlUsd: shadowPos.netPnlUsd,
