@@ -137,7 +137,7 @@ export const PositionDetailInspectorCard: React.FC<{
 
     {/* Partial & Final Deals Ledger */}
     <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse text-xs">
+      <table className="w-full min-w-[48rem] text-left border-collapse text-sm">
         <thead>
           <tr className="border-b border-slate-800 text-slate-400">
             <th className="py-2 pr-3 font-medium">Mã Deal</th>
@@ -206,7 +206,7 @@ export const OpenPositionsTable: React.FC<{
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse text-xs">
+      <table className="w-full min-w-[48rem] text-left border-collapse text-sm">
         <thead>
           <tr className="border-b border-slate-800 text-slate-400">
             <th className="py-2.5 pr-3 font-medium">Mã Vị thế</th>
@@ -326,7 +326,7 @@ export const ReconciledHistoryTable: React.FC<{
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse text-xs">
+        <table className="w-full min-w-[48rem] text-left border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-800 text-slate-400">
               <th className="py-2.5 pr-3 font-medium">Mã Vị thế</th>

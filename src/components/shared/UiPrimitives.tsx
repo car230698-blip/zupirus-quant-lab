@@ -25,7 +25,7 @@ export const StatusLabel: React.FC<{
   mono?: boolean;
 }> = ({ label, tone = 'slate', mono = false }) => (
   <span
-    className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border whitespace-nowrap shrink-0 ${
+    className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border max-w-full ${
       TONE_INDICATOR_STYLES[tone]
     } ${mono ? 'font-mono tabular-nums' : ''}`}
   >
@@ -41,8 +41,8 @@ export const MetricCard: React.FC<{
   rightMeta?: string;
 }> = ({ title, value, subtitle, tone = 'slate', rightMeta }) => (
   <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 flex flex-col justify-between">
-    <div className="flex items-center justify-between gap-2 mb-1.5">
-      <span className="text-xs font-medium text-slate-400">{title}</span>
+    <div className="flex items-baseline justify-between flex-wrap gap-x-2 gap-y-1 mb-1.5">
+      <span className="text-sm font-medium text-slate-400">{title}</span>
       {rightMeta && (
         <span className="text-[11px] font-mono tabular-nums text-slate-400 whitespace-nowrap shrink-0">
           {rightMeta}
@@ -50,7 +50,7 @@ export const MetricCard: React.FC<{
       )}
     </div>
     <div
-      className={`text-xl sm:text-2xl font-mono font-semibold tabular-nums tracking-tight ${TONE_TEXT_STYLES[tone]}`}
+      className={`text-xl sm:text-2xl break-words font-semibold tabular-nums tracking-tight ${TONE_TEXT_STYLES[tone]}`}
     >
       {value}
     </div>
@@ -70,9 +70,9 @@ export const SectionHeader: React.FC<{
       <h2 className="text-base sm:text-lg font-display font-semibold text-slate-100">
         {title}
       </h2>
-      {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+      {subtitle && <p className="text-sm text-slate-400 mt-1">{subtitle}</p>}
     </div>
-    {rightSlot && <div className="flex items-center gap-2 shrink-0">{rightSlot}</div>}
+    {rightSlot && <div className="flex items-center gap-2 min-w-0">{rightSlot}</div>}
   </div>
 );
 
@@ -84,10 +84,10 @@ export const DashboardSkeleton: React.FC<{ messageVi?: string }> = ({
     role="status"
     aria-live="polite"
   >
-    <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+    <div className="flex flex-wrap gap-3 items-center justify-between border-b border-slate-800 pb-4">
       <div className="space-y-2">
-        <div className="h-5 w-64 bg-slate-800/80 rounded animate-pulse" />
-        <div className="h-3.5 w-96 bg-slate-900 rounded animate-pulse" />
+        <div className="h-5 w-48 max-w-full bg-slate-800/80 rounded animate-pulse" />
+        <div className="h-3.5 w-64 max-w-full bg-slate-900 rounded animate-pulse" />
       </div>
       <div className="text-xs font-mono text-cyan-300">{messageVi}</div>
     </div>

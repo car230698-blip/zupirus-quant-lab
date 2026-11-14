@@ -2,7 +2,6 @@ import type { HostSurfaceMode } from '../server/authMiddleware.ts';
 
 export type WorkspaceTabId =
   | 'USER_PORTFOLIO'
-  | 'AGENT_ACTIVITY'
   | 'ADMIN_OPERATIONS';
 
 export interface ClientHostRoutingContext {

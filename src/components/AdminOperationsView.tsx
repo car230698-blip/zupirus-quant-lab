@@ -4,7 +4,6 @@ import type { DualCostStressComparison } from '../quant/costStress.ts';
 import type { LearningBranchFixtureSuiteReport } from '../quant/fixtures.ts';
 import type {
   QuantSystemState,
-  ReplayDatasetMetadata,
   UserRole,
 } from '../quant/types.ts';
 import { formatUtcShort } from '../utils/formatters.ts';
@@ -22,12 +21,6 @@ export type AdminSubTabId =
 
 export interface AdminOperationsViewProps {
   state: QuantSystemState;
-  datasetMetadata: ReplayDatasetMetadata;
-  storagePaths: {
-    stateFilePath: string;
-    journalFilePath: string;
-    tickBatchLogPath?: string;
-  };
   currentRole: UserRole;
   agentActivity: AgentActivitySnapshot;
   costComparison: DualCostStressComparison | null;
@@ -70,31 +63,13 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
       <section className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Vận hành</h1>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
               <StatusLabel
-                label={`Quyền Backend: ${currentRole}`}
-                tone={isAdmin ? 'emerald' : 'cyan'}
-                mono
+                label={isLiveMt5 ? 'MT5 demo' : state.isReplayComplete ? 'Replay hoàn tất' : state.isLoopRunning ? 'Đang phát lại' : 'Replay tạm dừng'}
+                tone="slate"
               />
-              <span aria-hidden="true">·</span>
-              <span className="font-mono text-slate-200">
-                Tiến độ: {state.replayCursorIndex}/{state.totalReplayCandles} nến M15
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>
-                Vòng lặp:{' '}
-                <strong className="text-cyan-300">
-                  {state.isLoopRunning
-                    ? 'Đang tự chạy'
-                    : state.isReplayComplete
-                    ? 'Đã hoàn tất'
-                    : 'Đang tạm dừng'}
-                </strong>
-              </span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono">
-                Khôi phục sau khởi động lại: {state.restartCount} lần
-              </span>
+              {!isLiveMt5 && <span>{state.replayCursorIndex}/{state.totalReplayCandles} nến M15</span>}
             </div>
             <p className="text-xs text-slate-400">
               Giờ thị trường gần nhất: {formatUtcShort(state.lastProcessedMarketTime)} ·
@@ -109,25 +84,25 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                 type="button"
                 disabled={actionBusy || state.isReplayComplete}
                 onClick={onToggleAutoLoop}
-                className="px-3.5 py-2 text-xs font-medium rounded-md bg-cyan-500 hover:bg-cyan-400 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-sm font-medium rounded-md bg-cyan-500 hover:bg-cyan-400 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 whitespace-nowrap shrink-0"
               >
-                {state.isLoopRunning ? 'Tạm dừng Vòng lặp' : 'Tiếp tục Vòng lặp'}
+                {state.isLoopRunning ? 'Tạm dừng' : 'Tiếp tục'}
               </button>
               <button
                 type="button"
                 disabled={actionBusy || state.isReplayComplete}
                 onClick={onStepNextCandle}
-                className="px-3.5 py-2 text-xs font-medium rounded-md bg-slate-800 hover:bg-slate-700 active:scale-[0.98] disabled:opacity-50 text-slate-100 border border-slate-700 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-sm font-medium rounded-md bg-slate-800 hover:bg-slate-700 active:scale-[0.98] disabled:opacity-50 text-slate-100 border border-slate-700 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap shrink-0"
               >
-                Chạy 1 Nến M15
+                Chạy 1 nến
               </button>
               <button
                 type="button"
                 disabled={actionBusy}
                 onClick={onResetSimulation}
-                className="px-3.5 py-2 text-xs font-medium rounded-md bg-rose-950/70 hover:bg-rose-900/70 active:scale-[0.98] disabled:opacity-50 text-rose-200 border border-rose-500/40 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-sm font-medium rounded-md bg-rose-950/70 hover:bg-rose-900/70 active:scale-[0.98] disabled:opacity-50 text-rose-200 border border-rose-500/40 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 whitespace-nowrap shrink-0"
               >
-                Đặt lại Mô phỏng
+                Đặt lại replay
               </button>
             </div>
           ) : (
@@ -148,26 +123,26 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
         {/* Sub-navigation Tabs */}
         <div
           className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800"
-          role="tablist"
+          role="navigation"
           aria-label="Các phân khu quản trị định lượng"
         >
           {(
             [
               {
                 id: 'AGENT_ACTIVITY',
-                label: 'Hoạt động Agent & Nhật ký Dòng thời gian',
+                label: 'Hoạt động',
               },
               {
                 id: 'WALK_FORWARD',
-                label: 'Kiểm định Walk-Forward & Chính sách',
+                label: 'Kiểm định',
               },
               {
                 id: 'CYCLE_INSPECTOR',
-                label: 'Kiểm tra Chu kỳ Nến & Chốt Rủi ro',
+                label: 'Chu kỳ',
               },
               {
                 id: 'TRACEABILITY_STRESS',
-                label: 'Nguồn Dữ liệu, Chi phí 2× & Truy vết',
+                label: 'Truy vết',
               },
             ] as const
           ).map((tab) => {
@@ -176,10 +151,9 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
               <button
                 key={tab.id}
                 type="button"
-                role="tab"
-                aria-selected={active}
+                aria-current={active ? 'page' : undefined}
                 onClick={() => setSubTab(tab.id)}
-                className={`px-3.5 py-2 text-xs font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap shrink-0 ${
+                className={`px-3.5 py-2 text-sm font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap shrink-0 ${
                   active
                     ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'

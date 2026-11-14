@@ -37,7 +37,6 @@ const TeamActivityCardView: React.FC<{ card: EnrichedTeamActivityCard }> = ({
       <div className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 pb-3">
           <div>
-            <div className="text-xs font-mono text-slate-400">{card.teamCode}</div>
             <h3 className="text-base font-display font-semibold text-slate-100 mt-0.5">
               {card.teamNameVi}
             </h3>
@@ -46,14 +45,14 @@ const TeamActivityCardView: React.FC<{ card: EnrichedTeamActivityCard }> = ({
         </div>
 
         {/* Key Operational Metadata */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <div className="bg-slate-950/70 border border-slate-800/80 rounded p-3">
+        <div className="grid grid-cols-1 gap-2 text-sm">
+          <div className="min-w-0">
             <div className="text-slate-400">Tác vụ hiện tại</div>
             <div className="text-slate-100 font-medium mt-1 leading-relaxed">
               {card.currentTaskVi || 'Chưa có sự kiện'}
             </div>
           </div>
-          <div className="bg-slate-950/70 border border-slate-800/80 rounded p-3">
+          <div className="min-w-0">
             <div className="text-slate-400">Kết quả gần nhất</div>
             <div className="text-slate-200 mt-1 leading-relaxed">
               {card.latestOutcomeVi || 'Chưa có sự kiện'}
@@ -63,13 +62,13 @@ const TeamActivityCardView: React.FC<{ card: EnrichedTeamActivityCard }> = ({
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono tabular-nums text-slate-400">
           <span>
-            Lần chạy gần nhất (Market):{' '}
+            Lần chạy gần nhất:{' '}
             <strong className="text-slate-200">
               {formatUtcShort(card.lastRunMarketTime)}
             </strong>
           </span>
           <span>
-            Số chu kỳ / đợt đã xử lý:{' '}
+            Đã xử lý:{' '}
             <strong className="text-cyan-300">{card.processedCount}</strong>
           </span>
         </div>
@@ -83,10 +82,8 @@ const TeamActivityCardView: React.FC<{ card: EnrichedTeamActivityCard }> = ({
       </div>
 
       {/* Pipeline Steps */}
-      <div className="space-y-2 pt-2 border-t border-slate-800/80">
-        <div className="text-xs font-medium text-slate-400">
-          Chuỗi bước thực thi trong hệ thống:
-        </div>
+      <details className="space-y-2 pt-3 border-t border-slate-800/80">
+        <summary className="cursor-pointer text-sm font-medium text-slate-300">Các bước xử lý</summary>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {card.pipelineSteps.map((step) => {
             const stepTone =
@@ -108,7 +105,7 @@ const TeamActivityCardView: React.FC<{ card: EnrichedTeamActivityCard }> = ({
                   <span className="font-medium text-slate-200">
                     {step.stepIndex}. {step.labelVi}
                   </span>
-                  <StatusLabel label={step.status} tone={stepTone} mono />
+                  <StatusLabel label={step.status === 'COMPLETED' ? 'Hoàn tất' : step.status === 'ACTIVE' ? 'Đang xử lý' : step.status === 'VETOED_OR_HALTED' ? 'Đã chặn' : step.status === 'WAITING' ? 'Chờ' : 'Chưa chạy'} tone={stepTone} mono />
                 </div>
                 <div className="text-[11px] text-slate-400 leading-snug">
                   {step.detailVi}
@@ -117,7 +114,7 @@ const TeamActivityCardView: React.FC<{ card: EnrichedTeamActivityCard }> = ({
             );
           })}
         </div>
-      </div>
+      </details>
     </div>
   );
 };
@@ -134,6 +131,7 @@ export const AgentActivitySection: React.FC<AgentActivitySectionProps> = ({
     'ALL'
   );
   const [cycleFilter, setCycleFilter] = useState<string>('ALL');
+  const detailRef = React.useRef<HTMLElement>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   const filteredTimeline = useMemo(() => {
@@ -150,40 +148,16 @@ export const AgentActivitySection: React.FC<AgentActivitySectionProps> = ({
     return inspectTimelineEvent(state, selectedEventId);
   }, [state, selectedEventId]);
 
+  React.useEffect(() => {
+    if (selectedEventId) detailRef.current?.focus();
+  }, [selectedEventId]);
+
   return (
-    <div className="space-y-6">
-      {/* Data Provenance & Simulation Mode Header */}
-      <section className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <StatusLabel
-              label={`Nguồn: ${activity.dataProvenance.code}`}
-              tone="cyan"
-              mono
-            />
-            <span className="text-slate-500" aria-hidden="true">
-              ·
-            </span>
-            <span className="font-medium text-slate-200">
-              {activity.dataProvenance.labelVi}
-            </span>
-            <span className="text-slate-500" aria-hidden="true">
-              ·
-            </span>
-            <span className="font-mono text-emerald-300">
-              Chế độ: {activity.executionMode}
-            </span>
-          </div>
-          <p className="text-xs text-slate-400">
-            {activity.dataProvenance.descriptionVi} Chỉ hiển thị trạng thái &ldquo;Đang
-            xử lý&rdquo; khi có tác vụ thực thi thật đang diễn ra.
-          </p>
-        </div>
-        <div className="text-xs font-mono tabular-nums text-slate-400 shrink-0">
-          Tổng sự kiện đã ghi nhận:{' '}
-          <strong className="text-slate-100">{activity.timeline.length}</strong>
-        </div>
-      </section>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-xl font-semibold">Hai đội vận hành</h2>
+        <span className="text-sm text-slate-400">{activity.dataProvenance.labelVi}</span>
+      </div>
 
       {/* Two Team Status Cards */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -191,11 +165,164 @@ export const AgentActivitySection: React.FC<AgentActivitySectionProps> = ({
         <TeamActivityCardView card={activity.team2Research} />
       </section>
 
+      {/* Filterable Timeline Journal */}
+      <section className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-4">
+        <SectionHeader
+          title="Nhật ký hoạt động"
+          rightSlot={
+            <span className="text-xs font-mono tabular-nums text-slate-400">
+              Hiển thị {filteredTimeline.length}/{activity.timeline.length} sự kiện
+            </span>
+          }
+        />
+
+        {/* Filter Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-950/70 border border-slate-800 rounded-lg p-3 text-xs">
+          <div>
+            <label
+              htmlFor="agent-team-filter"
+              className="block text-slate-400 mb-1 font-medium"
+            >
+              Đội
+            </label>
+            <select
+              id="agent-team-filter"
+              value={teamFilter}
+              onChange={(e) =>
+                setTeamFilter(
+                  e.target.value as
+                    | 'ALL'
+                    | 'TEAM_1_EXECUTION'
+                    | 'TEAM_2_RESEARCH'
+                    | 'ORCHESTRATOR'
+                )
+              }
+              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+            >
+              <option value="ALL">Tất cả các đội</option>
+              <option value="TEAM_1_EXECUTION">
+                Phân tích &amp; thực thi
+              </option>
+              <option value="TEAM_2_RESEARCH">
+                Nghiên cứu &amp; kiểm định
+              </option>
+              <option value="ORCHESTRATOR">Bộ điều phối Hệ thống</option>
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="agent-state-filter"
+              className="block text-slate-400 mb-1 font-medium"
+            >
+              Trạng thái
+            </label>
+            <select
+              id="agent-state-filter"
+              value={stateFilter}
+              onChange={(e) =>
+                setStateFilter(e.target.value as 'ALL' | AgentOperationalStateCode)
+              }
+              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+            >
+              <option value="ALL">Tất cả trạng thái</option>
+              {(
+                Object.keys(
+                  AGENT_OPERATIONAL_STATE_LABELS_VI
+                ) as AgentOperationalStateCode[]
+              ).map((code) => (
+                <option key={code} value={code}>
+                  {AGENT_OPERATIONAL_STATE_LABELS_VI[code]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="agent-cycle-filter"
+              className="block text-slate-400 mb-1 font-medium"
+            >
+              Chu kỳ
+            </label>
+            <select
+              id="agent-cycle-filter"
+              value={cycleFilter}
+              onChange={(e) => setCycleFilter(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+            >
+              <option value="ALL">Tất cả chu kỳ ({activity.availableCycleIds.length})</option>
+              {activity.availableCycleIds.map((cid) => (
+                <option key={cid} value={cid}>
+                  {cid}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Timeline Rows */}
+        {filteredTimeline.length === 0 ? (
+          <EmptyDataNotice
+            title="Chưa có sự kiện phù hợp bộ lọc"
+            reasonVi={
+              activity.timeline.length === 0
+                ? 'Chưa có sự kiện nào được ghi nhận. Hệ thống đang chờ nến M15 đầu tiên đóng cửa.'
+                : 'Không có dòng sự kiện nào khớp với bộ lọc Đội / Trạng thái / Chu kỳ đang chọn.'
+            }
+            lastUpdatedIso={state.lastUpdatedSystemTime}
+          />
+        ) : (
+          <div className="max-h-[460px] overflow-y-auto border border-slate-800 rounded-lg divide-y divide-slate-800/70">
+            {filteredTimeline.map((ev: EnrichedTimelineEvent) => {
+              const isSelected = selectedEventId === ev.entryId;
+              const isNew = recentEventIds.has(ev.entryId);
+              const tone = OPERATIONAL_STATE_TONES[ev.operationalState] ?? 'slate';
+              return (
+                <button
+                  key={ev.entryId}
+                  type="button"
+                  onClick={() =>
+                    setSelectedEventId(isSelected ? null : ev.entryId)
+                  }
+                  className={`w-full text-left p-3 sm:px-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-400 ${
+                    isSelected
+                      ? 'bg-cyan-950/35'
+                      : 'hover:bg-slate-800/40 bg-slate-950/40'
+                  } ${isNew ? 'animate-new-event' : ''}`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium text-slate-200">{ev.teamLabelVi}</span>
+                      <span className="text-slate-400">{ev.taskTitleVi}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <StatusLabel
+                        label={ev.operationalStateLabelVi}
+                        tone={tone}
+                      />
+                      <span className="font-mono tabular-nums text-slate-400">
+                        {formatUtcShort(ev.timestampMarket)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-1.5 text-sm text-slate-300 leading-relaxed">
+                    {ev.messageVi}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       {/* Timeline Event Drill-Down Drawer / Card when an event row is clicked */}
       {inspectedDetail && (
         <section
           className="bg-slate-900 border border-cyan-500/40 rounded-lg p-4 sm:p-5 space-y-4"
-          aria-label="Chi tiết sự kiện Agent được chọn"
+          ref={detailRef}
+          tabIndex={-1}
+          aria-label="Chi tiết sự kiện đã chọn"
         >
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3">
             <div>
@@ -396,172 +523,7 @@ export const AgentActivitySection: React.FC<AgentActivitySectionProps> = ({
         </section>
       )}
 
-      {/* Filterable Timeline Journal */}
-      <section className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-4">
-        <SectionHeader
-          title="Nhật ký Dòng thời gian Hoạt động Agent"
-          subtitle="Bấm vào bất kỳ dòng sự kiện nào để mở bảng kiểm tra dữ liệu đầu vào, phiên bản chiến lược, quyết định rủi ro và đối soát"
-          rightSlot={
-            <span className="text-xs font-mono tabular-nums text-slate-400">
-              Hiển thị {filteredTimeline.length}/{activity.timeline.length} sự kiện
-            </span>
-          }
-        />
 
-        {/* Filter Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-950/70 border border-slate-800 rounded-lg p-3 text-xs">
-          <div>
-            <label
-              htmlFor="agent-team-filter"
-              className="block text-slate-400 mb-1 font-medium"
-            >
-              Lọc theo Đội Agent
-            </label>
-            <select
-              id="agent-team-filter"
-              value={teamFilter}
-              onChange={(e) =>
-                setTeamFilter(
-                  e.target.value as
-                    | 'ALL'
-                    | 'TEAM_1_EXECUTION'
-                    | 'TEAM_2_RESEARCH'
-                    | 'ORCHESTRATOR'
-                )
-              }
-              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-            >
-              <option value="ALL">Tất cả Đội &amp; Điều phối</option>
-              <option value="TEAM_1_EXECUTION">
-                Đội 1 — Phân tích &amp; Thực thi Mô phỏng
-              </option>
-              <option value="TEAM_2_RESEARCH">
-                Đội 2 — Nghiên cứu &amp; Kiểm định Walk-Forward
-              </option>
-              <option value="ORCHESTRATOR">Bộ điều phối Hệ thống</option>
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="agent-state-filter"
-              className="block text-slate-400 mb-1 font-medium"
-            >
-              Lọc theo Trạng thái Vận hành
-            </label>
-            <select
-              id="agent-state-filter"
-              value={stateFilter}
-              onChange={(e) =>
-                setStateFilter(e.target.value as 'ALL' | AgentOperationalStateCode)
-              }
-              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-            >
-              <option value="ALL">Tất cả trạng thái</option>
-              {(
-                Object.keys(
-                  AGENT_OPERATIONAL_STATE_LABELS_VI
-                ) as AgentOperationalStateCode[]
-              ).map((code) => (
-                <option key={code} value={code}>
-                  {AGENT_OPERATIONAL_STATE_LABELS_VI[code]} ({code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="agent-cycle-filter"
-              className="block text-slate-400 mb-1 font-medium"
-            >
-              Lọc theo Chu kỳ (cycleId)
-            </label>
-            <select
-              id="agent-cycle-filter"
-              value={cycleFilter}
-              onChange={(e) => setCycleFilter(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-            >
-              <option value="ALL">Tất cả chu kỳ ({activity.availableCycleIds.length})</option>
-              {activity.availableCycleIds.map((cid) => (
-                <option key={cid} value={cid}>
-                  {cid}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Timeline Rows */}
-        {filteredTimeline.length === 0 ? (
-          <EmptyDataNotice
-            title="Chưa có sự kiện phù hợp bộ lọc"
-            reasonVi={
-              activity.timeline.length === 0
-                ? 'Chưa có sự kiện nào được ghi nhận. Hệ thống đang chờ nến M15 đầu tiên đóng cửa.'
-                : 'Không có dòng sự kiện nào khớp với bộ lọc Đội / Trạng thái / Chu kỳ đang chọn.'
-            }
-            lastUpdatedIso={state.lastUpdatedSystemTime}
-          />
-        ) : (
-          <div className="max-h-[460px] overflow-y-auto border border-slate-800 rounded-lg divide-y divide-slate-800/70">
-            {filteredTimeline.map((ev: EnrichedTimelineEvent) => {
-              const isSelected = selectedEventId === ev.entryId;
-              const isNew = recentEventIds.has(ev.entryId);
-              const tone = OPERATIONAL_STATE_TONES[ev.operationalState] ?? 'slate';
-              return (
-                <button
-                  key={ev.entryId}
-                  type="button"
-                  onClick={() =>
-                    setSelectedEventId(isSelected ? null : ev.entryId)
-                  }
-                  className={`w-full text-left p-3 sm:px-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-400 ${
-                    isSelected
-                      ? 'bg-cyan-950/35'
-                      : 'hover:bg-slate-800/40 bg-slate-950/40'
-                  } ${isNew ? 'animate-new-event' : ''}`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono font-semibold text-cyan-300">
-                        {ev.entryId}
-                      </span>
-                      <span className="text-slate-600" aria-hidden="true">
-                        ·
-                      </span>
-                      <span className="font-mono text-slate-300">{ev.cycleId}</span>
-                      <span className="text-slate-600" aria-hidden="true">
-                        ·
-                      </span>
-                      <span className="font-medium text-slate-200">
-                        {ev.teamLabelVi}
-                      </span>
-                      <span className="text-slate-600" aria-hidden="true">
-                        ·
-                      </span>
-                      <span className="text-slate-400">{ev.taskTitleVi}</span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <StatusLabel
-                        label={ev.operationalStateLabelVi}
-                        tone={tone}
-                      />
-                      <span className="font-mono tabular-nums text-slate-400">
-                        {formatUtcShort(ev.timestampMarket)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-1.5 text-xs text-slate-300 leading-relaxed">
-                    {ev.messageVi}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
     </div>
   );
 };
