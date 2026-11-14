@@ -79,3 +79,42 @@ export const OPERATIONAL_STATE_TONES: Record<
   RISK_VETOED: 'rose',
   HALTED_BY_LEARNER: 'rose',
 };
+
+export function formatExitReasonVi(reason?: PositionExitReason | string | null): string {
+  if (!reason) return 'Đang mở';
+  return EXIT_REASON_LABELS_VI[reason as PositionExitReason] ?? reason;
+}
+
+export const STRATEGY_LABELS_VI: Record<string, string> = {
+  STRAT_TREND_FOLLOW: 'Theo xu hướng động lượng',
+  STRAT_MEAN_REVERT: 'Hồi quy trung bình biên độ',
+  STRAT_MEAN_REVERSION: 'Hồi quy trung bình biên độ',
+  STRAT_VOL_BREAKOUT: 'Phá vỡ nén biến động',
+  STRAT_BREAKOUT_SQUEEZE: 'Phá vỡ nén biến động',
+};
+
+export function formatStrategyNameVi(strategyId?: string | null): string {
+  if (!strategyId) return 'Đứng ngoài';
+  return STRATEGY_LABELS_VI[strategyId] ?? strategyId;
+}
+
+export function formatCleanJournalMessageVi(rawMessage: string): string {
+  if (!rawMessage) return '';
+  return rawMessage
+    .replace(/^\[[^\]]+\]\s*/g, '')
+    .replace(/\bPOLICY_BASELINE_FIXED_V1\b/g, 'Chính sách cơ sở (v1)')
+    .replace(/\bPOLICY_ADAPTIVE_V(\d+)\b/g, 'Chính sách thích ứng (v$1)')
+    .replace(/\bSTRAT_TREND_FOLLOW(?:@v[\d.]+(?:-[A-Z0-9-]+)?)?\b/g, 'Theo xu hướng')
+    .replace(/\bSTRAT_MEAN_REVERT(?:@v[\d.]+(?:-[A-Z0-9-]+)?)?\b/g, 'Hồi quy trung bình')
+    .replace(/\bSTRAT_MEAN_REVERSION(?:@v[\d.]+(?:-[A-Z0-9-]+)?)?\b/g, 'Hồi quy trung bình')
+    .replace(/\bSTRAT_VOL_BREAKOUT(?:@v[\d.]+(?:-[A-Z0-9-]+)?)?\b/g, 'Phá vỡ nén biến động')
+    .replace(/\bSTRAT_BREAKOUT_SQUEEZE(?:@v[\d.]+(?:-[A-Z0-9-]+)?)?\b/g, 'Phá vỡ nén biến động')
+    .replace(/\bKEEP_CURRENT_POLICY_INSUFFICIENT_SAMPLES\b/g, 'Giữ chính sách (thiếu mẫu)')
+    .replace(/\bKEEP_CURRENT_POLICY_NO_OUTPERFORMANCE\b/g, 'Giữ chính sách (chưa vượt trội)')
+    .replace(/\bPROMOTE_NEW_POLICY\b/g, 'Kích hoạt chính sách mới')
+    .replace(/\bROLLBACK_TO_PREVIOUS_POLICY\b/g, 'Quay lui chính sách an toàn')
+    .replace(/\bHALT_NEW_POSITIONS_DEGRADED\b/g, 'Tạm dừng mở vị thế mới')
+    .replace(/\bSIMULATION_ONLY\b/g, 'mô phỏng')
+    .trim();
+}
+

@@ -84,37 +84,28 @@ export const EquityCurveChart: React.FC<EquityCurveChartProps> = ({
       {/* Interactive Tooltip / Point Readout Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-md bg-slate-950/90 border border-slate-800 text-xs">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="font-mono font-semibold text-cyan-300">
-            {inspectedPoint.cycleId}
+          <span className="font-medium text-cyan-300">
+            {hoveredIdx !== null ? 'Mốc đang xem:' : 'Mốc mới nhất:'}
           </span>
-          <span className="text-slate-600" aria-hidden="true">
-            ·
-          </span>
-          <span className="font-mono tabular-nums text-slate-300">
+          <span className="font-mono tabular-nums text-slate-200">
             {formatUtcShort(inspectedPoint.marketTime)}
           </span>
           <span className="text-slate-600" aria-hidden="true">
             ·
           </span>
-          <span className="text-slate-400">
+          <span className="text-slate-300">
             {REGIME_LABELS_VI[inspectedPoint.regime]}
-          </span>
-          <span className="text-slate-600" aria-hidden="true">
-            ·
-          </span>
-          <span className="font-mono text-slate-400">
-            Chính sách: {inspectedPoint.activePolicyId}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono tabular-nums">
           <span>
-            <span className="text-slate-400">Balance: </span>
+            <span className="text-slate-400">Số dư: </span>
             <span className="text-cyan-300 font-semibold">
               {formatUsd(inspectedPoint.balanceUsd)}
             </span>
           </span>
           <span>
-            <span className="text-slate-400">Equity: </span>
+            <span className="text-slate-400">Vốn: </span>
             <span
               className={`font-semibold ${
                 inspectedPoint.equityUsd >= initialBalance

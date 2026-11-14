@@ -23,7 +23,7 @@ export const AGENT_OPERATIONAL_STATE_LABELS_VI: Record<AgentOperationalStateCode
   MARKET_CLOSED: 'Thị trường đóng',
   SOURCE_DISCONNECTED: 'Mất nguồn',
   INSUFFICIENT_SAMPLES: 'Thiếu mẫu',
-  RISK_VETOED: 'Bị chốt rủi ro phủ quyết',
+  RISK_VETOED: 'Bị chặn rủi ro',
   HALTED_BY_LEARNER: 'Dừng mở vị thế',
   COMPLETED: 'Đã hoàn tất',
 };
@@ -374,6 +374,9 @@ export function classifyJournalEntryState(
   cycleTrace?: CycleTraceRecord
 ): { stateCode: AgentOperationalStateCode; taskTitleVi: string } {
   const code = entry.eventCode;
+  if (code.includes('RESTART') || code.includes('RECOVER')) {
+    return { stateCode: 'COMPLETED', taskTitleVi: 'Khôi phục trạng thái hệ thống' };
+  }
   if (code.includes('MARKET_CLOSED')) {
     return { stateCode: 'MARKET_CLOSED', taskTitleVi: 'Kiểm tra lịch phiên thị trường' };
   }
@@ -384,9 +387,9 @@ export function classifyJournalEntryState(
     code.includes('VETO') ||
     code.includes('CUTOFF') ||
     code.includes('KILL_SWITCH') ||
-    cycleTrace?.riskDecision?.vetoed
+    (entry.team === 'TEAM_1_EXECUTION' && cycleTrace?.riskDecision?.vetoed)
   ) {
-    return { stateCode: 'RISK_VETOED', taskTitleVi: 'Chốt rủi ro phủ quyết / Đóng bắt buộc 15/15' };
+    return { stateCode: 'RISK_VETOED', taskTitleVi: 'Bị chặn rủi ro / Đóng bắt buộc trước giờ nghỉ' };
   }
   if (code.includes('INSUFFICIENT_SAMPLES')) {
     return { stateCode: 'INSUFFICIENT_SAMPLES', taskTitleVi: 'Kiểm định Walk-Forward (Thiếu mẫu)' };
@@ -414,6 +417,14 @@ export function classifyJournalEntryState(
   return { stateCode: 'COMPLETED', taskTitleVi: 'Xử lý chu kỳ định lượng' };
 }
 
+const DECISION_SUMMARY_VI: Record<string, string> = {
+  KEEP_CURRENT_POLICY_INSUFFICIENT_SAMPLES: 'Giữ nguyên chính sách hiện hành (chưa đủ mẫu)',
+  KEEP_CURRENT_POLICY_NO_OUTPERFORMANCE: 'Giữ nguyên chính sách hiện hành (ứng viên chưa vượt trội ngoài mẫu)',
+  PROMOTE_NEW_POLICY: 'Kích hoạt chính sách mới sau kiểm định',
+  ROLLBACK_TO_PREVIOUS_POLICY: 'Quay lui về chính sách an toàn trước đó',
+  HALT_NEW_POSITIONS_DEGRADED: 'Tạm dừng mở vị thế mới do hiệu suất suy giảm',
+};
+
 export function buildAgentActivitySnapshot(
   state: QuantSystemState,
   isProcessingCycleNow = false
@@ -437,7 +448,7 @@ export function buildAgentActivitySnapshot(
       ? state.dataSourceTelemetry?.connectionLabelVi ??
         'Mất kết nối hoặc đang chờ báo giá mới từ nguồn.'
       : team1OpState === 'RISK_VETOED'
-      ? latestCycle?.riskDecision?.reasonVi ?? 'Lệnh bị phủ quyết bởi Chốt rủi ro.'
+      ? latestCycle?.riskDecision?.reasonVi ?? 'Tín hiệu bị chặn bởi giới hạn rủi ro.'
       : team1OpState === 'WAITING_FOR_CANDLE'
       ? state.teamExecutionStatus.waitStateReasonVi ??
         'Đang chờ nến M15 tiếp theo đóng hoàn toàn.'
@@ -448,13 +459,17 @@ export function buildAgentActivitySnapshot(
       ? latestRun?.decisionReasonVi ?? 'Đã tạm dừng mở vị thế mới do hiệu quả suy giảm.'
       : team2OpState === 'INSUFFICIENT_SAMPLES'
       ? latestRun?.decisionReasonVi ??
-        'Chưa đủ mẫu đã đóng & đối soát theo từng trạng thái (yêu cầu tối thiểu ≥ 5 mẫu/regime).'
+        'Chưa đủ mẫu đã đóng & đối soát theo từng trạng thái (yêu cầu tối thiểu ≥ 5 mẫu/trạng thái).'
       : state.teamResearchStatus.waitStateReasonVi;
+
+  const selectedStrategyName =
+    latestCycle?.coordinatorDecision?.selectedCandidate?.strategyNameVi ??
+    'chiến lược phù hợp';
 
   const team1Card: EnrichedTeamActivityCard = {
     teamId: 'TEAM_ANALYSIS_EXECUTION',
     teamCode: 'TEAM_1_EXECUTION',
-    teamNameVi: 'Đội 1 — Phân tích & Thực thi Mô phỏng',
+    teamNameVi: 'Đội 1 — Phân tích & Thực thi',
     operationalState: team1OpState,
     operationalStateLabelVi: AGENT_OPERATIONAL_STATE_LABELS_VI[team1OpState],
     isProcessingNow: team1OpState === 'PROCESSING',
@@ -462,21 +477,21 @@ export function buildAgentActivitySnapshot(
       team1OpState === 'PROCESSING'
         ? state.teamExecutionStatus.currentTaskVi
         : state.cycleTraces.length === 0
-        ? 'Chưa có sự kiện — Đang chờ nến M15 đóng đầu tiên'
+        ? 'Chờ nến M15 hoàn tất đầu tiên từ nguồn dữ liệu'
         : state.teamExecutionStatus.currentTaskVi,
     lastCompletedTaskVi:
       state.cycleTraces.length === 0
-        ? 'Chưa có sự kiện'
+        ? 'Chưa có chu kỳ hoàn tất'
         : state.teamExecutionStatus.lastCompletedTaskVi,
     lastRunMarketTime: state.teamExecutionStatus.lastCompletedMarketTime,
     lastRunSystemTime: state.teamExecutionStatus.lastCompletedSystemTime,
     latestOutcomeVi: latestCycle
       ? latestCycle.openedPositionId
-        ? `Chu kỳ ${latestCycle.cycleId}: Mở vị thế ${latestCycle.openedPositionId} (${latestCycle.coordinatorDecision?.selectedStrategyId})`
+        ? `Đã mở vị thế mô phỏng mới theo ${selectedStrategyName}`
         : latestCycle.riskDecision?.vetoed
-        ? `Chu kỳ ${latestCycle.cycleId}: Chốt rủi ro từ chối (${latestCycle.riskDecision.vetoCode})`
-        : `Chu kỳ ${latestCycle.cycleId}: ${latestCycle.coordinatorDecision?.reasonVi ?? 'Hoàn tất kiểm tra nến & đối soát'}`
-      : 'Chưa có sự kiện thực thi',
+        ? `Tín hiệu bị chặn bởi bộ kiểm soát rủi ro (${latestCycle.riskDecision.reasonVi})`
+        : latestCycle.coordinatorDecision?.reasonVi ?? 'Hoàn tất kiểm tra nến và đối soát danh mục'
+      : 'Chưa phát sinh giao dịch trong phiên',
     waitOrHaltReasonVi: team1WaitReason,
     processedCount: state.teamExecutionStatus.processedCount,
     pipelineSteps: buildTeam1PipelineSteps(state, team1OpState),
@@ -485,7 +500,7 @@ export function buildAgentActivitySnapshot(
   const team2Card: EnrichedTeamActivityCard = {
     teamId: 'TEAM_RESEARCH_VALIDATION',
     teamCode: 'TEAM_2_RESEARCH',
-    teamNameVi: 'Đội 2 — Nghiên cứu & Kiểm định Walk-Forward',
+    teamNameVi: 'Đội 2 — Nghiên cứu & Kiểm định',
     operationalState: team2OpState,
     operationalStateLabelVi: AGENT_OPERATIONAL_STATE_LABELS_VI[team2OpState],
     isProcessingNow: team2OpState === 'PROCESSING',
@@ -493,19 +508,19 @@ export function buildAgentActivitySnapshot(
       team2OpState === 'PROCESSING'
         ? state.teamResearchStatus.currentTaskVi
         : state.learningRuns.length === 0 && state.shadowOutcomes.length === 0
-        ? 'Chưa có sự kiện — Chờ thu thập mẫu ứng viên song song'
+        ? 'Chờ thu thập kết quả giao dịch song song để kiểm định'
         : state.teamResearchStatus.currentTaskVi,
     lastCompletedTaskVi:
       state.learningRuns.length === 0 && state.shadowOutcomes.length === 0
-        ? 'Chưa có sự kiện'
+        ? 'Chưa có đợt kiểm định'
         : state.teamResearchStatus.lastCompletedTaskVi,
     lastRunMarketTime: state.teamResearchStatus.lastCompletedMarketTime,
     lastRunSystemTime: state.teamResearchStatus.lastCompletedSystemTime,
     latestOutcomeVi: latestRun
-      ? `Đợt ${latestRun.runId} (${latestRun.decision}): ${latestRun.decisionReasonVi}`
+      ? `${DECISION_SUMMARY_VI[latestRun.decision] ?? latestRun.decisionReasonVi}`
       : state.shadowOutcomes.length > 0
-      ? `Đã thu thập ${state.shadowOutcomes.filter((s) => s.status === 'CLOSED_RECONCILED').length} mẫu đã đóng; đang tích lũy cho đợt Walk-Forward đầu tiên.`
-      : 'Chưa có sự kiện kiểm định',
+      ? `Đã thu thập ${state.shadowOutcomes.filter((s) => s.status === 'CLOSED_RECONCILED').length} mẫu đã đóng; đang tích lũy cho đợt kiểm định tiếp theo.`
+      : 'Chưa có đợt kiểm định hoàn tất',
     waitOrHaltReasonVi: team2WaitReason,
     processedCount: state.teamResearchStatus.processedCount,
     pipelineSteps: buildTeam2PipelineSteps(state, team2OpState),
@@ -517,11 +532,12 @@ export function buildAgentActivitySnapshot(
     .map((entry) => {
       const cycleTrace = cycleById.get(entry.cycleId);
       const { stateCode, taskTitleVi } = classifyJournalEntryState(entry, cycleTrace);
-      const strategyVersion =
-        cycleTrace?.coordinatorDecision?.selectedStrategyVersion ??
-        (cycleTrace?.coordinatorDecision?.selectedStrategyId
-          ? `${cycleTrace.coordinatorDecision.selectedStrategyId}@${cycleTrace.coordinatorDecision.activePolicyId}`
-          : null);
+      const strategyVersion = cycleTrace?.coordinatorDecision?.selectedStrategyId
+        ? `${cycleTrace.coordinatorDecision.selectedStrategyId}@${
+            cycleTrace.coordinatorDecision.selectedStrategyVersion ??
+            cycleTrace.coordinatorDecision.activePolicyId
+          }`
+        : null;
 
       const linkedPositionId =
         cycleTrace?.openedPositionId ?? cycleTrace?.closedPositionIds[0] ?? null;

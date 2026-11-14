@@ -44,6 +44,15 @@ import {
 } from '../src/quant/marketSchedule.ts';
 import { runAllLearningBranchFixtures } from '../src/quant/fixtures.ts';
 import { buildDualCostStressComparison } from '../src/quant/costStress.ts';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { UserPortfolioView } from '../src/components/UserPortfolioView.tsx';
+import { ADMIN_TABS, AdminOperationsView } from '../src/components/AdminOperationsView.tsx';
+import { PositionDetailCard } from '../src/components/shared/PositionDetailCard.tsx';
+import {
+  AGENT_OPERATIONAL_STATE_LABELS_VI,
+  buildAgentActivitySnapshot,
+} from '../src/quant/agentActivityTracker.ts';
 
 function createTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `zupirus-${prefix}-`));
@@ -1537,5 +1546,99 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('26. Giao diện Người dùng & Quản trị: phân cấp số liệu tài chính, menu 1 cấp (Hoạt động, Kiểm định, Chu kỳ, Truy vết), thu gọn mã kỹ thuật vào phần mở rộng và khớp 100% với /api/state & /api/agent-activity', () => {
+    const tmpDir = createTempDir('ui-hierarchy');
+    try {
+      const orchestrator = new QuantLabOrchestrator({
+        dataDir: path.join(tmpDir, 'runtime'),
+        replayFilePath: path.join(tmpDir, 'replay.json'),
+        autoStart: false,
+      });
+
+      while (!orchestrator.getState().isReplayComplete) {
+        orchestrator.stepNextReplayCandle();
+      }
+
+      const state = orchestrator.getState();
+      const activity = buildAgentActivitySnapshot(state, false);
+
+      // 1. Verify operational state labels clearly distinguish all required states
+      assert.equal(AGENT_OPERATIONAL_STATE_LABELS_VI.WAITING_FOR_CANDLE, 'Chờ nến');
+      assert.equal(AGENT_OPERATIONAL_STATE_LABELS_VI.MARKET_CLOSED, 'Thị trường đóng');
+      assert.equal(AGENT_OPERATIONAL_STATE_LABELS_VI.SOURCE_DISCONNECTED, 'Mất nguồn');
+      assert.equal(AGENT_OPERATIONAL_STATE_LABELS_VI.INSUFFICIENT_SAMPLES, 'Thiếu mẫu');
+      assert.equal(AGENT_OPERATIONAL_STATE_LABELS_VI.RISK_VETOED, 'Bị chặn rủi ro');
+
+      // 2. Verify Admin strictly uses a single-level menu: Hoạt động, Kiểm định, Chu kỳ, Truy vết
+      assert.deepEqual(
+        ADMIN_TABS.map((t) => t.labelVi),
+        ['Hoạt động', 'Kiểm định', 'Chu kỳ', 'Truy vết']
+      );
+
+      // 3. Render UserPortfolioView and verify financial KPIs & simulation/source badges
+      const userHtml = renderToStaticMarkup(React.createElement(UserPortfolioView, { state }));
+      assert.ok(userHtml.includes('Chế độ mô phỏng (SIMULATION_ONLY)'));
+      assert.ok(userHtml.includes('Số dư đã chốt (Balance)'));
+      assert.ok(userHtml.includes('Vốn hiện tại (Equity)'));
+      assert.ok(userHtml.includes('Lãi / Lỗ ròng (Net P&amp;L)'));
+      assert.ok(userHtml.includes('Mức sụt giảm (Drawdown)'));
+      assert.ok(userHtml.includes('Biểu đồ đường cong vốn'));
+      assert.ok(userHtml.includes('Vị thế mô phỏng đang mở'));
+      assert.ok(userHtml.includes('Lịch sử giao dịch đã đối soát'));
+      assert.ok(userHtml.includes('overflow-x-auto overscroll-x-contain'));
+
+      // Verify PositionDetailCard renders fill price, SL/TP, fees, and exit reason when selected
+      const closedPos = state.closedPositions[0];
+      const recon = state.reconciliations.find((r) => r.positionId === closedPos.positionId);
+      const detailHtml = renderToStaticMarkup(
+        React.createElement(PositionDetailCard, {
+          position: closedPos,
+          reconciliation: recon,
+        })
+      );
+      assert.ok(detailHtml.includes('1. Giá khớp &amp; Tham chiếu'));
+      assert.ok(detailHtml.includes('2. Ngưỡng Dừng lỗ &amp; Chốt lời'));
+      assert.ok(detailHtml.includes('3. Chi phí thực thi &amp; Lãi/Lỗ'));
+      assert.ok(detailHtml.includes('4. Lý do đóng &amp; Đối soát'));
+      assert.ok(detailHtml.includes('<details'));
+
+      // 4. Render AdminOperationsView (default tab ACTIVITY) and verify two-team cards & journal at top
+      const adminHtml = renderToStaticMarkup(
+        React.createElement(AdminOperationsView, {
+          state,
+          activity,
+          newEventIds: new Set<string>(),
+          activeTab: 'ACTIVITY',
+          actionPending: false,
+          actionFeedbackVi: null,
+          fixtureReport: runAllLearningBranchFixtures(),
+          stressReport: buildDualCostStressComparison({
+            candles: buildDeterministicReplayDataset().candles,
+            executedClosedPositions: state.closedPositions,
+          }),
+          onStepCandle: () => {},
+          onToggleLoop: () => {},
+          onResetSimulation: () => {},
+          onRefreshReports: () => {},
+          onInspectEvent: async () => null,
+          onFetchPositionTrace: async () => null,
+          onFetchLearningTrace: async () => null,
+        })
+      );
+      assert.ok(adminHtml.includes('Đội 1 — Phân tích &amp; Thực thi'));
+      assert.ok(adminHtml.includes('Đội 2 — Nghiên cứu &amp; Kiểm định'));
+      assert.ok(adminHtml.includes('Công việc hiện tại'));
+      assert.ok(adminHtml.includes('Kết quả gần nhất'));
+      assert.ok(adminHtml.includes('Lý do chờ / Trạng thái tiếp theo'));
+      assert.ok(adminHtml.includes('Nhật ký hoạt động hệ thống'));
+      assert.ok(adminHtml.includes('Lọc theo đội'));
+      assert.ok(adminHtml.includes('Lọc theo trạng thái'));
+      assert.ok(adminHtml.includes('Lọc theo chu kỳ'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
+
 

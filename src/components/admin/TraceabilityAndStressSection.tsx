@@ -1,381 +1,299 @@
 import React, { useState } from 'react';
-import {
-  fetchLearningTraceById,
-  fetchPositionTraceById,
+import type {
   LearningTraceResponse,
   PositionTraceResponse,
 } from '../../api/quantApi.ts';
 import type { DualCostStressComparison } from '../../quant/costStress.ts';
 import type { QuantSystemState } from '../../quant/types.ts';
 import {
-  formatPct,
+  formatLots,
   formatPrice,
   formatSignedUsd,
-  formatUsd,
+  formatStrategyNameVi,
   formatUtcShort,
 } from '../../utils/formatters.ts';
-import { SectionHeader, StatusLabel } from '../shared/UiPrimitives.tsx';
+import { PositionDetailCard } from '../shared/PositionDetailCard.tsx';
+import {
+  EmptyDataNotice,
+  MetricCard,
+  SectionHeader,
+  StatusLabel,
+} from '../shared/UiPrimitives.tsx';
+import { CostStressPanel } from './CostStressPanel.tsx';
 
 export interface TraceabilityAndStressSectionProps {
   state: QuantSystemState;
-  costComparison: DualCostStressComparison | null;
-  authToken: string;
-  simulatedHost?: string | null;
+  stressReport: DualCostStressComparison | null;
+  actionPending: boolean;
+  onRefreshReports: () => void;
+  onFetchPositionTrace: (positionId: string) => Promise<PositionTraceResponse | null>;
+  onFetchLearningTrace: (runId: string) => Promise<LearningTraceResponse | null>;
 }
 
-export const TraceabilityAndStressSection: React.FC<
-  TraceabilityAndStressSectionProps
-> = ({ state, costComparison, authToken, simulatedHost }) => {
-  const [tracePosId, setTracePosId] = useState<string>('');
-  const [posTraceResult, setPosTraceResult] =
-    useState<PositionTraceResponse | null>(null);
-  const [traceRunId, setTraceRunId] = useState<string>('');
-  const [runTraceResult, setRunTraceResult] =
-    useState<LearningTraceResponse | null>(null);
+const SESSION_STATE_LABELS_VI: Record<string, string> = {
+  OPEN: 'Đang mở cửa giao dịch',
+  CLOSE_ONLY_15_15: 'Chỉ đóng lệnh (Quy tắc 15/15)',
+  CLOSE_ONLY_MANUAL: 'Chỉ đóng lệnh (Thủ công)',
+  MARKET_CLOSED: 'Thị trường đóng cửa',
+};
+
+export const TraceabilityAndStressSection: React.FC<TraceabilityAndStressSectionProps> = ({
+  state,
+  stressReport,
+  actionPending,
+  onRefreshReports,
+  onFetchPositionTrace,
+  onFetchLearningTrace,
+}) => {
+  const [selectedPosId, setSelectedPosId] = useState<string>('');
+  const [posTrace, setPosTrace] = useState<PositionTraceResponse | null>(null);
+  const [posLoading, setPosLoading] = useState(false);
+
+  const [selectedRunId, setSelectedRunId] = useState<string>('');
+  const [lrTrace, setLrTrace] = useState<LearningTraceResponse | null>(null);
+  const [lrLoading, setLrLoading] = useState(false);
+
+  const allPositions = [...state.closedPositions, ...state.openPositions].reverse();
+  const allRuns = state.learningRuns.slice().reverse();
+
+  const handleSelectPosition = async (posId: string) => {
+    setSelectedPosId(posId);
+    if (!posId) {
+      setPosTrace(null);
+      return;
+    }
+    setPosLoading(true);
+    const res = await onFetchPositionTrace(posId);
+    setPosTrace(res);
+    setPosLoading(false);
+  };
+
+  const handleSelectLearningRun = async (runId: string) => {
+    setSelectedRunId(runId);
+    if (!runId) {
+      setLrTrace(null);
+      return;
+    }
+    setLrLoading(true);
+    const res = await onFetchLearningTrace(runId);
+    setLrTrace(res);
+    setLrLoading(false);
+  };
 
   const telemetry = state.dataSourceTelemetry;
-  const schedule = state.brokerSchedule;
-  const schedEval = state.lastScheduleEvaluation;
-
-  const handleInspectPosition = async (positionId: string) => {
-    setTracePosId(positionId);
-    if (!positionId) {
-      setPosTraceResult(null);
-      return;
-    }
-    const res = await fetchPositionTraceById(
-      positionId,
-      authToken,
-      simulatedHost
-    );
-    setPosTraceResult(res);
-  };
-
-  const handleInspectLearningRun = async (runId: string) => {
-    setTraceRunId(runId);
-    if (!runId) {
-      setRunTraceResult(null);
-      return;
-    }
-    const res = await fetchLearningTraceById(runId, authToken, simulatedHost);
-    setRunTraceResult(res);
-  };
+  const sched = state.lastScheduleEvaluation;
+  const slP95 = state.slOvershootP95;
 
   return (
     <div className="space-y-6">
-      {/* 1. Data Source Telemetry & 15/15 Broker Session Rule */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-3 text-xs">
-          <SectionHeader
-            title="Giám sát Nguồn Dữ liệu & Bộ thu Tick MT5"
-            subtitle="Theo dõi tính toàn vẹn của luồng báo giá Bid/Ask, tick cùng mili-giây và mất đoạn"
-            rightSlot={
-              <StatusLabel
-                label={telemetry?.connectionState ?? 'REPLAY_OFFLINE'}
-                tone={
-                  telemetry?.connectionState === 'STREAMING_LIVE'
-                    ? 'emerald'
-                    : telemetry?.connectionState === 'DISCONNECTED'
-                    ? 'rose'
-                    : 'cyan'
-                }
-                mono
-              />
-            }
-          />
-          {telemetry && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 font-mono tabular-nums">
-              <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                <div className="text-slate-400">Mã chuẩn / Gốc</div>
-                <div className="text-slate-100 mt-1">
-                  {telemetry.canonicalSymbol} ({telemetry.rawSymbol})
-                </div>
-              </div>
-              <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                <div className="text-slate-400">Lô nhận / Trùng</div>
-                <div className="text-cyan-300 mt-1">
-                  {telemetry.totalBatchesAccepted} / {telemetry.duplicateBatchesSkipped}
-                </div>
-              </div>
-              <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                <div className="text-slate-400">Tick hợp lệ / Cùng ms</div>
-                <div className="text-emerald-300 mt-1">
-                  {telemetry.totalValidTicksAccepted} /{' '}
-                  {telemetry.sameMillisecondTicksAccepted}
-                </div>
-              </div>
-              <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                <div className="text-slate-400">Trùng / Sai thứ tự</div>
-                <div className="text-amber-300 mt-1">
-                  {telemetry.duplicateTicksSkipped} /{' '}
-                  {telemetry.outOfOrderTicksRejected}
-                </div>
-              </div>
-              <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                <div className="text-slate-400">Mất đoạn (Gaps)</div>
-                <div className="text-rose-300 mt-1">{telemetry.gapCount} lần</div>
-              </div>
-              <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                <div className="text-slate-400">Nến M15 từ Tick</div>
-                <div className="text-slate-100 mt-1">
-                  {telemetry.closedBarsBuiltFromTicks} nến
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-3 text-xs">
-          <SectionHeader
-            title="Lịch Phiên Thị trường & Quy tắc 15/15 (DST-aware)"
-            subtitle="Dừng mở mới và đóng toàn bộ vị thế trước giờ đóng phiên Thứ Sáu / ngày đóng sớm 15 phút"
-            rightSlot={
-              <StatusLabel
-                label={schedEval?.sessionState ?? 'OPEN'}
-                tone={
-                  schedEval?.sessionState === 'OPEN'
-                    ? 'emerald'
-                    : schedEval?.sessionState === 'MARKET_CLOSED'
-                    ? 'rose'
-                    : 'amber'
-                }
-                mono
-              />
-            }
-          />
-          {schedule && (
-            <div className="space-y-2 text-slate-300">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 font-mono tabular-nums">
-                <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                  <div className="text-slate-400">Múi giờ Phiên</div>
-                  <div className="text-slate-100 mt-1">
-                    {schedule.timezone} ({schedEval?.utcOffsetLabel ?? 'EST/EDT'})
-                  </div>
-                </div>
-                <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                  <div className="text-slate-400">Đóng Thứ Sáu</div>
-                  <div className="text-cyan-300 mt-1">
-                    {schedule.fridayCloseLocalTime} (Cắt 15/15:{' '}
-                    {schedEval?.cutoffWindowStartLocalTime ?? '16:45'})
-                  </div>
-                </div>
-                <div className="bg-slate-950 border border-slate-800 rounded p-2.5">
-                  <div className="text-slate-400">Đệm trượt SL P95</div>
-                  <div className="text-amber-300 mt-1">
-                    ${state.slOvershootP95?.effectiveBufferUsdPerOz.toFixed(2) ?? '0.10'}
-                    /oz ({state.slOvershootP95?.sampleCount ?? 0} mẫu)
-                  </div>
-                </div>
-              </div>
-              {schedEval && (
-                <div className="px-3 py-2 rounded bg-slate-950 border border-slate-800 text-slate-300">
-                  {schedEval.reasonVi}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* 2. Dual Cost & Latency Stress Comparison */}
-      {costComparison && (
-        <section className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-4">
-          <SectionHeader
-            title="Kiểm định Sức chịu đựng Chi phí 2× & Độ trễ Khớp lệnh"
-            subtitle="Tách biệt minh bạch giữa Hậu kiểm Chi phí 2× trên lệnh đã khớp và Chạy lại Mô phỏng Toàn phần dưới mô hình chi phí + độ trễ mới"
-          />
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
-            <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-cyan-300">
-                  A. {costComparison.postHoc2xAnalysis.titleVi}
-                </span>
-                <StatusLabel
-                  label={costComparison.postHoc2xAnalysis.reportType}
-                  tone="cyan"
-                  mono
-                />
-              </div>
-              <p className="text-slate-400">
-                {costComparison.postHoc2xAnalysis.descriptionVi}
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 font-mono tabular-nums">
-                <div>
-                  Lệnh đánh giá:{' '}
-                  <strong className="text-slate-100">
-                    {costComparison.postHoc2xAnalysis.tradesEvaluated}
-                  </strong>
-                </div>
-                <div>
-                  Chi phí 1x / 2x:{' '}
-                  <span className="text-amber-300">
-                    {formatUsd(costComparison.postHoc2xAnalysis.cost1xUsd)} /{' '}
-                    {formatUsd(costComparison.postHoc2xAnalysis.costElevatedUsd)}
-                  </span>
-                </div>
-                <div>
-                  P&amp;L Ròng 1x / 2x:{' '}
-                  <span className="text-emerald-300">
-                    {formatSignedUsd(costComparison.postHoc2xAnalysis.netPnl1xUsd)} /{' '}
-                    {formatSignedUsd(
-                      costComparison.postHoc2xAnalysis.netPnlElevatedUsd
-                    )}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-cyan-300">
-                  B. {costComparison.fullReSimulation2x.titleVi}
-                </span>
-                <StatusLabel
-                  label={costComparison.fullReSimulation2x.reportType}
-                  tone="amber"
-                  mono
-                />
-              </div>
-              <p className="text-slate-400">
-                {costComparison.fullReSimulation2x.descriptionVi}
-              </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 font-mono tabular-nums">
-                <div>
-                  Lệnh khớp / Phủ quyết:{' '}
-                  <strong className="text-slate-100">
-                    {costComparison.fullReSimulation2x.tradesExecuted} /{' '}
-                    {costComparison.fullReSimulation2x.signalsVetoedByCostOrSpread}
-                  </strong>
-                </div>
-                <div>
-                  Tổng chi phí 2x+Trễ:{' '}
-                  <span className="text-amber-300">
-                    {formatUsd(costComparison.fullReSimulation2x.totalCostUsd)}
-                  </span>
-                </div>
-                <div>
-                  P&amp;L Ròng / Số dư cuối:{' '}
-                  <span className="text-emerald-300">
-                    {formatSignedUsd(costComparison.fullReSimulation2x.netPnlUsd)} (
-                    {formatUsd(costComparison.fullReSimulation2x.finalBalanceUsd)})
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* 3. Bidirectional Traceability Lookup */}
-      <section className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-4">
-        <SectionHeader
-          title="Truy vết Kiểm toán Hai chiều (Vị thế ↔ Nến đóng & Kỳ học ↔ Mẫu đối soát)"
-          subtitle="Truy vấn trực tiếp từ API /api/trace/position/:id và /api/trace/learning/:runId"
+      {/* 1. Data Source, 15/15 Schedule & P95 SL Buffer Summary */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard
+          title="Nguồn báo giá & Tiến độ"
+          value={
+            telemetry?.sourceMode === 'MT5_DEMO_LIVE'
+              ? 'MT5 Demo Trực tiếp'
+              : `Phát lại (${state.replayCursorIndex}/${state.totalReplayCandles})`
+          }
+          subtitle={
+            telemetry?.connectionLabelVi ??
+            'Dữ liệu nến M15 XAUUSD đã đóng hoàn chỉnh'
+          }
+          tone="cyan"
         />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
-          {/* Trace 1: Position -> Candle, Regime, Risk, Reconciliation */}
-          <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <label
-                htmlFor="trace-pos-select"
-                className="font-semibold text-cyan-300"
-              >
-                Truy vết Vị thế → Nến &amp; Đối soát
-              </label>
+        <MetricCard
+          title="Lịch phiên & Quy tắc 15/15"
+          value={
+            sched
+              ? SESSION_STATE_LABELS_VI[sched.sessionState] ?? sched.sessionState
+              : 'Đang mở cửa'
+          }
+          subtitle={
+            sched?.reasonVi ??
+            'Chặn mở lệnh mới & đóng vị thế 15 phút trước giờ nghỉ phiên'
+          }
+          tone={
+            sched?.sessionState === 'OPEN'
+              ? 'emerald'
+              : sched?.sessionState === 'CLOSE_ONLY_15_15'
+              ? 'rose'
+              : 'amber'
+          }
+        />
+
+        <MetricCard
+          title="Đệm trượt Dừng lỗ (P95 SL)"
+          value={
+            slP95
+              ? `${slP95.effectiveBufferUsdPerOz.toFixed(2)} USD/oz`
+              : '0.10 USD/oz (Mặc định)'
+          }
+          subtitle={
+            slP95?.usedFallbackDefault === false
+              ? `Tính thực nghiệm từ ${slP95.sampleCount} lệnh chạm SL`
+              : 'Dùng mức dự phòng 0.10 USD/oz khi dưới 10 mẫu SL'
+          }
+          tone="slate"
+        />
+
+        <MetricCard
+          title="Đối soát sổ cái vị thế"
+          value={`${state.reconciliations.filter((r) => r.volumeMatched).length}/${state.closedPositions.length} khớp`}
+          subtitle={`Số lần khôi phục tiến trình: ${state.restartCount} lần`}
+          tone="emerald"
+        />
+      </section>
+
+      {/* 2. Bidirectional Traceability Lookup */}
+      <section className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-5">
+        <SectionHeader
+          title="Truy vết hai chiều: Vị thế ⇄ Chu kỳ nến & Đợt học ⇄ Mẫu đối soát"
+          subtitle="Chọn một vị thế hoặc một đợt kiểm định để kiểm tra chuỗi bằng chứng khép kín từ nến M15 đến sổ cái đối soát"
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Trace direction 1: Position -> Candle, Decision, Risk, Reconciliation */}
+          <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-4 space-y-3">
+            <label className="flex flex-col gap-1.5 text-xs text-slate-300 font-medium">
+              <span>Chiều 1: Truy vết từ Vị thế về Chu kỳ nến &amp; Quyết định</span>
               <select
-                id="trace-pos-select"
-                value={tracePosId}
-                onChange={(e) => handleInspectPosition(e.target.value)}
-                className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 font-mono text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                aria-label="Chọn vị thế cần truy vết"
+                value={selectedPosId}
+                onChange={(e) => void handleSelectPosition(e.target.value)}
+                className="bg-slate-900 border border-slate-700 text-slate-200 text-xs font-mono rounded px-2.5 py-2"
               >
-                <option value="">-- Chọn mã vị thế --</option>
-                {[...state.openPositions, ...state.closedPositions].map((p) => (
+                <option value="">-- Chọn vị thế ({allPositions.length} vị thế) --</option>
+                {allPositions.map((p) => (
                   <option key={p.positionId} value={p.positionId}>
-                    {p.positionId} ({p.strategyId} · {formatSignedUsd(p.netPnlUsd)})
+                    {p.positionId} — {p.direction === 'BUY' ? 'MUA' : 'BÁN'}{' '}
+                    {formatLots(p.filledVolumeLots)} ({formatStrategyNameVi(p.strategyId)})
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
 
-            {posTraceResult ? (
-              <div className="space-y-1.5 font-mono tabular-nums text-slate-300 border-t border-slate-800 pt-2.5">
-                <div>
-                  Vị thế: {posTraceResult.position.positionId} · Chu kỳ mở:{' '}
-                  {posTraceResult.position.entryCycleId} · Nến:{' '}
-                  {posTraceResult.position.entryCandleId}
-                </div>
-                <div>
-                  Chính sách lúc mở: {posTraceResult.position.openedUnderPolicyId} · Giá
-                  vào KV/Khớp: {formatPrice(posTraceResult.position.expectedEntryPrice)}{' '}
-                  / {formatPrice(posTraceResult.position.fillEntryPrice)}
-                </div>
-                {posTraceResult.reconciliation && (
-                  <div className="text-emerald-300">
-                    Đối soát: {posTraceResult.reconciliation.reconciliationId} (
-                    {posTraceResult.reconciliation.status}) — Khớp khối lượng:{' '}
-                    {posTraceResult.reconciliation.volumeMatched ? '100%' : 'Sai lệch'}
-                  </div>
+            {posLoading ? (
+              <div className="text-xs font-mono text-cyan-300 animate-pulse py-3">
+                Đang truy xuất chuỗi bằng chứng vị thế...
+              </div>
+            ) : posTrace ? (
+              <div className="space-y-3 text-xs">
+                <PositionDetailCard
+                  position={posTrace.position}
+                  reconciliation={posTrace.reconciliation}
+                />
+                {posTrace.entryCycleTrace && (
+                  <details className="bg-slate-900/80 border border-slate-800 rounded p-2.5">
+                    <summary className="cursor-pointer text-cyan-300 hover:text-cyan-200 font-medium">
+                      Bối cảnh nến mở lệnh ({posTrace.entryCycleTrace.cycleId}) &amp; Chốt rủi ro
+                    </summary>
+                    <div className="mt-2 pt-2 border-t border-slate-800 space-y-1 text-slate-300 font-mono text-[11px]">
+                      <div>
+                        Nến: {posTrace.entryCycleTrace.candle.candleId} (Đóng:{' '}
+                        {formatPrice(posTrace.entryCycleTrace.candle.close)})
+                      </div>
+                      <div className="font-sans">
+                        Trạng thái:{' '}
+                        {posTrace.entryCycleTrace.regimeClassification?.regimeLabelVi ?? '—'}
+                      </div>
+                      <div className="font-sans">
+                        Lý do chọn:{' '}
+                        {posTrace.entryCycleTrace.coordinatorDecision?.reasonVi ?? '—'}
+                      </div>
+                    </div>
+                  </details>
                 )}
               </div>
             ) : (
-              <div className="text-slate-400">
-                Chọn một vị thế để truy vết ngược về nến M15 đầu vào, quyết định rủi ro và
-                bản ghi đối soát.
-              </div>
+              <EmptyDataNotice
+                title="Chọn một vị thế ở danh sách trên"
+                reasonVi="Hệ thống sẽ hiển thị đầy đủ giá khớp, SL/TP, phí, bản ghi đối soát và nến M15 đã kích hoạt lệnh."
+              />
             )}
           </div>
 
-          {/* Trace 2: Learning Run -> Reconciled Positions & Shadow Samples */}
-          <div className="bg-slate-950/80 border border-slate-800 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <label
-                htmlFor="trace-run-select"
-                className="font-semibold text-cyan-300"
-              >
-                Truy vết Kỳ học Walk-Forward → Tập mẫu
-              </label>
+          {/* Trace direction 2: Learning Run -> Reconciled Positions & Shadow Outcomes */}
+          <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-4 space-y-3">
+            <label className="flex flex-col gap-1.5 text-xs text-slate-300 font-medium">
+              <span>Chiều 2: Truy vết từ Đợt học Walk-Forward về Mẫu đối soát</span>
               <select
-                id="trace-run-select"
-                value={traceRunId}
-                onChange={(e) => handleInspectLearningRun(e.target.value)}
-                className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1 font-mono text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                aria-label="Chọn đợt học cần truy vết"
+                value={selectedRunId}
+                onChange={(e) => void handleSelectLearningRun(e.target.value)}
+                className="bg-slate-900 border border-slate-700 text-slate-200 text-xs font-mono rounded px-2.5 py-2"
               >
-                <option value="">-- Chọn kỳ học Walk-Forward --</option>
-                {state.learningRuns.map((lr) => (
-                  <option key={lr.runId} value={lr.runId}>
-                    {lr.runId} ({lr.decision})
+                <option value="">-- Chọn đợt kiểm định ({allRuns.length} đợt) --</option>
+                {allRuns.map((r) => (
+                  <option key={r.runId} value={r.runId}>
+                    {r.runId} — {formatUtcShort(r.executedAtMarketTime)} ({r.totalCompletedSamplesUsed} mẫu)
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
 
-            {runTraceResult ? (
-              <div className="space-y-1.5 font-mono tabular-nums text-slate-300 border-t border-slate-800 pt-2.5">
-                <div>
-                  Kỳ học: {runTraceResult.learningRun.runId} · Quyết định:{' '}
-                  {runTraceResult.learningRun.decision}
+            {lrLoading ? (
+              <div className="text-xs font-mono text-cyan-300 animate-pulse py-3">
+                Đang truy xuất mẫu đối soát của đợt học...
+              </div>
+            ) : lrTrace ? (
+              <div className="space-y-3 text-xs">
+                <div className="bg-slate-900 border border-slate-800 rounded p-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-100">
+                      Kết quả đợt {lrTrace.learningRun.runId}
+                    </span>
+                    <StatusLabel label={lrTrace.learningRun.decision} tone="cyan" mono />
+                  </div>
+                  <p className="text-slate-300 leading-snug">
+                    {lrTrace.learningRun.decisionReasonVi}
+                  </p>
+                  <div className="text-slate-400 font-mono text-[11px]">
+                    Vị thế thực đã đóng: {lrTrace.reconciledPositionsUsed.length} | Mẫu ứng viên song song:{' '}
+                    {lrTrace.shadowOutcomesUsed.length}
+                  </div>
                 </div>
-                <div>
-                  Số vị thế thực tế đã đối soát:{' '}
-                  {runTraceResult.reconciledPositionsUsed.length} · Số mẫu Shadow đã đóng:{' '}
-                  {runTraceResult.shadowOutcomesUsed.length}
-                </div>
-                <div className="text-cyan-300">
-                  Chính sách kết quả: {runTraceResult.learningRun.previousPolicyId} →{' '}
-                  {runTraceResult.learningRun.resultingPolicyId}
-                </div>
+
+                <details className="bg-slate-900/80 border border-slate-800 rounded p-2.5">
+                  <summary className="cursor-pointer text-cyan-300 hover:text-cyan-200 font-medium">
+                    Danh sách mẫu ứng viên &amp; vị thế thực đã dùng trong đợt kiểm định
+                  </summary>
+                  <div className="mt-2 pt-2 border-t border-slate-800 space-y-1.5 font-mono text-[11px] text-slate-300 max-h-48 overflow-y-auto">
+                    {lrTrace.shadowOutcomesUsed.slice(0, 15).map((s) => (
+                      <div
+                        key={s.shadowId}
+                        className="flex items-center justify-between py-1 border-b border-slate-800/60"
+                      >
+                        <span>
+                          {s.shadowId} ({s.strategyId})
+                        </span>
+                        <span
+                          className={s.netPnlUsd >= 0 ? 'text-emerald-300' : 'text-rose-300'}
+                        >
+                          1×: {formatSignedUsd(s.netPnlUsd)} | 2×:{' '}
+                          {formatSignedUsd(s.netPnlAt2xCostUsd)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
               </div>
             ) : (
-              <div className="text-slate-400">
-                Chọn một kỳ học Walk-Forward để truy vết toàn bộ mẫu đã đóng và chính
-                sách sinh ra.
-              </div>
+              <EmptyDataNotice
+                title="Chọn một đợt kiểm định Walk-Forward"
+                reasonVi="Hệ thống sẽ liệt kê các vị thế đã đối soát và các mẫu ứng viên song song được dùng để ra quyết định."
+              />
             )}
           </div>
         </div>
       </section>
+
+      {/* 3. Cost Stress 2x + Latency Panel */}
+      <CostStressPanel
+        stressReport={stressReport}
+        actionPending={actionPending}
+        onRunCostStress={onRefreshReports}
+      />
     </div>
   );
 };
