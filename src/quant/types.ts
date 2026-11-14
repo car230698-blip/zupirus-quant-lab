@@ -1,4 +1,15 @@
+import type {
+  BrokerSessionScheduleConfig,
+  MarketScheduleEvaluation,
+} from './marketSchedule.ts';
+import type {
+  DataSourceTelemetry,
+  PersistedTickIngestionState,
+} from './tickIngestor.ts';
+
 export type ExecutionMode = 'SIMULATION_ONLY';
+
+export type UserRole = 'ADMIN' | 'VIEWER' | 'COLLECTOR';
 
 export type MarketRegime =
   | 'TRENDING'
@@ -163,6 +174,18 @@ export interface RiskLimitsConfig {
   haltNewPositionsByLearner: boolean;
 }
 
+export interface SlOvershootP95Summary {
+  modelVersion: string;
+  sampleCount: number;
+  maxWindowSize: number; // 50
+  minSamplesRequired: number; // 10
+  usedFallbackDefault: boolean;
+  fallbackDefaultUsdPerOz: number; // 0.10
+  computedP95UsdPerOz: number | null;
+  effectiveBufferUsdPerOz: number;
+  samplePositionIds: string[];
+}
+
 export interface RiskDecision {
   cycleId: string;
   candleId: string;
@@ -178,9 +201,20 @@ export interface RiskDecision {
   dailyDrawdownPct: number;
   spreadPts: number;
   limitsChecked: RiskLimitsConfig;
+  riskModelVersion?: string;
+  baseRiskBudgetPct?: number;
+  remainingDailyDrawdownBudgetPct?: number;
+  remainingTotalDrawdownBudgetPct?: number;
+  effectiveRiskBudgetPct?: number;
+  effectiveRiskBudgetUsd?: number;
+  slOvershootBuffer?: SlOvershootP95Summary;
+  scheduleEvaluation?: MarketScheduleEvaluation;
   vetoCode?:
     | 'KILL_SWITCH_ACTIVE'
     | 'LEARNER_HALT_ACTIVE'
+    | 'FRIDAY_15_15_CUTOFF'
+    | 'MARKET_CLOSED_SCHEDULE'
+    | 'CLOSE_ONLY_SESSION'
     | 'MAX_OPEN_POSITIONS_EXCEEDED'
     | 'MAX_VOLUME_EXCEEDED'
     | 'MAX_DAILY_DRAWDOWN_EXCEEDED'
@@ -203,6 +237,8 @@ export type PositionExitReason =
   | 'STOP_LOSS_HIT'
   | 'INTRA_BAR_SL_TP_CONFLICT_SL_FIRST'
   | 'TIME_EXPIRED'
+  | 'FRIDAY_15_15_CUTOFF'
+  | 'MISSED_CUTOFF_FIRST_VALID_QUOTE'
   | 'REJECTED_AT_ENTRY'
   | 'ORDER_EXPIRED_UNFILLED'
   | 'OPEN';
@@ -275,6 +311,7 @@ export interface SimulatedPosition {
   expectedExitPrice?: number;
   avgExitFillPrice?: number;
   exitSlippagePts: number;
+  slOvershootUsdPerOz?: number;
   totalSpreadCostUsd: number;
   totalSlippageCostUsd: number;
   totalCommissionUsd: number;
@@ -468,6 +505,7 @@ export interface CycleTraceRecord {
   candleIndex: number;
   candle: M15Candle;
   validation: CandleValidationResult;
+  scheduleEvaluation?: MarketScheduleEvaluation;
   regimeClassification?: RegimeClassification;
   coordinatorDecision?: CoordinatorDecision;
   riskDecision?: RiskDecision;
@@ -553,6 +591,15 @@ export interface QuantSystemState {
 
   // Immutable risk limits
   riskLimits: RiskLimitsConfig;
+
+  // Broker session schedule (15/15 rule, DST, early close, close-only)
+  brokerSchedule?: BrokerSessionScheduleConfig;
+  lastScheduleEvaluation?: MarketScheduleEvaluation;
+  slOvershootP95?: SlOvershootP95Summary;
+
+  // Live MT5 tick ingestion state & telemetry
+  dataSourceTelemetry?: DataSourceTelemetry;
+  tickIngestionState?: PersistedTickIngestionState;
 
   // Policies
   activePolicyId: string;

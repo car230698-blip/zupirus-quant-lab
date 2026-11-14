@@ -3,6 +3,60 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        try {
+          var currentFetch = window.fetch ? window.fetch.bind(window) : undefined;
+          if (currentFetch) {
+            try {
+              Object.defineProperty(window, 'fetch', {
+                configurable: true,
+                enumerable: true,
+                get: function () {
+                  return currentFetch;
+                },
+                set: function (nextFetch) {
+                  if (typeof nextFetch === 'function') {
+                    currentFetch = nextFetch;
+                  }
+                },
+              });
+            } catch (_e) {}
+            try {
+              if (typeof Window !== 'undefined' && Window.prototype) {
+                Object.defineProperty(Window.prototype, 'fetch', {
+                  configurable: true,
+                  enumerable: true,
+                  get: function () {
+                    return currentFetch;
+                  },
+                  set: function (nextFetch) {
+                    if (typeof nextFetch === 'function') {
+                      currentFetch = nextFetch;
+                    }
+                  },
+                });
+              }
+            } catch (_e2) {}
+          }
+          window.addEventListener(
+            'error',
+            function (event) {
+              var filename = String((event && event.filename) || '');
+              var message = String((event && event.message) || '');
+              if (
+                filename.indexOf('chrome-extension://') === 0 ||
+                message.indexOf('Cannot set property fetch of #<Window>') !== -1
+              ) {
+                event.stopImmediatePropagation();
+                event.preventDefault();
+              }
+            },
+            true
+          );
+        } catch (_err) {}
+      })();
+    </script>
     <title>ZUPIRUS Quant Lab — Hệ thống Mô phỏng Định lượng XAUUSD M15</title>
     <meta name="description" content="Hệ thống mô phỏng giao dịch định lượng XAUUSD M15 tự vận hành, kiểm định walk-forward và đối soát đa tác tử." />
     <meta property="og:title" content="ZUPIRUS Quant Lab — Hệ thống Mô phỏng Định lượng XAUUSD M15" />

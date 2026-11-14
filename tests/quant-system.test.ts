@@ -30,7 +30,19 @@ import { TickReplay } from '../src/quant/tickReplay.ts';
 import { applyValidationCapacity, executeWalkForwardLearningRun } from '../src/quant/researchTeam.ts';
 import { QuantLabOrchestrator } from '../src/quant/orchestrator.ts';
 import { createQuantServer } from '../server.ts';
-import { ExecutionMode, M15Candle, ShadowCandidateOutcome } from '../src/quant/types.ts';
+import { ExecutionMode, M15Candle, ShadowCandidateOutcome, SimulatedPosition } from '../src/quant/types.ts';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { computeSlOvershootP95Buffer } from '../src/quant/riskGate.ts';
+
+const execFileAsync = promisify(execFile);
+import {
+  DEFAULT_BROKER_SCHEDULE,
+  evaluateMarketSchedule,
+  checkMandatoryCutoffClose,
+} from '../src/quant/marketSchedule.ts';
+import { runAllLearningBranchFixtures } from '../src/quant/fixtures.ts';
+import { buildDualCostStressComparison } from '../src/quant/costStress.ts';
 
 function createTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `zupirus-${prefix}-`));
@@ -852,3 +864,519 @@ it('Kiểm định mô phỏng giới hạn vị thế và khối lượng trên
   assert.deepEqual(applyValidationCapacity([d, c, b, a],
     { maxOpenPositions: 2, maxTotalExposureLots: 1 }), [a, b, d]);
 });
+
+describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 15/15, P95 SL, Chi phí 2x + Độ trễ, 5 Nhánh Học & RBAC', () => {
+  it('17. API nhận Tick bền vững (fsync), xử lý retry/đồng thời idempotent, phân biệt cùng ms với trùng lặp, tạo nến M15 và khôi phục sau restart', async () => {
+    const tmpDir = createTempDir('live-ingest');
+    try {
+      const { app, orchestrator } = await createQuantServer({
+        dataDir: path.join(tmpDir, 'runtime'),
+        replayFilePath: path.join(tmpDir, 'replay.json'),
+        autoStart: false,
+        attachFrontend: false,
+      });
+
+      const server = app.listen(0);
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const collectorHeaders = {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer zupirus-collector-demo-token',
+      };
+
+      try {
+        // Batch 1 inside M15 window 2026-03-02T14:00:00Z -> 14:15:00Z
+        const t0 = Date.parse('2026-03-02T14:00:05.100Z');
+        const batch1 = {
+          batchId: 'BATCH-CONCURRENT-001',
+          collectorId: 'WIN-MT5-TEST',
+          rawSymbol: 'XAUUSDm',
+          ticks: [
+            // Two distinct valid quotes within the exact same millisecond (seqWithinMs 0 and 1)
+            { rawSymbol: 'XAUUSDm', timeMs: t0, seqWithinMs: 0, bid: 3960.1, ask: 3960.3 },
+            { rawSymbol: 'XAUUSDm', timeMs: t0, seqWithinMs: 1, bid: 3960.2, ask: 3960.4 },
+            // Exact duplicate of the second quote in the same batch (must be skipped)
+            { rawSymbol: 'XAUUSDm', timeMs: t0, seqWithinMs: 1, bid: 3960.2, ask: 3960.4 },
+            // Out-of-order quote (earlier than t0)
+            { rawSymbol: 'XAUUSD.a', timeMs: t0 - 500, seqWithinMs: 0, bid: 3959.9, ask: 3960.1 },
+            // Quote after a >60s gap within the same M15 bar
+            { rawSymbol: 'XAUUSDm', timeMs: t0 + 180_000, seqWithinMs: 0, bid: 3962.0, ask: 3962.25 },
+          ],
+        };
+
+        // Send 4 concurrent identical requests to verify mutex serialization + idempotency
+        const concurrentResponses = await Promise.all([
+          fetch(`${baseUrl}/api/ingest/ticks`, {
+            method: 'POST',
+            headers: collectorHeaders,
+            body: JSON.stringify(batch1),
+          }),
+          fetch(`${baseUrl}/api/ingest/ticks`, {
+            method: 'POST',
+            headers: collectorHeaders,
+            body: JSON.stringify(batch1),
+          }),
+          fetch(`${baseUrl}/api/ingest/ticks`, {
+            method: 'POST',
+            headers: collectorHeaders,
+            body: JSON.stringify(batch1),
+          }),
+          fetch(`${baseUrl}/api/ingest/ticks`, {
+            method: 'POST',
+            headers: collectorHeaders,
+            body: JSON.stringify(batch1),
+          }),
+        ]);
+
+        for (const res of concurrentResponses) {
+          assert.equal(res.status, 200);
+        }
+        const acks = await Promise.all(concurrentResponses.map((r) => r.json()));
+        const firstAck = acks.find((a) => !a.idempotentReplay);
+        const dupAcks = acks.filter((a) => a.idempotentReplay);
+        assert.ok(firstAck, 'Đúng 1 request đầu tiên xử lý lô mới');
+        assert.equal(dupAcks.length, 3, '3 request đồng thời còn lại nhận kết quả idempotent');
+        assert.equal(firstAck.acceptedTicks, 3);
+        assert.equal(firstAck.sameMillisecondAccepted, 1);
+        assert.equal(firstAck.duplicateTicksSkipped, 1);
+        assert.equal(firstAck.outOfOrderRejected, 1);
+
+        // Now send a tick in the next M15 bar (2026-03-02T14:15:01Z) to close the 14:00->14:15 candle
+        const tNextBar = Date.parse('2026-03-02T14:15:01.000Z');
+        const batch2Res = await fetch(`${baseUrl}/api/ingest/ticks`, {
+          method: 'POST',
+          headers: collectorHeaders,
+          body: JSON.stringify({
+            batchId: 'BATCH-CLOSE-BAR-002',
+            collectorId: 'WIN-MT5-TEST',
+            rawSymbol: 'XAUUSDm',
+            ticks: [
+              { rawSymbol: 'XAUUSDm', timeMs: tNextBar, seqWithinMs: 0, bid: 3961.5, ask: 3961.7 },
+            ],
+          }),
+        });
+        assert.equal(batch2Res.status, 200);
+        const ack2 = await batch2Res.json();
+        assert.equal(ack2.closedCandlesEmitted.length, 1);
+
+        const stateBeforeRestart = orchestrator.getState();
+        assert.equal(stateBeforeRestart.dataSourceTelemetry?.sourceMode, 'MT5_DEMO_LIVE');
+        assert.equal(stateBeforeRestart.dataSourceTelemetry?.canonicalSymbol, 'XAUUSD');
+        assert.equal(stateBeforeRestart.dataSourceTelemetry?.closedBarsBuiltFromTicks, 1);
+        assert.equal(stateBeforeRestart.dataSourceTelemetry?.gapCount, 2);
+
+        // Restart orchestrator on the same runtime directory and verify no duplicate candles or deals
+        const restarted = new QuantLabOrchestrator({
+          dataDir: path.join(tmpDir, 'runtime'),
+          replayFilePath: path.join(tmpDir, 'replay.json'),
+          autoStart: false,
+        });
+        const retryAfterRestart = await restarted.ingestTickBatch({
+          batchId: 'BATCH-CLOSE-BAR-002',
+          collectorId: 'WIN-MT5-TEST',
+          rawSymbol: 'XAUUSDm',
+          ticks: [
+            { rawSymbol: 'XAUUSDm', timeMs: tNextBar, seqWithinMs: 0, bid: 3961.5, ask: 3961.7 },
+          ],
+        });
+        assert.equal(retryAfterRestart.idempotentReplay, true);
+        assert.equal(
+          restarted.getState().cycleTraces.length,
+          stateBeforeRestart.cycleTraces.length
+        );
+      } finally {
+        server.close();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('18. Bộ thu Python SQLite (scripts/record-mt5-demo.py --self-test) lưu đệm WAL và đồng bộ thành công sang máy chủ Linux', async () => {
+    const tmpDir = createTempDir('py-collector');
+    try {
+      const { app, orchestrator } = await createQuantServer({
+        dataDir: path.join(tmpDir, 'runtime'),
+        replayFilePath: path.join(tmpDir, 'replay.json'),
+        autoStart: false,
+        attachFrontend: false,
+      });
+
+      const server = app.listen(0);
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const dbPath = path.join(tmpDir, 'mt5-spool.sqlite');
+
+      try {
+        const { stdout } = await execFileAsync(
+          'python3',
+          [
+            path.resolve('scripts/record-mt5-demo.py'),
+            '--self-test',
+            '--db-path',
+            dbPath,
+            '--vps-url',
+            baseUrl,
+            '--token',
+            'zupirus-collector-demo-token',
+          ],
+          { encoding: 'utf8' }
+        );
+        const report = JSON.parse(stdout.trim());
+        assert.equal(report.status, 'ok');
+        assert.equal(report.canonicalSymbol, 'XAUUSD');
+        assert.equal(report.pendingAfterSync, 0);
+        assert.equal(report.syncedToVps, 4);
+        assert.equal(
+          orchestrator.getState().dataSourceTelemetry?.totalValidTicksAccepted,
+          4
+        );
+      } finally {
+        server.close();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('19. Quy tắc 15/15 theo lịch broker (DST mùa hè/mùa đông, đóng sớm, chỉ đóng lệnh) và tự đóng ở báo giá hợp lệ đầu tiên khi lỡ giờ cắt', () => {
+    // 1. Winter EST (UTC-5): Friday 2026-01-09 16:45 EST = 21:45 UTC
+    const winterBeforeCutoff = evaluateMarketSchedule(
+      '2026-01-09T21:40:00.000Z',
+      DEFAULT_BROKER_SCHEDULE
+    );
+    assert.equal(winterBeforeCutoff.sessionState, 'OPEN');
+    assert.equal(winterBeforeCutoff.isDstActive, false);
+
+    const winterInCutoff = evaluateMarketSchedule(
+      '2026-01-09T21:46:00.000Z',
+      DEFAULT_BROKER_SCHEDULE
+    );
+    assert.equal(winterInCutoff.sessionState, 'CLOSE_ONLY_15_15');
+    assert.equal(winterInCutoff.allowNewEntries, false);
+    assert.equal(winterInCutoff.mustFlattenOpenPositions, true);
+
+    // 2. Summer EDT (UTC-4): Friday 2026-07-10 16:45 EDT = 20:45 UTC
+    const summerInCutoff = evaluateMarketSchedule(
+      '2026-07-10T20:46:00.000Z',
+      DEFAULT_BROKER_SCHEDULE
+    );
+    assert.equal(summerInCutoff.sessionState, 'CLOSE_ONLY_15_15');
+    assert.equal(summerInCutoff.isDstActive, true);
+
+    // 3. Early close override (e.g., 2026-11-27 closes at 13:00 EST -> cutoff at 12:45 EST = 17:45 UTC)
+    const scheduleWithEarlyClose = {
+      ...DEFAULT_BROKER_SCHEDULE,
+      earlyCloseOverrides: [
+        {
+          localDate: '2026-11-27',
+          closeLocalTime: '13:00',
+          reasonVi: 'Đóng sớm ngày lễ Tạ ơn',
+        },
+      ],
+    };
+    const earlyCloseCutoff = evaluateMarketSchedule(
+      '2026-11-27T17:50:00.000Z',
+      scheduleWithEarlyClose
+    );
+    assert.equal(earlyCloseCutoff.sessionState, 'CLOSE_ONLY_15_15');
+
+    // 4. Missed cutoff mandatory close on first valid quote after reopen
+    // Position opened Friday 2026-01-09T20:00:00Z (before cutoff 21:45Z), no quotes arrived during 21:45-22:00Z,
+    // first valid quote arrives Sunday/Monday reopen 2026-01-12T00:05:00Z
+    const missedCutoffCheck = checkMandatoryCutoffClose({
+      entryMarketTimeUtc: '2026-01-09T20:00:00.000Z',
+      currentQuoteTimeUtc: '2026-01-12T00:05:00.000Z',
+      schedule: DEFAULT_BROKER_SCHEDULE,
+    });
+    assert.equal(missedCutoffCheck.mustClose, true);
+    assert.equal(missedCutoffCheck.missedScheduledCutoff, true);
+
+    // Verify SimBroker closes position with MISSED_CUTOFF_FIRST_VALID_QUOTE on that first quote
+    const candles = buildDeterministicReplayDataset().candles;
+    const pos = openSimulatedPosition({
+      executionMode: 'SIMULATION_ONLY',
+      positionId: 'POS-MISSED-1515',
+      signalId: 'SIG-1515',
+      cycleId: 'CYC-1',
+      candle: {
+        ...candles[0],
+        openTime: '2026-01-09T19:45:00.000Z',
+        closeTime: '2026-01-09T20:00:00.000Z',
+      },
+      regime: 'TRENDING',
+      openedUnderPolicyId: BASELINE_POLICY_ID,
+      volumeLots: 0.1,
+      candidate: {
+        strategyId: 'STRAT_TREND_FOLLOW',
+        strategyNameVi: 'Trend',
+        version: 'v1.2.0',
+        family: 'TREND_FOLLOWING',
+        eligibleToEnter: true,
+        direction: 'BUY',
+        entryPrice: 3960,
+        stopLoss: 3945,
+        takeProfit1: 3985,
+        takeProfit2: 4000,
+        expiryBars: 20,
+        partialCloseRatio: 0.5,
+        entryConditionSummaryVi: '',
+        signalStrength: 80,
+      },
+    });
+    const reopenBar: M15Candle = {
+      ...candles[1],
+      openTime: '2026-01-12T00:00:00.000Z',
+      closeTime: '2026-01-12T00:15:00.000Z',
+      open: 3965,
+      high: 3968,
+      low: 3962,
+      close: 3966,
+    };
+    const closedAfterMissedCutoff = stepOpenPositionOnCandle(
+      pos,
+      'CYC-REOPEN',
+      reopenBar,
+      undefined,
+      [
+        {
+          time: Date.parse('2026-01-12T00:01:00.000Z'),
+          bid: 3964.8,
+          ask: 3965.0,
+        },
+      ],
+      DEFAULT_BROKER_SCHEDULE
+    );
+    assert.equal(closedAfterMissedCutoff.status, 'CLOSED');
+    assert.equal(
+      closedAfterMissedCutoff.exitReason,
+      'MISSED_CUTOFF_FIRST_VALID_QUOTE'
+    );
+    assert.equal(closedAfterMissedCutoff.remainingVolumeLots, 0);
+  });
+
+  it('20. Risk Gate áp dụng đệm xuyên SL theo P95 của tối đa 50 lệnh SL trước đó (0.10 USD/oz khi <10 mẫu) và giới hạn theo ngân sách sụt giảm còn lại', () => {
+    // 1. Fewer than 10 SL samples -> fallback 0.10 USD/oz
+    const fiveSlTrades: SimulatedPosition[] = Array.from({ length: 5 }, (_, i) => ({
+      positionId: `SL-${i}`,
+      exitReason: 'STOP_LOSS_HIT',
+      slOvershootUsdPerOz: 0.45,
+    } as SimulatedPosition));
+    const fallbackSummary = computeSlOvershootP95Buffer(fiveSlTrades);
+    assert.equal(fallbackSummary.usedFallbackDefault, true);
+    assert.equal(fallbackSummary.effectiveBufferUsdPerOz, 0.1);
+
+    // 2. 20 SL trades with overshoot values -> empirical P95
+    const twentySlTrades: SimulatedPosition[] = Array.from({ length: 20 }, (_, i) => ({
+      positionId: `SL20-${i}`,
+      exitReason: 'STOP_LOSS_HIT',
+      slOvershootUsdPerOz: Number(((i + 1) * 0.05).toFixed(2)), // 0.05 .. 1.00 USD/oz
+    } as SimulatedPosition));
+    const empiricalSummary = computeSlOvershootP95Buffer(twentySlTrades);
+    assert.equal(empiricalSummary.usedFallbackDefault, false);
+    assert.equal(empiricalSummary.sampleCount, 20);
+    assert.ok(empiricalSummary.effectiveBufferUsdPerOz >= 0.95);
+
+    // 3. Remaining drawdown budget cap reduces approved lot size when close to daily drawdown limit
+    const candles = buildDeterministicReplayDataset().candles;
+    const candidate = {
+      strategyId: 'STRAT_TREND_FOLLOW' as const,
+      strategyNameVi: 'Trend',
+      version: 'v1.2.0',
+      family: 'TREND_FOLLOWING' as const,
+      eligibleToEnter: true,
+      direction: 'BUY' as const,
+      entryPrice: 3968.89,
+      stopLoss: 3957.97,
+      takeProfit1: 3980,
+      takeProfit2: 3992,
+      expiryBars: 6,
+      partialCloseRatio: 0.5,
+      entryConditionSummaryVi: '',
+      signalStrength: 80,
+    };
+    const limits = cloneRiskLimits();
+    // Normal drawdown (0%) -> 1.0% risk budget -> 0.08 lots
+    const normalRisk = evaluateRiskGate({
+      cycleId: 'R-NORM',
+      candle: candles[0],
+      signalId: 'SIG-NORM',
+      candidate,
+      openPositions: [],
+      closedPositions: twentySlTrades,
+      accountEquityUsd: 10000,
+      currentDrawdownPct: 0,
+      dailyDrawdownPct: 0,
+      riskLimits: limits,
+    });
+    assert.equal(normalRisk.vetoed, false);
+    assert.equal(normalRisk.effectiveRiskBudgetPct, 1);
+
+    // Near daily drawdown limit (3.6% of 4.0% max daily DD -> only 0.4% budget left)
+    const cappedRisk = evaluateRiskGate({
+      cycleId: 'R-CAP',
+      candle: candles[0],
+      signalId: 'SIG-CAP',
+      candidate,
+      openPositions: [],
+      closedPositions: twentySlTrades,
+      accountEquityUsd: 10000,
+      currentDrawdownPct: 3.6,
+      dailyDrawdownPct: 3.6,
+      riskLimits: limits,
+    });
+    assert.equal(cappedRisk.vetoed, false);
+    assert.equal(cappedRisk.effectiveRiskBudgetPct, 0.4);
+    assert.ok(cappedRisk.approvedLots < normalRisk.approvedLots);
+  });
+
+  it('21. Tách biệt rõ Báo cáo Hậu kiểm Chi phí 2× trên lệnh đã khớp và Chạy lại Mô phỏng Toàn phần với Chi phí 2× + Độ trễ', () => {
+    const tmpDir = createTempDir('cost-stress');
+    try {
+      const orchestrator = new QuantLabOrchestrator({
+        dataDir: path.join(tmpDir, 'runtime'),
+        replayFilePath: path.join(tmpDir, 'replay.json'),
+        autoStart: false,
+      });
+      while (!orchestrator.getState().isReplayComplete) {
+        orchestrator.stepNextReplayCandle();
+      }
+      const comparison = orchestrator.getCostStressComparison({
+        costMultiplier: 2,
+        entryLatencyMs: 300,
+        exitLatencyMs: 300,
+        extraSlippagePts: 5,
+      });
+
+      assert.equal(
+        comparison.postHoc2xAnalysis.reportType,
+        'POST_HOC_2X_ON_EXECUTED_TRADES'
+      );
+      assert.equal(
+        comparison.fullReSimulation2x.reportType,
+        'FULL_PATH_RESIMULATION_UNDER_NEW_COST_MODEL'
+      );
+      assert.ok(comparison.postHoc2xAnalysis.tradesEvaluated > 0);
+      assert.ok(
+        comparison.postHoc2xAnalysis.costElevatedUsd >
+          comparison.postHoc2xAnalysis.cost1xUsd
+      );
+      assert.ok(
+        comparison.fullReSimulation2x.candlesProcessed > 0
+      );
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('22. Bộ Fixture có chủ đích chứng minh đầy đủ 5 nhánh quyết định của bộ học Walk-Forward', () => {
+    const suite = runAllLearningBranchFixtures();
+    assert.equal(suite.allBranchesPassed, true);
+    assert.equal(suite.branches.length, 5);
+    const decisions = suite.branches.map((r) => r.branchCode);
+    assert.deepEqual(decisions, [
+      'KEEP_CURRENT_POLICY_INSUFFICIENT_SAMPLES',
+      'KEEP_CURRENT_POLICY_NO_OUTPERFORMANCE',
+      'PROMOTE_NEW_POLICY',
+      'ROLLBACK_TO_PREVIOUS_POLICY',
+      'HALT_NEW_POSITIONS_DEGRADED',
+    ]);
+  });
+
+  it('23. Phân quyền RBAC giữa ADMIN, VIEWER và COLLECTOR và kiểm tra phản hồi chậm không rò rỉ dữ liệu sai', async () => {
+    const tmpDir = createTempDir('rbac-test');
+    try {
+      const { app } = await createQuantServer({
+        dataDir: path.join(tmpDir, 'runtime'),
+        replayFilePath: path.join(tmpDir, 'replay.json'),
+        autoStart: false,
+        attachFrontend: false,
+        strictAuth: true,
+      });
+
+      const server = app.listen(0);
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const baseUrl = `http://127.0.0.1:${port}`;
+
+      try {
+        // 1. Unauthenticated request when strictAuth=true -> 401
+        const unauthRes = await fetch(`${baseUrl}/api/state`);
+        assert.equal(unauthRes.status, 401);
+
+        // 2. COLLECTOR role: allowed on /api/ingest/ticks and /api/ingest/status, forbidden (403) on /api/state and /api/control/step
+        const collectorIngestRes = await fetch(`${baseUrl}/api/ingest/ticks`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer zupirus-collector-demo-token',
+          },
+          body: JSON.stringify({
+            batchId: 'RBAC-BATCH-1',
+            collectorId: 'RBAC-COL',
+            ticks: [
+              {
+                rawSymbol: 'XAUUSD',
+                timeMs: Date.parse('2026-03-02T15:00:01Z'),
+                seqWithinMs: 0,
+                bid: 3960,
+                ask: 3960.2,
+              },
+            ],
+          }),
+        });
+        assert.equal(collectorIngestRes.status, 200);
+
+        const collectorStateRes = await fetch(`${baseUrl}/api/state`, {
+          headers: { Authorization: 'Bearer zupirus-collector-demo-token' },
+        });
+        assert.equal(collectorStateRes.status, 403);
+
+        const collectorStepRes = await fetch(`${baseUrl}/api/control/step`, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer zupirus-collector-demo-token' },
+        });
+        assert.equal(collectorStepRes.status, 403);
+
+        // 3. VIEWER role: allowed on /api/state (including delayed load), forbidden (403) on /api/control/step and /api/ingest/ticks
+        const viewerStateRes = await fetch(`${baseUrl}/api/state?delayMs=50`, {
+          headers: { Authorization: 'Bearer zupirus-viewer-demo-token' },
+        });
+        assert.equal(viewerStateRes.status, 200);
+        const viewerData = await viewerStateRes.json();
+        assert.equal(viewerData.currentRole, 'VIEWER');
+        assert.equal(viewerData.state.initialBalanceUsd, 10000);
+
+        const viewerControlRes = await fetch(`${baseUrl}/api/control/step`, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer zupirus-viewer-demo-token' },
+        });
+        assert.equal(viewerControlRes.status, 403);
+
+        const viewerIngestRes = await fetch(`${baseUrl}/api/ingest/ticks`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer zupirus-viewer-demo-token',
+          },
+          body: JSON.stringify({ batchId: 'V', collectorId: 'V', ticks: [] }),
+        });
+        assert.equal(viewerIngestRes.status, 403);
+
+        // 4. ADMIN role: allowed on both /api/state and /api/control/step
+        const adminStepRes = await fetch(`${baseUrl}/api/control/step`, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer zupirus-admin-demo-token' },
+        });
+        assert.equal(adminStepRes.status, 200);
+      } finally {
+        server.close();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+

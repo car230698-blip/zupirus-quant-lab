@@ -5,12 +5,18 @@ import {
   QuantSystemState,
   REGIME_LABELS_VI,
   ReplayDatasetMetadata,
+  UserRole,
 } from '../quant/types.ts';
+import { DualCostStressComparison } from '../quant/costStress.ts';
+import { LearningBranchFixtureSuiteReport } from '../quant/fixtures.ts';
 
 interface AdminOperationsViewProps {
   state: QuantSystemState;
   datasetMetadata: ReplayDatasetMetadata;
   isStaleData: boolean;
+  activeRole?: UserRole;
+  costComparison?: DualCostStressComparison | null;
+  learningFixturesReport?: LearningBranchFixtureSuiteReport | null;
   initialInspectedPositionId?: string | null;
   onStepSingleCandle: () => Promise<void>;
   onToggleLoop: () => Promise<void>;
@@ -21,6 +27,9 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
   state,
   datasetMetadata,
   isStaleData,
+  activeRole = 'ADMIN',
+  costComparison,
+  learningFixturesReport,
   initialInspectedPositionId,
   onStepSingleCandle,
   onToggleLoop,
@@ -950,6 +959,253 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
           )}
         </div>
       </section>
+
+      {/* 5. Live MT5 Tick Ingestion Telemetry, 15/15 Session Rule & P95 SL Overshoot Buffer */}
+      <section
+        aria-label="Trạng thái thu thập báo giá MT5, quy tắc 15/15 và đệm xuyên SL P95"
+        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
+      >
+        <div className="border border-slate-800 bg-slate-900/60 p-6 rounded-lg space-y-4">
+          <div className="border-b border-slate-800 pb-3">
+            <h2 className="text-base font-semibold text-slate-100">
+              Bộ thu Báo giá MT5 Demo & Sổ cái Nạp Tick Bền vững (SQLite → VPS)
+            </h2>
+            <p className="text-xs text-slate-400">
+              Ghi lô bền vững trước khi xác nhận (fsync) · Chống trùng lặp khi retry đồng thời · Hỗ trợ nhiều báo giá hợp lệ trong cùng mili giây.
+            </p>
+          </div>
+          <dl className="grid grid-cols-2 gap-3 text-xs font-mono tabular-nums">
+            <div>
+              <dt className="font-sans text-slate-400">Nguồn dữ liệu & Kết nối</dt>
+              <dd className="text-amber-300 font-semibold mt-0.5">
+                {state.dataSourceTelemetry?.sourceMode || 'REPLAY_DATASET'} ·{' '}
+                {state.dataSourceTelemetry?.connectionState || 'REPLAY_OFFLINE'}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-sans text-slate-400">Ánh xạ mã (Hậu tố → Chuẩn)</dt>
+              <dd className="text-slate-200 mt-0.5">
+                {state.dataSourceTelemetry?.rawSymbol || state.symbol} →{' '}
+                {state.dataSourceTelemetry?.canonicalSymbol || 'XAUUSD'}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-sans text-slate-400">Lô đã nhận / Lô retry trùng</dt>
+              <dd className="text-slate-200 mt-0.5">
+                {state.dataSourceTelemetry?.totalBatchesAccepted ?? 0} lô /{' '}
+                {state.dataSourceTelemetry?.duplicateBatchesSkipped ?? 0} lô trùng
+              </dd>
+            </div>
+            <div>
+              <dt className="font-sans text-slate-400">Tick hợp lệ / Tick trùng / Cùng ms</dt>
+              <dd className="text-slate-200 mt-0.5">
+                {state.dataSourceTelemetry?.totalValidTicksAccepted ?? 0} nhận ·{' '}
+                {state.dataSourceTelemetry?.duplicateTicksSkipped ?? 0} trùng ·{' '}
+                {state.dataSourceTelemetry?.sameMillisecondTicksAccepted ?? 0} cùng ms
+              </dd>
+            </div>
+            <div>
+              <dt className="font-sans text-slate-400">Sai thứ tự / Mất đoạn / Báo giá cũ</dt>
+              <dd className="text-slate-200 mt-0.5">
+                Sai thứ tự: {state.dataSourceTelemetry?.outOfOrderTicksRejected ?? 0} · Mất đoạn:{' '}
+                {state.dataSourceTelemetry?.gapCount ?? 0} · Cũ:{' '}
+                {state.dataSourceTelemetry?.staleQuotesDetected ?? 0}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-sans text-slate-400">Nến M15 đã đóng từ Tick</dt>
+              <dd className="text-emerald-400 font-semibold mt-0.5">
+                {state.dataSourceTelemetry?.closedBarsBuiltFromTicks ?? 0} nến M15
+              </dd>
+            </div>
+          </dl>
+          <div className="text-xs text-slate-400 border-t border-slate-800 pt-2.5">
+            {state.dataSourceTelemetry?.connectionLabelVi}
+          </div>
+        </div>
+
+        <div className="border border-slate-800 bg-slate-900/60 p-6 rounded-lg space-y-4">
+          <div className="border-b border-slate-800 pb-3">
+            <h2 className="text-base font-semibold text-slate-100">
+              Quy tắc Phiên 15/15 (DST-Aware) & Đệm Xuyên SL P95 ({state.slOvershootP95?.modelVersion || 'SL_BUFFER_P95_V1.0'})
+            </h2>
+            <p className="text-xs text-slate-400">
+              Ngừng mở lệnh và đóng vị thế từ 15 phút trước giờ đóng phiên thứ Sáu/đóng sớm; tự đóng ở báo giá hợp lệ đầu tiên nếu lỡ giờ cắt.
+            </p>
+          </div>
+          <dl className="grid grid-cols-2 gap-3 text-xs font-mono tabular-nums">
+            <div>
+              <dt className="font-sans text-slate-400">Lịch phiên & Múi giờ</dt>
+              <dd className="text-slate-200 mt-0.5">
+                {state.brokerSchedule?.timezone} (Đóng T6:{' '}
+                {state.brokerSchedule?.fridayCloseLocalTime} · Cắt trước{' '}
+                {state.brokerSchedule?.cutoffFlattenPositionsMinutesBeforeClose}p)
+              </dd>
+            </div>
+            <div>
+              <dt className="font-sans text-slate-400">Trạng thái phiên & DST</dt>
+              <dd className="text-amber-300 font-semibold mt-0.5">
+                {state.lastScheduleEvaluation?.sessionState || 'OPEN'} ·{' '}
+                {state.lastScheduleEvaluation?.isDstActive ? 'DST (EDT)' : 'Chuẩn (EST)'}{' '}
+                ({state.lastScheduleEvaluation?.utcOffsetLabel})
+              </dd>
+            </div>
+            <div>
+              <dt className="font-sans text-slate-400">Đệm xuyên SL P95 hiệu lực</dt>
+              <dd className="text-emerald-400 font-semibold mt-0.5">
+                {(state.slOvershootP95?.effectiveBufferUsdPerOz ?? 0.1).toFixed(2)} USD/oz (
+                {state.slOvershootP95?.usedFallbackDefault ? 'Mặc định <10 mẫu' : 'P95 thực nghiệm'})
+              </dd>
+            </div>
+            <div>
+              <dt className="font-sans text-slate-400">Cửa sổ mẫu lệnh chạm SL</dt>
+              <dd className="text-slate-200 mt-0.5">
+                {state.slOvershootP95?.sampleCount ?? 0}/{state.slOvershootP95?.maxWindowSize ?? 50} lệnh SL (Ngưỡng tối thiểu:{' '}
+                {state.slOvershootP95?.minSamplesRequired ?? 10})
+              </dd>
+            </div>
+          </dl>
+          <div className="text-xs text-slate-400 border-t border-slate-800 pt-2.5">
+            Nguồn lịch: <span className="font-mono text-slate-300">{state.brokerSchedule?.source}</span> · Vai trò hiện tại:{' '}
+            <span className="font-mono text-amber-300">{activeRole}</span>
+          </div>
+        </div>
+      </section>
+
+      {/* 6. Dual Cost & Latency Stress Comparison (Post-Hoc 2x vs Full Re-Simulation 2x + Latency) */}
+      {costComparison && (
+        <section
+          aria-label="So sánh chi phí 2x trên lệnh đã khớp và chạy lại đầy đủ với mô hình chi phí + độ trễ"
+          className="border border-slate-800 bg-slate-900/60 p-6 rounded-lg space-y-4"
+        >
+          <div className="border-b border-slate-800 pb-3">
+            <h2 className="text-base font-semibold text-slate-100">
+              Kiểm định Chịu tải Chi phí & Độ trễ (Tách biệt Phân tích Hậu kiểm 2× và Chạy lại Mô phỏng Toàn phần)
+            </h2>
+            <p className="text-xs text-slate-400">
+              {costComparison.comparisonSummaryVi}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+            <div className="border border-slate-800 bg-slate-950/70 p-4 rounded space-y-2">
+              <div className="font-semibold text-amber-300">
+                1. {costComparison.postHoc2xAnalysis.titleVi} ({costComparison.postHoc2xAnalysis.reportType})
+              </div>
+              <p className="text-slate-400">
+                {costComparison.postHoc2xAnalysis.descriptionVi}
+              </p>
+              <div className="font-mono tabular-nums text-slate-200 space-y-1 pt-1">
+                <div>
+                  Số lệnh đã khớp: {costComparison.postHoc2xAnalysis.tradesEvaluated} lệnh · Lãi gộp: $
+                  {costComparison.postHoc2xAnalysis.grossPnlUsd.toFixed(2)}
+                </div>
+                <div>
+                  Chi phí 1×: -${costComparison.postHoc2xAnalysis.cost1xUsd.toFixed(2)} → Lãi ròng 1×:{' '}
+                  <span className="text-emerald-400 font-semibold">
+                    ${costComparison.postHoc2xAnalysis.netPnl1xUsd.toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  Chi phí {costComparison.postHoc2xAnalysis.costMultiplier}×: -${costComparison.postHoc2xAnalysis.costElevatedUsd.toFixed(2)} → Lãi ròng {costComparison.postHoc2xAnalysis.costMultiplier}×:{' '}
+                  <span className="text-amber-300 font-semibold">
+                    ${costComparison.postHoc2xAnalysis.netPnlElevatedUsd.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-slate-800 bg-slate-950/70 p-4 rounded space-y-2">
+              <div className="font-semibold text-amber-300">
+                2. {costComparison.fullReSimulation2x.titleVi} ({costComparison.fullReSimulation2x.reportType})
+              </div>
+              <p className="text-slate-400">
+                {costComparison.fullReSimulation2x.descriptionVi}
+              </p>
+              <div className="font-mono tabular-nums text-slate-200 space-y-1 pt-1">
+                <div>
+                  Tham số: Chi phí {costComparison.fullReSimulation2x.costMultiplier}× · Trễ vào/thoát{' '}
+                  {costComparison.fullReSimulation2x.entryLatencyMs}ms/
+                  {costComparison.fullReSimulation2x.exitLatencyMs}ms · Trượt thêm{' '}
+                  {costComparison.fullReSimulation2x.extraSlippagePts} pts
+                </div>
+                <div>
+                  Số lệnh khớp khi chạy lại: {costComparison.fullReSimulation2x.tradesExecuted} lệnh · Nến đã chạy:{' '}
+                  {costComparison.fullReSimulation2x.candlesProcessed} nến
+                </div>
+                <div>
+                  Số dư cuối: ${costComparison.fullReSimulation2x.finalBalanceUsd.toFixed(2)} · Lãi ròng chạy lại:{' '}
+                  <span className="text-amber-300 font-semibold">
+                    ${costComparison.fullReSimulation2x.netPnlUsd.toFixed(2)}
+                  </span>{' '}
+                  · Max DD: ${costComparison.fullReSimulation2x.maxDrawdownUsd.toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 7. Purposeful Learning Branch Fixtures Proof */}
+      {learningFixturesReport && (
+        <section
+          aria-label="Bằng chứng kiểm thử 5 nhánh tự học Walk-Forward bằng bộ fixture có chủ đích"
+          className="border border-slate-800 bg-slate-900/60 p-6 rounded-lg space-y-4"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-100">
+                Bằng chứng Kiểm thử 5 Nhánh Tự học Walk-Forward (Fixture Kiểm chứng Hành vi Phần mềm)
+              </h2>
+              <p className="text-xs text-slate-400">
+                {learningFixturesReport.disclosureVi}
+              </p>
+            </div>
+            <div className="text-xs font-mono tabular-nums text-emerald-400 font-semibold shrink-0">
+              Trạng thái: {learningFixturesReport.allBranchesPassed ? 'ĐẠT 5/5 NHÁNH' : 'CHƯA ĐẠT ĐỦ'}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400">
+                  <th className="py-2 pr-3 font-medium">Nhánh Kiểm thử</th>
+                  <th className="py-2 px-3 font-medium">Mã Quyết định</th>
+                  <th className="py-2 px-3 font-medium">Chính sách Trước → Sau</th>
+                  <th className="py-2 px-3 font-medium">Kết quả</th>
+                  <th className="py-2 pl-3 font-medium">Diễn giải kiểm chứng</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono tabular-nums">
+                {learningFixturesReport.branches.map((item) => (
+                  <tr key={item.branchCode}>
+                    <td className="py-2.5 pr-3 font-sans font-medium text-slate-200">
+                      {item.branchNameVi}
+                    </td>
+                    <td className="py-2.5 px-3 text-amber-300">
+                      {item.branchCode}
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-300">
+                      {item.previousPolicyId} → {item.resultingPolicyId}
+                    </td>
+                    <td className="py-2.5 px-3 font-sans">
+                      {item.passed ? (
+                        <span className="text-emerald-400 font-semibold">ĐẠT (PASS)</span>
+                      ) : (
+                        <span className="text-rose-400 font-semibold">LỖI (FAIL)</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pl-3 font-sans text-slate-300">
+                      {item.decisionReasonVi}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 };

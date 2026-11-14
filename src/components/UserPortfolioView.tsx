@@ -81,6 +81,10 @@ export const UserPortfolioView: React.FC<UserPortfolioViewProps> = ({
     .map((p, i) => `${toX(i).toFixed(1)},${toY(p.balanceUsd).toFixed(1)}`)
     .join(' ');
 
+  const scheduleEval = state.lastScheduleEvaluation;
+  const telemetry = state.dataSourceTelemetry;
+  const slOvershoot = state.slOvershootP95;
+
   return (
     <div className="space-y-8">
       {/* Simulation Mode & Data Provenance Disclosure Bar */}
@@ -90,11 +94,21 @@ export const UserPortfolioView: React.FC<UserPortfolioViewProps> = ({
       >
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-xs text-amber-300 font-medium">
-            <span>Chế độ vận hành: Mô phỏng (SIMULATION_ONLY)</span>
+            <span>Chế độ vận hành: Mô phỏng ({state.executionMode})</span>
             <span aria-hidden="true">·</span>
             <span>Tài sản: {state.symbol} ({state.timeframe})</span>
             <span aria-hidden="true">·</span>
-            <span>Broker mô phỏng nội bộ (Chưa kết nối MT5/Live Broker)</span>
+            <span>
+              Nguồn báo giá:{' '}
+              {telemetry?.sourceMode === 'MT5_DEMO_LIVE'
+                ? `MT5 Demo Live (${telemetry.rawSymbol || state.symbol})`
+                : 'Dữ liệu phát lại ngoại tuyến (REPLAY_DATASET)'}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>
+              Trạng thái nguồn:{' '}
+              {telemetry?.connectionState || 'REPLAY_OFFLINE'}
+            </span>
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold text-slate-100 tracking-tight">
             Tổng quan Tài khoản Mô phỏng Định lượng
@@ -102,6 +116,23 @@ export const UserPortfolioView: React.FC<UserPortfolioViewProps> = ({
           <p className="text-xs text-slate-400 max-w-3xl">
             Nguồn dữ liệu: {datasetMetadata.datasetId} — {datasetMetadata.sourceDescription}
           </p>
+          {scheduleEval && (
+            <p className="text-xs text-slate-300 font-mono">
+              Lịch phiên 15/15 ({scheduleEval.timezone} ·{' '}
+              {scheduleEval.isDstActive ? 'Giờ mùa hè DST' : 'Giờ mùa đông Chuẩn'} ·{' '}
+              {scheduleEval.utcOffsetLabel}):{' '}
+              <span
+                className={
+                  scheduleEval.sessionState === 'OPEN'
+                    ? 'text-emerald-400'
+                    : 'text-amber-300'
+                }
+              >
+                {scheduleEval.sessionState}
+              </span>{' '}
+              — {scheduleEval.reasonVi}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-6 text-xs text-slate-300 font-mono tabular-nums shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0 border-slate-800">
@@ -120,7 +151,7 @@ export const UserPortfolioView: React.FC<UserPortfolioViewProps> = ({
             </span>
           </div>
           <div>
-            <span className="block text-slate-400 font-sans">Tiến độ phát lại</span>
+            <span className="block text-slate-400 font-sans">Tiến độ phát lại / Nến</span>
             <span className="text-amber-300 font-medium">
               {state.replayCursorIndex}/{state.totalReplayCandles} nến M15
             </span>
@@ -183,15 +214,15 @@ export const UserPortfolioView: React.FC<UserPortfolioViewProps> = ({
         </div>
 
         <div className="border border-slate-800 bg-slate-900/60 p-5 rounded-lg">
-          <div className="text-xs text-slate-400">Sụt giảm tài khoản (Drawdown)</div>
+          <div className="text-xs text-slate-400">Sụt giảm & Dự phòng Xuyên SL (P95)</div>
           <div className="mt-2 text-2xl font-semibold font-mono tabular-nums text-slate-100">
             {state.currentDrawdownPct.toFixed(2)}%
           </div>
           <div className="mt-2 text-xs text-slate-400 font-mono tabular-nums">
-            Toàn phiên tối đa: {state.maxDrawdownPct.toFixed(2)}% / {state.riskLimits.maxTotalDrawdownPct.toFixed(1)}%
+            Toàn phiên: {state.maxDrawdownPct.toFixed(2)}%/{state.riskLimits.maxTotalDrawdownPct.toFixed(1)}% · Ngày UTC: {(state.dailyDrawdown?.currentPct ?? 0).toFixed(2)}%/{state.riskLimits.maxDailyDrawdownPct.toFixed(1)}%
           </div>
-          <div className="text-xs text-slate-400">
-            Trong ngày UTC: {(state.dailyDrawdown?.currentPct ?? 0).toFixed(2)}% / {state.riskLimits.maxDailyDrawdownPct.toFixed(1)}%
+          <div className="text-xs text-slate-400 font-mono tabular-nums">
+            Đệm P95 SL: {(slOvershoot?.effectiveBufferUsdPerOz ?? 0.1).toFixed(2)} USD/oz ({slOvershoot?.sampleCount ?? 0}/{slOvershoot?.maxWindowSize ?? 50} mẫu)
           </div>
         </div>
 

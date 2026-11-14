@@ -1,29 +1,52 @@
-import { TickReplay } from './tickReplay.ts';
+import {
+  buildDualCostStressComparison,
+  DualCostStressComparison,
+} from './costStress.ts';
 import {
   ensureReplayDatasetFile,
   validateIncomingCandle,
 } from './dataReplay.ts';
-import { classifyMarketRegime } from './regimeDetector.ts';
 import {
-  evaluateMultiTimeframeCandidates,
-  selectStrategyForCycle,
-} from './strategies.ts';
+  LearningBranchFixtureSuiteReport,
+  runAllLearningBranchFixtures,
+} from './fixtures.ts';
 import {
-  evaluateRiskGate,
-  guardLearnerCannotModifyRiskLimits,
-} from './riskGate.ts';
-import {
-  openSimulatedPosition,
-  stepOpenPositionOnCandle,
-} from './simBroker.ts';
+  BrokerSessionScheduleConfig,
+  checkMandatoryCutoffClose,
+  cloneBrokerSchedule,
+  evaluateMarketSchedule,
+} from './marketSchedule.ts';
 import { reconcileClosedPosition } from './reconciliation.ts';
+import { classifyMarketRegime } from './regimeDetector.ts';
 import {
   createShadowOutcomeFromCandidate,
   executeWalkForwardLearningRun,
   LEARNER_VERSION,
   TICK_MIN_SAMPLES_PER_REGIME,
 } from './researchTeam.ts';
+import {
+  computeSlOvershootP95Buffer,
+  evaluateRiskGate,
+  guardLearnerCannotModifyRiskLimits,
+} from './riskGate.ts';
+import {
+  ExecutionCostLatencyOptions,
+  openSimulatedPosition,
+  stepOpenPositionOnCandle,
+} from './simBroker.ts';
 import { DurableQuantStorage } from './storage.ts';
+import {
+  evaluateMultiTimeframeCandidates,
+  selectStrategyForCycle,
+} from './strategies.ts';
+import {
+  createInitialTickIngestionState,
+  DurableTickIngestor,
+  evaluateDataSourceStatus,
+  TickBatchIngestResult,
+  TickBatchPayload,
+} from './tickIngestor.ts';
+import { ReplayQuote, TickReplay } from './tickReplay.ts';
 import {
   CycleTraceRecord,
   LearningRunRecord,
@@ -43,10 +66,12 @@ export interface OrchestratorOptions {
   ticksFilePath?: string;
   replayIntervalMs?: number;
   autoStart?: boolean;
+  brokerSchedule?: Partial<BrokerSessionScheduleConfig>;
 }
 
 export class QuantLabOrchestrator {
   private readonly storage: DurableQuantStorage;
+  private readonly ingestor: DurableTickIngestor;
   private readonly dataset: ReplayDataset;
   private readonly ticks?: TickReplay;
   private state: QuantSystemState;
@@ -62,6 +87,7 @@ export class QuantLabOrchestrator {
     }
     const intervalMs = options.replayIntervalMs ?? 800;
     this.storage = new DurableQuantStorage({ dataDir: options.dataDir });
+    this.ingestor = new DurableTickIngestor(options.dataDir);
 
     const { state } = this.storage.loadOrInitializeState(
       this.dataset.candles.length,
@@ -69,19 +95,42 @@ export class QuantLabOrchestrator {
     );
     this.state = state;
     const replayMode = this.ticks ? 'TICK' : 'BAR';
-    if (state.replayCursorIndex > 0 &&
-        ((state.replayMode ?? 'BAR') !== replayMode ||
-         (state.replayDatasetId && state.replayDatasetId !== this.dataset.metadata.datasetId))) {
+    if (
+      state.replayCursorIndex > 0 &&
+      ((state.replayMode ?? 'BAR') !== replayMode ||
+        (state.replayDatasetId && state.replayDatasetId !== this.dataset.metadata.datasetId))
+    ) {
       throw new Error('Dùng thư mục trạng thái riêng khi đổi chế độ hoặc bộ dữ liệu phát lại.');
     }
     state.replayMode = replayMode;
     state.replayDatasetId = this.dataset.metadata.datasetId;
+    if (options.brokerSchedule) {
+      this.state.brokerSchedule = cloneBrokerSchedule(options.brokerSchedule);
+    } else if (!this.state.brokerSchedule) {
+      this.state.brokerSchedule = cloneBrokerSchedule();
+    }
+    if (!this.state.tickIngestionState) {
+      this.state.tickIngestionState = createInitialTickIngestionState('REPLAY_DATASET');
+    }
+    this.state.dataSourceTelemetry = this.state.tickIngestionState.telemetry;
+    this.state.slOvershootP95 = computeSlOvershootP95Buffer(this.state.closedPositions);
+
+    this.restoreIngestedCandlesIntoDataset();
     this.restoreOpenShadows();
     this.restoreDailyDrawdown();
     this.state.replayIntervalMs = intervalMs;
-    const activePolicy = this.state.policies.find((policy) => policy.policyId === this.state.activePolicyId);
-    if (activePolicy && !activePolicy.isBaseline && activePolicy.learnerVersion !== LEARNER_VERSION) {
-      const baseline = this.state.policies.find((policy) => policy.policyId === this.state.baselinePolicyId)!;
+
+    const activePolicy = this.state.policies.find(
+      (policy) => policy.policyId === this.state.activePolicyId
+    );
+    if (
+      activePolicy &&
+      !activePolicy.isBaseline &&
+      activePolicy.learnerVersion !== LEARNER_VERSION
+    ) {
+      const baseline = this.state.policies.find(
+        (policy) => policy.policyId === this.state.baselinePolicyId
+      )!;
       activePolicy.status = 'ROLLED_BACK';
       activePolicy.rollbackReasonVi = 'Phiên bản cũ cần kiểm định lại trên tập ngoài mẫu.';
       baseline.status = 'ACTIVE';
@@ -94,6 +143,21 @@ export class QuantLabOrchestrator {
     }
   }
 
+  private restoreIngestedCandlesIntoDataset(): void {
+    const existingIds = new Set(this.dataset.candles.map((c) => c.candleId));
+    for (const trace of this.state.cycleTraces) {
+      if (trace.validation.valid && !existingIds.has(trace.candle.candleId)) {
+        this.dataset.candles.push(trace.candle);
+        existingIds.add(trace.candle.candleId);
+      }
+    }
+    this.dataset.metadata.totalCandles = this.dataset.candles.length;
+    this.state.totalReplayCandles = Math.max(
+      this.state.totalReplayCandles,
+      this.dataset.candles.length
+    );
+  }
+
   private restoreDailyDrawdown(): void {
     if (this.state.dailyDrawdown || !this.state.lastProcessedMarketTime) return;
     let previousEquity = this.state.initialBalanceUsd;
@@ -101,7 +165,10 @@ export class QuantLabOrchestrator {
     let peakEquityUsd = previousEquity;
     for (const point of this.state.equityCurve) {
       const date = new Date(point.marketTime).toISOString().slice(0, 10);
-      peakEquityUsd = Math.max(date === marketDateUtc ? peakEquityUsd : previousEquity, point.equityUsd);
+      peakEquityUsd = Math.max(
+        date === marketDateUtc ? peakEquityUsd : previousEquity,
+        point.equityUsd
+      );
       marketDateUtc = date;
       previousEquity = point.equityUsd;
     }
@@ -118,12 +185,19 @@ export class QuantLabOrchestrator {
     const daily = this.state.dailyDrawdown;
     if (!daily) return;
     daily.peakEquityUsd = Math.max(daily.peakEquityUsd, this.state.equityUsd);
-    daily.currentPct = daily.peakEquityUsd > 0
-      ? Number(((daily.peakEquityUsd - this.state.equityUsd) / daily.peakEquityUsd * 100).toFixed(2))
-      : 0;
+    daily.currentPct =
+      daily.peakEquityUsd > 0
+        ? Number(
+            (((daily.peakEquityUsd - this.state.equityUsd) / daily.peakEquityUsd) * 100).toFixed(2)
+          )
+        : 0;
   }
 
-  private closeShadow(outcome: ShadowCandidateOutcome, position: SimulatedPosition, candleIndex: number) {
+  private closeShadow(
+    outcome: ShadowCandidateOutcome,
+    position: SimulatedPosition,
+    candleIndex: number
+  ) {
     Object.assign(outcome, {
       status: 'CLOSED_RECONCILED',
       closeMarketTime: position.closeMarketTime,
@@ -134,7 +208,8 @@ export class QuantLabOrchestrator {
       netPnlUsd: position.netPnlUsd,
       netPnlAt2xCostUsd: position.netPnlAt2xCostUsd,
       exitReason: position.exitReason,
-      intraBarConflictTriggered: position.exitReason === 'INTRA_BAR_SL_TP_CONFLICT_SL_FIRST',
+      intraBarConflictTriggered:
+        position.exitReason === 'INTRA_BAR_SL_TP_CONFLICT_SL_FIRST',
     });
   }
 
@@ -146,7 +221,8 @@ export class QuantLabOrchestrator {
       if (outcome.status !== 'OPEN') continue;
       const trace = traces.find((item) => item.cycleId === outcome.cycleId);
       const candidate = trace?.coordinatorDecision?.candidatesConsidered.find(
-        (item) => item.strategyId === outcome.strategyId && item.version === outcome.strategyVersion
+        (item) =>
+          item.strategyId === outcome.strategyId && item.version === outcome.strategyVersion
       );
       if (!trace || !candidate) {
         throw new Error(`Thiếu dữ liệu để khôi phục mẫu mô phỏng ${outcome.shadowId}`);
@@ -164,8 +240,14 @@ export class QuantLabOrchestrator {
       });
       for (const later of traces) {
         if (later.candleIndex <= trace.candleIndex || !later.validation.valid) continue;
-        shadowPosition = stepOpenPositionOnCandle(shadowPosition, later.cycleId, later.candle,
-          later.coordinatorDecision?.systemTime);
+        shadowPosition = stepOpenPositionOnCandle(
+          shadowPosition,
+          later.cycleId,
+          later.candle,
+          later.coordinatorDecision?.systemTime,
+          undefined,
+          this.state.brokerSchedule
+        );
         if (shadowPosition.status === 'CLOSED') {
           this.closeShadow(outcome, shadowPosition, later.candleIndex);
           break;
@@ -182,22 +264,255 @@ export class QuantLabOrchestrator {
   }
 
   public getStoragePaths() {
-    return this.storage.getPaths();
+    return {
+      ...this.storage.getPaths(),
+      tickBatchLogPath: this.ingestor.getBatchLogPath(),
+    };
   }
 
   public getState(): QuantSystemState {
-    // Update real-time active flags based on actual recent work or active loop
     const nowMs = Date.now();
     const isRecentlyActive =
-      this.state.isLoopRunning &&
-      !this.state.isReplayComplete &&
-      nowMs - this.lastHeartbeatSystemMs < Math.max(5000, this.state.replayIntervalMs * 3);
+      (this.state.isLoopRunning &&
+        !this.state.isReplayComplete &&
+        nowMs - this.lastHeartbeatSystemMs < Math.max(5000, this.state.replayIntervalMs * 3)) ||
+      (this.state.dataSourceTelemetry?.sourceMode === 'MT5_DEMO_LIVE' &&
+        nowMs - this.lastHeartbeatSystemMs < 15000);
 
     this.state.teamExecutionStatus.isActive = isRecentlyActive;
     this.state.teamResearchStatus.isActive =
       isRecentlyActive && this.state.replayCursorIndex >= 15;
 
+    if (this.state.dataSourceTelemetry && this.state.brokerSchedule) {
+      const dsStatus = evaluateDataSourceStatus({
+        telemetry: this.state.dataSourceTelemetry,
+        schedule: this.state.brokerSchedule,
+        referenceMarketTimeIso: this.state.lastProcessedMarketTime,
+        nowSystemMs: nowMs,
+      });
+      this.state.dataSourceTelemetry.connectionState = dsStatus.connectionState;
+      this.state.dataSourceTelemetry.connectionLabelVi = dsStatus.connectionLabelVi;
+    }
+
     return this.state;
+  }
+
+  public updateBrokerSchedule(
+    patch: Partial<BrokerSessionScheduleConfig>,
+    systemTime: string = new Date().toISOString()
+  ): BrokerSessionScheduleConfig {
+    const current = this.state.brokerSchedule || cloneBrokerSchedule();
+    const updated: BrokerSessionScheduleConfig = {
+      ...current,
+      ...patch,
+      updatedAtSystemTime: systemTime,
+      earlyCloseOverrides: patch.earlyCloseOverrides
+        ? structuredClone(patch.earlyCloseOverrides)
+        : current.earlyCloseOverrides,
+      closeOnlyDates: patch.closeOnlyDates
+        ? structuredClone(patch.closeOnlyDates)
+        : current.closeOnlyDates,
+    };
+    this.state.brokerSchedule = updated;
+    const evalTime =
+      this.state.lastProcessedMarketTime ||
+      this.state.dataSourceTelemetry?.lastQuoteMarketTime ||
+      '2026-03-02T08:00:00.000Z';
+    this.state.lastScheduleEvaluation = evaluateMarketSchedule(evalTime, updated);
+    this.appendJournal({
+      timestampSystem: systemTime,
+      timestampMarket: evalTime,
+      cycleId: `CYCLE-SCHED-${this.state.replayCursorIndex}`,
+      team: 'ORCHESTRATOR',
+      level: 'INFO',
+      eventCode: 'BROKER_SCHEDULE_UPDATED',
+      messageVi: `Cập nhật lịch phiên broker (${updated.scheduleId}@${updated.version}, múi giờ ${updated.timezone}, đóng Thứ Sáu ${updated.fridayCloseLocalTime}, quy tắc ${updated.cutoffStopNewEntriesMinutesBeforeClose}/${updated.cutoffFlattenPositionsMinutesBeforeClose} phút).`,
+    });
+    this.storage.saveState(this.state);
+    return updated;
+  }
+
+  public getCostStressComparison(
+    options?: ExecutionCostLatencyOptions
+  ): DualCostStressComparison {
+    const activePolicy =
+      this.state.policies.find((p) => p.policyId === this.state.activePolicyId) ||
+      this.state.policies[0];
+    const processedCandles = this.dataset.candles.slice(0, this.state.replayCursorIndex);
+    return buildDualCostStressComparison({
+      executedClosedPositions: this.state.closedPositions,
+      candles: processedCandles.length > 0 ? processedCandles : this.dataset.candles,
+      activePolicy,
+      ticks: this.ticks,
+      quotesByCandleId: this.state.tickIngestionState?.completedBarQuotesByCandleId,
+      firstAfterCloseByCandleId:
+        this.state.tickIngestionState?.firstAfterCloseQuoteByCandleId,
+      options,
+    });
+  }
+
+  public getLearningBranchFixturesReport(): LearningBranchFixtureSuiteReport {
+    return runAllLearningBranchFixtures();
+  }
+
+  /**
+   * Ingests a batch of live/demo Bid/Ask ticks durably and idempotently.
+   * Serializes concurrent batch calls, deduplicates retries, handles multiple quotes
+   * in the same millisecond, enforces 15/15 cutoff & missed-cutoff closure on live quotes,
+   * and emits closed M15 candles into `processClosedCandle`.
+   */
+  public async ingestTickBatch(
+    payload: TickBatchPayload,
+    systemTime: string = new Date().toISOString()
+  ): Promise<TickBatchIngestResult> {
+    return this.ingestor.enqueueIngest(() => {
+      this.lastHeartbeatSystemMs = Date.now();
+      if (!this.state.tickIngestionState) {
+        this.state.tickIngestionState = createInitialTickIngestionState('MT5_DEMO_LIVE');
+      }
+      if (!this.state.brokerSchedule) {
+        this.state.brokerSchedule = cloneBrokerSchedule();
+      }
+
+      const result = this.ingestor.processBatch({
+        payload,
+        ingestionState: this.state.tickIngestionState,
+        schedule: this.state.brokerSchedule,
+        systemTime,
+        onLiveQuoteAccepted: (quote, _rawSymbol, sysTime) => {
+          this.handleLiveQuoteOnOpenPositions(quote, sysTime);
+        },
+        onClosedCandleBuilt: (
+          closedCandle,
+          barQuotes,
+          firstQuoteAfterClose,
+          sysTime
+        ) => {
+          if (!this.dataset.candles.some((c) => c.candleId === closedCandle.candleId)) {
+            this.dataset.candles.push(closedCandle);
+            this.dataset.metadata.totalCandles = this.dataset.candles.length;
+            this.state.totalReplayCandles = Math.max(
+              this.state.totalReplayCandles,
+              this.dataset.candles.length
+            );
+          }
+          this.processClosedCandle(
+            closedCandle,
+            sysTime,
+            barQuotes,
+            firstQuoteAfterClose
+          );
+        },
+      });
+
+      this.state.dataSourceTelemetry = this.state.tickIngestionState.telemetry;
+      if (this.state.dataSourceTelemetry.lastQuoteMarketTime) {
+        this.state.lastScheduleEvaluation = evaluateMarketSchedule(
+          this.state.dataSourceTelemetry.lastQuoteMarketTime,
+          this.state.brokerSchedule
+        );
+      }
+      this.state.lastUpdatedSystemTime = systemTime;
+      this.storage.saveState(this.state);
+      return result;
+    });
+  }
+
+  /**
+   * Checks open positions against live incoming Bid/Ask quotes for immediate
+   * 15/15 Friday / Early-Close cutoff or missed-cutoff first-valid-quote liquidation.
+   */
+  private handleLiveQuoteOnOpenPositions(
+    quote: ReplayQuote,
+    systemTime: string
+  ): void {
+    if (this.state.openPositions.length === 0 || !this.state.brokerSchedule?.enabled) {
+      return;
+    }
+
+    const quoteIso = new Date(quote.time).toISOString();
+    const remaining: SimulatedPosition[] = [];
+    let anyChanged = false;
+
+    for (const openPos of this.state.openPositions) {
+      const cutoffCheck = checkMandatoryCutoffClose({
+        entryMarketTimeUtc: openPos.entryMarketTime,
+        currentQuoteTimeUtc: quoteIso,
+        schedule: this.state.brokerSchedule,
+      });
+
+      if (!cutoffCheck.mustClose) {
+        remaining.push(openPos);
+        continue;
+      }
+
+      const cycleId = `CYCLE-CUTOFF-${this.state.replayCursorIndex}`;
+      const synthCandle: M15Candle = {
+        candleId: `CUTOFF-QUOTE-${quote.time}`,
+        symbol: 'XAUUSD',
+        timeframe: 'M15',
+        openTime: quoteIso,
+        closeTime: quoteIso,
+        open: quote.bid,
+        high: quote.ask,
+        low: quote.bid,
+        close: quote.bid,
+        volume: 1,
+        spreadPts: Math.max(1, Math.round((quote.ask - quote.bid) * 100)),
+        isClosed: true,
+      };
+
+      const stepped = stepOpenPositionOnCandle(
+        openPos,
+        cycleId,
+        synthCandle,
+        systemTime,
+        [quote],
+        this.state.brokerSchedule
+      );
+      // Adjust barsHeld back by 1 if closed intra-bar on a live quote
+      stepped.barsHeld = Math.max(0, stepped.barsHeld - 1);
+
+      if (stepped.status === 'CLOSED') {
+        const { reconciledPosition, record } = reconcileClosedPosition(
+          stepped,
+          systemTime
+        );
+        const execKey = `${reconciledPosition.positionId}-RECONCILED`;
+        if (
+          record.status === 'RECONCILED_OK' &&
+          !this.state.processedExecutionIds.includes(execKey)
+        ) {
+          this.state.processedExecutionIds.push(execKey);
+          this.state.closedPositions.push(reconciledPosition);
+          this.state.reconciliations.push(record);
+          anyChanged = true;
+
+          this.appendJournal({
+            timestampSystem: systemTime,
+            timestampMarket: quoteIso,
+            cycleId,
+            team: 'TEAM_1_EXECUTION',
+            level: 'WARN',
+            eventCode:
+              reconciledPosition.exitReason === 'MISSED_CUTOFF_FIRST_VALID_QUOTE'
+                ? 'MISSED_CUTOFF_CLOSED_FIRST_VALID_QUOTE'
+                : 'FRIDAY_15_15_POSITION_FLATTENED',
+            messageVi: `${reconciledPosition.exitReasonVi} — ${record.summaryVi}`,
+          });
+        } else {
+          remaining.push(reconciledPosition);
+        }
+      } else {
+        remaining.push(stepped);
+      }
+    }
+
+    if (anyChanged) {
+      this.state.openPositions = remaining;
+      this.state.slOvershootP95 = computeSlOvershootP95Buffer(this.state.closedPositions);
+      this.recalculateAccountMetrics();
+    }
   }
 
   public startAutoLoop(): void {
@@ -223,7 +538,7 @@ export class QuantLabOrchestrator {
           this.state.teamResearchStatus.currentTaskVi =
             'Đã hoàn tất kiểm định Walk-Forward cuối kỳ';
           this.state.teamResearchStatus.waitStateReasonVi =
-            'Đang chờ dữ liệu phát lại mới hoặc lệnh đặt lại phiên mô phỏng.';
+            'Đang chờ dữ liệu phát lại mới, lô báo giá MT5 hoặc lệnh đặt lại phiên mô phỏng.';
           this.storage.saveState(this.state);
           this.stopAutoLoop();
           return;
@@ -316,7 +631,9 @@ export class QuantLabOrchestrator {
    */
   public processClosedCandle(
     candle: M15Candle,
-    systemTime: string = new Date().toISOString()
+    systemTime: string = new Date().toISOString(),
+    customBarQuotes?: ReplayQuote[],
+    customFirstQuoteAfterClose?: ReplayQuote
   ): CycleTraceRecord {
     this.lastHeartbeatSystemMs = Date.now();
 
@@ -370,7 +687,11 @@ export class QuantLabOrchestrator {
 
     const marketDateUtc = new Date(candle.closeTime).toISOString().slice(0, 10);
     if (this.state.dailyDrawdown?.marketDateUtc !== marketDateUtc) {
-      this.state.dailyDrawdown = { marketDateUtc, peakEquityUsd: this.state.equityUsd, currentPct: 0 };
+      this.state.dailyDrawdown = {
+        marketDateUtc,
+        peakEquityUsd: this.state.equityUsd,
+        currentPct: 0,
+      };
     }
 
     // Advance cursor & register processed candleId
@@ -378,6 +699,13 @@ export class QuantLabOrchestrator {
     this.state.processedCandleIds.push(candle.candleId);
     this.state.lastProcessedMarketTime = candle.closeTime;
     this.state.lastUpdatedSystemTime = systemTime;
+
+    const scheduleEvaluation = this.state.brokerSchedule
+      ? evaluateMarketSchedule(candle.closeTime, this.state.brokerSchedule)
+      : undefined;
+    if (scheduleEvaluation) {
+      this.state.lastScheduleEvaluation = scheduleEvaluation;
+    }
 
     // Collect causal history up to and including this closed candle (strictly zero look-ahead)
     const candlesUpToDecision = this.dataset.candles
@@ -394,6 +722,11 @@ export class QuantLabOrchestrator {
     const closedPositionIds: string[] = [];
     const reconciliationIds: string[] = [];
 
+    const resolveBarQuotes = (): Iterable<ReplayQuote> | undefined => {
+      if (customBarQuotes && customBarQuotes.length > 0) return customBarQuotes;
+      return this.ticks?.within(candle);
+    };
+
     // ========================================================================
     // STEP 1: Step existing open simulated positions on this newly closed candle
     // ========================================================================
@@ -405,11 +738,15 @@ export class QuantLabOrchestrator {
         cycleId,
         candle,
         systemTime,
-        this.ticks?.within(candle)
+        resolveBarQuotes(),
+        this.state.brokerSchedule
       );
 
       // If partial close TP1 just occurred on this bar, realize partial PnL into balance
-      if (stepped.closedVolumeLots > prevClosedLots && stepped.status === 'PARTIAL_CLOSED') {
+      if (
+        stepped.closedVolumeLots > prevClosedLots &&
+        stepped.status === 'PARTIAL_CLOSED'
+      ) {
         const latestDeal = stepped.deals[stepped.deals.length - 1];
         const execKey = `${stepped.positionId}-${latestDeal.dealId}`;
         if (!this.state.processedExecutionIds.includes(execKey)) {
@@ -436,8 +773,6 @@ export class QuantLabOrchestrator {
           stepped,
           systemTime
         );
-        const finalDeal =
-          reconciledPosition.deals[reconciledPosition.deals.length - 1];
         const execKey = `${reconciledPosition.positionId}-RECONCILED`;
 
         if (
@@ -445,8 +780,6 @@ export class QuantLabOrchestrator {
           !this.state.processedExecutionIds.includes(execKey)
         ) {
           this.state.processedExecutionIds.push(execKey);
-          // Add the final close deal's net PnL (and entry cost if not yet settled)
-          // Note: balanceUsd is cleanly tracked as initialBalanceUsd + sum of netPnlUsd of reconciled closed positions + realized partial deals
           this.state.closedPositions.push(reconciledPosition);
           this.state.reconciliations.push(record);
           closedPositionIds.push(reconciledPosition.positionId);
@@ -457,8 +790,17 @@ export class QuantLabOrchestrator {
             timestampMarket: candle.closeTime,
             cycleId,
             team: 'TEAM_1_EXECUTION',
-            level: 'INFO',
-            eventCode: 'POSITION_CLOSED_RECONCILED',
+            level:
+              reconciledPosition.exitReason === 'FRIDAY_15_15_CUTOFF' ||
+              reconciledPosition.exitReason === 'MISSED_CUTOFF_FIRST_VALID_QUOTE'
+                ? 'WARN'
+                : 'INFO',
+            eventCode:
+              reconciledPosition.exitReason === 'MISSED_CUTOFF_FIRST_VALID_QUOTE'
+                ? 'MISSED_CUTOFF_CLOSED_FIRST_VALID_QUOTE'
+                : reconciledPosition.exitReason === 'FRIDAY_15_15_CUTOFF'
+                ? 'FRIDAY_15_15_POSITION_FLATTENED'
+                : 'POSITION_CLOSED_RECONCILED',
             messageVi: `${record.summaryVi} (Lý do thoát: ${reconciledPosition.exitReasonVi})`,
           });
         } else if (record.status !== 'RECONCILED_OK') {
@@ -469,13 +811,21 @@ export class QuantLabOrchestrator {
       }
     }
     this.state.openPositions = remainingOpenPositions;
+    this.state.slOvershootP95 = computeSlOvershootP95Buffer(this.state.closedPositions);
 
     // Step active parallel shadow positions on this closed candle
     const openShadows = this.state.openShadowPositions!;
     for (const outcome of this.state.shadowOutcomes) {
       const position = openShadows[outcome.shadowId];
       if (!position) continue;
-      const stepped = stepOpenPositionOnCandle(position, cycleId, candle, systemTime, this.ticks?.within(candle));
+      const stepped = stepOpenPositionOnCandle(
+        position,
+        cycleId,
+        candle,
+        systemTime,
+        resolveBarQuotes(),
+        this.state.brokerSchedule
+      );
       if (stepped.status === 'CLOSED') {
         this.closeShadow(outcome, stepped, nextIndex);
         delete openShadows[outcome.shadowId];
@@ -530,14 +880,15 @@ export class QuantLabOrchestrator {
     let riskDecision = undefined;
     let signalId: string | undefined = undefined;
     let openedPositionId: string | undefined = undefined;
-    const quote = this.ticks?.firstAfterClose(candle);
+    const quote = customFirstQuoteAfterClose ?? this.ticks?.firstAfterClose(candle);
     const executionCandle = quote
       ? { ...candle, spreadPts: Math.ceil((quote.ask - quote.bid) * 100 - 1e-8) }
       : candle;
     const canQuote = !this.ticks || quote !== undefined;
 
     if (
-      canQuote && coordinatorDecision.action === 'SELECT_STRATEGY' &&
+      canQuote &&
+      coordinatorDecision.action === 'SELECT_STRATEGY' &&
       coordinatorDecision.selectedCandidate
     ) {
       const selected = coordinatorDecision.selectedCandidate;
@@ -551,11 +902,14 @@ export class QuantLabOrchestrator {
           signalId,
           candidate: selected,
           openPositions: this.state.openPositions,
+          closedPositions: this.state.closedPositions,
           currentDrawdownPct: this.state.currentDrawdownPct,
           dailyDrawdownPct: this.state.dailyDrawdown.currentPct,
           riskLimits: this.state.riskLimits,
           requestedLots: 0.5,
           accountEquityUsd: decisionEquityUsd,
+          schedule: this.state.brokerSchedule,
+          scheduleEvaluation,
           systemTime,
         });
 
@@ -616,19 +970,39 @@ export class QuantLabOrchestrator {
     // candidates on this opportunity are tracked in parallel for comparison!
     // ========================================================================
     const shadowOutcomeIds: string[] = [];
-    if (canQuote && regimeClassification.allowTrading && executionCandle.spreadPts <= this.state.riskLimits.maxSpreadPtsAllowed) {
+    const scheduleAllowsNew = !scheduleEvaluation || scheduleEvaluation.allowNewEntries;
+    if (
+      canQuote &&
+      scheduleAllowsNew &&
+      regimeClassification.allowTrading &&
+      executionCandle.spreadPts <= this.state.riskLimits.maxSpreadPtsAllowed
+    ) {
       const baselineTarget = baselinePolicy.mapping[regimeClassification.regime];
       const researchLimits = {
-        ...this.state.riskLimits, killSwitchActive: false, haltNewPositionsByLearner: false,
+        ...this.state.riskLimits,
+        killSwitchActive: false,
+        haltNewPositionsByLearner: false,
       };
       for (const cand of candidates) {
         if (cand.eligibleToEnter) {
           // Counterfactual entries share decision-time equity and order limits.
           // Portfolio occupancy and the active account halt apply to execution only.
           const order = evaluateRiskGate({
-            cycleId, candle: executionCandle, quote, signalId: `SHDW-${cycleId}-${cand.strategyId}-${cand.version}`,
-            candidate: cand, openPositions: [], currentDrawdownPct: 0, dailyDrawdownPct: 0,
-            riskLimits: researchLimits, requestedLots: 0.5, accountEquityUsd: decisionEquityUsd, systemTime,
+            cycleId,
+            candle: executionCandle,
+            quote,
+            signalId: `SHDW-${cycleId}-${cand.strategyId}-${cand.version}`,
+            candidate: cand,
+            openPositions: [],
+            closedPositions: this.state.closedPositions,
+            currentDrawdownPct: 0,
+            dailyDrawdownPct: 0,
+            riskLimits: researchLimits,
+            requestedLots: 0.5,
+            accountEquityUsd: decisionEquityUsd,
+            schedule: this.state.brokerSchedule,
+            scheduleEvaluation,
+            systemTime,
           });
           if (!order.approved) continue;
           const wasActive =
@@ -677,21 +1051,25 @@ export class QuantLabOrchestrator {
 
     // ========================================================================
     // STEP 6: Team 2 (Research & Validation) Automatic Trigger Check
-    // Runs on schedule / sufficient new completed outcomes:
-    // - Cycle 18: Early check demonstrating insufficient sample handling
     // ========================================================================
     let learningRunId: string | undefined = undefined;
     let policyChangedTo: string | undefined = undefined;
 
     const scheduledLearningCycles = [18, 34, 48, 64];
     const recurringLearningCycle = nextIndex > 64 && (nextIndex - 64) % 16 === 0;
-    if (scheduledLearningCycles.includes(nextIndex) || recurringLearningCycle ||
-        nextIndex === this.dataset.candles.length) {
+    if (
+      scheduledLearningCycles.includes(nextIndex) ||
+      recurringLearningCycle ||
+      nextIndex === this.dataset.candles.length
+    ) {
       const lrResult = this.runResearchAndValidationCycle(
         cycleId,
         candle.closeTime,
         `Đạt mốc lịch trình kiểm định Walk-Forward tự động tại chu kỳ ${cycleId} (Nến ${nextIndex}/${this.dataset.candles.length})`,
-        systemTime, undefined, undefined, false
+        systemTime,
+        undefined,
+        undefined,
+        false
       );
       learningRunId = lrResult.learningRun.runId;
       if (lrResult.learningRun.resultingPolicyId !== lrResult.learningRun.previousPolicyId) {
@@ -717,6 +1095,7 @@ export class QuantLabOrchestrator {
       candleIndex: nextIndex,
       candle,
       validation,
+      scheduleEvaluation,
       regimeClassification,
       coordinatorDecision,
       riskDecision,
@@ -766,13 +1145,16 @@ export class QuantLabOrchestrator {
       decisionMarketTime,
       systemTime,
       triggerReasonVi,
-      allShadowOutcomes: this.state.shadowOutcomes.filter((sample) => sample.riskSizedVolumeLots !== undefined),
+      allShadowOutcomes: this.state.shadowOutcomes.filter(
+        (sample) => sample.riskSizedVolumeLots !== undefined
+      ),
       reconciledPositions: this.state.closedPositions,
       activePolicy,
       baselinePolicy,
       allPolicies: this.state.policies,
       minSamplesPerRegime: this.ticks
-        ? Math.max(TICK_MIN_SAMPLES_PER_REGIME, customMinSamples ?? 0) : customMinSamples,
+        ? Math.max(TICK_MIN_SAMPLES_PER_REGIME, customMinSamples ?? 0)
+        : customMinSamples,
       degradationLossThresholdUsd: customDegradationThresholdUsd,
       portfolioCapacity: riskLimitsBefore,
     });
@@ -868,7 +1250,6 @@ export class QuantLabOrchestrator {
   }
 
   private recalculateAccountMetrics(): void {
-    // Realized net PnL from closed reconciled positions + realized partial deals on currently open positions
     const closedNetPnl = this.state.closedPositions.reduce(
       (sum, p) => sum + p.netPnlUsd,
       0
@@ -980,13 +1361,19 @@ export class QuantLabOrchestrator {
     const reconciliationsUsed = this.state.reconciliations.filter((r) =>
       learningRun.reconciledPositionIdsUsed.includes(r.positionId)
     );
-    const exactSampleIds = learningRun.trainingSampleIds && learningRun.validationSampleIds
-      ? new Set([...learningRun.trainingSampleIds, ...learningRun.validationSampleIds]) : undefined;
+    const exactSampleIds =
+      learningRun.trainingSampleIds && learningRun.validationSampleIds
+        ? new Set([
+            ...learningRun.trainingSampleIds,
+            ...learningRun.validationSampleIds,
+          ])
+        : undefined;
     const cutoffMs = Date.parse(learningRun.executedAtMarketTime);
-    const shadowOutcomesUsed = this.state.shadowOutcomes.filter(
-      (s) =>
-        exactSampleIds ? exactSampleIds.has(s.shadowId) :
-          learningRun.sampleCycleIdsUsed.includes(s.cycleId) && Boolean(s.closeMarketTime) &&
+    const shadowOutcomesUsed = this.state.shadowOutcomes.filter((s) =>
+      exactSampleIds
+        ? exactSampleIds.has(s.shadowId)
+        : learningRun.sampleCycleIdsUsed.includes(s.cycleId) &&
+          Boolean(s.closeMarketTime) &&
           Date.parse(s.closeMarketTime!) <= cutoffMs
     );
     const resultingPolicy = this.state.policies.find(

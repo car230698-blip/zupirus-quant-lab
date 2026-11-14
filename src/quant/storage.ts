@@ -1,10 +1,15 @@
 import fs from 'fs';
 import path from 'path';
+import { cloneBrokerSchedule, evaluateMarketSchedule } from './marketSchedule.ts';
+import { cloneRiskLimits, computeSlOvershootP95Buffer } from './riskGate.ts';
 import {
   BASELINE_POLICY_ID,
   createBaselinePolicyRecord,
 } from './strategies.ts';
-import { cloneRiskLimits } from './riskGate.ts';
+import {
+  createInitialDataSourceTelemetry,
+  createInitialTickIngestionState,
+} from './tickIngestor.ts';
 import {
   QuantSystemState,
   SystemJournalEntry,
@@ -60,9 +65,13 @@ export class DurableQuantStorage {
   ): QuantSystemState {
     const baselinePolicy = createBaselinePolicyRecord(initialMarketTime, systemTime);
     const initialBalanceUsd = 10000;
+    const brokerSchedule = cloneBrokerSchedule({ updatedAtSystemTime: systemTime });
+    const lastScheduleEvaluation = evaluateMarketSchedule(initialMarketTime, brokerSchedule);
+    const slOvershootP95 = computeSlOvershootP95Buffer([]);
+    const tickIngestionState = createInitialTickIngestionState('REPLAY_DATASET');
 
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       executionMode: 'SIMULATION_ONLY',
       symbol: 'XAUUSD',
       timeframe: 'M15',
@@ -89,6 +98,11 @@ export class DurableQuantStorage {
       processedExecutionIds: [],
 
       riskLimits: cloneRiskLimits(),
+      brokerSchedule,
+      lastScheduleEvaluation,
+      slOvershootP95,
+      dataSourceTelemetry: tickIngestionState.telemetry,
+      tickIngestionState,
 
       activePolicyId: BASELINE_POLICY_ID,
       baselinePolicyId: BASELINE_POLICY_ID,
@@ -122,11 +136,11 @@ export class DurableQuantStorage {
         teamId: 'TEAM_ANALYSIS_EXECUTION',
         teamNameVi: 'Đội 1: Phân tích & Thực thi (Analysis & Execution)',
         isActive: false,
-        currentTaskVi: 'Sẵn sàng nhận nến XAUUSD M15 đã đóng từ bộ phát lại',
+        currentTaskVi: 'Sẵn sàng nhận nến XAUUSD M15 đã đóng từ bộ phát lại hoặc luồng tick MT5 Demo',
         lastCompletedTaskVi: 'Khởi tạo trạng thái ban đầu',
         lastCompletedMarketTime: null,
         lastCompletedSystemTime: systemTime,
-        waitStateReasonVi: 'Đang chờ chu kỳ phát lại đầu tiên',
+        waitStateReasonVi: 'Đang chờ chu kỳ phát lại hoặc lô báo giá đầu tiên',
         lastErrorVi: null,
         recoveryStatusVi: null,
         processedCount: 0,
@@ -161,7 +175,31 @@ export class DurableQuantStorage {
         parsed.restartCount = (parsed.restartCount || 0) + 1;
         parsed.lastRestartRecoveredAtSystemTime = now;
         parsed.lastUpdatedSystemTime = now;
-        parsed.totalReplayCandles = totalReplayCandles;
+        parsed.totalReplayCandles = Math.max(
+          totalReplayCandles,
+          parsed.totalReplayCandles || 0
+        );
+
+        if (!parsed.brokerSchedule) {
+          parsed.brokerSchedule = cloneBrokerSchedule({ updatedAtSystemTime: now });
+        }
+        if (!parsed.lastScheduleEvaluation) {
+          parsed.lastScheduleEvaluation = evaluateMarketSchedule(
+            parsed.lastProcessedMarketTime || '2026-03-02T08:00:00.000Z',
+            parsed.brokerSchedule
+          );
+        }
+        parsed.slOvershootP95 = computeSlOvershootP95Buffer(parsed.closedPositions || []);
+        if (!parsed.tickIngestionState) {
+          parsed.tickIngestionState = createInitialTickIngestionState('REPLAY_DATASET');
+        }
+        if (!parsed.dataSourceTelemetry) {
+          parsed.dataSourceTelemetry =
+            parsed.tickIngestionState.telemetry ||
+            createInitialDataSourceTelemetry('REPLAY_DATASET');
+        } else {
+          parsed.tickIngestionState.telemetry = parsed.dataSourceTelemetry;
+        }
 
         const recoveryEntry: SystemJournalEntry = {
           entryId: `JRN-RESTART-${parsed.restartCount}-${Date.now()}`,

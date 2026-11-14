@@ -17,8 +17,12 @@ services:
       - EXECUTION_MODE=SIMULATION_ONLY
       - DATA_DIR=/app/data/runtime
       - REPLAY_FILE=/app/data/xauusd_m15_replay.json
-      - REPLAY_INTERVAL_MS=800
-      - AUTO_START_LOOP=true
+      - REPLAY_INTERVAL_MS=${REPLAY_INTERVAL_MS:-800}
+      - AUTO_START_LOOP=${AUTO_START_LOOP:-true}
+      - ENFORCE_STRICT_AUTH=${ENFORCE_STRICT_AUTH:-false}
+      - ADMIN_AUTH_TOKEN=${ADMIN_AUTH_TOKEN:-zupirus-admin-demo-token}
+      - VIEWER_AUTH_TOKEN=${VIEWER_AUTH_TOKEN:-zupirus-viewer-demo-token}
+      - COLLECTOR_AUTH_TOKEN=${COLLECTOR_AUTH_TOKEN:-zupirus-collector-demo-token}
     volumes:
       - zupirus_quant_lab_data:/app/data/runtime
     healthcheck:
