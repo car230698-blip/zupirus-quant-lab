@@ -1,3 +1,4 @@
+import { fetchPositionTraceById, fetchLearningTraceById } from '../api/quantApi.ts';
 import React, { useState } from 'react';
 import type { AgentActivitySnapshot } from '../quant/agentActivityTracker.ts';
 import type { DualCostStressComparison } from '../quant/costStress.ts';
@@ -19,6 +20,13 @@ export type AdminSubTabId =
   | 'CYCLE_INSPECTOR'
   | 'TRACEABILITY_STRESS';
 
+export const ADMIN_TABS = [
+  { id: 'AGENT_ACTIVITY', labelVi: 'Hoạt động' },
+  { id: 'WALK_FORWARD', labelVi: 'Kiểm định' },
+  { id: 'CYCLE_INSPECTOR', labelVi: 'Chu kỳ' },
+  { id: 'TRACEABILITY_STRESS', labelVi: 'Truy vết' },
+] as const;
+
 export interface AdminOperationsViewProps {
   state: QuantSystemState;
   currentRole: UserRole;
@@ -29,6 +37,7 @@ export interface AdminOperationsViewProps {
   authToken: string;
   simulatedHost?: string | null;
   initialSubTab?: AdminSubTabId;
+  onRefreshReports: () => void;
   actionBusy: boolean;
   actionFeedbackVi: string | null;
   onStepNextCandle: () => void;
@@ -47,6 +56,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
   simulatedHost,
   initialSubTab = 'AGENT_ACTIVITY',
   actionBusy,
+  onRefreshReports,
   actionFeedbackVi,
   onStepNextCandle,
   onToggleAutoLoop,
@@ -126,26 +136,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
           role="navigation"
           aria-label="Các phân khu quản trị định lượng"
         >
-          {(
-            [
-              {
-                id: 'AGENT_ACTIVITY',
-                label: 'Hoạt động',
-              },
-              {
-                id: 'WALK_FORWARD',
-                label: 'Kiểm định',
-              },
-              {
-                id: 'CYCLE_INSPECTOR',
-                label: 'Chu kỳ',
-              },
-              {
-                id: 'TRACEABILITY_STRESS',
-                label: 'Truy vết',
-              },
-            ] as const
-          ).map((tab) => {
+          {ADMIN_TABS.map((tab) => {
             const active = subTab === tab.id;
             return (
               <button
@@ -159,7 +150,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
                 }`}
               >
-                {tab.label}
+                {tab.labelVi}
               </button>
             );
           })}
@@ -178,8 +169,9 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
       {subTab === 'WALK_FORWARD' && (
         <WalkForwardSection
           state={state}
-          dataProvenance={agentActivity.dataProvenance}
-          fixturesReport={fixturesReport}
+          fixtureReport={fixturesReport}
+          actionPending={actionBusy}
+          onRefreshReports={onRefreshReports}
         />
       )}
 
@@ -188,9 +180,11 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
       {subTab === 'TRACEABILITY_STRESS' && (
         <TraceabilityAndStressSection
           state={state}
-          costComparison={costComparison}
-          authToken={authToken}
-          simulatedHost={simulatedHost}
+          stressReport={costComparison}
+          actionPending={actionBusy}
+          onRefreshReports={onRefreshReports}
+          onFetchPositionTrace={id => fetchPositionTraceById(id, authToken, simulatedHost)}
+          onFetchLearningTrace={id => fetchLearningTraceById(id, authToken, simulatedHost)}
         />
       )}
     </div>

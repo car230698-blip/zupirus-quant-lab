@@ -64,7 +64,6 @@ export const WalkForwardSection: React.FC<WalkForwardSectionProps> = ({
               : 'Đang cho phép mở vị thế theo quy tắc rủi ro'
           }
           tone={state.riskLimits.haltNewPositionsByLearner ? 'rose' : 'cyan'}
-          emphasis="primary"
         />
 
         <MetricCard

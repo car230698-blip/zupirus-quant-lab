@@ -92,6 +92,11 @@ export async function createQuantServer(
     liveTicks,
   });
 
+  if (process.env.ENABLE_COPY_DEMO_PILOT === 'true') {
+    const { registerDemoCopyRoutes } = await import('./src/server/demoCopyRoutes.ts');
+    registerDemoCopyRoutes(app, dataDir, auth.requireRoles(['ADMIN'], true));
+  }
+
   if (customOptions?.attachFrontend !== false) {
     const distPath = path.join(__dirname, 'dist');
     const useStaticDist =

@@ -163,6 +163,7 @@ export function App() {
             recentEventIds={recentEventIds}
             authToken={authToken}
             simulatedHost={simulatedHost}
+            onRefreshReports={() => { void refreshAll(true); }}
             actionBusy={actionBusy}
             actionFeedbackVi={actionFeedbackVi}
             onStepNextCandle={stepNextCandle}

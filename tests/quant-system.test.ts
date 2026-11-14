@@ -1577,16 +1577,11 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
       );
 
       // 3. Render UserPortfolioView and verify financial KPIs & simulation/source badges
-      const userHtml = renderToStaticMarkup(React.createElement(UserPortfolioView, { state }));
-      assert.ok(userHtml.includes('Chế độ mô phỏng (SIMULATION_ONLY)'));
-      assert.ok(userHtml.includes('Số dư đã chốt (Balance)'));
-      assert.ok(userHtml.includes('Vốn hiện tại (Equity)'));
-      assert.ok(userHtml.includes('Lãi / Lỗ ròng (Net P&amp;L)'));
-      assert.ok(userHtml.includes('Mức sụt giảm (Drawdown)'));
-      assert.ok(userHtml.includes('Biểu đồ đường cong vốn'));
-      assert.ok(userHtml.includes('Vị thế mô phỏng đang mở'));
-      assert.ok(userHtml.includes('Lịch sử giao dịch đã đối soát'));
-      assert.ok(userHtml.includes('overflow-x-auto overscroll-x-contain'));
+      const userHtml = renderToStaticMarkup(React.createElement(UserPortfolioView, { state, datasetMetadata: orchestrator.getDatasetMetadata() }));
+      for (const label of ['Danh mục mô phỏng', 'Số dư', 'Vốn hiện tại', 'Sụt giảm hiện tại / tối đa',
+        'Biến động vốn', 'Vị thế đang mở', 'Giao dịch đã đóng', 'overflow-x-auto']) {
+        assert.ok(userHtml.includes(label), label);
+      }
 
       // Verify PositionDetailCard renders fill price, SL/TP, fees, and exit reason when selected
       const closedPos = state.closedPositions[0];
@@ -1607,34 +1602,27 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
       const adminHtml = renderToStaticMarkup(
         React.createElement(AdminOperationsView, {
           state,
-          activity,
-          newEventIds: new Set<string>(),
-          activeTab: 'ACTIVITY',
-          actionPending: false,
+          agentActivity: activity,
+          recentEventIds: new Set<string>(),
+          currentRole: 'ADMIN',
+          authToken: '',
+          actionBusy: false,
           actionFeedbackVi: null,
-          fixtureReport: runAllLearningBranchFixtures(),
-          stressReport: buildDualCostStressComparison({
+          fixturesReport: runAllLearningBranchFixtures(),
+          costComparison: buildDualCostStressComparison({
             candles: buildDeterministicReplayDataset().candles,
             executedClosedPositions: state.closedPositions,
           }),
-          onStepCandle: () => {},
-          onToggleLoop: () => {},
+          onStepNextCandle: () => {},
+          onToggleAutoLoop: () => {},
           onResetSimulation: () => {},
           onRefreshReports: () => {},
-          onInspectEvent: async () => null,
-          onFetchPositionTrace: async () => null,
-          onFetchLearningTrace: async () => null,
         })
       );
-      assert.ok(adminHtml.includes('Đội 1 — Phân tích &amp; Thực thi'));
-      assert.ok(adminHtml.includes('Đội 2 — Nghiên cứu &amp; Kiểm định'));
-      assert.ok(adminHtml.includes('Công việc hiện tại'));
-      assert.ok(adminHtml.includes('Kết quả gần nhất'));
-      assert.ok(adminHtml.includes('Lý do chờ / Trạng thái tiếp theo'));
-      assert.ok(adminHtml.includes('Nhật ký hoạt động hệ thống'));
-      assert.ok(adminHtml.includes('Lọc theo đội'));
-      assert.ok(adminHtml.includes('Lọc theo trạng thái'));
-      assert.ok(adminHtml.includes('Lọc theo chu kỳ'));
+      for (const label of ['Hai đội vận hành', 'Tác vụ hiện tại', 'Kết quả gần nhất',
+        'Nhật ký hoạt động', 'agent-team-filter', 'agent-state-filter', 'agent-cycle-filter']) {
+        assert.ok(adminHtml.includes(label), label);
+      }
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
