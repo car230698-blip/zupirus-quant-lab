@@ -132,3 +132,16 @@ docker compose -p zupirus-quant-lab down
 - **Nơi lưu trạng thái bền vững khi chạy**:
   - Đường dẫn mặc định (Local): `./data/runtime/quant-state.json` (ghi nguyên tử qua file tạm `.tmp`) và `./data/runtime/journal.ndjson` (nhật ký sự kiện chỉ ghi nối thêm - append-only).
   - Đường dẫn trong Docker Compose: `/app/data/runtime` được ánh xạ vào Docker named volume `zupirus_quant_lab_data`.
+
+### Kiểm định từ báo giá tick MT5
+
+```bash
+node scripts/import-mt5-replay.mjs bars.csv ticks.csv /tmp/xau-replay.json
+node scripts/pack-mt5-ticks.mjs ticks.csv /tmp/xau-ticks.bin
+HOST=127.0.0.1 PORT=3200 DATA_DIR=/tmp/xau-tick-state \
+  REPLAY_FILE=/tmp/xau-replay.json TICKS_FILE=/tmp/xau-ticks.bin npm start
+```
+
+Dùng hai file Exness UTC cùng khoảng thời gian. Chỉ đưa nến M15 đã đóng hoàn toàn vào bộ phát lại. Dùng thư mục trạng thái riêng cho mỗi bộ dữ liệu và chế độ. Có thể khởi động lại với cùng hai file và cùng thư mục để tiếp tục.
+
+Tín hiệu vẫn lấy từ nến đã đóng. Mô phỏng khớp theo Bid/Ask đầu tiên tại hoặc sau giờ đóng nến, với thời hạn chờ tối đa 5 giây. Nếu thiếu báo giá trong thời hạn này, bỏ qua cơ hội. Cả vị thế chính và mẫu nghiên cứu đều xử lý SL/TP theo thứ tự tick. TP dùng giá mục tiêu, SL dùng giá báo khi chạm hoặc vượt ngưỡng. Phí theo cấu hình mô phỏng hiện có, chưa cộng độ trễ đặt lệnh hoặc trượt giá ngoài báo giá. Khi bỏ biến `TICKS_FILE`, hệ thống chạy mô phỏng theo nến như trước.

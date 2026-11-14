@@ -26,6 +26,7 @@ import {
 } from '../src/quant/simBroker.ts';
 import { reconcileClosedPosition } from '../src/quant/reconciliation.ts';
 import { latestClosedContext } from '../src/quant/timeframes.ts';
+import { TickReplay } from '../src/quant/tickReplay.ts';
 import { executeWalkForwardLearningRun } from '../src/quant/researchTeam.ts';
 import { QuantLabOrchestrator } from '../src/quant/orchestrator.ts';
 import { createQuantServer } from '../server.ts';
@@ -764,6 +765,44 @@ it('Chạy kiểm định giữa phiên dài và mở vị thế đa khung sau k
       position.entryMarketTime > promotion.executedAtMarketTime
     ));
     assert.ok(state.learningRuns.some((run) => run.decisionReasonVi.includes('giao dịch ngoài mẫu')));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('Tick replay fills at Ask and preserves TP1 before a later Bid stop in the same bar', () => {
+  const [signalBar, executionBar] = buildDeterministicReplayDataset().candles;
+  const start = Date.parse(signalBar.closeTime);
+  const directory = createTempDir('tick-order');
+  try {
+    const file = path.join(directory, 'ticks.bin');
+    const records = [[start - 1, 99, 100], [start + 50, 100, 100.05],
+      [start + 75, 102.1, 102.15], [start + 100, 98.5, 98.55]];
+    const bytes = Buffer.alloc(records.length * 24);
+    for (const [i, row] of records.entries()) {
+      for (const [j, value] of row.entries()) bytes.writeDoubleLE(value, i * 24 + j * 8);
+    }
+    fs.writeFileSync(file, bytes);
+    const replay = new TickReplay(file);
+    const quote = replay.firstAfterClose(signalBar);
+    assert.equal(quote?.time, start + 50);
+    const position = openSimulatedPosition({
+      executionMode: 'SIMULATION_ONLY', positionId: 'TICK', signalId: 'SIGNAL',
+      cycleId: '1', candle: signalBar, regime: 'TRENDING',
+      openedUnderPolicyId: BASELINE_POLICY_ID, volumeLots: 0.10, quote,
+      candidate: {
+        strategyId: 'STRAT_TREND_FOLLOW', strategyNameVi: 'Trend', version: 'test',
+        family: 'TREND_FOLLOWING', eligibleToEnter: true, direction: 'BUY',
+        entryPrice: 100, stopLoss: 99, takeProfit1: 102, takeProfit2: 104,
+        expiryBars: 6, partialCloseRatio: 0.5, entryConditionSummaryVi: '', signalStrength: 1,
+      },
+    });
+    assert.equal(position.fillEntryPrice, 100.05);
+    const closed = stepOpenPositionOnCandle(position, '2', executionBar, undefined, replay.within(executionBar));
+    assert.equal(closed.exitReason, 'SL_AFTER_PARTIAL_TP1');
+    assert.deepEqual(closed.deals.map((deal) => deal.fillPrice), [100.05, 102, 98.5]);
+    assert.equal(closed.netPnlUsd, 1.29); // Per-deal commissions and spreads round to cents.
+    assert.equal(closed.remainingVolumeLots, 0);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

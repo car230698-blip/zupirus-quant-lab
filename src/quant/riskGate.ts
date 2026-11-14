@@ -1,3 +1,4 @@
+import type { ReplayQuote } from './tickReplay.ts';
 import { COMMISSION_PER_LOT_SIDE_USD, CONTRACT_SIZE_OZ, computeDeterministicSlippagePts } from './simBroker.ts';
 import {
   M15Candle,
@@ -72,6 +73,7 @@ export function evaluateRiskGate(params: {
   riskLimits: RiskLimitsConfig;
   requestedLots?: number;
   accountEquityUsd?: number;
+  quote?: ReplayQuote;
   systemTime?: string;
 }): RiskDecision {
   const {
@@ -85,6 +87,7 @@ export function evaluateRiskGate(params: {
     riskLimits,
     requestedLots = 0.5,
     accountEquityUsd,
+    quote,
     systemTime = new Date().toISOString(),
   } = params;
 
@@ -294,18 +297,24 @@ export function evaluateRiskGate(params: {
   const costPerLot = CONTRACT_SIZE_OZ * (stopDistance + candle.spreadPts * 0.01 +
     2 * computeDeterministicSlippagePts(candle) * 0.01 + 0.02) +
     2 * COMMISSION_PER_LOT_SIDE_USD;
+  const tickStopDistance = quote && (candidate.direction === 'BUY'
+    ? quote.ask - candidate.stopLoss : candidate.stopLoss - quote.bid);
+  const quoteWithinLevels = !quote || (tickStopDistance !== undefined && tickStopDistance > 0 &&
+    (candidate.direction === 'BUY' ? quote.ask < candidate.takeProfit1 : quote.bid > candidate.takeProfit1));
+  const sizedCost = tickStopDistance === undefined ? costPerLot :
+    CONTRACT_SIZE_OZ * (tickStopDistance + 0.02) + 2 * COMMISSION_PER_LOT_SIDE_USD;
   const approvedLots = accountEquityUsd === undefined ? requestedLots :
     Math.min(requestedLots, Math.floor(
-      (accountEquityUsd * riskLimits.defaultRiskPerTradePct / 100 / costPerLot) * 100
+      (accountEquityUsd * riskLimits.defaultRiskPerTradePct / 100 / sizedCost) * 100
     ) / 100);
-  if (!Number.isFinite(approvedLots) || approvedLots < 0.01) {
+  if (!quoteWithinLevels || !Number.isFinite(approvedLots) || approvedLots < 0.01) {
     return {
       cycleId, candleId: candle.candleId, signalId, marketTime: candle.closeTime, systemTime,
       approved: false, vetoed: true, requestedLots, approvedLots: 0,
       currentOpenPositions: currentOpenCount, currentDrawdownPct, dailyDrawdownPct,
       spreadPts: candle.spreadPts, limitsChecked: { ...riskLimits },
-      vetoCode: 'MAX_VOLUME_EXCEEDED',
-      reasonVi: 'Ngân sách rủi ro không đủ cho 0,01 lot ở khoảng cách dừng lỗ hiện tại.',
+      vetoCode: quoteWithinLevels ? 'MAX_VOLUME_EXCEEDED' : 'INVALID_STOP_DISTANCE',
+      reasonVi: !quoteWithinLevels ? 'Giá khớp đã vượt SL hoặc TP1.' : 'Ngân sách rủi ro không đủ cho 0,01 lot ở khoảng cách dừng lỗ hiện tại.',
     };
   }
 

@@ -1,3 +1,4 @@
+import { TickReplay } from './tickReplay.ts';
 import {
   ensureReplayDatasetFile,
   validateIncomingCandle,
@@ -38,6 +39,7 @@ import {
 export interface OrchestratorOptions {
   dataDir: string;
   replayFilePath: string;
+  ticksFilePath?: string;
   replayIntervalMs?: number;
   autoStart?: boolean;
 }
@@ -45,12 +47,18 @@ export interface OrchestratorOptions {
 export class QuantLabOrchestrator {
   private readonly storage: DurableQuantStorage;
   private readonly dataset: ReplayDataset;
+  private readonly ticks?: TickReplay;
   private state: QuantSystemState;
   private timer: NodeJS.Timeout | null = null;
   private lastHeartbeatSystemMs: number = Date.now();
 
   constructor(options: OrchestratorOptions) {
     this.dataset = ensureReplayDatasetFile(options.replayFilePath);
+    this.ticks = options.ticksFilePath ? new TickReplay(options.ticksFilePath) : undefined;
+    const ticks = this.ticks;
+    if (ticks && this.dataset.candles.some((candle) => ticks.within(candle).next().done)) {
+      throw new Error('Dữ liệu tick thiếu báo giá trong ít nhất một nến phát lại.');
+    }
     const intervalMs = options.replayIntervalMs ?? 800;
     this.storage = new DurableQuantStorage({ dataDir: options.dataDir });
 
@@ -59,6 +67,14 @@ export class QuantLabOrchestrator {
       intervalMs
     );
     this.state = state;
+    const replayMode = this.ticks ? 'TICK' : 'BAR';
+    if (state.replayCursorIndex > 0 &&
+        ((state.replayMode ?? 'BAR') !== replayMode ||
+         (state.replayDatasetId && state.replayDatasetId !== this.dataset.metadata.datasetId))) {
+      throw new Error('Dùng thư mục trạng thái riêng khi đổi chế độ hoặc bộ dữ liệu phát lại.');
+    }
+    state.replayMode = replayMode;
+    state.replayDatasetId = this.dataset.metadata.datasetId;
     this.restoreOpenShadows();
     this.state.replayIntervalMs = intervalMs;
     const activePolicy = this.state.policies.find((policy) => policy.policyId === this.state.activePolicyId);
@@ -209,6 +225,9 @@ export class QuantLabOrchestrator {
       this.dataset.candles.length,
       this.state.replayIntervalMs
     );
+    this.state.replayMode = this.ticks ? 'TICK' : 'BAR';
+    this.state.replayDatasetId = this.dataset.metadata.datasetId;
+    this.storage.saveState(this.state);
     if (autoStart) {
       this.startAutoLoop();
     }
@@ -349,7 +368,8 @@ export class QuantLabOrchestrator {
         openPos,
         cycleId,
         candle,
-        systemTime
+        systemTime,
+        this.ticks?.within(candle)
       );
 
       // If partial close TP1 just occurred on this bar, realize partial PnL into balance
@@ -419,7 +439,7 @@ export class QuantLabOrchestrator {
     for (const outcome of this.state.shadowOutcomes) {
       const position = openShadows[outcome.shadowId];
       if (!position) continue;
-      const stepped = stepOpenPositionOnCandle(position, cycleId, candle, systemTime);
+      const stepped = stepOpenPositionOnCandle(position, cycleId, candle, systemTime, this.ticks?.within(candle));
       if (stepped.status === 'CLOSED') {
         this.closeShadow(outcome, stepped, nextIndex);
         delete openShadows[outcome.shadowId];
@@ -474,9 +494,14 @@ export class QuantLabOrchestrator {
     let riskDecision = undefined;
     let signalId: string | undefined = undefined;
     let openedPositionId: string | undefined = undefined;
+    const quote = this.ticks?.firstAfterClose(candle);
+    const executionCandle = quote
+      ? { ...candle, spreadPts: Math.ceil((quote.ask - quote.bid) * 100 - 1e-8) }
+      : candle;
+    const canQuote = !this.ticks || quote !== undefined;
 
     if (
-      coordinatorDecision.action === 'SELECT_STRATEGY' &&
+      canQuote && coordinatorDecision.action === 'SELECT_STRATEGY' &&
       coordinatorDecision.selectedCandidate
     ) {
       const selected = coordinatorDecision.selectedCandidate;
@@ -485,7 +510,8 @@ export class QuantLabOrchestrator {
       if (!this.state.processedSignalIds.includes(signalId)) {
         riskDecision = evaluateRiskGate({
           cycleId,
-          candle,
+          candle: executionCandle,
+          quote,
           signalId,
           candidate: selected,
           openPositions: this.state.openPositions,
@@ -510,7 +536,8 @@ export class QuantLabOrchestrator {
             positionId,
             signalId,
             cycleId,
-            candle,
+            candle: executionCandle,
+            quote,
             regime: regimeClassification.regime,
             openedUnderPolicyId: activePolicy.policyId,
             candidate: selected,
@@ -553,7 +580,7 @@ export class QuantLabOrchestrator {
     // candidates on this opportunity are tracked in parallel for comparison!
     // ========================================================================
     const shadowOutcomeIds: string[] = [];
-    if (regimeClassification.allowTrading && candle.spreadPts <= this.state.riskLimits.maxSpreadPtsAllowed) {
+    if (canQuote && regimeClassification.allowTrading && executionCandle.spreadPts <= this.state.riskLimits.maxSpreadPtsAllowed) {
       const baselineTarget = baselinePolicy.mapping[regimeClassification.regime];
       const researchLimits = {
         ...this.state.riskLimits, killSwitchActive: false, haltNewPositionsByLearner: false,
@@ -563,7 +590,7 @@ export class QuantLabOrchestrator {
           // Counterfactual entries share decision-time equity and order limits.
           // Portfolio occupancy and the active account halt apply to execution only.
           const order = evaluateRiskGate({
-            cycleId, candle, signalId: `SHDW-${cycleId}-${cand.strategyId}-${cand.version}`,
+            cycleId, candle: executionCandle, quote, signalId: `SHDW-${cycleId}-${cand.strategyId}-${cand.version}`,
             candidate: cand, openPositions: [], currentDrawdownPct: 0, dailyDrawdownPct: 0,
             riskLimits: researchLimits, requestedLots: 0.5, accountEquityUsd: decisionEquityUsd, systemTime,
           });
@@ -581,7 +608,8 @@ export class QuantLabOrchestrator {
 
           const { outcome, shadowPosition } = createShadowOutcomeFromCandidate({
             cycleId,
-            candle,
+            candle: executionCandle,
+            quote,
             candleIndex: nextIndex,
             regime: regimeClassification.regime,
             candidate: cand,

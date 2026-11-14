@@ -1,3 +1,4 @@
+import type { ReplayQuote } from './tickReplay.ts';
 import { openSimulatedPosition } from './simBroker.ts';
 import {
   HypothesisRecord,
@@ -100,6 +101,7 @@ export function createShadowOutcomeFromCandidate(params: {
   wasSelectedByBaselinePolicy: boolean;
   livePositionId?: string;
   volumeLots: number;
+  quote?: ReplayQuote;
 }): { outcome: ShadowCandidateOutcome; shadowPosition: SimulatedPosition } {
   const {
     cycleId,
@@ -111,6 +113,7 @@ export function createShadowOutcomeFromCandidate(params: {
     wasSelectedByBaselinePolicy,
     livePositionId,
     volumeLots,
+    quote,
   } = params;
 
   const shadowId = `SHDW-${cycleId}-${candidate.strategyId}-${candidate.version}`;
@@ -124,6 +127,7 @@ export function createShadowOutcomeFromCandidate(params: {
     openedUnderPolicyId: 'SHADOW_EVAL',
     candidate,
     volumeLots,
+    quote,
   });
 
   const outcome: ShadowCandidateOutcome = {
@@ -134,7 +138,7 @@ export function createShadowOutcomeFromCandidate(params: {
     strategyId: candidate.strategyId,
     strategyVersion: candidate.version,
     direction: candidate.direction || 'BUY',
-    entryMarketTime: candle.closeTime,
+    entryMarketTime: shadowPos.entryMarketTime,
     entryCandleIndex: candleIndex,
     status: 'OPEN',
     source: 'PARALLEL_SHADOW_SIM',

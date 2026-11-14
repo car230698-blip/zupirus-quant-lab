@@ -259,6 +259,7 @@ export interface SimulatedPosition {
   closeSystemTime?: string;
   expectedEntryPrice: number;
   fillEntryPrice: number;
+  tickEntryReference?: number;
   entrySlippagePts: number;
   entrySpreadPts: number;
   stopLoss: number;
@@ -519,6 +520,8 @@ export interface SystemJournalEntry {
 }
 
 export interface QuantSystemState {
+  replayMode?: 'BAR' | 'TICK';
+  replayDatasetId?: string;
   schemaVersion: number;
   executionMode: ExecutionMode;
   symbol: 'XAUUSD';

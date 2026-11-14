@@ -18,6 +18,7 @@ export interface ServerInstance {
 export async function createQuantServer(customOptions?: {
   dataDir?: string;
   replayFilePath?: string;
+  ticksFilePath?: string;
   replayIntervalMs?: number;
   autoStart?: boolean;
   attachFrontend?: boolean;
@@ -43,6 +44,7 @@ export async function createQuantServer(customOptions?: {
   const orchestrator = new QuantLabOrchestrator({
     dataDir,
     replayFilePath,
+    ticksFilePath: customOptions?.ticksFilePath ?? process.env.TICKS_FILE,
     replayIntervalMs,
     autoStart,
   });

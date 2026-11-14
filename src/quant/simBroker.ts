@@ -1,3 +1,4 @@
+import type { ReplayQuote } from './tickReplay.ts';
 import {
   ExecutionMode,
   M15Candle,
@@ -55,6 +56,7 @@ export function openSimulatedPosition(params: {
   systemTime?: string;
   forceBrokerRejectReasonVi?: string;
   forceOrderExpired?: boolean;
+  quote?: ReplayQuote;
 }): SimulatedPosition {
   const {
     executionMode,
@@ -69,6 +71,7 @@ export function openSimulatedPosition(params: {
     systemTime = new Date().toISOString(),
     forceBrokerRejectReasonVi,
     forceOrderExpired,
+    quote,
   } = params;
 
   assertSimulationOnlyBroker(executionMode);
@@ -149,12 +152,13 @@ export function openSimulatedPosition(params: {
     };
   }
 
-  const slippagePts = computeDeterministicSlippagePts(candle);
-  const halfSpreadUsd = (candle.spreadPts * 0.01) / 2;
+  const slippagePts = quote ? 0 : computeDeterministicSlippagePts(candle);
+  const halfSpreadUsd = quote ? (quote.ask - quote.bid) / 2 : (candle.spreadPts * 0.01) / 2;
+  const entryReference = quote ? (quote.ask + quote.bid) / 2 : expectedEntryPrice;
   const slippageUsdPerOz = slippagePts * 0.01;
   const sign = direction === 'BUY' ? 1 : -1;
 
-  const fillEntryPrice = Number(
+  const fillEntryPrice = quote ? (direction === 'BUY' ? quote.ask : quote.bid) : Number(
     (expectedEntryPrice + sign * (halfSpreadUsd + slippageUsdPerOz)).toFixed(2)
   );
 
@@ -175,14 +179,14 @@ export function openSimulatedPosition(params: {
     dealId: `${positionId}-DEAL-ENTRY`,
     cycleId,
     candleId: candle.candleId,
-    marketTime: candle.closeTime,
+    marketTime: quote ? new Date(quote.time).toISOString() : candle.closeTime,
     systemTime,
     eventType: 'ENTRY_FILL',
     volumeLots,
     expectedPrice: expectedEntryPrice,
     fillPrice: fillEntryPrice,
     slippagePts,
-    spreadPts: candle.spreadPts,
+    spreadPts: quote ? Math.round(halfSpreadUsd * 200) : candle.spreadPts,
     commissionUsd: entryCommissionUsd,
     grossPnlUsd: 0,
     netPnlUsd: Number((-initialTotalCostUsd).toFixed(2)),
@@ -207,12 +211,13 @@ export function openSimulatedPosition(params: {
     strategyVersion: candidate.version,
     direction,
     status: 'FILLED',
-    entryMarketTime: candle.closeTime,
+    entryMarketTime: entryDeal.marketTime,
+    tickEntryReference: quote ? entryReference : undefined,
     entrySystemTime: systemTime,
     expectedEntryPrice,
     fillEntryPrice,
     entrySlippagePts: slippagePts,
-    entrySpreadPts: candle.spreadPts,
+    entrySpreadPts: entryDeal.spreadPts,
     stopLoss,
     takeProfit1,
     takeProfit2,
@@ -250,7 +255,8 @@ export function stepOpenPositionOnCandle(
   position: SimulatedPosition,
   cycleId: string,
   candle: M15Candle,
-  systemTime: string = new Date().toISOString()
+  systemTime: string = new Date().toISOString(),
+  quotes?: Iterable<ReplayQuote>
 ): SimulatedPosition {
   if (
     position.status === 'CLOSED' ||
@@ -284,13 +290,16 @@ export function stepOpenPositionOnCandle(
     expectedExit: number,
     eventType: 'PARTIAL_CLOSE_TP1' | 'FINAL_CLOSE',
     dealSuffix: string,
-    notePrefixVi: string
+    notePrefixVi: string,
+    quote?: ReplayQuote
   ) => {
-    const fillExitPrice = Number(
+    const spreadUsd = quote ? (quote.ask - quote.bid) / 2 : halfSpreadUsd;
+    const slipUsd = quote ? 0 : slippageUsdPerOz;
+    const fillExitPrice = quote ? expectedExit - sign * spreadUsd : Number(
       (expectedExit - sign * (halfSpreadUsd + slippageUsdPerOz)).toFixed(2)
     );
     // Gross PnL is measured from expectedEntryPrice to expectedExit so totalCostUsd captures all spread + slippage + commission
-    const priceDiffExpected = (expectedExit - pos.expectedEntryPrice) * sign;
+    const priceDiffExpected = (expectedExit - (pos.tickEntryReference ?? pos.expectedEntryPrice)) * sign;
     const grossPnlPiece = Number(
       (lotsToClose * CONTRACT_SIZE_OZ * priceDiffExpected).toFixed(2)
     );
@@ -298,10 +307,10 @@ export function stepOpenPositionOnCandle(
       (lotsToClose * COMMISSION_PER_LOT_SIDE_USD).toFixed(2)
     );
     const spreadPiece = Number(
-      (lotsToClose * CONTRACT_SIZE_OZ * halfSpreadUsd).toFixed(2)
+      (lotsToClose * CONTRACT_SIZE_OZ * spreadUsd).toFixed(2)
     );
     const slipPiece = Number(
-      (lotsToClose * CONTRACT_SIZE_OZ * slippageUsdPerOz).toFixed(2)
+      (lotsToClose * CONTRACT_SIZE_OZ * slipUsd).toFixed(2)
     );
     const sideCost = Number((commPiece + spreadPiece + slipPiece).toFixed(2));
 
@@ -321,7 +330,7 @@ export function stepOpenPositionOnCandle(
     pos.remainingVolumeLots = Number(
       Math.max(0, pos.filledVolumeLots - pos.closedVolumeLots).toFixed(4)
     );
-    pos.exitSlippagePts = exitSlippagePts;
+    pos.exitSlippagePts = quote ? 0 : exitSlippagePts;
     pos.expectedExitPrice = expectedExit;
     pos.avgExitFillPrice = fillExitPrice;
 
@@ -330,14 +339,14 @@ export function stepOpenPositionOnCandle(
       dealId: `${pos.positionId}-DEAL-${dealSuffix}`,
       cycleId,
       candleId: candle.candleId,
-      marketTime: candle.closeTime,
+      marketTime: quote ? new Date(quote.time).toISOString() : candle.closeTime,
       systemTime,
       eventType,
       volumeLots: lotsToClose,
       expectedPrice: expectedExit,
       fillPrice: fillExitPrice,
-      slippagePts: exitSlippagePts,
-      spreadPts: candle.spreadPts,
+      slippagePts: pos.exitSlippagePts,
+      spreadPts: quote ? Math.round(spreadUsd * 200) : candle.spreadPts,
       commissionUsd: commPiece,
       grossPnlUsd: grossPnlPiece,
       netPnlUsd: dealNetPnl,
@@ -347,8 +356,50 @@ export function stepOpenPositionOnCandle(
     });
   };
 
-  // 1. Check Intra-Bar Conflict: Both SL and TP touched in the same candle -> CONSERVATIVE_SL_FIRST
-  if (slTouched && (tp1Touched || tp2Touched)) {
+  const finishAtQuote = (quote: ReplayQuote, exitPrice: number, reason: PositionExitReason) => {
+    const reference = exitPrice + sign * (quote.ask - quote.bid) / 2;
+    closePortion(pos.remainingVolumeLots, reference, 'FINAL_CLOSE',
+      `TICK-${pos.deals.length}`, EXIT_REASON_LABELS_VI[reason], quote);
+    pos.exitReason = reason;
+    pos.exitReasonVi = EXIT_REASON_LABELS_VI[reason];
+    pos.closeCycleId = cycleId;
+    pos.closeCandleId = candle.candleId;
+    pos.closeMarketTime = new Date(quote.time).toISOString();
+    pos.closeSystemTime = systemTime;
+    pos.status = 'CLOSED';
+  };
+
+  let lastQuote: ReplayQuote | undefined;
+  if (quotes) {
+    const entryTime = Date.parse(pos.entryMarketTime);
+    for (const quote of quotes) {
+      if (quote.time < entryTime) continue;
+      lastQuote = quote;
+      const price = isBuy ? quote.bid : quote.ask;
+      if (sign * (price - pos.stopLoss) <= 0) {
+        finishAtQuote(quote, price, pos.partialTp1Hit ? 'SL_AFTER_PARTIAL_TP1' : 'STOP_LOSS_HIT');
+        break;
+      }
+      if (!pos.partialTp1Hit && sign * (price - rules.takeProfit1) >= 0) {
+        const lots = Math.floor((pos.filledVolumeLots * rules.partialCloseRatio + 1e-10) * 100) / 100;
+        if (lots >= 0.01 && lots < pos.remainingVolumeLots) {
+          closePortion(lots, rules.takeProfit1 + sign * (quote.ask - quote.bid) / 2,
+            'PARTIAL_CLOSE_TP1', 'TP1', 'Đóng một phần tại TP1', quote);
+          pos.partialTp1Hit = true;
+          pos.status = 'PARTIAL_CLOSED';
+          pos.stopLoss = pos.fillEntryPrice;
+          pos.exitReasonVi = 'Đã chốt một phần tại TP1 và dời dừng lỗ về giá vào.';
+        }
+      }
+      if (sign * (price - rules.takeProfit2) >= 0) {
+        finishAtQuote(quote, rules.takeProfit2, 'TP2_FULL_TARGET');
+        break;
+      }
+    }
+    if (lastQuote && pos.remainingVolumeLots > 0 && pos.barsHeld >= rules.expiryBars) {
+      finishAtQuote(lastQuote, isBuy ? lastQuote.bid : lastQuote.ask, 'TIME_EXPIRED');
+    }
+  } else if (slTouched && (tp1Touched || tp2Touched)) {
     const lots = pos.remainingVolumeLots;
     closePortion(
       lots,
@@ -451,7 +502,9 @@ export function stepOpenPositionOnCandle(
   );
 
   if (pos.remainingVolumeLots > 0) {
-    const markMove = (candle.close - pos.fillEntryPrice) * sign;
+    if (quotes && !lastQuote) return pos;
+    const mark = lastQuote ? (isBuy ? lastQuote.bid : lastQuote.ask) : candle.close;
+    const markMove = (mark - pos.fillEntryPrice) * sign;
     pos.unrealizedPnlUsd = Number(
       (pos.remainingVolumeLots * CONTRACT_SIZE_OZ * markMove).toFixed(2)
     );
