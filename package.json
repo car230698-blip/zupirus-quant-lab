@@ -1,1 +1,23 @@
-{"name":"zupirus-ui-tests","private":true,"version":"0.1.0","description":"Optional DOM test dependency; frontend has no build step or runtime CDN","scripts":{"check":"node --check web/app.js"},"devDependencies":{"jsdom":"31.0.1"}}
+{
+  "name": "zupirus-quant-lab",
+  "private": true,
+  "version": "0.2.0",
+  "description": "ZUPIRUS Quant Lab with PostgreSQL, TimescaleDB, Redis, LangSmith, and Vercel AI SDK 6",
+  "scripts": {
+    "check": "node --check web/app.js",
+    "build:ui": "tsc -p web/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "ai": "^6.0.0",
+    "@ai-sdk/react": "^6.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^31.0.1",
+    "typescript": "^5.8.0"
+  }
+}

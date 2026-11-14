@@ -1,7 +1,7 @@
 name: zupirus
 x-app: &app
   build: .
-  image: zupirus-lab:0.1.0
+  image: zupirus-lab:0.2.0
   init: true
   restart: unless-stopped
   read_only: true
@@ -13,10 +13,47 @@ x-app: &app
   volumes:
     - lab_data:/data
   networks: [private]
+
 services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zupirus}
+      POSTGRES_USER: ${POSTGRES_USER:-zupirus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zupirus_secure_password}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-zupirus} -d $${POSTGRES_DB:-zupirus}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks: [private]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-zupirus_redis_secret}"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-zupirus_redis_secret}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks: [private]
+
   api:
     <<: *app
+    depends_on:
+      timescaledb: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zupirus.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run bash scripts/start.sh first}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
@@ -25,32 +62,56 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
       AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-true}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-zupirus-quant-lab}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
     ports: ["127.0.0.1:8080:8000"]
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz',timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 6
+
   execution:
     <<: *app
     command: [python, -m, app.engine]
     depends_on:
-      api: {condition: service_healthy}
+      api: { condition: service_healthy }
+      timescaledb: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
     healthcheck:
       test: [CMD, python, scripts/worker_health.py, execution_heartbeat]
       interval: 15s
       timeout: 5s
       retries: 3
+
   research:
     <<: *app
     command: [python, -m, app.research]
     depends_on:
-      api: {condition: service_healthy}
+      api: { condition: service_healthy }
+      timescaledb: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-true}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-zupirus-quant-lab}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
     healthcheck:
       test: [CMD, python, scripts/worker_health.py, research_heartbeat]
       interval: 15s
       timeout: 5s
       retries: 4
+
   proxy:
     image: caddy:2.10.2-alpine
     restart: unless-stopped
@@ -64,12 +125,13 @@ services:
       - caddy_config:/config
     networks: [private]
     depends_on:
-      api: {condition: service_healthy}
+      api: { condition: service_healthy }
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:2019/config/]
       interval: 30s
       timeout: 5s
       retries: 3
+
   tests:
     <<: *app
     profiles: [test]
@@ -80,9 +142,13 @@ services:
       ADMIN_PASSWORD: test-only-admin-password-123
       COOKIE_SECURE: "false"
     volumes: []
+
 volumes:
   lab_data:
+  timescaledb_data:
+  redis_data:
   caddy_data:
   caddy_config:
+
 networks:
   private:
