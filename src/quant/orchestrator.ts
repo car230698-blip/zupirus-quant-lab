@@ -21,6 +21,7 @@ import {
   createShadowOutcomeFromCandidate,
   executeWalkForwardLearningRun,
   LEARNER_VERSION,
+  TICK_MIN_SAMPLES_PER_REGIME,
 } from './researchTeam.ts';
 import { DurableQuantStorage } from './storage.ts';
 import {
@@ -770,8 +771,10 @@ export class QuantLabOrchestrator {
       activePolicy,
       baselinePolicy,
       allPolicies: this.state.policies,
-      minSamplesPerRegime: customMinSamples,
+      minSamplesPerRegime: this.ticks
+        ? Math.max(TICK_MIN_SAMPLES_PER_REGIME, customMinSamples ?? 0) : customMinSamples,
       degradationLossThresholdUsd: customDegradationThresholdUsd,
+      portfolioCapacity: riskLimitsBefore,
     });
 
     // Enforce hard invariant: Learner cannot modify core risk limits

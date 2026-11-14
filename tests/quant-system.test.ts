@@ -27,10 +27,10 @@ import {
 import { reconcileClosedPosition } from '../src/quant/reconciliation.ts';
 import { latestClosedContext } from '../src/quant/timeframes.ts';
 import { TickReplay } from '../src/quant/tickReplay.ts';
-import { executeWalkForwardLearningRun } from '../src/quant/researchTeam.ts';
+import { applyValidationCapacity, executeWalkForwardLearningRun } from '../src/quant/researchTeam.ts';
 import { QuantLabOrchestrator } from '../src/quant/orchestrator.ts';
 import { createQuantServer } from '../server.ts';
-import { ExecutionMode, M15Candle } from '../src/quant/types.ts';
+import { ExecutionMode, M15Candle, ShadowCandidateOutcome } from '../src/quant/types.ts';
 
 function createTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `zupirus-${prefix}-`));
@@ -682,7 +682,7 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
       closeMarketTime: candles[entry + 1].closeTime, netPnlUsd: pnl,
       grossPnlUsd: pnl + 2, totalCostUsd: 2, netPnlAt2xCostUsd: pnl - 2,
     });
-    const run = (validationPnl: number, winningContext: 'H1' | 'H4') => {
+    const run = (validationPnl: number, winningContext: 'H1' | 'H4', minSamplesPerRegime?: number) => {
       const samples = [1, 3, 25, 27].flatMap((entry) => {
         const pnl = entry < 20 ? 40 : validationPnl;
         return [
@@ -694,11 +694,12 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
       return executeWalkForwardLearningRun({ runId: 'OOS', triggerCycleId: 'TEST',
         decisionMarketTime: candles[29].closeTime, triggerReasonVi: 'Kiểm tra ngoài mẫu',
         allShadowOutcomes: samples, reconciledPositions: [], activePolicy: baseline,
-        baselinePolicy: baseline, allPolicies: [baseline] });
+        baselinePolicy: baseline, allPolicies: [baseline], minSamplesPerRegime });
     };
     const passed = run(45, 'H1');
     const failed = run(-45, 'H1');
     assert.equal(passed.learningRun.decision, 'PROMOTE_NEW_POLICY');
+    assert.equal(run(45, 'H1', 10).newPolicyToActivate, undefined);
     assert.equal(failed.newPolicyToActivate, undefined);
     assert.deepEqual(passed.learningRun.rankingsByRegime, failed.learningRun.rankingsByRegime);
     assert.equal(passed.learningRun.hypothesesTested[0].proposedVersion, 'v1.2.0-H1-M15');
@@ -719,7 +720,7 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
 
 });
 
-it('Chạy kiểm định giữa phiên dài và mở vị thế đa khung sau khi kích hoạt', () => {
+it('Chạy kiểm định giữa phiên dài và giữ chính sách khi mẫu vượt giới hạn danh mục', () => {
   const directory = createTempDir('long-multiframe');
   try {
     const original = buildDeterministicReplayDataset();
@@ -756,15 +757,9 @@ it('Chạy kiểm định giữa phiên dài và mở vị thế đa khung sau k
 
     const state = orchestrator.getState();
     assert.equal(state.replayCursorIndex, candles.length);
-    const promotion = state.learningRuns.find((run) => run.decision === 'PROMOTE_NEW_POLICY');
-    assert.ok(promotion);
-    assert.ok(promotion.executedAtMarketTime < candles.at(-1)!.closeTime);
-    assert.ok(state.closedPositions.some((position) =>
-      position.strategyVersion.endsWith('-H1-M15') &&
-      position.openedUnderPolicyId === promotion.resultingPolicyId &&
-      position.entryMarketTime > promotion.executedAtMarketTime
-    ));
+    assert.ok(state.learningRuns.length > 5);
     assert.ok(state.learningRuns.some((run) => run.decisionReasonVi.includes('giao dịch ngoài mẫu')));
+    assert.ok(state.learningRuns.every((run) => run.decision !== 'PROMOTE_NEW_POLICY'));
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -841,4 +836,19 @@ it('Daily drawdown resets at the UTC boundary and restores from a legacy equity 
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+it('Kiểm định mô phỏng giới hạn vị thế và khối lượng trên toàn danh mục', () => {
+  const outcome = (shadowId: string, entry: number, exit: number, riskSizedVolumeLots: number) =>
+    ({ shadowId, entryMarketTime: new Date(entry).toISOString(),
+      closeMarketTime: new Date(exit).toISOString(), riskSizedVolumeLots } as ShadowCandidateOutcome);
+
+  const a = outcome('a', 1000, 4000, 0.3);
+  const b = outcome('b', 1500, 2500, 0.3);
+  const c = outcome('c', 2000, 3500, 0.05);
+  const d = outcome('d', 2500, 4500, 0.2);
+  assert.deepEqual(applyValidationCapacity([d, c, b, a],
+    { maxOpenPositions: 2, maxTotalExposureLots: 0.5 }), [a, c]);
+  assert.deepEqual(applyValidationCapacity([d, c, b, a],
+    { maxOpenPositions: 2, maxTotalExposureLots: 1 }), [a, b, d]);
 });

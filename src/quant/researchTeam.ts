@@ -10,6 +10,7 @@ import {
   REGIME_LABELS_VI,
   RegimeComparisonRow,
   RegimePolicyMapping,
+  RiskLimitsConfig,
   ShadowCandidateOutcome,
   SimulatedPosition,
   StrategyCandidateEvaluation,
@@ -18,10 +19,12 @@ import {
   WalkForwardExclusionLog,
 } from './types.ts';
 
-export const LEARNER_VERSION = 'LEARNER_WF_V2.1';
+export const LEARNER_VERSION = 'LEARNER_WF_V2.2';
 export const RANKING_FORMULA_TEXT =
   'Score = Mean(NetPnL_1xCost) - 0.35 * (MaxDD / N) + 0.25 * Mean(NetPnL_2xCost)';
 export const DEFAULT_MIN_SAMPLES_PER_REGIME = 2;
+// A minimum screening floor for historical tick runs, not a confidence estimate.
+export const TICK_MIN_SAMPLES_PER_REGIME = 10;
 export const DEGRADATION_LOSS_THRESHOLD_USD = -220;
 
 /**
@@ -85,6 +88,30 @@ export function computeComparisonMetrics(
     netPnlAt2xCostUsd,
     maxDrawdownUsd,
   };
+}
+
+type PortfolioCapacity = Pick<RiskLimitsConfig, 'maxOpenPositions' | 'maxTotalExposureLots'>;
+
+export function applyValidationCapacity(
+  candidates: ShadowCandidateOutcome[],
+  capacity: PortfolioCapacity
+): ShadowCandidateOutcome[] {
+  const chronological = [...candidates].sort(
+    (a, b) => Date.parse(a.entryMarketTime) - Date.parse(b.entryMarketTime) ||
+      a.shadowId.localeCompare(b.shadowId)
+  );
+  let open: ShadowCandidateOutcome[] = [];
+  const admitted: ShadowCandidateOutcome[] = [];
+  for (const candidate of chronological) {
+    const entryTime = Date.parse(candidate.entryMarketTime);
+    open = open.filter((position) => Date.parse(position.closeMarketTime!) > entryTime);
+    const lots = (candidate.riskSizedVolumeLots ?? 0.5) +
+      open.reduce((total, position) => total + (position.riskSizedVolumeLots ?? 0.5), 0);
+    if (open.length >= capacity.maxOpenPositions || lots > capacity.maxTotalExposureLots + 1e-9) continue;
+    admitted.push(candidate);
+    open.push(candidate);
+  }
+  return admitted;
 }
 
 /**
@@ -177,6 +204,7 @@ export function executeWalkForwardLearningRun(params: {
   allPolicies: PolicyVersionRecord[];
   minSamplesPerRegime?: number;
   degradationLossThresholdUsd?: number;
+  portfolioCapacity?: PortfolioCapacity;
 }): {
   learningRun: LearningRunRecord;
   newPolicyToActivate?: PolicyVersionRecord;
@@ -196,6 +224,7 @@ export function executeWalkForwardLearningRun(params: {
     allPolicies,
     minSamplesPerRegime = DEFAULT_MIN_SAMPLES_PER_REGIME,
     degradationLossThresholdUsd = DEGRADATION_LOSS_THRESHOLD_USD,
+    portfolioCapacity,
   } = params;
 
   const cutoffMs = Date.parse(decisionMarketTime);
@@ -278,17 +307,14 @@ export function executeWalkForwardLearningRun(params: {
   };
 
   // 3. Check for Active Policy Degradation (Rollback or Halt protection)
-  const positionsUnderActivePolicy = reconciledPositions.filter(
-    (p) =>
-      p.openedUnderPolicyId === activePolicy.policyId &&
-      p.reconciled &&
-      p.closeMarketTime &&
-      Date.parse(p.closeMarketTime) <= cutoffMs
-  );
-  const activePolicyCumNetPnl = positionsUnderActivePolicy.reduce(
-    (sum, p) => sum + p.netPnlUsd,
-    0
-  );
+  const settledPnlByPolicy = new Map<string, number>();
+  for (const position of reconciledPositions) {
+    if (!position.reconciled || !position.closeMarketTime ||
+        !(Date.parse(position.closeMarketTime) <= cutoffMs)) continue;
+    const policyId = position.openedUnderPolicyId;
+    settledPnlByPolicy.set(policyId, (settledPnlByPolicy.get(policyId) ?? 0) + position.netPnlUsd);
+  }
+  const activePolicyCumNetPnl = settledPnlByPolicy.get(activePolicy.policyId) ?? 0;
 
   const tradeableRegimes: Array<'TRENDING' | 'SQUEEZE_PRE_BREAKOUT' | 'RANGING'> = [
     'TRENDING',
@@ -467,64 +493,34 @@ export function executeWalkForwardLearningRun(params: {
   }
 
   // 5. Build Side-by-Side Comparison (Adaptive Policy vs Fixed Baseline Policy) per regime and overall
-  const regimeComparisons: RegimeComparisonRow[] = [];
-  const allAdaptiveChosenOutcomes: ShadowCandidateOutcome[] = [];
-  const allBaselineChosenOutcomes: ShadowCandidateOutcome[] = [];
+  const policySamples = (mapping: RegimePolicyMapping) => {
+    const matched = validationSamples.filter((sample) => {
+      const rule = mapping[sample.regime];
+      return rule !== 'STAND_ASIDE' && rule.strategyId === sample.strategyId &&
+        rule.version === sample.strategyVersion;
+    });
+    return portfolioCapacity ? applyValidationCapacity(matched, portfolioCapacity) : matched;
+  };
+  const adaptiveSamples = policySamples(proposedMapping);
+  const baselineSamples = policySamples(baselinePolicy.mapping);
   let totalOpportunities = 0;
-
-  for (const regime of tradeableRegimes) {
-    const regimeSamples = validationSamples.filter((s) => s.regime === regime);
-    const uniqueCyclesInRegime = new Set(regimeSamples.map((s) => s.cycleId)).size;
-    totalOpportunities += uniqueCyclesInRegime;
-
-    const adaptiveRule = proposedMapping[regime];
-    const baselineRule = baselinePolicy.mapping[regime];
-
-    const adaptiveOutcomes =
-      adaptiveRule === 'STAND_ASIDE'
-        ? []
-        : regimeSamples.filter(
-            (s) =>
-              s.strategyId === adaptiveRule.strategyId &&
-              s.strategyVersion === adaptiveRule.version
-          );
-
-    const baselineOutcomes =
-      baselineRule === 'STAND_ASIDE'
-        ? []
-        : regimeSamples.filter(
-            (s) =>
-              s.strategyId === baselineRule.strategyId &&
-              s.strategyVersion === baselineRule.version
-          );
-
-    allAdaptiveChosenOutcomes.push(...adaptiveOutcomes);
-    allBaselineChosenOutcomes.push(...baselineOutcomes);
-
-    regimeComparisons.push({
+  const regimeComparisons: RegimeComparisonRow[] = tradeableRegimes.map((regime) => {
+    const opportunities = new Set(validationSamples.filter((sample) => sample.regime === regime)
+      .map((sample) => sample.cycleId)).size;
+    totalOpportunities += opportunities;
+    const label = (rule: RegimePolicyMapping[typeof regime]) =>
+      rule === 'STAND_ASIDE' ? 'Đứng ngoài' : `${rule.strategyId}@${rule.version}`;
+    return {
       regime,
       regimeLabelVi: REGIME_LABELS_VI[regime],
-      adaptiveStrategyLabel:
-        adaptiveRule === 'STAND_ASIDE'
-          ? 'Đứng ngoài'
-          : `${adaptiveRule.strategyId}@${adaptiveRule.version}`,
-      baselineStrategyLabel:
-        baselineRule === 'STAND_ASIDE'
-          ? 'Đứng ngoài'
-          : `${baselineRule.strategyId}@${baselineRule.version}`,
-      adaptive: computeComparisonMetrics(uniqueCyclesInRegime, adaptiveOutcomes),
-      baseline: computeComparisonMetrics(uniqueCyclesInRegime, baselineOutcomes),
-    });
-  }
-
-  const overallAdaptiveMetrics = computeComparisonMetrics(
-    totalOpportunities,
-    allAdaptiveChosenOutcomes
-  );
-  const overallBaselineMetrics = computeComparisonMetrics(
-    totalOpportunities,
-    allBaselineChosenOutcomes
-  );
+      adaptiveStrategyLabel: label(proposedMapping[regime]),
+      baselineStrategyLabel: label(baselinePolicy.mapping[regime]),
+      adaptive: computeComparisonMetrics(opportunities, adaptiveSamples.filter((sample) => sample.regime === regime)),
+      baseline: computeComparisonMetrics(opportunities, baselineSamples.filter((sample) => sample.regime === regime)),
+    };
+  });
+  const overallAdaptiveMetrics = computeComparisonMetrics(totalOpportunities, adaptiveSamples);
+  const overallBaselineMetrics = computeComparisonMetrics(totalOpportunities, baselineSamples);
 
   const reconciledIdsUsed = reconciledPositions
     .filter(
@@ -548,7 +544,8 @@ export function executeWalkForwardLearningRun(params: {
         (p) =>
           p.policyId !== activePolicy.policyId &&
           p.status !== 'ROLLED_BACK' &&
-          p.status !== 'HALTED'
+          p.status !== 'HALTED' &&
+          (settledPnlByPolicy.get(p.policyId) ?? 0) > degradationLossThresholdUsd
       );
 
     if (fallbackCandidate) {
@@ -687,9 +684,9 @@ export function executeWalkForwardLearningRun(params: {
       status: 'ACTIVE',
       isBaseline: false,
       mapping: proposedMapping,
-      activationReasonVi: `Tự động kích hoạt từ lần học ${runId}: Vượt đường cơ sở Walk-Forward (Lãi ròng 1x chi phí: +${overallAdaptiveMetrics.netPnlAfterCostUsd.toFixed(
+      activationReasonVi: `Tự động kích hoạt từ lần học ${runId}: Vượt đường cơ sở Walk-Forward (Lãi ròng 1x chi phí: ${overallAdaptiveMetrics.netPnlAfterCostUsd.toFixed(
         2
-      )} USD so với cơ sở +${overallBaselineMetrics.netPnlAfterCostUsd.toFixed(
+      )} USD so với cơ sở ${overallBaselineMetrics.netPnlAfterCostUsd.toFixed(
         2
       )} USD; 2x chi phí: +${overallAdaptiveMetrics.netPnlAt2xCostUsd.toFixed(
         2
