@@ -253,11 +253,24 @@ export class DurableQuantStorage {
     return { state: fresh, recoveredFromDisk: false };
   }
 
-  public saveState(state: QuantSystemState): void {
+  public saveState(state: QuantSystemState, durable = false): void {
     this.ensureDir();
     const tmpPath = `${this.stateFilePath}.tmp.${process.pid}`;
-    fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+    fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), { encoding: 'utf-8', flush: durable });
     fs.renameSync(tmpPath, this.stateFilePath);
+    if (durable && process.platform !== 'win32') {
+      try {
+        const directory = fs.openSync(this.dataDir, 'r');
+        try {
+          fs.fsyncSync(directory);
+        } finally {
+          fs.closeSync(directory);
+        }
+      } catch (error) {
+        // Rename has committed. Keep the snapshot and surface the disk error.
+        console.error('Không đồng bộ được thư mục trạng thái:', error);
+      }
+    }
   }
 
   public appendJournalToDisk(entry: SystemJournalEntry): void {

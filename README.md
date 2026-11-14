@@ -43,6 +43,7 @@ python3 scripts/record-mt5-demo.py --self-test
 
 # 6. Khởi chạy ứng dụng (mặc định tại cổng 3000)
 cp .env.example .env
+# Đặt ADMIN_AUTH_TOKEN hoặc VIEWER_AUTH_TOKEN trong .env trước khi mở giao diện
 npm start
 ```
 
@@ -64,8 +65,8 @@ docker compose -p zupirus-quant-lab ps
 curl -fsS http://127.0.0.1:3100/api/health
 
 # 4. Kiểm tra trạng thái đầu cuối thu thập tick và lịch phiên 15/15
-curl -fsS http://127.0.0.1:3100/api/ingest/status
-curl -fsS http://127.0.0.1:3100/api/schedule
+curl -fsS -H "Authorization: Bearer $ADMIN_AUTH_TOKEN" http://127.0.0.1:3100/api/ingest/status
+curl -fsS -H "Authorization: Bearer $ADMIN_AUTH_TOKEN" http://127.0.0.1:3100/api/schedule
 
 # 5. Xem nhật ký hoạt động thời gian thực
 docker compose -p zupirus-quant-lab logs -f
@@ -83,15 +84,17 @@ Mở trình duyệt tại `http://127.0.0.1:3100` để quan sát **Tổng quan 
 
 ## 4. Kết nối Một lần Bộ thu MT5 Demo trên Máy Windows sang VPS Linux
 
-Gói Python `MetaTrader5` chính thức chỉ phát hành cho **Windows 64-bit (Python 3.10–3.12)**. Do đó, máy Windows chạy MT5 demo đảm nhiệm việc đọc báo giá Bid/Ask XAUUSD và tự đồng bộ sang VPS Linux qua cổng đẩy `/api/ingest/ticks`.
+Gói Python `MetaTrader5` chính thức chỉ phát hành cho **Windows 64-bit (ví dụ Python 3.14)**. Do đó, máy Windows chạy MT5 demo đảm nhiệm việc đọc báo giá Bid/Ask XAUUSD và tự đồng bộ sang VPS Linux qua cổng đẩy `/api/ingest/ticks`.
+
+Trên VPS, đặt `QUANT_DATA_SOURCE=MT5_DEMO_LIVE` và `QUANT_RUNTIME_SUFFIX=/mt5-demo` để dùng thư mục riêng cho phiên MT5. Chế độ mặc định `REPLAY_DATASET` dùng để nghiệm thu ngoại tuyến. Đặt token riêng cho các vai trò cần dùng trong `.env`. Nhập token Admin hoặc Người xem trên giao diện.
 
 ### 4.1. Cài đặt một lần trên máy Windows chạy MT5 Demo
 
 1. Mở phần mềm **MetaTrader 5** và đăng nhập tài khoản **Demo** (đảm bảo mã vàng như `XAUUSD`, `XAUUSDm`, hoặc `XAUUSD.a` có trong cửa sổ *Market Watch*).
-2. Cài đặt **Python 3.10 – 3.12 (64-bit)** trên Windows và cài gói `MetaTrader5`:
+2. Cài đặt **Python 3.14 (64-bit)** trên Windows và cài gói `MetaTrader5`:
 
 ```powershell
-py -3.11 -m venv .venv-mt5
+py -3.14 -m venv .venv-mt5
 .\.venv-mt5\Scripts\Activate.ps1
 pip install --upgrade pip MetaTrader5
 ```
@@ -106,9 +109,9 @@ ssh -N -L 3100:127.0.0.1:3100 <user>@<dia-chi-ip-vps>
 
 ```powershell
 python scripts/record-mt5-demo.py `
-  --server-url http://127.0.0.1:3100 `
-  --token zupirus-collector-demo-token `
-  --db ./data/mt5_ticks_spool.sqlite `
+  --vps-url http://127.0.0.1:3100 `
+  --token $env:COLLECTOR_AUTH_TOKEN `
+  --db-path ./data/mt5_ticks_spool.sqlite `
   --symbol XAUUSD `
   --collector-id WIN-MT5-DEMO-01
 ```
@@ -117,7 +120,7 @@ python scripts/record-mt5-demo.py `
 
 ## 5. Phân quyền Truy cập (RBAC)
 
-Hệ thống phân tách rõ 3 vai trò qua Bearer Token (`Authorization: Bearer <token>`) hoặc thanh chọn vai trò kiểm tra trên giao diện:
+Hệ thống phân tách rõ 3 vai trò qua Bearer Token (`Authorization: Bearer <token>`):
 
 - **`ADMIN` (`ADMIN_AUTH_TOKEN`)**: Toàn quyền xem bảng điều khiển, truy vết kiểm toán và thực thi các thao tác điều khiển (`/api/control/*`).
 - **`VIEWER` (`VIEWER_AUTH_TOKEN`)**: Chỉ được phép xem số liệu tài khoản, nhật ký hai đội, báo cáo chi phí 2×, kết quả fixture và truy vết (`/api/state`, `/api/trace/*`, `/api/cost-analysis`, `/api/learning-fixtures`). Mọi yêu cầu tới `/api/control/*` hoặc `/api/ingest/ticks` đều bị từ chối với mã `403 FORBIDDEN`.

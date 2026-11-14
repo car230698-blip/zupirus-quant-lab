@@ -15,14 +15,15 @@ services:
       - PORT=3000
       - HOST=0.0.0.0
       - EXECUTION_MODE=SIMULATION_ONLY
-      - DATA_DIR=/app/data/runtime
+      - DATA_DIR=/app/data/runtime${QUANT_RUNTIME_SUFFIX:-}
       - REPLAY_FILE=/app/data/xauusd_m15_replay.json
       - REPLAY_INTERVAL_MS=${REPLAY_INTERVAL_MS:-800}
+      - QUANT_DATA_SOURCE=${QUANT_DATA_SOURCE:-REPLAY_DATASET}
       - AUTO_START_LOOP=${AUTO_START_LOOP:-true}
-      - ENFORCE_STRICT_AUTH=${ENFORCE_STRICT_AUTH:-false}
-      - ADMIN_AUTH_TOKEN=${ADMIN_AUTH_TOKEN:-zupirus-admin-demo-token}
-      - VIEWER_AUTH_TOKEN=${VIEWER_AUTH_TOKEN:-zupirus-viewer-demo-token}
-      - COLLECTOR_AUTH_TOKEN=${COLLECTOR_AUTH_TOKEN:-zupirus-collector-demo-token}
+      - ENFORCE_STRICT_AUTH=${ENFORCE_STRICT_AUTH:-true}
+      - ADMIN_AUTH_TOKEN=${ADMIN_AUTH_TOKEN:-}
+      - VIEWER_AUTH_TOKEN=${VIEWER_AUTH_TOKEN:-}
+      - COLLECTOR_AUTH_TOKEN=${COLLECTOR_AUTH_TOKEN:-}
     volumes:
       - zupirus_quant_lab_data:/app/data/runtime
     healthcheck:

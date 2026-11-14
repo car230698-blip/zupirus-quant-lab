@@ -28,6 +28,7 @@ import { reconcileClosedPosition } from '../src/quant/reconciliation.ts';
 import { latestClosedContext } from '../src/quant/timeframes.ts';
 import { TickReplay } from '../src/quant/tickReplay.ts';
 import { applyValidationCapacity, executeWalkForwardLearningRun } from '../src/quant/researchTeam.ts';
+import { DurableQuantStorage } from '../src/quant/storage.ts';
 import { QuantLabOrchestrator } from '../src/quant/orchestrator.ts';
 import { createQuantServer } from '../server.ts';
 import { ExecutionMode, M15Candle, ShadowCandidateOutcome, SimulatedPosition } from '../src/quant/types.ts';
@@ -874,6 +875,8 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         replayFilePath: path.join(tmpDir, 'replay.json'),
         autoStart: false,
         attachFrontend: false,
+        liveTicks: true,
+        collectorToken: 'test-local-collector-key',
       });
 
       const server = app.listen(0);
@@ -882,7 +885,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
       const baseUrl = `http://127.0.0.1:${port}`;
       const collectorHeaders = {
         'Content-Type': 'application/json',
-        Authorization: 'Bearer zupirus-collector-demo-token',
+        Authorization: 'Bearer test-local-collector-key',
       };
 
       try {
@@ -960,6 +963,23 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         const ack2 = await batch2Res.json();
         assert.equal(ack2.closedCandlesEmitted.length, 1);
 
+        assert.equal(orchestrator.stepNextReplayCandle(), null);
+        const next = {
+          batchId: 'RETRY-INVALID', rawSymbol: 'XAUUSDm',
+          ticks: [{ timeMs: tNextBar + 1, bid: 3961.5, ask: 3961.7 }],
+        };
+        await assert.rejects(orchestrator.ingestTickBatch({
+          ...next, ticks: [{ ...next.ticks[0], sourceTickId: 42 as unknown as string }],
+        }), /đúng định dạng/);
+        const saveState = DurableQuantStorage.prototype.saveState;
+        try {
+          DurableQuantStorage.prototype.saveState = () => { throw new Error('disk failure fixture'); };
+          await assert.rejects(orchestrator.ingestTickBatch(next), /disk failure fixture/);
+        } finally {
+          DurableQuantStorage.prototype.saveState = saveState;
+        }
+        assert.equal((await orchestrator.ingestTickBatch(next)).acceptedTicks, 1);
+
         const stateBeforeRestart = orchestrator.getState();
         assert.equal(stateBeforeRestart.dataSourceTelemetry?.sourceMode, 'MT5_DEMO_LIVE');
         assert.equal(stateBeforeRestart.dataSourceTelemetry?.canonicalSymbol, 'XAUUSD');
@@ -971,6 +991,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
           dataDir: path.join(tmpDir, 'runtime'),
           replayFilePath: path.join(tmpDir, 'replay.json'),
           autoStart: false,
+          liveTicks: true,
         });
         const retryAfterRestart = await restarted.ingestTickBatch({
           batchId: 'BATCH-CLOSE-BAR-002',
@@ -1001,6 +1022,8 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         replayFilePath: path.join(tmpDir, 'replay.json'),
         autoStart: false,
         attachFrontend: false,
+        liveTicks: true,
+        collectorToken: 'test-local-collector-key',
       });
 
       const server = app.listen(0);
@@ -1020,7 +1043,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
             '--vps-url',
             baseUrl,
             '--token',
-            'zupirus-collector-demo-token',
+            'test-local-collector-key',
           ],
           { encoding: 'utf8' }
         );
@@ -1293,7 +1316,10 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         replayFilePath: path.join(tmpDir, 'replay.json'),
         autoStart: false,
         attachFrontend: false,
-        strictAuth: true,
+        liveTicks: true,
+        adminToken: 'test-local-admin-key',
+        viewerToken: 'test-local-viewer-key',
+        collectorToken: 'test-local-collector-key',
       });
 
       const server = app.listen(0);
@@ -1311,7 +1337,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer zupirus-collector-demo-token',
+            Authorization: 'Bearer test-local-collector-key',
           },
           body: JSON.stringify({
             batchId: 'RBAC-BATCH-1',
@@ -1330,19 +1356,19 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         assert.equal(collectorIngestRes.status, 200);
 
         const collectorStateRes = await fetch(`${baseUrl}/api/state`, {
-          headers: { Authorization: 'Bearer zupirus-collector-demo-token' },
+          headers: { Authorization: 'Bearer test-local-collector-key' },
         });
         assert.equal(collectorStateRes.status, 403);
 
         const collectorStepRes = await fetch(`${baseUrl}/api/control/step`, {
           method: 'POST',
-          headers: { Authorization: 'Bearer zupirus-collector-demo-token' },
+          headers: { Authorization: 'Bearer test-local-collector-key' },
         });
         assert.equal(collectorStepRes.status, 403);
 
         // 3. VIEWER role: allowed on /api/state (including delayed load), forbidden (403) on /api/control/step and /api/ingest/ticks
         const viewerStateRes = await fetch(`${baseUrl}/api/state?delayMs=50`, {
-          headers: { Authorization: 'Bearer zupirus-viewer-demo-token' },
+          headers: { Authorization: 'Bearer test-local-viewer-key' },
         });
         assert.equal(viewerStateRes.status, 200);
         const viewerData = await viewerStateRes.json();
@@ -1351,7 +1377,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
 
         const viewerControlRes = await fetch(`${baseUrl}/api/control/step`, {
           method: 'POST',
-          headers: { Authorization: 'Bearer zupirus-viewer-demo-token' },
+          headers: { Authorization: 'Bearer test-local-viewer-key' },
         });
         assert.equal(viewerControlRes.status, 403);
 
@@ -1359,7 +1385,7 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: 'Bearer zupirus-viewer-demo-token',
+            Authorization: 'Bearer test-local-viewer-key',
           },
           body: JSON.stringify({ batchId: 'V', collectorId: 'V', ticks: [] }),
         });
@@ -1368,9 +1394,142 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         // 4. ADMIN role: allowed on both /api/state and /api/control/step
         const adminStepRes = await fetch(`${baseUrl}/api/control/step`, {
           method: 'POST',
-          headers: { Authorization: 'Bearer zupirus-admin-demo-token' },
+          headers: { Authorization: 'Bearer test-local-admin-key' },
         });
-        assert.equal(adminStepRes.status, 200);
+        assert.equal(adminStepRes.status, 409);
+        const forgedRole = await fetch(`${baseUrl}/api/control/step`, {
+          method: 'POST', headers: { 'X-Zupirus-Role': 'ADMIN' },
+        });
+        assert.equal(forgedRole.status, 401);
+      } finally {
+        server.close();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('24. Định tuyến Hostname (zupirus.com, www.zupirus.com, adm.zupirus.com, localhost) và chặn thao tác quản trị từ tên miền người dùng', async () => {
+    const tmpDir = createTempDir('hostname-routing');
+    try {
+      const { app } = await createQuantServer({
+        dataDir: path.join(tmpDir, 'runtime'),
+        replayFilePath: path.join(tmpDir, 'replay.json'),
+        autoStart: false,
+        attachFrontend: false,
+        adminToken: 'test-host-admin-key',
+        viewerToken: 'test-host-viewer-key',
+        collectorToken: 'test-host-collector-key',
+      });
+
+      const server = app.listen(0);
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const baseUrl = `http://127.0.0.1:${port}`;
+
+      try {
+        // 1. zupirus.com and www.zupirus.com resolve to USER_HOST and cap effective UI role at VIEWER
+        const userHostSession = await fetch(`${baseUrl}/api/auth/session`, {
+          headers: {
+            'x-forwarded-host': 'zupirus.com',
+            Authorization: 'Bearer test-host-viewer-key',
+          },
+        });
+        assert.equal(userHostSession.status, 200);
+        const userSessionJson = await userHostSession.json();
+        assert.equal(userSessionJson.hostSurface, 'USER_HOST');
+        assert.equal(userSessionJson.role, 'VIEWER');
+
+        // Even if an ADMIN token is sent on www.zupirus.com, /api/state caps currentRole to VIEWER and /api/control/step is blocked (403 FORBIDDEN_SURFACE)
+        const wwwStateRes = await fetch(`${baseUrl}/api/state`, {
+          headers: {
+            'x-forwarded-host': 'www.zupirus.com',
+            Authorization: 'Bearer test-host-admin-key',
+          },
+        });
+        assert.equal(wwwStateRes.status, 200);
+        const wwwStateJson = await wwwStateRes.json();
+        assert.equal(wwwStateJson.hostSurface, 'USER_HOST');
+        assert.equal(wwwStateJson.currentRole, 'VIEWER');
+
+        const wwwControlRes = await fetch(`${baseUrl}/api/control/step`, {
+          method: 'POST',
+          headers: {
+            'x-forwarded-host': 'www.zupirus.com',
+            Authorization: 'Bearer test-host-admin-key',
+          },
+        });
+        assert.equal(wwwControlRes.status, 403);
+        const wwwControlErr = await wwwControlRes.json();
+        assert.equal(wwwControlErr.error, 'FORBIDDEN_SURFACE');
+
+        // 2. adm.zupirus.com resolves to ADMIN_HOST and allows ADMIN control actions
+        const admControlRes = await fetch(`${baseUrl}/api/control/step`, {
+          method: 'POST',
+          headers: {
+            'x-forwarded-host': 'adm.zupirus.com',
+            Authorization: 'Bearer test-host-admin-key',
+          },
+        });
+        assert.equal(admControlRes.status, 200);
+        const admControlJson = await admControlRes.json();
+        assert.equal(admControlJson.stepped, true);
+      } finally {
+        server.close();
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('25. Khu vực Hoạt động Agent: phân biệt rõ trạng thái vận hành 2 đội, chuỗi bước thực thi và tra cứu chi tiết sự kiện dòng thời gian', async () => {
+    const tmpDir = createTempDir('agent-activity');
+    try {
+      const { app, orchestrator } = await createQuantServer({
+        dataDir: path.join(tmpDir, 'runtime'),
+        replayFilePath: path.join(tmpDir, 'replay.json'),
+        autoStart: false,
+        attachFrontend: false,
+        strictAuth: false,
+      });
+
+      const server = app.listen(0);
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const baseUrl = `http://127.0.0.1:${port}`;
+
+      try {
+        // Initial state before any candle is stepped: WAITING_FOR_CANDLE & INSUFFICIENT_SAMPLES, not PROCESSING
+        const initRes = await fetch(`${baseUrl}/api/agent-activity`);
+        assert.equal(initRes.status, 200);
+        const initSnap = await initRes.json();
+        assert.equal(initSnap.executionMode, 'SIMULATION_ONLY');
+        assert.equal(initSnap.team1Execution.isProcessingNow, false);
+        assert.equal(initSnap.team1Execution.operationalState, 'WAITING_FOR_CANDLE');
+        assert.equal(initSnap.team2Research.operationalState, 'INSUFFICIENT_SAMPLES');
+        assert.equal(initSnap.team1Execution.pipelineSteps.length, 8);
+        assert.equal(initSnap.team2Research.pipelineSteps.length, 5);
+
+        // Step 36 candles so Walk-Forward learning run LR-0001 executes
+        for (let i = 0; i < 36; i++) {
+          orchestrator.stepNextReplayCandle();
+        }
+
+        const midRes = await fetch(`${baseUrl}/api/agent-activity`);
+        const midSnap = await midRes.json();
+        assert.ok(midSnap.timeline.length > 0);
+        assert.ok(midSnap.availableCycleIds.length >= 36);
+        assert.equal(midSnap.team2Research.operationalState, 'COMPLETED');
+
+        // Inspect a timeline event via /api/agent-activity/events/:entryId
+        const targetEntry = midSnap.timeline[0];
+        const detailRes = await fetch(
+          `${baseUrl}/api/agent-activity/events/${encodeURIComponent(targetEntry.entryId)}`
+        );
+        assert.equal(detailRes.status, 200);
+        const detailJson = await detailRes.json();
+        assert.equal(detailJson.event.entryId, targetEntry.entryId);
+        assert.ok(detailJson.cycleTrace || detailJson.linkedLearningRun);
       } finally {
         server.close();
       }

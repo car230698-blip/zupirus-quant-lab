@@ -6,9 +6,9 @@ theo lô lũy đẳng (idempotent batches) sang máy chủ Linux VPS (/api/inges
 
 Yêu cầu môi trường trên máy Windows chạy MT5 Demo:
 - Hệ điều hành: Windows 10/11 hoặc Windows Server (64-bit / x64)
-- Phiên bản Python: Python 3.10, 3.11 hoặc 3.12 (Windows x64) — Tương thích gói nhị phân chính thức `MetaTrader5` (tránh Python 3.13+ nếu wheel MetaTrader5 chưa phát hành).
+- Phiên bản Python: Python 3.14 (Windows x64).
 - Cài đặt gói một lần:
-    py -3.11 -m pip install --upgrade pip MetaTrader5
+    py -3.14 -m pip install --upgrade pip MetaTrader5
 """
 
 import argparse
@@ -18,6 +18,7 @@ import os
 import sqlite3
 import sys
 import time
+import tempfile
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -139,6 +140,11 @@ class SqliteTickSpool:
         last_bid = wm[2] if wm else -1.0
         last_ask = wm[3] if wm else -1.0
 
+        # Each poll includes the entire watermark millisecond. Preserve sequence
+        # by skipping the ordered prefix already stored, even when quotes repeat.
+        overlap_count = 0
+        watermark_time = last_time_ms
+        watermark_seq = last_seq
         inserted = 0
         now_str = utc_now_iso()
 
@@ -155,6 +161,11 @@ class SqliteTickSpool:
                 # Bỏ qua tick cũ hơn mốc watermark đã lưu
                 if time_ms < last_time_ms:
                     continue
+
+                if time_ms == watermark_time and t.get("seq_within_ms") is None:
+                    overlap_count += 1
+                    if overlap_count <= watermark_seq + 1:
+                        continue
 
                 if time_ms == last_time_ms:
                     # Nếu cùng mili-giây và cùng đúng mức giá Bid/Ask vừa ghi ở ranh giới poll -> tick trùng
@@ -407,6 +418,12 @@ def run_self_test(db_path: str, vps_url: Optional[str], token: str) -> int:
         {"time_ms": 1772438400500, "bid": 2860.20, "ask": 2860.36},
     ]
     inserted_first = spool.append_ticks("XAUUSDm", sample_ticks)
+    same_ms = sample_ticks[:2]
+    with tempfile.TemporaryDirectory() as overlap_dir:
+        overlap_store = SqliteTickSpool(os.path.join(overlap_dir, "same-ms.sqlite"))
+        assert overlap_store.append_ticks("XAUUSDm", same_ms) == 2
+        assert overlap_store.append_ticks("XAUUSDm", same_ms) == 0
+        overlap_store.close()
     spool.close()
 
     # Mở lại kết nối SQLite (mô phỏng restart bộ thu) và gửi lại lô gối đầu
@@ -462,7 +479,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--token",
-        default=os.environ.get("COLLECTOR_AUTH_TOKEN", "zupirus-collector-demo-token"),
+        default=os.environ.get("COLLECTOR_AUTH_TOKEN", ""),
         help="Bearer token xác thực của bộ thu (COLLECTOR_AUTH_TOKEN)",
     )
     parser.add_argument(
@@ -512,7 +529,7 @@ def main() -> int:
         import MetaTrader5 as mt5  # type: ignore
     except ImportError:
         sys.stderr.write(
-            "Lỗi: Chưa cài gói MetaTrader5. Trên Windows x64 (Python 3.10–3.12), chạy: py -3.11 -m pip install MetaTrader5\n"
+            "Lỗi: Chưa cài gói MetaTrader5. Trên Windows x64 (ví dụ Python 3.14), chạy: py -3.14 -m pip install MetaTrader5\n"
         )
         return 1
 
@@ -521,6 +538,10 @@ def main() -> int:
         return 1
 
     try:
+        account = mt5.account_info()
+        if account is None or account.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
+            sys.stderr.write("Đăng nhập tài khoản MT5 Demo trước khi chạy bộ thu.\n")
+            return 1
         raw_symbol = resolve_mt5_symbol(mt5, args.symbol or None)
         spool = SqliteTickSpool(args.db_path)
         print(
@@ -537,20 +558,25 @@ def main() -> int:
                     max(0, int(time.time()) - 60), tz=timezone.utc
                 )
 
-            raw_ticks = mt5.copy_ticks_from(
-                raw_symbol, from_dt, 2000, mt5.COPY_TICKS_ALL
+            # A fixed tick count can fill entirely inside the overlap at busy times.
+            raw_ticks = mt5.copy_ticks_range(
+                raw_symbol, from_dt, datetime.now(timezone.utc), mt5.COPY_TICKS_INFO
             )
             parsed_ticks: List[Dict[str, Any]] = []
             if raw_ticks is not None and len(raw_ticks) > 0:
+                previous_time, sequence = -1, 0
                 for rt in raw_ticks:
-                    time_msc = int(getattr(rt, "time_msc", 0) or (int(rt["time"]) * 1000))
+                    time_msc = int(rt["time_msc"]) or int(rt["time"]) * 1000
                     bid = float(rt["bid"])
                     ask = float(rt["ask"])
                     flags = int(rt["flags"])
                     if bid > 0 and ask >= bid:
+                        sequence = sequence + 1 if time_msc == previous_time else 0
+                        previous_time = time_msc
                         parsed_ticks.append(
                             {
                                 "time_ms": time_msc,
+                                "seq_within_ms": sequence,
                                 "bid": bid,
                                 "ask": ask,
                                 "flags": flags,
