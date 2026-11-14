@@ -43,6 +43,9 @@ it('links a demo EA once and persists only matching account telemetry across ser
     assert.equal(linked.status, 200);
     const { eaToken } = await linked.json();
     assert.equal((await call(pair, account)).status, 409);
+    const pending = await (await call(links + '/' + id, undefined, adminToken)).json();
+    assert.equal(pending.lastSeen, null);
+    assert.equal(pending.balance, null);
     const heartbeat = '/api/copy-demo/heartbeat';
     const snapshot = { ...account, equity: 321.05, balance: 333 };
     assert.equal((await call(heartbeat, { ...snapshot, login: '100' }, eaToken)).status, 403);
@@ -55,6 +58,10 @@ it('links a demo EA once and persists only matching account telemetry across ser
     assert.equal(state.equity, 321.05);
     assert.equal(state.login, account.login);
     assert.equal(state.eaToken, undefined);
+    assert.equal((await fetch(baseUrl + links + '/' + id, {
+      method: 'DELETE', headers: { Authorization: 'Bearer ' + adminToken },
+    })).status, 204);
+    assert.equal((await call(heartbeat, snapshot, eaToken)).status, 403);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
     for (const r of openRoutes) {

@@ -56,6 +56,12 @@ export function registerDemoCopyRoutes(
     return res.set('Cache-Control', 'no-store').json(link);
   });
 
+  app.delete('/api/control/copy-demo/links/:id', requireAdmin, (req, res) => {
+    const result = db.prepare('DELETE FROM copy_links WHERE id = ?').run(req.params.id);
+    if (!result.changes) return res.status(404).json({ error: 'LINK_NOT_FOUND' });
+    return res.status(204).end();
+  });
+
   app.post('/api/copy-demo/pair', (req, res) => {
     const account = identity(req.body);
     const code = req.body?.pairingCode;
@@ -66,11 +72,11 @@ export function registerDemoCopyRoutes(
     const eaToken = secret();
     const linked = db.prepare(`
       UPDATE copy_links
-      SET pairing_hash = NULL, ea_hash = ?, login = ?, server = ?, last_seen = ?
+      SET pairing_hash = NULL, ea_hash = ?, login = ?, server = ?
       WHERE pairing_hash = ? AND expires_at > ?
         AND NOT EXISTS (SELECT 1 FROM copy_links WHERE login = ? AND server = ?)
       RETURNING id
-    `).get(digest(eaToken), account.login, account.server, now, digest(code), now,
+    `).get(digest(eaToken), account.login, account.server, digest(code), now,
       account.login, account.server);
     if (!linked) return res.status(409).json({ error: 'PAIRING_UNAVAILABLE' });
     return res.set('Cache-Control', 'no-store').json({ id: linked.id, eaToken });
