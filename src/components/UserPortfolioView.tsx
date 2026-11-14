@@ -129,16 +129,24 @@ export const UserPortfolioView: React.FC<UserPortfolioViewProps> = ({
       </section>
 
       {/* Stale Data Warning if applicable */}
-      {isStaleData && (
+      {(state.isReplayComplete || !state.isLoopRunning || isStaleData) && (
         <div
           role="status"
-          className="border border-amber-700/60 bg-amber-950/30 px-4 py-3 rounded-lg text-xs text-amber-200 flex items-center justify-between"
+          className={`border px-4 py-3 rounded-lg text-xs flex flex-wrap gap-2 items-center justify-between ${
+            state.isReplayComplete
+              ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-200'
+              : 'border-amber-700/60 bg-amber-950/30 text-amber-200'
+          }`}
         >
           <span>
-            Cảnh báo dữ liệu cũ: Thời điểm cập nhật gần nhất đã quá 15 giây hoặc vòng phát lại đang tạm dừng ({state.replayCursorIndex}/{state.totalReplayCandles} nến).
+            {state.isReplayComplete ? 'Đã hoàn tất phát lại'
+              : isStaleData ? 'Vòng phát lại chưa cập nhật trong hơn 15 giây'
+              : 'Đang tạm dừng phát lại'}
+            {' · '}{state.replayCursorIndex}/{state.totalReplayCandles} nến
+            {state.isReplayComplete && ` · ${state.openPositions.length} vị thế còn mở tại nến cuối`}
           </span>
           <span className="font-mono tabular-nums">
-            Cập nhật cuối: {state.lastUpdatedSystemTime.slice(11, 19)} UTC
+            Cập nhật cuối {state.lastUpdatedSystemTime.slice(11, 19)} UTC
           </span>
         </div>
       )}

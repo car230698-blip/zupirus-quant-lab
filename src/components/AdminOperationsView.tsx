@@ -130,9 +130,11 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
           <button
             type="button"
             onClick={onToggleLoop}
-            className="px-3.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            disabled={state.isReplayComplete}
+            className="px-3.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
-            {state.isLoopRunning ? 'Tạm dừng vòng tự động' : 'Tiếp tục chạy tự động'}
+            {state.isReplayComplete ? 'Đã hoàn tất phát lại'
+              : state.isLoopRunning ? 'Tạm dừng vòng tự động' : 'Tiếp tục chạy tự động'}
           </button>
           <button
             type="button"
@@ -152,16 +154,24 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
         </div>
       </section>
 
-      {isStaleData && (
+      {(state.isReplayComplete || !state.isLoopRunning || isStaleData) && (
         <div
           role="status"
-          className="border border-amber-700/60 bg-amber-950/30 px-4 py-3 rounded-lg text-xs text-amber-200 flex items-center justify-between"
+          className={`border px-4 py-3 rounded-lg text-xs flex flex-wrap gap-2 items-center justify-between ${
+            state.isReplayComplete
+              ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-200'
+              : 'border-amber-700/60 bg-amber-950/30 text-amber-200'
+          }`}
         >
           <span>
-            Trạng thái độ mới dữ liệu: Dữ liệu phát lại hiện đã dừng hoặc hoàn tất ({state.replayCursorIndex}/{state.totalReplayCandles} nến).
+            {state.isReplayComplete ? 'Đã hoàn tất phát lại'
+              : isStaleData ? 'Vòng phát lại chưa cập nhật trong hơn 15 giây'
+              : 'Đang tạm dừng phát lại'}
+            {' · '}{state.replayCursorIndex}/{state.totalReplayCandles} nến
+            {state.isReplayComplete && ` · ${state.openPositions.length} vị thế còn mở tại nến cuối`}
           </span>
           <span className="font-mono tabular-nums">
-            Độ trễ cập nhật: {dataFreshnessSeconds}s
+            Cập nhật cuối {state.lastUpdatedSystemTime.slice(11, 19)} UTC
           </span>
         </div>
       )}
@@ -624,7 +634,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-slate-100">
-                  Báo cáo So sánh Chính sách Thích nghi vs Đường cơ sở ({tracedLearningRun.runId})
+                  So sánh ứng viên kiểm định với chính sách cơ sở ({tracedLearningRun.runId})
                 </h3>
                 <p className="text-xs text-slate-400">
                   Công thức xếp hạng: <span className="font-mono text-slate-300">{tracedLearningRun.rankingFormula}</span> · Ngưỡng đủ mẫu: &ge; {tracedLearningRun.minSamplesPerRegime} mẫu/trạng thái
@@ -654,7 +664,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400">
                     <th className="py-2 pr-3 font-medium">Trạng thái / Toàn kỳ</th>
-                    <th className="py-2 px-3 font-medium">Chiến lược (Thích nghi vs Cơ sở)</th>
+                    <th className="py-2 px-3 font-medium">Chiến lược theo trạng thái</th>
                     <th className="py-2 px-3 font-medium text-right">Cơ hội / Giao dịch</th>
                     <th className="py-2 px-3 font-medium text-right">Lãi ròng 1x Chi phí (USD)</th>
                     <th className="py-2 px-3 font-medium text-right">Lãi ròng 2x Chi phí (USD)</th>
@@ -668,41 +678,41 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                         {row.regimeLabelVi}
                       </td>
                       <td className="py-2.5 px-3">
-                        <div className="text-amber-300">TN: {row.adaptiveStrategyLabel}</div>
-                        <div className="text-slate-400">CS: {row.baselineStrategyLabel}</div>
+                        <div className="text-amber-300">Ứng viên: {row.adaptiveStrategyLabel}</div>
+                        <div className="text-slate-400">Cơ sở: {row.baselineStrategyLabel}</div>
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <div>
-                          TN: {row.adaptive.opportunitiesCount} / {row.adaptive.tradesCount} lệnh
+                          Ứng viên: {row.adaptive.opportunitiesCount} / {row.adaptive.tradesCount} lệnh
                         </div>
                         <div className="text-slate-400">
-                          CS: {row.baseline.opportunitiesCount} / {row.baseline.tradesCount} lệnh
+                          Cơ sở: {row.baseline.opportunitiesCount} / {row.baseline.tradesCount} lệnh
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <div className="text-emerald-400 font-semibold">
-                          TN: {row.adaptive.netPnlAfterCostUsd >= 0 ? '+' : ''}
+                          Ứng viên: {row.adaptive.netPnlAfterCostUsd >= 0 ? '+' : ''}
                           {row.adaptive.netPnlAfterCostUsd.toFixed(2)}
                         </div>
                         <div className="text-slate-400">
-                          CS: {row.baseline.netPnlAfterCostUsd >= 0 ? '+' : ''}
+                          Cơ sở: {row.baseline.netPnlAfterCostUsd >= 0 ? '+' : ''}
                           {row.baseline.netPnlAfterCostUsd.toFixed(2)}
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <div className="text-slate-200">
-                          TN (2x): {row.adaptive.netPnlAt2xCostUsd >= 0 ? '+' : ''}
+                          Ứng viên (2x): {row.adaptive.netPnlAt2xCostUsd >= 0 ? '+' : ''}
                           {row.adaptive.netPnlAt2xCostUsd.toFixed(2)}
                         </div>
                         <div className="text-slate-400">
-                          CS (2x): {row.baseline.netPnlAt2xCostUsd >= 0 ? '+' : ''}
+                          Cơ sở (2x): {row.baseline.netPnlAt2xCostUsd >= 0 ? '+' : ''}
                           {row.baseline.netPnlAt2xCostUsd.toFixed(2)}
                         </div>
                       </td>
                       <td className="py-2.5 pl-3 text-right">
-                        <div>TN: ${row.adaptive.maxDrawdownUsd.toFixed(2)}</div>
+                        <div>Ứng viên: ${row.adaptive.maxDrawdownUsd.toFixed(2)}</div>
                         <div className="text-slate-400">
-                          CS: ${row.baseline.maxDrawdownUsd.toFixed(2)}
+                          Cơ sở: ${row.baseline.maxDrawdownUsd.toFixed(2)}
                         </div>
                       </td>
                     </tr>
@@ -713,40 +723,41 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                       TOÀN KỲ (Tất cả trạng thái)
                     </td>
                     <td className="py-3 px-3 font-sans text-amber-300">
-                      {tracedLearningRun.resultingPolicyId} vs {state.baselinePolicyId}
+                      <div>Ứng viên kiểm định</div>
+                      <div className="text-slate-400">Cơ sở {state.baselinePolicyId}</div>
                     </td>
                     <td className="py-3 px-3 text-right">
                       <div>
-                        TN: {tracedLearningRun.overallAdaptiveMetrics.opportunitiesCount} /{' '}
+                        Ứng viên: {tracedLearningRun.overallAdaptiveMetrics.opportunitiesCount} /{' '}
                         {tracedLearningRun.overallAdaptiveMetrics.tradesCount} lệnh
                       </div>
                       <div className="text-slate-400">
-                        CS: {tracedLearningRun.overallBaselineMetrics.opportunitiesCount} /{' '}
+                        Cơ sở: {tracedLearningRun.overallBaselineMetrics.opportunitiesCount} /{' '}
                         {tracedLearningRun.overallBaselineMetrics.tradesCount} lệnh
                       </div>
                     </td>
                     <td className="py-3 px-3 text-right text-emerald-400">
                       <div>
-                        TN: +${tracedLearningRun.overallAdaptiveMetrics.netPnlAfterCostUsd.toFixed(2)}
+                        Ứng viên: +${tracedLearningRun.overallAdaptiveMetrics.netPnlAfterCostUsd.toFixed(2)}
                       </div>
                       <div className="text-slate-400 font-normal">
-                        CS: +${tracedLearningRun.overallBaselineMetrics.netPnlAfterCostUsd.toFixed(2)}
+                        Cơ sở: +${tracedLearningRun.overallBaselineMetrics.netPnlAfterCostUsd.toFixed(2)}
                       </div>
                     </td>
                     <td className="py-3 px-3 text-right text-slate-100">
                       <div>
-                        TN (2x): +${tracedLearningRun.overallAdaptiveMetrics.netPnlAt2xCostUsd.toFixed(2)}
+                        Ứng viên (2x): +${tracedLearningRun.overallAdaptiveMetrics.netPnlAt2xCostUsd.toFixed(2)}
                       </div>
                       <div className="text-slate-400 font-normal">
-                        CS (2x): +${tracedLearningRun.overallBaselineMetrics.netPnlAt2xCostUsd.toFixed(2)}
+                        Cơ sở (2x): +${tracedLearningRun.overallBaselineMetrics.netPnlAt2xCostUsd.toFixed(2)}
                       </div>
                     </td>
                     <td className="py-3 pl-3 text-right">
                       <div>
-                        TN: ${tracedLearningRun.overallAdaptiveMetrics.maxDrawdownUsd.toFixed(2)}
+                        Ứng viên: ${tracedLearningRun.overallAdaptiveMetrics.maxDrawdownUsd.toFixed(2)}
                       </div>
                       <div className="text-slate-400 font-normal">
-                        CS: ${tracedLearningRun.overallBaselineMetrics.maxDrawdownUsd.toFixed(2)}
+                        Cơ sở: ${tracedLearningRun.overallBaselineMetrics.maxDrawdownUsd.toFixed(2)}
                       </div>
                     </td>
                   </tr>

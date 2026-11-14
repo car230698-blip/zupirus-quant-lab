@@ -111,10 +111,8 @@ export default function App() {
 
   const isStaleData =
     uiStateOverride === 'STALE' ||
-    (effectiveState
-      ? !effectiveState.isLoopRunning ||
-        Date.now() - Date.parse(effectiveState.lastUpdatedSystemTime) > 15000
-      : false);
+    Boolean(effectiveState?.isLoopRunning &&
+      Date.now() - Date.parse(effectiveState.lastUpdatedSystemTime) > 15000);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col overflow-x-hidden">
@@ -202,7 +200,7 @@ export default function App() {
               }
               className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-slate-200"
             >
-              <option value="NORMAL">Trực tiếp (Đang chạy thật)</option>
+              <option value="NORMAL">Dữ liệu mô phỏng từ máy chủ</option>
               <option value="LOADING">Trạng thái Đang tải (Loading)</option>
               <option value="EMPTY">Trạng thái Dữ liệu trống (Empty)</option>
               <option value="STALE">Trạng thái Dữ liệu cũ (Stale)</option>
