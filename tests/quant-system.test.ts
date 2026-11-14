@@ -690,3 +690,54 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
   });
 
 });
+
+it('Chạy kiểm định giữa phiên dài và mở vị thế đa khung sau khi kích hoạt', () => {
+  const directory = createTempDir('long-multiframe');
+  try {
+    const original = buildDeterministicReplayDataset();
+    const start = Date.parse(original.candles[0].openTime);
+    const interval = 15 * 60_000;
+    let open = original.candles[0].open;
+    // Repeat the synthetic pattern with continuous prices and timestamps.
+    const candles = Array.from({ length: 216 }, (_, index) => {
+      const source = original.candles[index % original.candles.length];
+      const shift = open - source.open;
+      const price = (value: number) => Number((value + shift).toFixed(2));
+      const candle = {
+        ...source,
+        candleId: `LONG-${index + 1}`,
+        openTime: new Date(start + index * interval).toISOString(),
+        closeTime: new Date(start + (index + 1) * interval).toISOString(),
+        open: price(source.open),
+        high: price(source.high),
+        low: price(source.low),
+        close: price(source.close),
+      };
+      open = candle.close;
+      return candle;
+    });
+    const replayFilePath = path.join(directory, 'replay.json');
+    fs.writeFileSync(replayFilePath, JSON.stringify({
+      metadata: { ...original.metadata, totalCandles: candles.length },
+      candles,
+    }));
+    const orchestrator = new QuantLabOrchestrator({
+      dataDir: path.join(directory, 'runtime'), replayFilePath, autoStart: false,
+    });
+    for (const _candle of candles) orchestrator.stepNextReplayCandle();
+
+    const state = orchestrator.getState();
+    assert.equal(state.replayCursorIndex, candles.length);
+    const promotion = state.learningRuns.find((run) => run.decision === 'PROMOTE_NEW_POLICY');
+    assert.ok(promotion);
+    assert.ok(promotion.executedAtMarketTime < candles.at(-1)!.closeTime);
+    assert.ok(state.closedPositions.some((position) =>
+      position.strategyVersion.endsWith('-H1-M15') &&
+      position.openedUnderPolicyId === promotion.resultingPolicyId &&
+      position.entryMarketTime > promotion.executedAtMarketTime
+    ));
+    assert.ok(state.learningRuns.some((run) => run.decisionReasonVi.includes('giao dịch ngoài mẫu')));
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

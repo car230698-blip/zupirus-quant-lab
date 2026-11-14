@@ -632,16 +632,28 @@ export function executeWalkForwardLearningRun(params: {
     }
   }
 
-  // Check if a new policy should be promoted
-  if (
-    proposedRegimes.size > 0 &&
-    overallAdaptiveMetrics.netPnlAfterCostUsd > Math.max(0, overallBaselineMetrics.netPnlAfterCostUsd) &&
-    overallAdaptiveMetrics.netPnlAt2xCostUsd >= Math.max(0, overallBaselineMetrics.netPnlAt2xCostUsd) &&
-    overallAdaptiveMetrics.maxDrawdownUsd <= overallBaselineMetrics.maxDrawdownUsd &&
-    regimeComparisons.every((row) => !proposedRegimes.has(row.regime) ||
-      (row.adaptive.tradesCount >= minSamplesPerRegime &&
-       row.adaptive.netPnlAfterCostUsd > Math.max(0, row.baseline.netPnlAfterCostUsd)))
-  ) {
+  const validationFailures: string[] = [];
+  if (proposedRegimes.size === 0) validationFailures.push('Tập huấn luyện chưa chọn thay đổi');
+  if (overallAdaptiveMetrics.netPnlAfterCostUsd <= Math.max(0, overallBaselineMetrics.netPnlAfterCostUsd)) {
+    validationFailures.push('Lãi ròng toàn kỳ chưa vượt mức yêu cầu');
+  }
+  if (overallAdaptiveMetrics.netPnlAt2xCostUsd < Math.max(0, overallBaselineMetrics.netPnlAt2xCostUsd)) {
+    validationFailures.push('Lãi ròng toàn kỳ ở 2× chi phí thấp hơn mức yêu cầu');
+  }
+  if (overallAdaptiveMetrics.maxDrawdownUsd > overallBaselineMetrics.maxDrawdownUsd) {
+    validationFailures.push('Sụt giảm tối đa toàn kỳ cao hơn cơ sở');
+  }
+  for (const row of regimeComparisons) {
+    if (!proposedRegimes.has(row.regime)) continue;
+    if (row.adaptive.tradesCount < minSamplesPerRegime) {
+      validationFailures.push(`${row.regimeLabelVi}: chỉ có ${row.adaptive.tradesCount}/${minSamplesPerRegime} giao dịch ngoài mẫu`);
+    }
+    if (row.adaptive.netPnlAfterCostUsd <= Math.max(0, row.baseline.netPnlAfterCostUsd)) {
+      validationFailures.push(`${row.regimeLabelVi}: lãi ròng ${row.adaptive.netPnlAfterCostUsd} USD chưa vượt ${Math.max(0, row.baseline.netPnlAfterCostUsd)} USD`);
+    }
+  }
+
+  if (validationFailures.length === 0) {
     const nextVersionNum = allPolicies.length + 1;
     const newPolicyId = `POLICY_ADAPTIVE_V${nextVersionNum}`;
     const changedDescriptions: string[] = [];
@@ -732,7 +744,7 @@ export function executeWalkForwardLearningRun(params: {
 
   const decisionReasonVi = isInsufficient
     ? `Chưa đủ mẫu hoàn tất sau lọc Walk-Forward (${validWalkForwardSamples.length} mẫu hợp lệ, ngưỡng tối thiểu ${minSamplesPerRegime} mẫu/trạng thái). Giữ nguyên chính sách hợp lệ hiện tại (${activePolicy.policyId}).`
-    : `Chính sách đề xuất chưa đủ điều kiện ngoài mẫu trên ${validationSamples.length} mẫu. Giữ nguyên ${activePolicy.policyId}.`;
+    : `Giữ nguyên ${activePolicy.policyId}. Kiểm định ngoài mẫu (${validationSamples.length} mẫu): ${validationFailures.join('; ')}.`;
 
   const learningRun: LearningRunRecord = {
     runId,

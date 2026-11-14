@@ -605,7 +605,9 @@ export class QuantLabOrchestrator {
     let policyChangedTo: string | undefined = undefined;
 
     const scheduledLearningCycles = [18, 34, 48, 64];
-    if (scheduledLearningCycles.includes(nextIndex) || nextIndex === this.dataset.candles.length) {
+    const recurringLearningCycle = nextIndex > 64 && (nextIndex - 64) % 16 === 0;
+    if (scheduledLearningCycles.includes(nextIndex) || recurringLearningCycle ||
+        nextIndex === this.dataset.candles.length) {
       const lrResult = this.runResearchAndValidationCycle(
         cycleId,
         candle.closeTime,
