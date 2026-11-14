@@ -1584,6 +1584,9 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
         assert.ok(userHtml.includes(label), label);
       }
 
+      assert.match(userHtml, /Chờ tích hợp EA Copy/);
+      assert.doesNotMatch(userHtml, /Đang sao chép MT5 Demo|Số dư tài khoản cá nhân|Xác nhận Ghép Nối/);
+
       // Verify PositionDetailCard renders fill price, SL/TP, fees, and exit reason when selected
       const closedPos = state.closedPositions[0];
       const recon = state.reconciliations.find((r) => r.positionId === closedPos.positionId);
