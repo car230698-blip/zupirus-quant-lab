@@ -187,6 +187,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
         <WalkForwardSection
           state={state}
           fixtureReport={fixturesReport}
+          researchAccess={isAdmin && authToken ? { token: authToken, host: simulatedHost } : undefined}
           actionPending={actionBusy}
           onRefreshReports={onRefreshReports}
         />

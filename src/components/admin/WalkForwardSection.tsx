@@ -15,6 +15,7 @@ import {
   StatusLabel,
 } from '../shared/UiPrimitives.tsx';
 import { FixtureBranchesPanel } from './FixtureBranchesPanel.tsx';
+import { ResearchReviewPanel } from './ResearchReviewPanel.tsx';
 import { PolicyComparisonTable } from './PolicyComparisonTable.tsx';
 
 const DECISION_LABELS_VI: Record<string, string> = {
@@ -29,6 +30,7 @@ export interface WalkForwardSectionProps {
   state: QuantSystemState;
   fixtureReport: LearningBranchFixtureSuiteReport | null;
   actionPending: boolean;
+  researchAccess?: { token: string; host?: string | null };
   onRefreshReports: () => void;
 }
 
@@ -36,6 +38,7 @@ export const WalkForwardSection: React.FC<WalkForwardSectionProps> = ({
   state,
   fixtureReport,
   actionPending,
+  researchAccess,
   onRefreshReports,
 }) => {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -264,6 +267,11 @@ export const WalkForwardSection: React.FC<WalkForwardSectionProps> = ({
           </div>
         )}
       </section>
+
+      {activeRun && researchAccess && (
+        <ResearchReviewPanel key={JSON.stringify([activeRun.runId, activeRun.executedAtSystemTime])}
+          runId={activeRun.runId} token={researchAccess.token} host={researchAccess.host} />
+      )}
 
       {/* 5-Branch Verification Fixture Suite */}
       <FixtureBranchesPanel

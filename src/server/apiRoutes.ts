@@ -230,6 +230,24 @@ export function registerQuantApiRoutes({
 
   // 8. Traceability: Learning Run -> Reconciled Positions, Shadow Outcomes, Exclusions, Policy
   app.get(
+    '/api/research/walk-forward/:runId',
+    requireRoles(['ADMIN'], true),
+    async (req, res, next) => {
+      const run = orchestrator.getState().learningRuns.find((item) => item.runId === req.params.runId);
+      if (!run) {
+        res.status(404).json({ error: 'LEARNING_RUN_NOT_FOUND' });
+        return;
+      }
+      try {
+        const { reviewWalkForwardRun } = await import('../research/walkForwardReview.ts');
+        res.set('Cache-Control', 'no-store').json(await reviewWalkForwardRun(run));
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
     '/api/trace/learning/:runId',
     requireRoles(['VIEWER', 'ADMIN']),
     (req, res) => {
