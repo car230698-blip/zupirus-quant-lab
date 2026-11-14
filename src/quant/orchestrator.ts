@@ -4,7 +4,7 @@ import {
 } from './dataReplay.ts';
 import { classifyMarketRegime } from './regimeDetector.ts';
 import {
-  evaluateAllStrategyCandidates,
+  evaluateMultiTimeframeCandidates,
   selectStrategyForCycle,
 } from './strategies.ts';
 import {
@@ -19,6 +19,7 @@ import { reconcileClosedPosition } from './reconciliation.ts';
 import {
   createShadowOutcomeFromCandidate,
   executeWalkForwardLearningRun,
+  LEARNER_VERSION,
 } from './researchTeam.ts';
 import { DurableQuantStorage } from './storage.ts';
 import {
@@ -41,17 +42,11 @@ export interface OrchestratorOptions {
   autoStart?: boolean;
 }
 
-interface ActiveShadowTracker {
-  outcome: ShadowCandidateOutcome;
-  shadowPosition: SimulatedPosition;
-}
-
 export class QuantLabOrchestrator {
   private readonly storage: DurableQuantStorage;
   private readonly dataset: ReplayDataset;
   private state: QuantSystemState;
   private timer: NodeJS.Timeout | null = null;
-  private activeShadows: Map<string, ActiveShadowTracker> = new Map();
   private lastHeartbeatSystemMs: number = Date.now();
 
   constructor(options: OrchestratorOptions) {
@@ -64,11 +59,74 @@ export class QuantLabOrchestrator {
       intervalMs
     );
     this.state = state;
+    this.restoreOpenShadows();
     this.state.replayIntervalMs = intervalMs;
+    const activePolicy = this.state.policies.find((policy) => policy.policyId === this.state.activePolicyId);
+    if (activePolicy && !activePolicy.isBaseline && activePolicy.learnerVersion !== LEARNER_VERSION) {
+      const baseline = this.state.policies.find((policy) => policy.policyId === this.state.baselinePolicyId)!;
+      activePolicy.status = 'ROLLED_BACK';
+      activePolicy.rollbackReasonVi = 'Phiên bản cũ cần kiểm định lại trên tập ngoài mẫu.';
+      baseline.status = 'ACTIVE';
+      this.state.activePolicyId = baseline.policyId;
+      this.storage.saveState(this.state);
+    }
 
     if (options.autoStart !== false && !this.state.isReplayComplete) {
       this.startAutoLoop();
     }
+  }
+
+  private closeShadow(outcome: ShadowCandidateOutcome, position: SimulatedPosition, candleIndex: number) {
+    Object.assign(outcome, {
+      status: 'CLOSED_RECONCILED',
+      closeMarketTime: position.closeMarketTime,
+      closeCandleIndex: candleIndex,
+      avgExitPrice: position.avgExitFillPrice,
+      grossPnlUsd: position.grossPnlUsd,
+      totalCostUsd: position.totalCostUsd,
+      netPnlUsd: position.netPnlUsd,
+      netPnlAt2xCostUsd: position.netPnlAt2xCostUsd,
+      exitReason: position.exitReason,
+      intraBarConflictTriggered: position.exitReason === 'INTRA_BAR_SL_TP_CONFLICT_SL_FIRST',
+    });
+  }
+
+  private restoreOpenShadows() {
+    if (this.state.openShadowPositions) return;
+    const positions: Record<string, SimulatedPosition> = {};
+    const traces = this.state.cycleTraces;
+    for (const outcome of this.state.shadowOutcomes) {
+      if (outcome.status !== 'OPEN') continue;
+      const trace = traces.find((item) => item.cycleId === outcome.cycleId);
+      const candidate = trace?.coordinatorDecision?.candidatesConsidered.find(
+        (item) => item.strategyId === outcome.strategyId && item.version === outcome.strategyVersion
+      );
+      if (!trace || !candidate) {
+        throw new Error(`Thiếu dữ liệu để khôi phục mẫu mô phỏng ${outcome.shadowId}`);
+      }
+      let { shadowPosition } = createShadowOutcomeFromCandidate({
+        cycleId: trace.cycleId,
+        candle: trace.candle,
+        candleIndex: trace.candleIndex,
+        regime: outcome.regime,
+        candidate,
+        wasSelectedByActivePolicy: outcome.wasSelectedByActivePolicy,
+        wasSelectedByBaselinePolicy: outcome.wasSelectedByBaselinePolicy,
+        livePositionId: outcome.wasSelectedByActivePolicy ? trace.openedPositionId : undefined,
+      });
+      for (const later of traces) {
+        if (later.candleIndex <= trace.candleIndex || !later.validation.valid) continue;
+        shadowPosition = stepOpenPositionOnCandle(shadowPosition, later.cycleId, later.candle,
+          later.coordinatorDecision?.systemTime);
+        if (shadowPosition.status === 'CLOSED') {
+          this.closeShadow(outcome, shadowPosition, later.candleIndex);
+          break;
+        }
+      }
+      if (shadowPosition.status !== 'CLOSED') positions[outcome.shadowId] = shadowPosition;
+    }
+    this.state.openShadowPositions = positions;
+    this.storage.saveState(this.state);
   }
 
   public getDatasetMetadata() {
@@ -112,7 +170,7 @@ export class QuantLabOrchestrator {
           this.state.teamExecutionStatus.currentTaskVi =
             'Đã hoàn tất toàn bộ chuỗi nến phát lại nghiệm thu';
           this.state.teamExecutionStatus.waitStateReasonVi =
-            'Bộ phát lại đã xử lý hết 72/72 nến M15 trong phiên nghiệm thu.';
+            `Bộ phát lại đã xử lý hết ${this.dataset.candles.length} nến M15 trong phiên nghiệm thu.`;
           this.state.teamResearchStatus.isActive = false;
           this.state.teamResearchStatus.currentTaskVi =
             'Đã hoàn tất kiểm định Walk-Forward cuối kỳ';
@@ -146,7 +204,6 @@ export class QuantLabOrchestrator {
 
   public resetSimulation(autoStart: boolean = true): QuantSystemState {
     this.stopAutoLoop();
-    this.activeShadows.clear();
     this.state = this.storage.resetStorage(
       this.dataset.candles.length,
       this.state.replayIntervalMs
@@ -357,37 +414,16 @@ export class QuantLabOrchestrator {
     this.state.openPositions = remainingOpenPositions;
 
     // Step active parallel shadow positions on this closed candle
-    for (const [shadowId, tracker] of this.activeShadows.entries()) {
-      const steppedShadow = stepOpenPositionOnCandle(
-        tracker.shadowPosition,
-        cycleId,
-        candle,
-        systemTime
-      );
-      tracker.shadowPosition = steppedShadow;
-      if (steppedShadow.status === 'CLOSED') {
-        tracker.outcome.status = 'CLOSED_RECONCILED';
-        tracker.outcome.closeMarketTime = candle.closeTime;
-        tracker.outcome.closeCandleIndex = nextIndex;
-        tracker.outcome.avgExitPrice = steppedShadow.avgExitFillPrice;
-        tracker.outcome.grossPnlUsd = steppedShadow.grossPnlUsd;
-        tracker.outcome.totalCostUsd = steppedShadow.totalCostUsd;
-        tracker.outcome.netPnlUsd = steppedShadow.netPnlUsd;
-        tracker.outcome.netPnlAt2xCostUsd = steppedShadow.netPnlAt2xCostUsd;
-        tracker.outcome.exitReason = steppedShadow.exitReason;
-        tracker.outcome.intraBarConflictTriggered =
-          steppedShadow.exitReason === 'INTRA_BAR_SL_TP_CONFLICT_SL_FIRST';
-
-        // Update in state.shadowOutcomes
-        const idx = this.state.shadowOutcomes.findIndex(
-          (s) => s.shadowId === shadowId
-        );
-        if (idx >= 0) {
-          this.state.shadowOutcomes[idx] = { ...tracker.outcome };
-        } else {
-          this.state.shadowOutcomes.push({ ...tracker.outcome });
-        }
-        this.activeShadows.delete(shadowId);
+    const openShadows = this.state.openShadowPositions!;
+    for (const outcome of this.state.shadowOutcomes) {
+      const position = openShadows[outcome.shadowId];
+      if (!position) continue;
+      const stepped = stepOpenPositionOnCandle(position, cycleId, candle, systemTime);
+      if (stepped.status === 'CLOSED') {
+        this.closeShadow(outcome, stepped, nextIndex);
+        delete openShadows[outcome.shadowId];
+      } else {
+        openShadows[outcome.shadowId] = stepped;
       }
     }
 
@@ -408,7 +444,7 @@ export class QuantLabOrchestrator {
     // ========================================================================
     // STEP 3: Evaluate all 3 distinct strategies & Coordinator Selection
     // ========================================================================
-    const candidates = evaluateAllStrategyCandidates(
+    const candidates = evaluateMultiTimeframeCandidates(
       candlesUpToDecision,
       regimeClassification
     );
@@ -542,7 +578,7 @@ export class QuantLabOrchestrator {
 
           shadowOutcomeIds.push(outcome.shadowId);
           this.state.shadowOutcomes.push(outcome);
-          this.activeShadows.set(outcome.shadowId, { outcome, shadowPosition });
+          openShadows[outcome.shadowId] = shadowPosition;
         }
       }
     }
@@ -564,20 +600,17 @@ export class QuantLabOrchestrator {
     // STEP 6: Team 2 (Research & Validation) Automatic Trigger Check
     // Runs on schedule / sufficient new completed outcomes:
     // - Cycle 18: Early check demonstrating insufficient sample handling
-    // - Cycle 34: First full Walk-Forward Learning Run (promotes POLICY_ADAPTIVE_V2)
-    // - Cycle 48: Second Walk-Forward Learning Run (updates RANGING / validates OOS)
-    // - Cycle 64 & 72: End-of-window Out-of-Sample validation runs
     // ========================================================================
     let learningRunId: string | undefined = undefined;
     let policyChangedTo: string | undefined = undefined;
 
-    const scheduledLearningCycles = new Set([18, 34, 48, 64, 72]);
-    if (scheduledLearningCycles.has(nextIndex)) {
+    const scheduledLearningCycles = [18, 34, 48, 64];
+    if (scheduledLearningCycles.includes(nextIndex) || nextIndex === this.dataset.candles.length) {
       const lrResult = this.runResearchAndValidationCycle(
         cycleId,
         candle.closeTime,
         `Đạt mốc lịch trình kiểm định Walk-Forward tự động tại chu kỳ ${cycleId} (Nến ${nextIndex}/${this.dataset.candles.length})`,
-        systemTime
+        systemTime, undefined, undefined, false
       );
       learningRunId = lrResult.learningRun.runId;
       if (lrResult.learningRun.resultingPolicyId !== lrResult.learningRun.previousPolicyId) {
@@ -632,7 +665,8 @@ export class QuantLabOrchestrator {
     triggerReasonVi: string,
     systemTime: string = new Date().toISOString(),
     customMinSamples?: number,
-    customDegradationThresholdUsd?: number
+    customDegradationThresholdUsd?: number,
+    persistState = true
   ) {
     const riskLimitsBefore = structuredClone(this.state.riskLimits);
     const runNum = this.state.learningRuns.length + 1;
@@ -746,7 +780,7 @@ export class QuantLabOrchestrator {
         ? 'Đang tích lũy thêm giao dịch hoàn tất và đối soát để đủ ngưỡng mẫu tối thiểu'
         : null;
 
-    this.storage.saveState(this.state);
+    if (persistState) this.storage.saveState(this.state);
     return result;
   }
 
@@ -861,12 +895,14 @@ export class QuantLabOrchestrator {
     const reconciliationsUsed = this.state.reconciliations.filter((r) =>
       learningRun.reconciledPositionIdsUsed.includes(r.positionId)
     );
+    const exactSampleIds = learningRun.trainingSampleIds && learningRun.validationSampleIds
+      ? new Set([...learningRun.trainingSampleIds, ...learningRun.validationSampleIds]) : undefined;
     const cutoffMs = Date.parse(learningRun.executedAtMarketTime);
     const shadowOutcomesUsed = this.state.shadowOutcomes.filter(
       (s) =>
-        learningRun.sampleCycleIdsUsed.includes(s.cycleId) &&
-        s.closeMarketTime &&
-        Date.parse(s.closeMarketTime) <= cutoffMs
+        exactSampleIds ? exactSampleIds.has(s.shadowId) :
+          learningRun.sampleCycleIdsUsed.includes(s.cycleId) && Boolean(s.closeMarketTime) &&
+          Date.parse(s.closeMarketTime!) <= cutoffMs
     );
     const resultingPolicy = this.state.policies.find(
       (p) => p.policyId === learningRun.resultingPolicyId

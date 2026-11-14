@@ -1,11 +1,4 @@
-import {
-  BASELINE_POLICY_ID,
-  BASELINE_POLICY_MAPPING,
-} from './strategies.ts';
-import {
-  openSimulatedPosition,
-  stepOpenPositionOnCandle,
-} from './simBroker.ts';
+import { openSimulatedPosition } from './simBroker.ts';
 import {
   HypothesisRecord,
   LearningRunRecord,
@@ -24,16 +17,11 @@ import {
   WalkForwardExclusionLog,
 } from './types.ts';
 
-export const LEARNER_VERSION = 'LEARNER_WF_V1.4';
+export const LEARNER_VERSION = 'LEARNER_WF_V2.0';
 export const RANKING_FORMULA_TEXT =
   'Score = Mean(NetPnL_1xCost) - 0.35 * (MaxDD / N) + 0.25 * Mean(NetPnL_2xCost)';
 export const DEFAULT_MIN_SAMPLES_PER_REGIME = 2;
 export const DEGRADATION_LOSS_THRESHOLD_USD = -220;
-
-interface InternalShadowTracker {
-  outcome: ShadowCandidateOutcome;
-  simPosition: SimulatedPosition;
-}
 
 /**
  * Helper to compute max drawdown from a chronological series of trade PnLs.
@@ -82,7 +70,8 @@ export function computeComparisonMetrics(
     outcomes.reduce((s, o) => s + o.netPnlAt2xCostUsd, 0).toFixed(2)
   );
   const maxDrawdownUsd = computeMaxDrawdownFromPnls(
-    outcomes.map((o) => o.netPnlUsd)
+    [...outcomes].sort((a, b) => Date.parse(a.closeMarketTime!) - Date.parse(b.closeMarketTime!))
+      .map((o) => o.netPnlUsd)
   );
 
   return {
@@ -146,13 +135,12 @@ export function createShadowOutcomeFromCandidate(params: {
     entryMarketTime: candle.closeTime,
     entryCandleIndex: candleIndex,
     status: 'OPEN',
-    source: wasSelectedByActivePolicy
-      ? 'LIVE_SIM_RECONCILED'
-      : 'PARALLEL_SHADOW_SIM',
+    source: 'PARALLEL_SHADOW_SIM',
     wasSelectedByActivePolicy,
     wasSelectedByBaselinePolicy,
     expectedEntryPrice: shadowPos.expectedEntryPrice,
     fillEntryPrice: shadowPos.fillEntryPrice,
+    entrySlippagePts: shadowPos.deals[0]?.slippagePts,
     grossPnlUsd: shadowPos.grossPnlUsd,
     totalCostUsd: shadowPos.totalCostUsd,
     netPnlUsd: shadowPos.netPnlUsd,
@@ -212,6 +200,9 @@ export function executeWalkForwardLearningRun(params: {
     if (
       item.status !== 'CLOSED_RECONCILED' ||
       !item.closeMarketTime ||
+      !Number.isFinite(Date.parse(item.entryMarketTime)) ||
+      !Number.isFinite(Date.parse(item.closeMarketTime)) ||
+      Date.parse(item.closeMarketTime) < Date.parse(item.entryMarketTime) ||
       Date.parse(item.closeMarketTime) > cutoffMs
     ) {
       exclusions.push({
@@ -233,19 +224,14 @@ export function executeWalkForwardLearningRun(params: {
     (a, b) => Date.parse(a.entryMarketTime) - Date.parse(b.entryMarketTime)
   );
 
-  const earliestMs =
-    sortedByEntry.length > 0
-      ? Date.parse(sortedByEntry[0].entryMarketTime)
-      : cutoffMs - 6 * 3600 * 1000;
+  const earliestDecision = allShadowOutcomes
+    .map((sample) => Date.parse(sample.entryMarketTime))
+    .filter((time) => Number.isFinite(time) && time <= cutoffMs)
+    .reduce((earliest, time) => Math.min(earliest, time), Infinity);
+  const earliestMs = Number.isFinite(earliestDecision) ? earliestDecision : cutoffMs - 6 * 3600 * 1000;
 
-  // Split at 65% of elapsed time span (or median entry index) for Walk-Forward boundary
-  const splitMs =
-    sortedByEntry.length >= 4
-      ? Date.parse(
-          sortedByEntry[Math.floor(sortedByEntry.length * 0.6)].closeMarketTime ||
-            decisionMarketTime
-        )
-      : Math.floor(earliestMs + (cutoffMs - earliestMs) * 0.65);
+  // Fix the boundary from the replay clock independently of candidate returns.
+  const splitMs = Math.floor(earliestMs + (cutoffMs - earliestMs) * 0.65);
 
   const trainWindowStartMarketTime = new Date(earliestMs).toISOString();
   const trainWindowEndMarketTime = new Date(splitMs).toISOString();
@@ -273,6 +259,17 @@ export function executeWalkForwardLearningRun(params: {
     }
   }
 
+  const trainingSamples = validWalkForwardSamples.filter((sample) =>
+    Date.parse(sample.entryMarketTime) < splitMs && Date.parse(sample.closeMarketTime!) <= splitMs
+  );
+  const validationSamples = validWalkForwardSamples.filter((sample) =>
+    Date.parse(sample.entryMarketTime) >= splitMs
+  );
+  const sampleReferences = {
+    trainingSampleIds: trainingSamples.map((sample) => sample.shadowId),
+    validationSampleIds: validationSamples.map((sample) => sample.shadowId),
+  };
+
   // 3. Check for Active Policy Degradation (Rollback or Halt protection)
   const positionsUnderActivePolicy = reconciledPositions.filter(
     (p) =>
@@ -296,11 +293,11 @@ export function executeWalkForwardLearningRun(params: {
   const rankingsByRegime: StrategyRegimeRanking[] = [];
   const hypothesesTested: HypothesisRecord[] = [];
   const proposedMapping: RegimePolicyMapping = structuredClone(activePolicy.mapping);
-  let regimesChangedCount = 0;
+  const proposedRegimes = new Set<MarketRegime>();
   let anyInsufficientSamples = false;
 
   for (const regime of tradeableRegimes) {
-    const regimeSamples = validWalkForwardSamples.filter((s) => s.regime === regime);
+    const regimeSamples = trainingSamples.filter((s) => s.regime === regime);
     const excludedInRegime = exclusions.filter((e) =>
       allShadowOutcomes.find(
         (s) => s.shadowId === e.shadowId && s.regime === regime
@@ -319,6 +316,7 @@ export function executeWalkForwardLearningRun(params: {
     for (const [key, group] of groups.entries()) {
       const [strategyId, strategyVersion] = key.split('@') as [StrategyId, string];
       const n = group.length;
+      group.sort((a, b) => Date.parse(a.closeMarketTime!) - Date.parse(b.closeMarketTime!));
       const wins = group.filter((g) => g.netPnlUsd > 0).length;
       const grossPnlUsd = Number(
         group.reduce((sum, g) => sum + g.grossPnlUsd, 0).toFixed(2)
@@ -362,7 +360,7 @@ export function executeWalkForwardLearningRun(params: {
         netPnlUsd,
         netPnlAt2xCostUsd,
         maxDrawdownUsd,
-        avgSlippagePts: 2.5,
+        avgSlippagePts: Number((group.reduce((sum, item) => sum + (item.entrySlippagePts ?? 0), 0) / n).toFixed(2)),
         rankingScore,
         meetsMinSamples: n >= minSamplesPerRegime,
         sampleCycleIds: group.map((g) => g.cycleId),
@@ -420,7 +418,7 @@ export function executeWalkForwardLearningRun(params: {
         strategyId: best.strategyId,
         version: best.strategyVersion,
       };
-      regimesChangedCount += 1;
+      proposedRegimes.add(regime);
       hypothesesTested.push({
         hypothesisId: `HYP-${runId}-${regime}`,
         createdAtMarketTime: decisionMarketTime,
@@ -429,14 +427,14 @@ export function executeWalkForwardLearningRun(params: {
         proposedStrategyId: best.strategyId,
         proposedVersion: best.strategyVersion,
         rationaleVi: `Ứng viên ${bestKey} đạt điểm xếp hạng cao nhất (${best.rankingScore}) trên ${best.sampleCount} mẫu đối soát trong trạng thái ${REGIME_LABELS_VI[regime]}.`,
-        validationStatus: 'PROMOTED',
-        validationNoteVi: `Vượt chuẩn Walk-Forward: Lãi ròng 1x chi phí = +${best.netPnlUsd.toFixed(
+        validationStatus: 'TRAINING_SELECTED',
+        validationNoteVi: `Kết quả tập huấn luyện: Lãi ròng 1x chi phí = +${best.netPnlUsd.toFixed(
           2
         )} USD, Lãi ròng 2x chi phí = ${best.netPnlAt2xCostUsd.toFixed(
           2
         )} USD, vượt chiến lược hiện tại (${currentKey}: ${
           currentRankObj ? currentRankObj.rankingScore : 'N/A'
-        }). Đủ điều kiện thăng cấp!`,
+        }). Chờ kết quả ngoài mẫu.`,
       });
     } else {
       hypothesesTested.push({
@@ -468,12 +466,12 @@ export function executeWalkForwardLearningRun(params: {
   let totalOpportunities = 0;
 
   for (const regime of tradeableRegimes) {
-    const regimeSamples = validWalkForwardSamples.filter((s) => s.regime === regime);
+    const regimeSamples = validationSamples.filter((s) => s.regime === regime);
     const uniqueCyclesInRegime = new Set(regimeSamples.map((s) => s.cycleId)).size;
     totalOpportunities += uniqueCyclesInRegime;
 
     const adaptiveRule = proposedMapping[regime];
-    const baselineRule = BASELINE_POLICY_MAPPING[regime];
+    const baselineRule = baselinePolicy.mapping[regime];
 
     const adaptiveOutcomes =
       adaptiveRule === 'STAND_ASIDE'
@@ -585,6 +583,7 @@ export function executeWalkForwardLearningRun(params: {
         }). Các vị thế đang mở tiếp tục dùng quy tắc của phiên bản lúc mở.`,
         reconciledPositionIdsUsed: reconciledIdsUsed,
         sampleCycleIdsUsed,
+        ...sampleReferences,
       };
       return {
         learningRun,
@@ -624,6 +623,7 @@ export function executeWalkForwardLearningRun(params: {
         )} USD <= ${degradationLossThresholdUsd} USD) và không còn phiên bản dự phòng hợp lệ. Đã kích hoạt chốt chặn dừng mở vị thế mới.`,
         reconciledPositionIdsUsed: reconciledIdsUsed,
         sampleCycleIdsUsed,
+        ...sampleReferences,
       };
       return {
         learningRun,
@@ -634,9 +634,13 @@ export function executeWalkForwardLearningRun(params: {
 
   // Check if a new policy should be promoted
   if (
-    regimesChangedCount > 0 &&
-    overallAdaptiveMetrics.netPnlAfterCostUsd >
-      overallBaselineMetrics.netPnlAfterCostUsd
+    proposedRegimes.size > 0 &&
+    overallAdaptiveMetrics.netPnlAfterCostUsd > Math.max(0, overallBaselineMetrics.netPnlAfterCostUsd) &&
+    overallAdaptiveMetrics.netPnlAt2xCostUsd >= Math.max(0, overallBaselineMetrics.netPnlAt2xCostUsd) &&
+    overallAdaptiveMetrics.maxDrawdownUsd <= overallBaselineMetrics.maxDrawdownUsd &&
+    regimeComparisons.every((row) => !proposedRegimes.has(row.regime) ||
+      (row.adaptive.tradesCount >= minSamplesPerRegime &&
+       row.adaptive.netPnlAfterCostUsd > Math.max(0, row.baseline.netPnlAfterCostUsd)))
   ) {
     const nextVersionNum = allPolicies.length + 1;
     const newPolicyId = `POLICY_ADAPTIVE_V${nextVersionNum}`;
@@ -694,13 +698,21 @@ export function executeWalkForwardLearningRun(params: {
       regimeComparisons,
       overallAdaptiveMetrics,
       overallBaselineMetrics,
-      hypothesesTested,
+      hypothesesTested: hypothesesTested.map((hypothesis) =>
+        hypothesis.validationStatus === 'TRAINING_SELECTED'
+          ? { ...hypothesis, validationStatus: 'PROMOTED',
+              validationNoteVi: hypothesis.validationNoteVi.replace(
+                'Chờ kết quả ngoài mẫu.', 'Đã qua kiểm định ngoài mẫu.'
+              ) }
+          : hypothesis
+      ),
       decision: 'PROMOTE_NEW_POLICY',
       previousPolicyId: activePolicy.policyId,
       resultingPolicyId: newPolicyId,
       decisionReasonVi: newPolicy.activationReasonVi,
       reconciledPositionIdsUsed: reconciledIdsUsed,
       sampleCycleIdsUsed,
+      ...sampleReferences,
     };
 
     return {
@@ -711,7 +723,7 @@ export function executeWalkForwardLearningRun(params: {
 
   // Otherwise keep current valid policy (either due to insufficient samples or current policy is already optimal)
   const isInsufficient =
-    validWalkForwardSamples.length < minSamplesPerRegime ||
+    validationSamples.length < minSamplesPerRegime || trainingSamples.length < minSamplesPerRegime ||
     (anyInsufficientSamples && validWalkForwardSamples.length < 6);
 
   const decision = isInsufficient
@@ -720,13 +732,7 @@ export function executeWalkForwardLearningRun(params: {
 
   const decisionReasonVi = isInsufficient
     ? `Chưa đủ mẫu hoàn tất sau lọc Walk-Forward (${validWalkForwardSamples.length} mẫu hợp lệ, ngưỡng tối thiểu ${minSamplesPerRegime} mẫu/trạng thái). Giữ nguyên chính sách hợp lệ hiện tại (${activePolicy.policyId}).`
-    : `Đã đánh giá ${validWalkForwardSamples.length} mẫu hoàn tất: Chính sách hiện tại (${
-        activePolicy.policyId
-      }, Lãi ròng +${overallAdaptiveMetrics.netPnlAfterCostUsd.toFixed(
-        2
-      )} USD) đang tối ưu và vượt đường cơ sở (${BASELINE_POLICY_ID}: +${overallBaselineMetrics.netPnlAfterCostUsd.toFixed(
-        2
-      )} USD). Giữ nguyên ${activePolicy.policyId}.`;
+    : `Chính sách đề xuất chưa đủ điều kiện ngoài mẫu trên ${validationSamples.length} mẫu. Giữ nguyên ${activePolicy.policyId}.`;
 
   const learningRun: LearningRunRecord = {
     runId,
@@ -749,13 +755,21 @@ export function executeWalkForwardLearningRun(params: {
     regimeComparisons,
     overallAdaptiveMetrics,
     overallBaselineMetrics,
-    hypothesesTested,
+    hypothesesTested: hypothesesTested.map((hypothesis) =>
+      hypothesis.validationStatus === 'TRAINING_SELECTED'
+        ? { ...hypothesis, validationStatus: 'REJECTED_UNDERPERFORMED',
+            validationNoteVi: hypothesis.validationNoteVi.replace(
+              'Chờ kết quả ngoài mẫu.', 'Chưa đạt tiêu chí kích hoạt ngoài mẫu.'
+            ) }
+        : hypothesis
+    ),
     decision,
     previousPolicyId: activePolicy.policyId,
     resultingPolicyId: activePolicy.policyId,
     decisionReasonVi,
     reconciledPositionIdsUsed: reconciledIdsUsed,
     sampleCycleIdsUsed,
+    ...sampleReferences,
   };
 
   return { learningRun };

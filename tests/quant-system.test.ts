@@ -11,6 +11,8 @@ import { classifyMarketRegime } from '../src/quant/regimeDetector.ts';
 import {
   BASELINE_POLICY_ID,
   evaluateAllStrategyCandidates,
+  evaluateMultiTimeframeCandidates,
+  selectStrategyForCycle,
 } from '../src/quant/strategies.ts';
 import {
   cloneRiskLimits,
@@ -23,6 +25,7 @@ import {
   stepOpenPositionOnCandle,
 } from '../src/quant/simBroker.ts';
 import { reconcileClosedPosition } from '../src/quant/reconciliation.ts';
+import { latestClosedContext } from '../src/quant/timeframes.ts';
 import { executeWalkForwardLearningRun } from '../src/quant/researchTeam.ts';
 import { QuantLabOrchestrator } from '../src/quant/orchestrator.ts';
 import { createQuantServer } from '../server.ts';
@@ -33,7 +36,7 @@ function createTempDir(prefix: string): string {
 }
 
 describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M15 tự vận hành', () => {
-  it('1. Luồng đầu cuối qua Server (End-to-End): Nến đóng -> Quyết định -> Lệnh mô phỏng -> Đối soát -> Học Walk-Forward -> Đổi chính sách', async () => {
+  it('1. Luồng đầu cuối qua Server (End-to-End): Nến đóng -> Quyết định -> Lệnh mô phỏng -> Đối soát -> Học Walk-Forward', async () => {
     const tmpDir = createTempDir('e2e');
     const replayFile = path.join(tmpDir, 'xauusd_m15_replay.json');
 
@@ -74,42 +77,12 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
       'Phải có vị thế thực hiện đóng một phần (50%) tại TP1 trước khi đóng hết'
     );
 
-    // Kiểm tra kỳ học Walk-Forward đã tự động thăng cấp chính sách mới và đổi lựa chọn chiến lược
-    assert.ok(
-      finalState.learningRuns.length >= 3,
-      'Phải có các kỳ học Walk-Forward tự động chạy theo lịch/mẫu mới'
-    );
-    const promotionRun = finalState.learningRuns.find(
-      (r) => r.decision === 'PROMOTE_NEW_POLICY'
-    );
-    assert.ok(
-      promotionRun,
-      'Phải có ít nhất một kỳ học kích hoạt chính sách mới (PROMOTE_NEW_POLICY)'
-    );
-    assert.notEqual(
-      finalState.activePolicyId,
-      BASELINE_POLICY_ID,
-      'Chính sách đang hiệu lực phải được nâng cấp từ đường cơ sở sang chính sách thích nghi'
-    );
-
-    // Chứng minh kết quả mới đã đổi lựa chọn chiến lược cho ít nhất một trạng thái thị trường
-    const baselinePolicy = finalState.policies.find(
-      (p) => p.policyId === BASELINE_POLICY_ID
-    )!;
-    const activeFinalPolicy = finalState.policies.find(
-      (p) => p.policyId === finalState.activePolicyId
-    )!;
-
-    assert.notDeepEqual(
-      activeFinalPolicy.mapping.TRENDING,
-      baselinePolicy.mapping.TRENDING,
-      'Chính sách mới phải đổi lựa chọn chiến lược/phiên bản cho trạng thái Có xu hướng (TRENDING)'
-    );
-    assert.notDeepEqual(
-      activeFinalPolicy.mapping.SQUEEZE_PRE_BREAKOUT,
-      baselinePolicy.mapping.SQUEEZE_PRE_BREAKOUT,
-      'Chính sách mới phải đổi lựa chọn chiến lược cho trạng thái Co hẹp trước phá vỡ (SQUEEZE_PRE_BREAKOUT)'
-    );
+    assert.equal(finalState.learningRuns.length, 5);
+    assert.equal(finalState.activePolicyId, BASELINE_POLICY_ID,
+      'Bộ phát lại ngắn giữ chính sách cơ sở khi chưa đủ bằng chứng ngoài mẫu');
+    const learningRun = finalState.learningRuns.at(-1)!;
+    assert.ok(learningRun.trainingSampleIds!.length > 0);
+    assert.ok(learningRun.validationSampleIds!.length > 0);
 
     // Kiểm tra truy vết hai chiều: Từ giao dịch về nến & quyết định, và từ lần học về kết quả đối soát
     const samplePos = finalState.closedPositions[0];
@@ -118,7 +91,7 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
     assert.equal(posTrace.entryCycleTrace?.cycleId, samplePos.entryCycleId);
     assert.ok(posTrace.reconciliation?.volumeMatched);
 
-    const lrTrace = orchestrator.getLearningRunFullTrace(promotionRun!.runId);
+    const lrTrace = orchestrator.getLearningRunFullTrace(learningRun.runId);
     assert.ok(lrTrace);
     assert.ok(lrTrace.reconciledPositionsUsed.length > 0);
     assert.ok(lrTrace.shadowOutcomesUsed.length > 0);
@@ -528,12 +501,16 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
       autoStart: false,
     });
 
-    // Chạy tới chu kỳ 48 để POLICY_ADAPTIVE_V2 được kích hoạt
+    // Tạo trạng thái đủ dữ liệu rồi mô phỏng một chính sách đã được kích hoạt
     while (orchestrator.getState().replayCursorIndex < 48) {
       orchestrator.stepNextReplayCandle();
     }
     const state = orchestrator.getState();
-    assert.equal(state.activePolicyId, 'POLICY_ADAPTIVE_V2');
+    const baseline = state.policies[0];
+    baseline.status = 'SUPERSEDED';
+    state.policies.push({ ...structuredClone(baseline), policyId: 'POLICY_ADAPTIVE_V2',
+      versionNumber: 2, status: 'ACTIVE', isBaseline: false });
+    state.activePolicyId = 'POLICY_ADAPTIVE_V2';
 
     // Mở một vị thế dưới POLICY_ADAPTIVE_V2 và lưu lại snapshot quy tắc quản lý của nó
     const dataset = buildDeterministicReplayDataset();
@@ -615,4 +592,101 @@ describe('ZUPIRUS Quant Lab — Kiểm thử toàn diện hệ thống XAUUSD M1
       /FATAL_BROKER_GUARD/
     );
   });
+
+  it('Khôi phục mẫu song song khi restart tại nến 69, kể cả từ trạng thái cũ', () => {
+    const run = (restart: 'none' | 'current' | 'legacy') => {
+      const directory = createTempDir('shadow-restart');
+      const options = { dataDir: directory,
+        replayFilePath: path.join(directory, 'replay.json'), autoStart: false };
+      let orchestrator = new QuantLabOrchestrator(options);
+      const step = () => orchestrator.processClosedCandle(
+        buildDeterministicReplayDataset().candles[orchestrator.getState().replayCursorIndex],
+        '2026-03-04T00:00:00.000Z'
+      );
+      while (orchestrator.getState().replayCursorIndex < 69) step();
+      assert.ok(Object.keys(orchestrator.getState().openShadowPositions!).length > 0);
+      if (restart === 'legacy') {
+        const stateFile = orchestrator.getStoragePaths().stateFilePath;
+        const oldState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+        delete oldState.openShadowPositions;
+        fs.writeFileSync(stateFile, JSON.stringify(oldState));
+      }
+      if (restart !== 'none') orchestrator = new QuantLabOrchestrator(options);
+      while (orchestrator.getState().replayCursorIndex < 72) step();
+      const state = orchestrator.getState();
+      return { samples: state.shadowOutcomes, balance: state.balanceUsd,
+        runs: state.learningRuns.map((item) => ({
+          decision: item.decision, train: item.trainingSampleIds, validation: item.validationSampleIds,
+        })) };
+    };
+    const continuous = run('none');
+    assert.deepEqual(run('current'), continuous);
+    assert.deepEqual(run('legacy'), continuous);
+  });
+
+  it('Chỉ dùng nến H1 và H4 hoàn chỉnh tại thời điểm ra quyết định', () => {
+    const candles = buildDeterministicReplayDataset().candles;
+    const beforeH4Close = candles[14].closeTime;
+    assert.equal(latestClosedContext(candles, beforeH4Close, 'H4'), undefined);
+    const atH4Close = candles[15].closeTime;
+    const h4 = latestClosedContext(candles, atH4Close, 'H4');
+    assert.ok(h4);
+    assert.equal(h4.closeTime, atH4Close);
+    assert.deepEqual(h4, latestClosedContext(candles.slice(0, 16), atH4Close, 'H4'));
+    assert.equal(latestClosedContext(candles.filter((_, i) => i !== 2), atH4Close, 'H4'), undefined);
+    assert.ok(latestClosedContext(candles, beforeH4Close, 'H1'));
+  });
+
+  it('Giữ lựa chọn từ train khi đổi validation và thực thi tổ hợp đa khung đã đạt', () => {
+    const directory = createTempDir('oos-timeframes');
+    const orchestrator = new QuantLabOrchestrator({ dataDir: directory,
+      replayFilePath: path.join(directory, 'replay.json'), autoStart: false });
+    const candles = buildDeterministicReplayDataset().candles;
+    while (orchestrator.getState().replayCursorIndex < 30) orchestrator.stepNextReplayCandle();
+    const state = orchestrator.getState();
+    const seed = state.shadowOutcomes[0];
+    assert.ok(seed);
+    const baseline = state.policies[0];
+    const synthetic = (id: string, entry: number, version: string, pnl: number) => ({
+      ...seed, shadowId: id, cycleId: `CYCLE-${entry}`, regime: 'TRENDING' as const,
+      strategyId: 'STRAT_TREND_FOLLOW' as const, strategyVersion: version,
+      status: 'CLOSED_RECONCILED' as const, entryMarketTime: candles[entry].closeTime,
+      closeMarketTime: candles[entry + 1].closeTime, netPnlUsd: pnl,
+      grossPnlUsd: pnl + 2, totalCostUsd: 2, netPnlAt2xCostUsd: pnl - 2,
+    });
+    const run = (validationPnl: number, winningContext: 'H1' | 'H4') => {
+      const samples = [1, 3, 25, 27].flatMap((entry) => {
+        const pnl = entry < 20 ? 40 : validationPnl;
+        return [
+          synthetic(`base-${entry}`, entry, 'v1.2.0', 8),
+          synthetic(`h1-${entry}`, entry, 'v1.2.0-H1-M15', winningContext === 'H1' ? pnl : 5),
+          synthetic(`h4-${entry}`, entry, 'v1.2.0-H4-M15', winningContext === 'H4' ? pnl : 5),
+        ];
+      });
+      return executeWalkForwardLearningRun({ runId: 'OOS', triggerCycleId: 'TEST',
+        decisionMarketTime: candles[29].closeTime, triggerReasonVi: 'Kiểm tra ngoài mẫu',
+        allShadowOutcomes: samples, reconciledPositions: [], activePolicy: baseline,
+        baselinePolicy: baseline, allPolicies: [baseline] });
+    };
+    const passed = run(45, 'H1');
+    const failed = run(-45, 'H1');
+    assert.equal(passed.learningRun.decision, 'PROMOTE_NEW_POLICY');
+    assert.equal(failed.newPolicyToActivate, undefined);
+    assert.deepEqual(passed.learningRun.rankingsByRegime, failed.learningRun.rankingsByRegime);
+    assert.equal(passed.learningRun.hypothesesTested[0].proposedVersion, 'v1.2.0-H1-M15');
+    assert.equal(failed.learningRun.hypothesesTested[0].proposedVersion, 'v1.2.0-H1-M15');
+    const history = candles.slice(0, 16);
+    const current = history.at(-1)!;
+    const regime = classifyMarketRegime('CTX', history);
+    assert.equal(regime.regime, 'TRENDING');
+    const candidates = evaluateMultiTimeframeCandidates(history, regime);
+    for (const context of ['H1', 'H4'] as const) {
+      const policy = run(45, context).newPolicyToActivate!;
+      assert.ok(policy);
+      const decision = selectStrategyForCycle('CTX', current, regime, policy, baseline, candidates);
+      assert.equal(decision.action, 'SELECT_STRATEGY');
+      assert.equal(decision.selectedCandidate?.contextTimeframe, context);
+    }
+  });
+
 });

@@ -7,6 +7,7 @@ import {
   StrategyCandidateEvaluation,
   StrategyId,
 } from './types.ts';
+import { latestClosedContext } from './timeframes.ts';
 
 export const BASELINE_POLICY_ID = 'POLICY_BASELINE_FIXED_V1';
 
@@ -306,6 +307,33 @@ export function evaluateAllStrategyCandidates(
     });
   }
 
+  return candidates;
+}
+
+export function evaluateMultiTimeframeCandidates(
+  history: M15Candle[],
+  regime: RegimeClassification
+): StrategyCandidateEvaluation[] {
+  const candidates = evaluateAllStrategyCandidates(history, regime);
+  const current = history.at(-1)!;
+  const directional = candidates.filter((candidate) => candidate.family !== 'MEAN_REVERSION');
+  for (const timeframe of ['H1', 'H4'] as const) {
+    const context = latestClosedContext(history, current.closeTime, timeframe);
+    for (const candidate of directional) {
+      const aligned = context?.direction === (candidate.direction === 'BUY' ? 1 : -1);
+      candidates.push({
+        ...candidate,
+        version: `${candidate.version}-${timeframe}-M15`,
+        contextTimeframe: timeframe,
+        contextClosedAt: context?.closeTime,
+        eligibleToEnter: candidate.eligibleToEnter && aligned,
+        entryConditionSummaryVi: `${candidate.entryConditionSummaryVi} · ${timeframe} đã đóng xác nhận cùng hướng.`,
+        skipReasonVi: !context ? `Chưa đủ nến để xác nhận ${timeframe}.`
+          : !candidate.eligibleToEnter ? candidate.skipReasonVi
+          : !aligned ? `Nến ${timeframe} đã đóng chưa xác nhận cùng hướng.` : undefined,
+      });
+    }
+  }
   return candidates;
 }
 

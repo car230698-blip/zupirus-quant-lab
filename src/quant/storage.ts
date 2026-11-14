@@ -99,6 +99,7 @@ export class DurableQuantStorage {
       rejectedOrExpiredOrders: [],
       reconciliations: [],
       shadowOutcomes: [],
+      openShadowPositions: {},
       learningRuns: [],
       cycleTraces: [],
       equityCurve: [],

@@ -487,6 +487,10 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                               </td>
                               <td className="py-2.5 px-3 font-sans text-slate-300">
                                 {cand.strategyNameVi}
+                                <div className="text-slate-400">
+                                  {cand.contextTimeframe ? `${cand.contextTimeframe} / M15` : 'M15'}
+                                  {cand.contextClosedAt && ` · ${cand.contextClosedAt}`}
+                                </div>
                               </td>
                               <td className="py-2.5 px-3 font-sans">
                                 {cand.eligibleToEnter ? (

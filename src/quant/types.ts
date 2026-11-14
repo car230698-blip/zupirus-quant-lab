@@ -118,6 +118,8 @@ export interface StrategyCandidateEvaluation {
   strategyId: StrategyId;
   strategyNameVi: string;
   version: string;
+  contextTimeframe?: 'H1' | 'H4';
+  contextClosedAt?: string;
   family: 'TREND_FOLLOWING' | 'MEAN_REVERSION' | 'VOLATILITY_BREAKOUT';
   eligibleToEnter: boolean;
   direction?: OrderDirection;
@@ -327,6 +329,7 @@ export interface ShadowCandidateOutcome {
   wasSelectedByBaselinePolicy: boolean;
   expectedEntryPrice: number;
   fillEntryPrice: number;
+  entrySlippagePts?: number;
   avgExitPrice?: number;
   grossPnlUsd: number;
   totalCostUsd: number;
@@ -407,7 +410,7 @@ export interface HypothesisRecord {
   proposedStrategyId: StrategyId;
   proposedVersion: string;
   rationaleVi: string;
-  validationStatus: 'PROMOTED' | 'REJECTED_INSUFFICIENT_SAMPLES' | 'REJECTED_UNDERPERFORMED' | 'RETAINED_CURRENT';
+  validationStatus: 'TRAINING_SELECTED' | 'PROMOTED' | 'REJECTED_INSUFFICIENT_SAMPLES' | 'REJECTED_UNDERPERFORMED' | 'RETAINED_CURRENT';
   validationNoteVi: string;
 }
 
@@ -454,6 +457,8 @@ export interface LearningRunRecord {
   decisionReasonVi: string;
   reconciledPositionIdsUsed: string[];
   sampleCycleIdsUsed: string[];
+  trainingSampleIds?: string[];
+  validationSampleIds?: string[];
 }
 
 export interface CycleTraceRecord {
@@ -555,6 +560,7 @@ export interface QuantSystemState {
   rejectedOrExpiredOrders: SimulatedPosition[];
   reconciliations: ReconciliationRecord[];
   shadowOutcomes: ShadowCandidateOutcome[];
+  openShadowPositions?: Record<string, SimulatedPosition>;
   learningRuns: LearningRunRecord[];
   cycleTraces: CycleTraceRecord[];
   equityCurve: EquityCurvePoint[];
