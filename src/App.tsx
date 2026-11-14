@@ -23,11 +23,38 @@ interface ApiStateResponse {
   currentRole?: UserRole;
 }
 
+export interface HostnameRoutingInfo {
+  isUserDomain: boolean;
+  isAdminDomain: boolean;
+  effectiveHostname: string;
+}
+
+export function detectHostnameRouting(): HostnameRoutingInfo {
+  if (typeof window === 'undefined') {
+    return { isUserDomain: false, isAdminDomain: false, effectiveHostname: '' };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const hostParam = params.get('host') || params.get('domain');
+  const rawHost = (hostParam || window.location.hostname).toLowerCase();
+  const isUser = rawHost === 'zupirus.com' || rawHost === 'www.zupirus.com';
+  const isAdmin = rawHost === 'adm.zupirus.com' || rawHost.startsWith('adm.');
+  return {
+    isUserDomain: isUser,
+    isAdminDomain: isAdmin,
+    effectiveHostname: rawHost,
+  };
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('USER_PORTFOLIO');
+  const routing = detectHostnameRouting();
+  const [activeTab, setActiveTab] = useState<ActiveTab>(
+    routing.isAdminDomain ? 'ADMIN_OPERATIONS' : 'USER_PORTFOLIO'
+  );
   const [activeRole, setActiveRole] = useState<UserRole>('VIEWER');
   const [authToken, setAuthToken] = useState('');
   const [tokenInput, setTokenInput] = useState('');
+  const [adminTokenGateInput, setAdminTokenGateInput] = useState('');
+  const [adminGateErrorVi, setAdminGateErrorVi] = useState<string | null>(null);
   const [data, setData] = useState<ApiStateResponse | null>(null);
   const [costComparison, setCostComparison] =
     useState<DualCostStressComparison | null>(null);
@@ -84,7 +111,6 @@ export default function App() {
       setRbacNoticeVi(null);
       setHasInitialLoaded(true);
     } catch (err) {
-      // Only show connection error after initial load attempt completes, never flash false disconnect before attempt finishes
       setErrorMessage(
         err instanceof Error
           ? err.message
@@ -198,11 +224,14 @@ export default function App() {
   };
 
   const handleInspectPositionInAdmin = (positionId: string) => {
+    if (routing.isUserDomain) {
+      window.open('https://adm.zupirus.com', '_blank');
+      return;
+    }
     setInspectedPositionId(positionId);
     setActiveTab('ADMIN_OPERATIONS');
   };
 
-  // Prevent any flash of old dashboard, zero values, or false disconnect before initial load finishes
   const isEffectiveLoading =
     !hasInitialLoaded || loading || uiStateOverride === 'LOADING';
   const isEffectiveError =
@@ -229,52 +258,90 @@ export default function App() {
         Date.now() - Date.parse(effectiveState.lastUpdatedSystemTime) > 15000
     );
 
+  const mustLockAdminGate = routing.isAdminDomain && activeRole !== 'ADMIN';
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col overflow-x-hidden">
-      {/* Top Navigation Bar (Strict 3-Zone Top Bar Contract) */}
+      {/* Top Navigation Bar */}
       <header className="flex items-center justify-between gap-2 sm:gap-8 px-3 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/95 sticky top-0 z-20">
-        {/* Zone 1: Single text element wordmark */}
         <a
           href="#top"
           onClick={(e) => {
             e.preventDefault();
-            setActiveTab('USER_PORTFOLIO');
+            if (!routing.isAdminDomain) {
+              setActiveTab('USER_PORTFOLIO');
+            }
           }}
-          className="text-sm sm:text-lg font-bold tracking-tight text-slate-100 whitespace-nowrap shrink-0 font-display"
+          className="text-sm sm:text-lg font-bold tracking-tight text-slate-100 whitespace-nowrap shrink-0 font-display flex items-center gap-2"
         >
-          ZUPIRUS Quant Lab
+          <span>ZUPIRUS Quant Lab</span>
+          {routing.isAdminDomain && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              Admin Portal
+            </span>
+          )}
+          {routing.isUserDomain && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              User Portal
+            </span>
+          )}
         </a>
 
-        {/* Zone 2: Concise single-line navigation links */}
+        {/* Zone 2: Navigation links based on hostname */}
         <nav
           aria-label="Điều hướng chính"
           className="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm font-medium text-slate-400 min-w-0 overflow-x-auto"
         >
-          <button
-            type="button"
-            onClick={() => setActiveTab('USER_PORTFOLIO')}
-            className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 pb-0.5 ${
-              activeTab === 'USER_PORTFOLIO'
-                ? 'text-amber-300 border-b border-amber-400'
-                : ''
-            }`}
-          >
-            Tổng quan
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('ADMIN_OPERATIONS')}
-            className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 pb-0.5 ${
-              activeTab === 'ADMIN_OPERATIONS'
-                ? 'text-amber-300 border-b border-amber-400'
-                : ''
-            }`}
-          >
-            Vận hành Admin
-          </button>
+          {!routing.isAdminDomain && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('USER_PORTFOLIO')}
+              className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 pb-0.5 ${
+                activeTab === 'USER_PORTFOLIO'
+                  ? 'text-amber-300 border-b border-amber-400'
+                  : ''
+              }`}
+            >
+              Tổng quan
+            </button>
+          )}
+
+          {routing.isUserDomain ? (
+            <a
+              href="https://adm.zupirus.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-400 hover:text-amber-300 transition-colors whitespace-nowrap shrink-0 pb-0.5 flex items-center gap-1"
+            >
+              <span>Vận hành Admin ↗</span>
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setActiveTab('ADMIN_OPERATIONS')}
+              className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 pb-0.5 ${
+                activeTab === 'ADMIN_OPERATIONS'
+                  ? 'text-amber-300 border-b border-amber-400'
+                  : ''
+              }`}
+            >
+              Vận hành Admin
+            </button>
+          )}
+
+          {routing.isAdminDomain && (
+            <a
+              href="https://zupirus.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-400 hover:text-blue-300 transition-colors whitespace-nowrap shrink-0 pb-0.5 flex items-center gap-1"
+            >
+              <span>Về Trang Người Dùng ↗</span>
+            </a>
+          )}
         </nav>
 
-        {/* Zone 3: 1 primary action */}
+        {/* Zone 3: Đồng bộ action */}
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
@@ -292,7 +359,7 @@ export default function App() {
 
       {/* Main Content Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
-        {/* Workspace Toolbar: Mode Indicator, Role Switcher & UI State Diagnostic Switcher */}
+        {/* Workspace Toolbar */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 pb-4 border-b border-slate-800/80 text-xs text-slate-400">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-amber-300 font-semibold">
@@ -323,8 +390,8 @@ export default function App() {
               <label htmlFor="dashboard-token" className="text-slate-400">Token truy cập</label>
               <input id="dashboard-token" type="password" autoComplete="off" value={tokenInput}
                 onChange={event => setTokenInput(event.target.value)}
-                className="w-32 rounded border border-slate-800 bg-slate-900 px-2 py-1" />
-              <button className="rounded border border-slate-700 px-2 py-1">Đăng nhập</button>
+                className="w-32 rounded border border-slate-800 bg-slate-900 px-2 py-1 text-slate-100" />
+              <button className="rounded border border-slate-700 px-2 py-1 hover:bg-slate-800">Đăng nhập</button>
             </form>
 
             <div className="flex items-center gap-1.5">
@@ -349,7 +416,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* RBAC Notice Banner if role restricted an action */}
+        {/* RBAC Notice Banner */}
         {rbacNoticeVi && (
           <div
             role="alert"
@@ -361,12 +428,96 @@ export default function App() {
               </strong>
               {rbacNoticeVi}
             </div>
-
           </div>
         )}
 
-        {/* 1. Loading State (Strict: no flash of zero values or old dashboard while loading) */}
-        {isEffectiveLoading && (
+        {/* ADMIN GATE FOR adm.zupirus.com */}
+        {mustLockAdminGate && (
+          <div className="max-w-xl mx-auto my-12 p-6 sm:p-8 rounded-xl border border-amber-600/40 bg-slate-900/95 shadow-2xl space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-xl">
+                🛡️
+              </div>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-100">
+                  Cổng Quản Trị Hệ Thống ZUPIRUS Quant Lab
+                </h2>
+                <p className="text-xs text-amber-300 font-mono">adm.zupirus.com — Yêu cầu quyền ADMIN</p>
+              </div>
+            </div>
+
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              Trang quản trị vận hành yêu cầu <strong>Token Quản trị (Admin Auth Token)</strong> hợp lệ để mở khóa bảng điều khiển mô phỏng, can thiệp chu kỳ, điều chỉnh lịch phiên và thực thi kiểm định.
+            </p>
+
+            {adminGateErrorVi && (
+              <div role="alert" className="p-3 rounded-lg border border-rose-800 bg-rose-950/50 text-xs text-rose-300">
+                {adminGateErrorVi}
+              </div>
+            )}
+
+            <form
+              className="space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const token = adminTokenGateInput.trim();
+                if (!token) {
+                  setAdminGateErrorVi('Vui lòng nhập Admin Auth Token.');
+                  return;
+                }
+                setAdminGateErrorVi(null);
+                setLoading(true);
+                try {
+                  const res = await fetch('/api/state', {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (!res.ok) {
+                    throw new Error('Mã token không hợp lệ hoặc máy chủ từ chối.');
+                  }
+                  const json = (await res.json()) as ApiStateResponse;
+                  if (json.currentRole !== 'ADMIN') {
+                    throw new Error(`Token được cung cấp chỉ có quyền ${json.currentRole}, không đủ quyền Quản trị (ADMIN).`);
+                  }
+                  setAuthToken(token);
+                  setTokenInput(token);
+                  setActiveRole('ADMIN');
+                  setData(json);
+                  setHasInitialLoaded(true);
+                  setErrorMessage(null);
+                } catch (err: any) {
+                  setAdminGateErrorVi(err.message || 'Lỗi xác thực quyền Quản trị.');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >
+              <div className="space-y-1.5">
+                <label htmlFor="admin-gate-token" className="block text-xs font-medium text-slate-300">
+                  Mã Token Quản Trị (ADMIN_AUTH_TOKEN)
+                </label>
+                <input
+                  id="admin-gate-token"
+                  type="password"
+                  autoComplete="off"
+                  value={adminTokenGateInput}
+                  onChange={(e) => setAdminTokenGateInput(e.target.value)}
+                  placeholder="Nhập mã token Admin tại đây..."
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 px-4 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-colors shadow-lg cursor-pointer"
+              >
+                Xác thực quyền Quản trị (ADMIN)
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* 1. Loading State */}
+        {!mustLockAdminGate && isEffectiveLoading && (
           <div
             role="status"
             aria-label="Đang tải dữ liệu mô phỏng"
@@ -390,7 +541,7 @@ export default function App() {
         )}
 
         {/* 2. Error State */}
-        {!isEffectiveLoading && isEffectiveError && (
+        {!mustLockAdminGate && !isEffectiveLoading && isEffectiveError && (
           <div
             role="alert"
             className="border border-rose-800 bg-rose-950/30 p-6 rounded-lg space-y-3"
@@ -415,14 +566,15 @@ export default function App() {
           </div>
         )}
 
-        {/* 3. Main Views (User Portfolio vs Admin Operations) */}
-        {!isEffectiveLoading &&
+        {/* 3. Main Views */}
+        {!mustLockAdminGate &&
+          !isEffectiveLoading &&
           !isEffectiveError &&
           activeRole !== 'COLLECTOR' &&
           effectiveState &&
           data && (
             <>
-              {activeTab === 'USER_PORTFOLIO' ? (
+              {activeTab === 'USER_PORTFOLIO' || routing.isUserDomain ? (
                 <UserPortfolioView
                   state={effectiveState}
                   datasetMetadata={data.datasetMetadata}
