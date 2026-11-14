@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { it } from 'node:test';
 import { createQuantServer } from '../server.ts';
+import type { LearningRunRecord, PolicyVersionRecord, QuantSystemState, ShadowCandidateOutcome } from '../src/quant/types.ts';
 
 it('screens a replay learning run via admin API without changing positions or policy', async () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'zup-review-'));
@@ -57,4 +58,38 @@ it('screens a replay learning run via admin API without changing positions or po
     await new Promise<void>(resolve => server.close(() => resolve()));
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+it('excludes pre-selection and late exits and distinguishes preliminary forward results', async () => {
+  const { compareForwardCandidates } = await import('../src/research/forwardComparison.ts');
+  const start = Date.parse('2026-03-02T00:00:00Z');
+  const time = (hour: number) => new Date(start + hour * 3_600_000).toISOString();
+  const run = { executedAtMarketTime: time(0), resultingPolicyId: 'baseline',
+    minSamplesPerRegime: 1 } as LearningRunRecord;
+  const rule = { strategyId: 'STRAT_TREND_FOLLOW', version: 'base' } as const;
+  const candidate = { regime: 'TRENDING', strategyId: rule.strategyId, strategyVersion: 'candidate' };
+  const sample = (id: string, version: string, entry: number, close: number, pnl: number) => ({
+    shadowId: id, cycleId: id, regime: 'TRENDING', strategyId: rule.strategyId, strategyVersion: version,
+    status: 'CLOSED_RECONCILED', entryMarketTime: time(entry), closeMarketTime: time(close),
+    riskSizedVolumeLots: 0.1, grossPnlUsd: pnl + 1, totalCostUsd: 1,
+    netPnlUsd: pnl, netPnlAt2xCostUsd: pnl - 1,
+  }) as ShadowCandidateOutcome;
+  const state = {
+    lastProcessedMarketTime: time(24),
+    riskLimits: { maxOpenPositions: 1, maxTotalExposureLots: 1 } as QuantSystemState['riskLimits'],
+    policies: [{ policyId: 'baseline', mapping: { TRENDING: rule } }] as PolicyVersionRecord[],
+    shadowOutcomes: [
+      sample('old', 'candidate', 0, 2, 100),
+      sample('candidate', 'candidate', 1, 2, 5),
+      sample('base', 'base', 1, 2, 2),
+      sample('late', 'candidate', 23, 25, 100),
+    ],
+  };
+  const final = compareForwardCandidates(run, state, [candidate]).comparisons[0];
+  assert.equal(final.metrics.tradesCount, 1);
+  assert.equal(final.metrics.netPnlAfterCostUsd, 5);
+  assert.equal(final.status, 'OUTPERFORMED');
+  const live = compareForwardCandidates(run, { ...state, lastProcessedMarketTime: time(1.5) }, [candidate]);
+  assert.equal(live.comparisons[0].metrics.tradesCount, 0);
+  assert.equal(live.comparisons[0].status, 'WINDOW_IN_PROGRESS');
 });

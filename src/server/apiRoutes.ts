@@ -240,7 +240,7 @@ export function registerQuantApiRoutes({
       }
       try {
         const { reviewWalkForwardRun } = await import('../research/walkForwardReview.ts');
-        res.set('Cache-Control', 'no-store').json(await reviewWalkForwardRun(run));
+        res.set('Cache-Control', 'no-store').json(await reviewWalkForwardRun(run, orchestrator.getState()));
       } catch (error) {
         next(error);
       }

@@ -1,11 +1,20 @@
 import { useState } from 'react';
 import { buildAuthHeaders } from '../../api/quantApi.ts';
 import type { WalkForwardReview } from '../../research/walkForwardReview.ts';
-import { formatStrategyNameVi, formatSignedUsd } from '../../utils/formatters.ts';
+import { formatStrategyNameVi, formatSignedUsd, formatUtcShort } from '../../utils/formatters.ts';
 import { REGIME_LABELS_VI, type MarketRegime } from '../../quant/types.ts';
 
 type ReviewState = { status: 'idle' | 'loading' | 'error' } |
   { status: 'ready'; review: WalkForwardReview };
+
+const forwardLabels = {
+  MISSING_POLICY: 'Thiếu chính sách đối chiếu',
+  WINDOW_IN_PROGRESS: 'Cửa sổ kiểm định còn mở',
+  SAME_STRATEGY: 'Trùng chiến lược đang đối chiếu',
+  INSUFFICIENT_SAMPLES: 'Chưa đủ mẫu',
+  OUTPERFORMED: 'Vượt đối chiếu trong cửa sổ này',
+  DID_NOT_OUTPERFORM: 'Chưa vượt tiêu chí đối chiếu',
+} as const;
 
 export function ResearchReviewPanel({ runId, token, host }: {
   runId: string;
@@ -53,7 +62,24 @@ export function ResearchReviewPanel({ runId, token, host }: {
                 ))}
               </ul>
             ) : <p>Chưa có ứng viên đạt điều kiện sàng lọc.</p>}
-            <p className="text-slate-400">Danh sách này dựa trên tập huấn luyện. Ứng viên cần kiểm định trên dữ liệu ngoài mẫu mới.</p>
+            <div className="space-y-2 border-t border-slate-800 pt-3">
+              <h4 className="font-medium">Kiểm định trên 24 giờ tiếp theo</h4>
+              <p className="text-slate-400">
+                Đến {formatUtcShort(state.review.forwardComparison.endMarketTime)} ·
+                Chính sách đối chiếu {state.review.forwardComparison.referencePolicyId}
+              </p>
+              {!state.review.forwardComparison.complete && (
+                <p className="text-amber-200">Dữ liệu chưa phủ hết cửa sổ. Kết quả hiện tại là tạm thời.</p>
+              )}
+              {state.review.forwardComparison.comparisons.map(row => (
+                <div key={row.regime} className="space-y-1 rounded-md border border-slate-800 p-3">
+                  <p>{REGIME_LABELS_VI[row.regime as MarketRegime]} · {forwardLabels[row.status]}</p>
+                  <p>Ứng viên · {row.metrics.tradesCount} lệnh · Lãi 1× {formatSignedUsd(row.metrics.netPnlAfterCostUsd)} · Lãi 2× {formatSignedUsd(row.metrics.netPnlAt2xCostUsd)} · Sụt giảm {formatSignedUsd(row.metrics.maxDrawdownUsd)}</p>
+                  {row.policyMetrics && <p>Đối chiếu · {row.policyMetrics.tradesCount} lệnh · Lãi 1× {formatSignedUsd(row.policyMetrics.netPnlAfterCostUsd)} · Lãi 2× {formatSignedUsd(row.policyMetrics.netPnlAt2xCostUsd)} · Sụt giảm {formatSignedUsd(row.policyMetrics.maxDrawdownUsd)}</p>}
+                </div>
+              ))}
+              <p className="text-slate-400">Kết quả mô phỏng theo từng trạng thái thị trường.</p>
+            </div>
           </>
         )}
       </div>

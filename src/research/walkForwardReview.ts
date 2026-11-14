@@ -1,5 +1,6 @@
 import { END, START, StateGraph, StateSchema } from '@langchain/langgraph';
 import { z } from 'zod/v4';
+import { compareForwardCandidates } from './forwardComparison.ts';
 import type { LearningRunRecord } from '../quant/types.ts';
 
 const evidenceSchema = z.object({
@@ -40,7 +41,7 @@ const reviewGraph = new StateGraph(ReviewState)
   .addEdge('shortlist_by_regime', END)
   .compile();
 
-export async function reviewWalkForwardRun(run: LearningRunRecord) {
+export async function reviewWalkForwardRun(run: LearningRunRecord, state: Parameters<typeof compareForwardCandidates>[1]) {
   const result = await reviewGraph.invoke({
     marketTime: run.executedAtMarketTime,
     minSamples: run.minSamplesPerRegime,
@@ -63,6 +64,7 @@ export async function reviewWalkForwardRun(run: LearningRunRecord) {
     screenedCount: result.rankings.length,
     eligibleCount: result.eligible.length,
     candidates: result.candidates,
+    forwardComparison: compareForwardCandidates(run, state, result.candidates),
     engineDecision: run.decision,
     resultingPolicyId: run.resultingPolicyId,
   };
