@@ -1,0 +1,1 @@
+PASS: actual API + Execution + Research processes; Replay snapshots; durable interrupt/resume across Research restart; Execution continues while Research stopped; Execution restart preserves data.

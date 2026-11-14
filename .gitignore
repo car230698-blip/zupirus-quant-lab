@@ -1,7 +1,6 @@
-node_modules
-dist
 .env
-.env.local
-data/runtime*
-*.log
-.DS_Store
+runtime/
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc

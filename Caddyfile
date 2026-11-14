@@ -1,0 +1,19 @@
+{
+    email {$ACME_EMAIL}
+}
+(shared) {
+    encode zstd gzip
+    request_body {
+        max_size 3MB
+    }
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    reverse_proxy api:8000
+}
+zupirus.com {
+    @admin path /api/admin/*
+    respond @admin "Use adm.zupirus.com" 403
+    import shared
+}
+adm.zupirus.com {
+    import shared
+}

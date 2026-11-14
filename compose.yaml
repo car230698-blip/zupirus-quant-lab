@@ -1,0 +1,88 @@
+name: zupirus
+x-app: &app
+  build: .
+  image: zupirus-lab:0.1.0
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  volumes:
+    - lab_data:/data
+  networks: [private]
+services:
+  api:
+    <<: *app
+    environment:
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zupirus.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run bash scripts/start.sh first}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,https://zupirus.com,https://adm.zupirus.com}
+      FEED_TOKEN: ${FEED_TOKEN:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+    ports: ["127.0.0.1:8080:8000"]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  execution:
+    <<: *app
+    command: [python, -m, app.engine]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, scripts/worker_health.py, execution_heartbeat]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  research:
+    <<: *app
+    command: [python, -m, app.research]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, scripts/worker_health.py, research_heartbeat]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    profiles: [public]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-admin@zupirus.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [private]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:2019/config/]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  tests:
+    <<: *app
+    profiles: [test]
+    restart: "no"
+    command: [python, -m, pytest, -q, -p, no:cacheprovider, tests]
+    environment:
+      DATA_DIR: /tmp/tests
+      ADMIN_PASSWORD: test-only-admin-password-123
+      COOKIE_SECURE: "false"
+    volumes: []
+volumes:
+  lab_data:
+  caddy_data:
+  caddy_config:
+networks:
+  private:
