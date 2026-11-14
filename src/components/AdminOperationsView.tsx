@@ -1,5 +1,5 @@
-import { fetchPositionTraceById, fetchLearningTraceById } from '../api/quantApi.ts';
 import React, { useState } from 'react';
+import { fetchLearningTraceById, fetchPositionTraceById } from '../api/quantApi.ts';
 import type { AgentActivitySnapshot } from '../quant/agentActivityTracker.ts';
 import type { DualCostStressComparison } from '../quant/costStress.ts';
 import type { LearningBranchFixtureSuiteReport } from '../quant/fixtures.ts';
@@ -12,7 +12,7 @@ import { AgentActivitySection } from './admin/AgentActivitySection.tsx';
 import { CycleInspectorSection } from './admin/CycleInspectorSection.tsx';
 import { TraceabilityAndStressSection } from './admin/TraceabilityAndStressSection.tsx';
 import { WalkForwardSection } from './admin/WalkForwardSection.tsx';
-import { StatusLabel } from './shared/UiPrimitives.tsx';
+import { ProvenanceBadge, StatusLabel } from './shared/UiPrimitives.tsx';
 
 export type AdminSubTabId =
   | 'AGENT_ACTIVITY'
@@ -69,32 +69,50 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 1. Admin Operations Header & Replay Control Bar (controls strictly restricted to ADMIN role) */}
-      <section className="bg-slate-900/90 border border-slate-800 rounded-lg p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Vận hành</h1>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+      {/* 1. Admin Operations Control Bar */}
+      <section className="bg-[#0c1322] border border-[#1e293b] rounded-xl p-5 sm:p-6 space-y-5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-display font-bold tracking-tight text-slate-100">
+                Vận hành
+              </h1>
+              <ProvenanceBadge mode={isLiveMt5 ? 'MT5_DEMO' : 'REPLAY'} />
               <StatusLabel
-                label={isLiveMt5 ? 'MT5 demo' : state.isReplayComplete ? 'Replay hoàn tất' : state.isLoopRunning ? 'Đang phát lại' : 'Replay tạm dừng'}
-                tone="slate"
+                label={
+                  isLiveMt5
+                    ? 'MT5 demo'
+                    : state.isReplayComplete
+                    ? 'Replay hoàn tất'
+                    : state.isLoopRunning
+                    ? 'Đang phát lại'
+                    : 'Replay tạm dừng'
+                }
+                tone={state.isLoopRunning ? 'cyan' : state.isReplayComplete ? 'emerald' : 'amber'}
+                pulse={state.isLoopRunning}
               />
-              {!isLiveMt5 && <span>{state.replayCursorIndex}/{state.totalReplayCandles} nến M15</span>}
             </div>
-            <p className="text-xs text-slate-400">
-              Giờ thị trường gần nhất: {formatUtcShort(state.lastProcessedMarketTime)} ·
-              Cập nhật máy chủ: {formatUtcShort(state.lastUpdatedSystemTime)}
-            </p>
+
+            <div className="flex flex-wrap items-center gap-3 text-xs font-mono tabular-nums text-slate-400">
+              {!isLiveMt5 && (
+                <span className="bg-[#080d1a] border border-slate-800/80 px-2.5 py-1 rounded-md text-slate-300">
+                  Tiến độ: <strong className="text-cyan-400">{state.replayCursorIndex}/{state.totalReplayCandles}</strong> nến M15
+                </span>
+              )}
+              <span>Giờ thị trường gần nhất: {formatUtcShort(state.lastProcessedMarketTime)}</span>
+              <span aria-hidden="true" className="text-slate-600">·</span>
+              <span>Cập nhật máy chủ: {formatUtcShort(state.lastUpdatedSystemTime)}</span>
+            </div>
           </div>
 
-          {/* Admin-only simulation controls */}
+          {/* Admin Controls (strictly restricted to ADMIN role) */}
           {isAdmin && !isLiveMt5 ? (
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
               <button
                 type="button"
                 disabled={actionBusy || state.isReplayComplete}
                 onClick={onToggleAutoLoop}
-                className="px-3.5 py-2 text-sm font-medium rounded-md bg-cyan-500 hover:bg-cyan-400 active:scale-[0.98] disabled:opacity-50 text-slate-950 font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 whitespace-nowrap shrink-0"
+                className="px-4 py-2 text-xs font-bold rounded-lg bg-cyan-500 hover:bg-cyan-400 active:scale-[0.98] disabled:opacity-50 text-slate-950 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 shadow-sm whitespace-nowrap shrink-0"
               >
                 {state.isLoopRunning ? 'Tạm dừng' : 'Tiếp tục'}
               </button>
@@ -102,7 +120,7 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                 type="button"
                 disabled={actionBusy || state.isReplayComplete}
                 onClick={onStepNextCandle}
-                className="px-3.5 py-2 text-sm font-medium rounded-md bg-slate-800 hover:bg-slate-700 active:scale-[0.98] disabled:opacity-50 text-slate-100 border border-slate-700 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-[#141e33] hover:bg-[#1a2845] active:scale-[0.98] disabled:opacity-50 text-slate-200 border border-slate-700/80 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap shrink-0"
               >
                 Chạy 1 nến
               </button>
@@ -110,13 +128,13 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                 type="button"
                 disabled={actionBusy}
                 onClick={onResetSimulation}
-                className="px-3.5 py-2 text-sm font-medium rounded-md bg-rose-950/70 hover:bg-rose-900/70 active:scale-[0.98] disabled:opacity-50 text-rose-200 border border-rose-500/40 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 whitespace-nowrap shrink-0"
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-rose-950/40 hover:bg-rose-900/60 active:scale-[0.98] disabled:opacity-50 text-rose-300 border border-rose-800/50 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 whitespace-nowrap shrink-0"
               >
                 Đặt lại replay
               </button>
             </div>
           ) : (
-            <div className="text-xs text-slate-400 font-mono">
+            <div className="text-xs text-slate-400 font-mono bg-[#080d1a] border border-slate-800/80 px-3 py-1.5 rounded-lg">
               {isLiveMt5
                 ? 'Luồng MT5 Demo Trực tiếp (Tự vận hành theo báo giá)'
                 : 'Chế độ Chỉ xem (VIEWER — Các nút điều khiển yêu cầu quyền ADMIN)'}
@@ -125,15 +143,14 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
         </div>
 
         {actionFeedbackVi && (
-          <div className="px-3 py-2 rounded bg-slate-950 border border-slate-800 text-xs text-cyan-300 font-mono">
+          <div className="px-3.5 py-2.5 rounded-lg bg-cyan-950/30 border border-cyan-800/60 text-xs text-cyan-300 font-mono animate-in fade-in duration-150">
             {actionFeedbackVi}
           </div>
         )}
 
-        {/* Sub-navigation Tabs */}
-        <div
-          className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-800"
-          role="navigation"
+        {/* Single-level navigation: Hoạt động, Kiểm định, Chu kỳ, Truy vết */}
+        <nav
+          className="flex flex-wrap items-center gap-2 pt-3 border-t border-[#1e293b]"
           aria-label="Các phân khu quản trị định lượng"
         >
           {ADMIN_TABS.map((tab) => {
@@ -144,17 +161,17 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
                 type="button"
                 aria-current={active ? 'page' : undefined}
                 onClick={() => setSubTab(tab.id)}
-                className={`px-3.5 py-2 text-sm font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap shrink-0 ${
+                className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 whitespace-nowrap shrink-0 ${
                   active
-                    ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/60 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
                 }`}
               >
                 {tab.labelVi}
               </button>
             );
           })}
-        </div>
+        </nav>
       </section>
 
       {/* 2. Active Admin Sub-Section */}
@@ -183,8 +200,8 @@ export const AdminOperationsView: React.FC<AdminOperationsViewProps> = ({
           stressReport={costComparison}
           actionPending={actionBusy}
           onRefreshReports={onRefreshReports}
-          onFetchPositionTrace={id => fetchPositionTraceById(id, authToken, simulatedHost)}
-          onFetchLearningTrace={id => fetchLearningTraceById(id, authToken, simulatedHost)}
+          onFetchPositionTrace={(id) => fetchPositionTraceById(id, authToken, simulatedHost)}
+          onFetchLearningTrace={(id) => fetchLearningTraceById(id, authToken, simulatedHost)}
         />
       )}
     </div>

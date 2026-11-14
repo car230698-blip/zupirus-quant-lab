@@ -92,4 +92,13 @@ export function registerDemoCopyRoutes(
     if (!result.changes) return res.status(403).json({ error: 'EA_ACCOUNT_MISMATCH' });
     return res.status(204).end();
   });
+
+  return {
+    db,
+    close: () => {
+      try {
+        db.close();
+      } catch {}
+    },
+  };
 }

@@ -293,7 +293,8 @@ export const ReconciledHistoryTable: React.FC<{
   closedPositions: SimulatedPosition[];
   reconciliations: ReconciliationRecord[];
   lastUpdatedSystemTime?: string | null;
-}> = ({ closedPositions, reconciliations, lastUpdatedSystemTime }) => {
+  onSelectPosition?: (pos: SimulatedPosition) => void;
+}> = ({ closedPositions, reconciliations, lastUpdatedSystemTime, onSelectPosition }) => {
   const [selectedPosId, setSelectedPosId] = useState<string | null>(null);
 
   if (closedPositions.length === 0) {
@@ -348,9 +349,10 @@ export const ReconciledHistoryTable: React.FC<{
               return (
                 <tr
                   key={pos.positionId}
-                  onClick={() =>
-                    setSelectedPosId(isSelected ? null : pos.positionId)
-                  }
+                  onClick={() => {
+                    setSelectedPosId(isSelected ? null : pos.positionId);
+                    onSelectPosition?.(pos);
+                  }}
                   className={`transition-colors cursor-pointer ${
                     isSelected ? 'bg-cyan-950/30' : 'hover:bg-slate-800/40'
                   }`}

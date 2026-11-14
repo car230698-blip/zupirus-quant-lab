@@ -11,11 +11,13 @@ import { registerDemoCopyRoutes } from '../src/server/demoCopyRoutes.ts';
 it('links a demo EA once and persists only matching account telemetry across server restarts', async () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'zup-copy-demo-'));
   const adminToken = 'copy-fixture-admin-only';
+  const openRoutes: Array<{ close: () => void }> = [];
   async function start() {
     const app = express();
     app.use(express.json());
     const auth = createAuthMiddleware({ strictAuth: true, adminToken });
-    registerDemoCopyRoutes(app, directory, auth.requireRoles(['ADMIN'], true));
+    const routes = registerDemoCopyRoutes(app, directory, auth.requireRoles(['ADMIN'], true));
+    openRoutes.push(routes);
     const server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
     const address = server.address();
@@ -55,6 +57,9 @@ it('links a demo EA once and persists only matching account telemetry across ser
     assert.equal(state.eaToken, undefined);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
+    for (const r of openRoutes) {
+      r.close();
+    }
     rmSync(directory, { recursive: true, force: true });
   }
 });

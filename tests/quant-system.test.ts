@@ -1042,8 +1042,9 @@ describe('Nghiệm thu mở rộng: Thu thập Tick MT5 bền vững, Quy tắc 
       const dbPath = path.join(tmpDir, 'mt5-spool.sqlite');
 
       try {
+        const pythonBinary = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
         const { stdout } = await execFileAsync(
-          'python3',
+          pythonBinary,
           [
             path.resolve('scripts/record-mt5-demo.py'),
             '--self-test',
