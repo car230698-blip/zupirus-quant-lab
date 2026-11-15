@@ -13,7 +13,7 @@ FROM python:3.12.14-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 DATA_DIR=/data
 WORKDIR /app
 COPY requirements.lock .
-RUN pip install --no-cache-dir -r requirements.lock && useradd -u 10001 -m lab && mkdir /data && chown lab:lab /data
+RUN pip install --no-cache-dir -r requirements.lock uvloop && useradd -u 10001 -m lab && mkdir /data && chown lab:lab /data
 COPY --from=frontend-builder --chown=lab:lab /build/dist dist
 COPY --chown=lab:lab app app
 COPY --chown=lab:lab cli cli

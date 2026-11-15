@@ -1,4 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useExchangeRate,
+  useCloudAccounts,
+  useSignalAuditLogs,
+  useSignalStats,
+  useMetaApiTelemetry,
+} from '../hooks/useQuantData.ts';
 
 interface AdminOverviewTabProps {
   monitorData: any;
@@ -12,65 +20,30 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
   killSwitchLoading,
   handleToggleKillSwitch,
 }) => {
+  const queryClient = useQueryClient();
 
-  // MetaApi Cloud Execution Telemetry
-  const [metaTelemetry, setMetaTelemetry] = useState<any>(null);
+  // TanStack Queries
+  const { data: fxData } = useExchangeRate();
+  const { data: accountsData } = useCloudAccounts();
+  const cloudAccounts = accountsData?.accounts || [];
+  const { data: auditData } = useSignalAuditLogs(15);
+  const signalAuditLogs = auditData?.audit_logs || [];
+  const { data: statsData } = useSignalStats();
+  const signalStats = statsData || null;
+  const { data: telemetryData } = useMetaApiTelemetry();
+  const metaTelemetry = telemetryData || null;
+
+  // Local Action States
   const [fanoutLoading, setFanoutLoading] = useState(false);
   const [fanoutReport, setFanoutReport] = useState<any>(null);
-  const [cloudAccounts, setCloudAccounts] = useState<any[]>([]);
-
-  // FX Rate Monitor State
-  const [fxData, setFxData] = useState<any>(null);
   const [fxRefreshing, setFxRefreshing] = useState(false);
-
-  // Revenue & Billing Analytics State
   const [revenueData, setRevenueData] = useState<any>(null);
-
-  // Signal Pipeline & Audit Logs State
-  const [signalAuditLogs, setSignalAuditLogs] = useState<any[]>([]);
-  const [signalStats, setSignalStats] = useState<any>(null);
   const [testIngestLoading, setTestIngestLoading] = useState(false);
   const [testIngestResult, setTestIngestResult] = useState<any>(null);
 
   useEffect(() => {
-    fetchTelemetry();
-    fetchCloudAccounts();
-    fetchFxRate();
     fetchRevenue();
-    fetchSignalAudit();
-    fetchSignalStats();
-    fetchCloudAccounts();
-    fetchFxRate();
-    fetchRevenue();
-    fetchSignalAudit();
-    fetchSignalStats();
   }, []);
-
-  async function fetchFxRate() {
-    try {
-      const res = await fetch('/api/v1/billing/exchange-rate');
-      if (res.ok) {
-        const data = await res.json();
-        setFxData(data);
-      }
-    } catch {}
-  }
-
-  async function handleRefreshFxRate() {
-    setFxRefreshing(true);
-    try {
-      const res = await fetch('/api/v1/billing/refresh-exchange-rate', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFxData(data);
-      }
-    } catch {} finally {
-      setFxRefreshing(false);
-    }
-  }
 
   async function fetchRevenue() {
     try {
@@ -84,40 +57,35 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
     } catch {}
   }
 
-  async function fetchSignalAudit() {
+  async function handleRefreshFxRate() {
+    setFxRefreshing(true);
     try {
-      const res = await fetch('/api/v1/signals/audit-logs?limit=15', {
+      const res = await fetch('/api/v1/billing/refresh-exchange-rate', {
+        method: 'POST',
         headers: { 'X-Zupirus': '1' },
       });
       if (res.ok) {
-        const data = await res.json();
-        setSignalAuditLogs(data.audit_logs || []);
+        await queryClient.invalidateQueries({ queryKey: ['exchange-rate'] });
       }
-    } catch {}
-  }
-
-  async function fetchSignalStats() {
-    try {
-      const res = await fetch('/api/v1/signals/stats', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSignalStats(data);
-      }
-    } catch {}
+    } catch {} finally {
+      setFxRefreshing(false);
+    }
   }
 
   async function fetchCloudAccounts() {
-    try {
-      const res = await fetch('/api/v1/accounts', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCloudAccounts(data.accounts || []);
-      }
-    } catch {}
+    await queryClient.invalidateQueries({ queryKey: ['accounts'] });
+  }
+
+  async function fetchTelemetry() {
+    await queryClient.invalidateQueries({ queryKey: ['metaapi', 'telemetry'] });
+  }
+
+  async function fetchSignalAudit() {
+    await queryClient.invalidateQueries({ queryKey: ['signals', 'audit-logs'] });
+  }
+
+  async function fetchSignalStats() {
+    await queryClient.invalidateQueries({ queryKey: ['signals', 'stats'] });
   }
 
   async function handleToggleAccount(id: string) {
@@ -155,18 +123,6 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
       if (res.ok) {
         await fetchCloudAccounts();
         await fetchTelemetry();
-      }
-    } catch {}
-  }
-
-  async function fetchTelemetry() {
-    try {
-      const res = await fetch('/api/metaapi/telemetry', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMetaTelemetry(data);
       }
     } catch {}
   }
@@ -269,7 +225,7 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
             {cloudAccounts.length} Tài khoản
           </div>
           <div className="text-[10px] text-slate-500 flex justify-between">
-            <span className="text-emerald-400">● {cloudAccounts.filter((a) => a.auto_trade === 1).length} Auto-Trade</span>
+            <span className="text-emerald-400">● {cloudAccounts.filter((a) => Boolean(a.auto_trade)).length} Auto-Trade</span>
             <span>London G2 Bridge</span>
           </div>
         </div>
@@ -334,7 +290,7 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
           <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
             <span className="text-slate-500 text-[10px] block">ĐANG BẬT AUTO-TRADE</span>
             <span className="font-bold text-base text-emerald-400">
-              {cloudAccounts.filter((a) => a.auto_trade === 1).length}
+              {cloudAccounts.filter((a) => Boolean(a.auto_trade)).length}
             </span>
           </div>
           <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800">

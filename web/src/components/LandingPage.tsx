@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useExchangeRate } from '../hooks/useQuantData.ts';
 
 interface LandingPageProps {
   onEnterApp: () => void;
@@ -7,20 +8,9 @@ interface LandingPageProps {
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdmin }) => {
   const [currency, setCurrency] = useState<'USD' | 'VND'>('VND');
-  const [fxRate, setFxRate] = useState<number>(25730.0);
-  const [fxSource, setFxSource] = useState<string>('API');
-
-  useEffect(() => {
-    fetch('/api/v1/billing/exchange-rate')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data && data.rate) {
-          setFxRate(data.rate);
-          setFxSource(data.source || 'API');
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const { data: fxData } = useExchangeRate();
+  const fxRate = fxData?.rate || 25730.0;
+  const fxSource = fxData?.source || 'API';
 
   const formatPrice = (usd: number) => {
     if (currency === 'USD') {

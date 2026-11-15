@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useExchangeRate, useCloudAccounts, useUserSubscription } from '../hooks/useQuantData.ts';
 
 interface UserAccountsTabProps {
   [key: string]: any;
@@ -14,6 +16,18 @@ const BROKER_PRESETS = [
 ];
 
 export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
+  const queryClient = useQueryClient();
+
+  // Queries via TanStack Query
+  const { data: fxData } = useExchangeRate();
+  const fxRate = fxData?.rate || 25730.0;
+
+  const { data: accountsData, isLoading: cloudLoading } = useCloudAccounts();
+  const cloudAccounts = accountsData?.accounts || [];
+
+  const { data: subData } = useUserSubscription();
+  const subscription = subData || null;
+
   // Legal & Compliance
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
@@ -27,17 +41,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
   const [signatureInput, setSignatureInput] = useState('');
 
   // Subscription & Expiry Tracker
-  const [subscription, setSubscription] = useState<any>(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [checkoutTier, setCheckoutTier] = useState<string>('growth');
   const [checkoutSlots, setCheckoutSlots] = useState<number>(1);
   const [activeOrder, setActiveOrder] = useState<any>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
-  const [fxRate, setFxRate] = useState<number>(25730.0);
   const [orderCountdown, setOrderCountdown] = useState<number>(1200);
 
-  // Direct Cloud MT5 state
-  const [cloudAccounts, setCloudAccounts] = useState<any[]>([]);
+  // Direct Cloud MT5 form state
   const [cloudLogin, setCloudLogin] = useState('');
   const [cloudPassword, setCloudPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -45,7 +56,6 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
   const [cloudAccountName, setCloudAccountName] = useState('');
   const [cloudSubmitting, setCloudSubmitting] = useState(false);
   const [cloudMsg, setCloudMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [cloudLoading, setCloudLoading] = useState(false);
 
   // Account editing state
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
@@ -58,41 +68,18 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
 
   useEffect(() => {
     checkDisclaimerStatus();
-    fetchCloudAccounts();
-    fetchSubscription();
-    fetchFxRate();
   }, []);
 
-  useEffect(() => {
-    let timer: any = null;
-    if (activeOrder && orderCountdown > 0) {
-      timer = setInterval(() => {
-        setOrderCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [activeOrder, orderCountdown]);
-
   async function fetchFxRate() {
-    try {
-      const res = await fetch('/api/v1/billing/exchange-rate');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.rate) setFxRate(data.rate);
-      }
-    } catch {}
+    await queryClient.invalidateQueries({ queryKey: ['exchange-rate'] });
   }
 
   async function fetchSubscription() {
-    try {
-      const res = await fetch('/api/v1/billing/subscription', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSubscription(data);
-      }
-    } catch {}
+    await queryClient.invalidateQueries({ queryKey: ['subscription'] });
+  }
+
+  async function fetchCloudAccounts() {
+    await queryClient.invalidateQueries({ queryKey: ['accounts'] });
   }
 
   async function checkDisclaimerStatus() {
@@ -105,21 +92,6 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
         setDisclaimerAccepted(Boolean(data.accepted));
       }
     } catch {}
-  }
-
-  async function fetchCloudAccounts() {
-    setCloudLoading(true);
-    try {
-      const res = await fetch('/api/v1/accounts', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCloudAccounts(data.accounts || []);
-      }
-    } catch {} finally {
-      setCloudLoading(false);
-    }
   }
 
   async function handleAcceptDisclaimer(e: React.FormEvent) {

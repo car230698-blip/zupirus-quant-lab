@@ -1,10 +1,19 @@
-import os, time, secrets, json, sqlite3, re, logging
+import os, time, secrets, json, sqlite3, re, logging, sys
 logger = logging.getLogger("zupirus.api")
+
+# Conditional high-performance uvloop activation on POSIX/Linux
+if sys.platform != "win32":
+    try:
+        import uvloop
+        uvloop.install()
+    except (ImportError, Exception):
+        pass
+
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Literal, List, Dict, Any, Optional
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse, StreamingResponse, ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
 from .db import tx, init, ROOT, audit, getkv, setkv, insert_timescale_quote, query_timescale_candles, DatabaseUnavailableError, check_db_health, check_timescale_metadata, is_postgres
@@ -19,7 +28,12 @@ async def lifespan(app):
     with tx() as c: bootstrap(c)
     yield
 
-app = FastAPI(title='ZUPIRUS Quant Lab · Production Engine', version='0.2.0', lifespan=lifespan)
+app = FastAPI(
+    title='ZUPIRUS Quant Lab · Production Engine',
+    version='0.2.0',
+    lifespan=lifespan,
+    default_response_class=ORJSONResponse
+)
 SECURE = os.getenv('COOKIE_SECURE', 'true').lower() == 'true'
 ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://zupirus.com,https://app.zupirus.com,https://adm.zupirus.com,http://localhost:5173,http://localhost:3000').split(',')
 
