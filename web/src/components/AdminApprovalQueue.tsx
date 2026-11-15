@@ -1,10 +1,10 @@
+import { useQuantChat } from './useQuantChat.ts';
 import React, { useState, useEffect } from 'react';
 import type { StrategyApprovalCardProps } from '../types/ai.ts';
 
 export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
   jobId,
   report,
-  needsApproval,
   onApprove,
   onReject,
 }) => {
@@ -39,10 +39,10 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
             Ứng Viên Walk-Forward #{jobId.slice(0, 12)}
           </h3>
           <span className="rounded bg-amber-950/60 border border-amber-600/50 px-2 py-0.5 text-[10px] font-mono text-amber-300 font-bold">
-            needsApproval: {needsApproval ? 'true' : 'false'}
+            Chờ phê duyệt
           </span>
         </div>
-        <span className="text-slate-400 font-mono text-[11px]">ToolLoopAgent Review · LangGraph Interrupt</span>
+        <span className="text-slate-400 font-mono text-[11px]">LangGraph · Chờ quyết định</span>
       </div>
 
       <p className="text-slate-300 leading-relaxed text-xs">
@@ -139,6 +139,9 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
 };
 
 export const AdminApprovalQueue: React.FC = () => {
+  const { messages, sendMessage, setMessages, status: reviewStatus, error: reviewError } = useQuantChat('admin');
+  const reviewing = reviewStatus === 'submitted' || reviewStatus === 'streaming';
+  const review = messages.filter((message) => message.role === 'assistant').at(-1);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [historyJobs, setHistoryJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -176,7 +179,7 @@ export const AdminApprovalQueue: React.FC = () => {
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
       });
       if (res.ok) {
-        setBanner('Đã chạy Walk-Forward OOS (120 bar train / 60 bar OOS) và dừng tại checkpoint chờ Admin duyệt (needsApproval: true).');
+        setBanner('Đã đưa yêu cầu kiểm định Walk-Forward vào hàng đợi.');
         await fetchCandidates();
       }
     } finally {
@@ -191,7 +194,7 @@ export const AdminApprovalQueue: React.FC = () => {
       body: JSON.stringify({ approved: true }),
     });
     if (!res.ok) throw new Error('Không thể duyệt ứng viên.');
-    setBanner(`Đã phê duyệt ứng viên #${jobId.slice(0, 10)} (approved_for_demo_review).`);
+    setBanner(`Đã phê duyệt ứng viên #${jobId.slice(0, 10)}.`);
     await fetchCandidates();
   };
 
@@ -211,7 +214,7 @@ export const AdminApprovalQueue: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div>
           <h2 className="text-base font-bold text-slate-100 tracking-tight">
-            Hàng Đợi Phê Duyệt Chiến Lược (Vercel AI SDK 6 ToolLoopAgent)
+            Hàng đợi kiểm định
           </h2>
           <p className="text-xs text-slate-400">
             Cơ chế human-in-the-loop: Chiến lược mới từ Walk-Forward OOS bắt buộc phải có sự chấp thuận trực tiếp của Admin.
@@ -232,6 +235,24 @@ export const AdminApprovalQueue: React.FC = () => {
         </div>
       </div>
 
+      <section className="quant-panel p-4 space-y-3" aria-label="Trợ lý kiểm định">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">Trợ lý kiểm định</h3>
+          <button className="quant-quiet" type="button" disabled={reviewing} onClick={() => {
+            setMessages([]);
+            void sendMessage({ text: 'Kiểm tra ứng viên gần nhất đang chờ duyệt.' });
+          }}>{reviewing ? 'Đang kiểm tra…' : 'Kiểm tra ứng viên'}</button>
+        </div>
+        <div aria-live="polite">
+          {review?.parts.map((part, index) => {
+            if (part.type === 'text') return <p className="text-sm text-slate-300" key={index}>{part.text}</p>;
+            if (part.type === 'data-approval') return <p className="mt-2 text-xs text-slate-400" key={index}>Mã ứng viên {part.data.jobId.slice(0, 12)} · Xem báo cáo và quyết định trong hàng đợi bên dưới.</p>;
+            return null;
+          })}
+          {reviewError && <div className="quant-alert" role="alert">Không thể tải tóm tắt kiểm định.</div>}
+        </div>
+      </section>
+
       {banner && (
         <div className="rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-4 py-2.5 text-xs text-cyan-200 font-mono flex items-center justify-between">
           <span>{banner}</span>
@@ -249,7 +270,7 @@ export const AdminApprovalQueue: React.FC = () => {
         <div className="text-xs text-slate-500 font-mono italic">Đang kiểm tra hàng đợi...</div>
       ) : candidates.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-800 bg-[#0c1322]/60 p-8 text-center text-xs text-slate-400 font-mono space-y-2">
-          <div>✓ Không có ứng viên nào đang chờ phê duyệt. Toàn bộ vòng lặp an toàn.</div>
+          <div>Không có ứng viên đang chờ phê duyệt.</div>
           <div className="text-[11px] text-slate-500">
             Nhấn &ldquo;+ Chạy Walk-Forward OOS ↗&rdquo; ở góc phải để khởi chạy kiểm định 120 bar Train / 60 bar OOS mới.
           </div>
@@ -268,7 +289,6 @@ export const AdminApprovalQueue: React.FC = () => {
                 key={job.id}
                 jobId={job.id}
                 report={resultData.report || {}}
-                needsApproval={true}
                 onApprove={handleApprove}
                 onReject={handleReject}
               />

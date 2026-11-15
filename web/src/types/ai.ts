@@ -1,21 +1,4 @@
-/**
- * Type definitions for Vercel AI SDK 6 integration,
- * Generative UI components, and ToolLoopAgent approval protocol.
- */
-
-export interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  toolCalls?: ToolCall[];
-}
-
-export interface ToolCall {
-  toolCallId: string;
-  toolName: string;
-  args: Record<string, any>;
-  result?: any;
-}
+/** Structured data emitted by the ZUPIRUS AI SDK streams. */
 
 export interface PortfolioCardProps {
   accountsCount: number;
@@ -62,15 +45,6 @@ export interface StrategyApprovalCardProps {
       trades: number;
     }>;
   };
-  needsApproval: boolean;
   onApprove: (jobId: string) => Promise<void>;
   onReject: (jobId: string) => Promise<void>;
-}
-
-export interface ToolLoopAgentState {
-  agentName: string;
-  currentStep: number;
-  isWaitingApproval: boolean;
-  activeCandidateJobId: string | null;
-  history: Message[];
 }

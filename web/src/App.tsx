@@ -1,6 +1,11 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { CustomerAssistant } from './components/CustomerAssistant.tsx';
-import { AdminApprovalQueue } from './components/AdminApprovalQueue.tsx';
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { EquityHistory } from './components/EquityHistory.tsx';
+import { PortalAuth, PortalShell } from './components/PortalChrome.tsx';
+
+const CustomerAssistant = lazy(() => import('./components/CustomerAssistant.tsx').then((module) => ({ default: module.CustomerAssistant })));
+const AdminApprovalQueue = lazy(() => import('./components/AdminApprovalQueue.tsx').then((module) => ({ default: module.AdminApprovalQueue })));
+
+type CopyAccount = { id: string; enabled: boolean; risk: number; max_spread: number; max_positions: number; max_dd: number };
 
 type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
 type AdminTabKey = 'overview' | 'approvals' | 'activity' | 'tracing' | 'news';
@@ -24,22 +29,10 @@ export const App: React.FC = () => {
   });
 
   // Auth state
-  const [currentUser, setCurrentUser] = useState<UserInfo | null>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('demo_admin') === '1') {
-        return { email: 'admin@zupirus.com', role: 'admin' };
-      }
-      if (params.get('demo_user') === '1') {
-        return { email: 'user@zupirus.com', role: 'customer' };
-      }
-    }
-    return null;
-  });
-  const [authChecking, setAuthChecking] = useState<boolean>(true);
-  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
-  const [authEmail, setAuthEmail] = useState<string>('');
-  const [authPassword, setAuthPassword] = useState<string>('');
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [dashboardStatus, setDashboardStatus] = useState('loading');
+  const [monitorStatus, setMonitorStatus] = useState('loading');
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -55,15 +48,15 @@ export const App: React.FC = () => {
     health: {},
     real_trading: false,
   });
-  const [, setSelectedAccount] = useState<string>('');
+  const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [candles, setCandles] = useState<any[]>([]);
   const [timeframe, setTimeframe] = useState<'M1' | 'M5' | 'M15' | 'H1' | 'D1'>('M15');
   const [chartMode, setChartMode] = useState<'equity' | 'candles'>('equity');
 
   // Admin & Monitoring state
-  const [monitorData, setMonitorData] = useState<any>({ accounts: [], audit: [], jobs: [], news: [], halted: false });
+  const [monitorData, setMonitorData] = useState<any>({ accounts: [], audit: [], jobs: [], news: [], halted: null });
   const [tracingData, setTracingData] = useState<any>({
-    langsmith_configured: true,
+    langsmith_configured: false,
     project: 'zupirus-quant-lab',
     total_traces_recorded: 0,
     recent_traces: [],
@@ -78,29 +71,20 @@ export const App: React.FC = () => {
   // Forms & notices
   const [notice, setNotice] = useState<string | null>(null);
   const [newDemoLogin, setNewDemoLogin] = useState('');
-  const [newDemoServer, setNewDemoServer] = useState('ICMarketsSC-Demo');
+  const [newDemoServer, setNewDemoServer] = useState('');
   const [pairCodes, setPairCodes] = useState<Record<string, string>>({});
   const [newsTitle, setNewsTitle] = useState('');
   const [newsWhen, setNewsWhen] = useState('');
-  const [killSwitchReason, setKillSwitchReason] = useState('');
   const [killSwitchLoading, setKillSwitchLoading] = useState(false);
 
   // Check auth session
   const checkAuth = useCallback(async () => {
-    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-    const hasDemoParam = params && (params.get('demo_admin') === '1' || params.get('demo_user') === '1');
     try {
       const res = await fetch('/api/me');
-      if (res.ok) {
-        const u = await res.json();
-        setCurrentUser(u);
-      } else if (!hasDemoParam) {
-        setCurrentUser(null);
-      }
+      if (res.ok) setCurrentUser(await res.json());
+      else if (res.status !== 401) setAuthError('Không thể kiểm tra phiên đăng nhập.');
     } catch {
-      if (!hasDemoParam) {
-        setCurrentUser(null);
-      }
+      setAuthError('Không thể kết nối máy chủ.');
     } finally {
       setAuthChecking(false);
     }
@@ -112,13 +96,19 @@ export const App: React.FC = () => {
       if (res.ok) {
         const d = await res.json();
         setDashboard(d);
+        setDashboardStatus('ready');
         setSelectedAccount((prev) => {
           if (prev && d.accounts?.some((a: any) => a.id === prev)) return prev;
           return d.accounts?.[0]?.id || '';
         });
+      } else if (res.status === 401) {
+        setCurrentUser(null);
+        setAuthError('Phiên đăng nhập đã hết hạn.');
+      } else {
+        setDashboardStatus('offline');
       }
     } catch {
-      // offline fallback
+      setDashboardStatus('offline');
     }
   }, []);
 
@@ -141,11 +131,16 @@ export const App: React.FC = () => {
         fetch('/api/admin/tracing'),
         fetch('/readyz'),
       ]);
-      if (mRes.ok) setMonitorData(await mRes.json());
+      if (mRes.ok) {
+        setMonitorData(await mRes.json());
+        setMonitorStatus('ready');
+      } else {
+        setMonitorStatus('offline');
+      }
       if (tRes.ok) setTracingData(await tRes.json());
-      if (rRes.ok) setReadyData(await rRes.json());
+      if (rRes.ok || rRes.status === 503) setReadyData(await rRes.json());
     } catch {
-      // ignore
+      setMonitorStatus('offline');
     }
   }, []);
 
@@ -162,69 +157,40 @@ export const App: React.FC = () => {
       }
       const timer = setInterval(() => {
         loadDashboard();
+        if (chartMode === 'candles') loadCandles(timeframe);
         if (currentUser.role === 'admin') {
           loadAdminMonitor();
         }
       }, 5000);
       return () => clearInterval(timer);
     }
-  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe]);
+  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe, chartMode]);
 
   const showNotice = (msg: string) => {
     setNotice(msg);
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const authenticate = async (email: string, password: string, register: boolean) => {
     setAuthLoading(true);
     setAuthError(null);
+    const options = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+      body: JSON.stringify({ email, password }),
+    };
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ email: authEmail, password: authPassword }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Đăng nhập thất bại' }));
-        throw new Error(err.detail || 'Email hoặc mật khẩu không chính xác');
+      if (register) {
+        const registration = await fetch('/api/register', options);
+        if (!registration.ok) throw new Error(registration.status === 409 ? 'Email đã được đăng ký.' : 'Không thể tạo tài khoản. Kiểm tra email và mật khẩu.');
       }
-      const u = await res.json();
-      setCurrentUser(u);
-      showNotice(`Đăng nhập thành công với vai trò ${u.role === 'admin' ? 'Quản Trị Viên (Admin)' : 'Khách Hàng (User)'}`);
-    } catch (err: any) {
-      setAuthError(err.message || 'Lỗi kết nối máy chủ');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthLoading(true);
-    setAuthError(null);
-    try {
-      const res = await fetch('/api/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ email: authEmail, password: authPassword }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: 'Đăng ký thất bại' }));
-        throw new Error(err.detail || 'Không thể tạo tài khoản');
-      }
-      showNotice('Đăng ký tài khoản thành công! Đang tự động đăng nhập...');
-      // Auto-login
-      const logRes = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ email: authEmail, password: authPassword }),
-      });
-      if (logRes.ok) {
-        const u = await logRes.json();
-        setCurrentUser(u);
-      }
-    } catch (err: any) {
-      setAuthError(err.message || 'Lỗi đăng ký');
+      const session = await fetch('/api/login', options);
+      if (!session.ok) throw new Error(session.status === 401 ? 'Email hoặc mật khẩu không chính xác.' : 'Không thể đăng nhập. Vui lòng thử lại.');
+      setDashboardStatus('loading');
+      setMonitorStatus('loading');
+      setNotice(null);
+      setCurrentUser(await session.json());
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Không thể kết nối máy chủ.');
     } finally {
       setAuthLoading(false);
     }
@@ -237,19 +203,28 @@ export const App: React.FC = () => {
       // ignore
     }
     setCurrentUser(null);
-    showNotice('Đã đăng xuất an toàn.');
+    setDashboard({ accounts: [], orders: [], series: [], health: {} });
+    setMonitorData({ accounts: [], audit: [], jobs: [], news: [], halted: null });
+    setReadyData(null);
+    setPairCodes({});
+    setNotice(null);
   };
 
   // EA & Account operations
-  const handleToggleCopy = async (aid: string, currentEnabled: boolean) => {
-    const res = await fetch(`/api/accounts/${aid}/toggle`, {
-      method: 'POST',
-      headers: { 'X-Zupirus': '1' },
-    });
-    if (res.ok) {
-      showNotice(`Đã ${currentEnabled ? 'tạm dừng' : 'bật kích hoạt'} nhận lệnh sao chép cho tài khoản #${aid.slice(0, 8)}.`);
+  const handleToggleCopy = async (account: CopyAccount) => {
+    const { id, enabled, risk, max_spread, max_positions, max_dd } = account;
+    try {
+      const res = await fetch(`/api/accounts/${id}/risk`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ enabled: !enabled, risk, max_spread, max_positions, max_dd }),
+      });
+      if (!res.ok) throw new Error('Không thể thay đổi trạng thái sao chép.');
+      showNotice(enabled ? 'Đã tạm dừng sao chép.' : 'Đã bật sao chép.');
       await loadDashboard();
       if (currentUser?.role === 'admin') await loadAdminMonitor();
+    } catch {
+      showNotice('Không thể thay đổi trạng thái sao chép. Vui lòng thử lại.');
     }
   };
 
@@ -274,7 +249,9 @@ export const App: React.FC = () => {
     if (res.ok) {
       const data = await res.json();
       setPairCodes((prev) => ({ ...prev, [aid]: data.code }));
-      showNotice(`Đã sinh mã ghép nối EA một lần: ${data.code} (Hết hạn sau 10 phút)`);
+      showNotice('Đã cấp mã ghép nối. Xem mã trong tài khoản bên dưới.');
+    } else {
+      showNotice(res.status === 409 ? 'Hãy thu hồi liên kết hiện tại trước khi cấp mã mới.' : 'Không thể cấp mã ghép nối.');
     }
   };
 
@@ -293,7 +270,7 @@ export const App: React.FC = () => {
     if (res.ok) {
       const data = await res.json();
       setNewDemoLogin('');
-      showNotice(`Đã thêm tài khoản MT5 Demo #${newDemoLogin}. Tiến hành tạo mã ghép nối bên dưới.`);
+      showNotice(`Đã thêm tài khoản MT5 #${newDemoLogin}. Tiến hành tạo mã ghép nối bên dưới.`);
       await loadDashboard();
       if (data.id) handleCreatePairCode(data.id);
     } else {
@@ -323,15 +300,17 @@ export const App: React.FC = () => {
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         body: JSON.stringify({
           halted: nextHalt,
-          reason: killSwitchReason || (nextHalt ? 'Bật nút ngắt khẩn cấp từ Admin Portal' : 'Khôi phục vận hành hệ thống'),
         }),
       });
       if (res.ok) {
         showNotice(nextHalt ? 'ĐÃ KÍCH HOẠT KILL-SWITCH: Toàn bộ việc cấp lệnh copy đã dừng an toàn.' : 'ĐÃ TẮT KILL-SWITCH: Hệ thống tiếp tục vận hành bình thường.');
-        setKillSwitchReason('');
         await loadDashboard();
         await loadAdminMonitor();
+      } else {
+        showNotice('Không thể thay đổi trạng thái cấp lệnh.');
       }
+    } catch {
+      showNotice('Không thể kết nối máy chủ để đổi trạng thái cấp lệnh.');
     } finally {
       setKillSwitchLoading(false);
     }
@@ -343,7 +322,7 @@ export const App: React.FC = () => {
       headers: { 'X-Zupirus': '1' },
     });
     if (res.ok) {
-      showNotice('Đã bắt đầu chu kỳ nghiên cứu Walk-Forward. LangGraph đang lưu checkpoint trên PostgreSQL.');
+      showNotice('Đã đưa yêu cầu kiểm định Walk-Forward vào hàng đợi.');
       await loadAdminMonitor();
     }
   };
@@ -498,238 +477,37 @@ export const App: React.FC = () => {
     );
   };
 
-  // If loading session
-  if (authChecking) {
-    return (
-      <div className="min-h-screen bg-[#070b14] text-slate-300 flex items-center justify-center font-mono text-xs">
-        <div className="flex items-center gap-3">
-          <span className="h-3 w-3 rounded-full bg-cyan-400 animate-ping" />
-          <span>Đang khởi động ZUPIRUS Quant Lab...</span>
-        </div>
-      </div>
-    );
+  if (authChecking) return <div className="quant-app quant-loading" role="status">Đang kiểm tra phiên đăng nhập…</div>;
+  if (!currentUser) return <PortalAuth portal={portal} loading={authLoading} error={authError} onSubmit={authenticate} />;
+  const isAdmin = currentUser.role === 'admin';
+  if (portal === 'admin' && !isAdmin) {
+    return <div className="quant-app quant-admin quant-loading"><div className="quant-auth-box">
+      <h1>Cần quyền quản trị</h1><p>Tài khoản hiện tại không có quyền truy cập.</p>
+      <button className="quant-primary" onClick={handleLogout}>Đăng nhập bằng tài khoản khác</button>
+    </div></div>;
   }
-
-  // If unauthenticated: render login / register screen according to active portal
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans">
-        {/* Top Navbar */}
-        <header className="border-b border-slate-800 bg-[#0c1322] px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="font-bold tracking-tight text-lg text-cyan-400 font-mono">Z◈ ZUPIRUS QUANT LAB</span>
-            <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-slate-300">
-              v0.2.0 · TimescaleDB + Redis + AI SDK 6
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPortal(portal === 'user' ? 'admin' : 'user')}
-              className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-xs font-mono text-cyan-300 transition-colors"
-            >
-              {portal === 'user' ? 'Chuyển sang Cổng Quản Trị (adm.zupirus.com) ↗' : 'Chuyển sang Cổng Người Dùng (zupirus.com) ↗'}
-            </button>
-          </div>
-        </header>
-
-        {/* Auth Container */}
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#0d1424] p-8 shadow-2xl space-y-6">
-            <div className="text-center space-y-2">
-              <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 font-bold text-xl font-mono">
-                Z
-              </div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-100">
-                {portal === 'admin' ? 'Cổng Quản Trị Hệ Thống (adm.zupirus.com)' : 'Cổng Khách Hàng (zupirus.com)'}
-              </h1>
-              <p className="text-xs text-slate-400">
-                {portal === 'admin'
-                  ? 'Yêu cầu tài khoản có quyền Quản trị viên để truy cập Control Plane'
-                  : 'Nền tảng phân tích định lượng XAUUSD M15 & sao chép lệnh MT5 Demo'}
-              </p>
-            </div>
-
-            {/* User portal can toggle login / register; Admin portal is login only */}
-            {portal === 'user' && (
-              <div className="flex rounded-lg bg-slate-900/80 p-1 border border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setAuthTab('login')}
-                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-all ${
-                    authTab === 'login' ? 'bg-cyan-500 text-slate-950 font-bold shadow' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Đăng Nhập
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAuthTab('register')}
-                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-all ${
-                    authTab === 'register' ? 'bg-cyan-500 text-slate-950 font-bold shadow' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Đăng Ký Mới
-                </button>
-              </div>
-            )}
-
-            {authError && (
-              <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 p-3 text-xs text-rose-300 font-mono">
-                ⚠ {authError}
-              </div>
-            )}
-
-            <form onSubmit={authTab === 'login' || portal === 'admin' ? handleLogin : handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">ĐỊA CHỈ EMAIL</label>
-                <input
-                  type="email"
-                  required
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder={portal === 'admin' ? 'admin@zupirus.com' : 'user@zupirus.com'}
-                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">MẬT KHẨU</label>
-                <input
-                  type="password"
-                  required
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2.5 text-xs transition-colors shadow-lg shadow-cyan-500/20 disabled:opacity-50"
-              >
-                {authLoading ? 'Đang xác thực...' : authTab === 'login' || portal === 'admin' ? 'Đăng Nhập Vào Hệ Thống →' : 'Tạo Tài Khoản Mới →'}
-              </button>
-            </form>
-
-            <div className="border-t border-slate-800/80 pt-4 text-center">
-              <div className="text-[11px] text-slate-500 font-mono">
-                {portal === 'admin' ? 'Gợi ý tài khoản demo: admin@zupirus.com' : 'Gợi ý tài khoản demo: test@zupirus.com'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // AUTHENTICATED: RENDER USER PORTAL OR ADMIN PORTAL
-  // ---------------------------------------------------------------------------
-
+  const researchTick = Number(dashboard.health?.research_heartbeat);
+  const executionTick = Number(dashboard.health?.execution_heartbeat);
+  const researchActive = Number.isFinite(researchTick) && Date.now() / 1000 - researchTick < 60;
+  const lastResearchJob = monitorData.jobs[0];
+  const formatHeartbeat = (timestamp: number) => Number.isFinite(timestamp)
+    ? new Date(timestamp * 1000).toLocaleTimeString('vi-VN') : 'Chưa ghi nhận';
+  const status = portal === 'admin' ? monitorStatus : dashboardStatus;
+  const alternatePortal = portal === 'admin' ? 'user' : 'admin';
+  const switchPortal = () => {
+    const targetHost = alternatePortal === 'admin' ? 'adm.zupirus.com' : 'zupirus.com';
+    if (['zupirus.com', 'www.zupirus.com', 'adm.zupirus.com'].includes(location.hostname)) {
+      location.assign(`https://${targetHost}`);
+      return;
+    }
+    setPortal(alternatePortal);
+  };
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans">
-      {/* Universal Header */}
-      <header className="border-b border-slate-800 bg-[#0c1322] px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-50 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          <span className="font-bold tracking-tight text-base sm:text-lg text-cyan-400 font-mono flex items-center gap-2">
-            <span>Z◈</span>
-            <span>{portal === 'admin' ? 'ZUPIRUS ADMIN CONTROL' : 'ZUPIRUS QUANT LAB'}</span>
-          </span>
-          <span className="hidden md:inline-flex rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-slate-300">
-            {portal === 'admin' ? 'adm.zupirus.com' : 'zupirus.com'}
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded bg-emerald-950/70 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            DEMO & REPLAY ONLY · REAL LOCKED
-          </span>
-        </div>
-
-        {/* User Info & Switcher */}
-        <div className="flex items-center gap-3">
-          {/* Quick portal switch */}
-          <button
-            onClick={() => setPortal(portal === 'user' ? 'admin' : 'user')}
-            className="rounded bg-slate-800/90 hover:bg-slate-700 border border-slate-700 px-2.5 py-1 text-[11px] font-mono text-cyan-300 transition-colors"
-            title="Chuyển chế độ xem cổng"
-          >
-            {portal === 'user' ? 'Cổng Admin ↗' : 'Cổng Khách Hàng ↗'}
-          </button>
-
-          <div className="hidden sm:flex flex-col text-right">
-            <span className="text-xs font-semibold text-slate-200">{currentUser.email}</span>
-            <span className="text-[10px] font-mono text-cyan-400 uppercase">
-              {currentUser.role === 'admin' ? 'Quản Trị Viên' : 'Khách Hàng'}
-            </span>
-          </div>
-
-          <button
-            onClick={handleLogout}
-            className="rounded bg-slate-800 hover:bg-rose-950/50 hover:text-rose-300 border border-slate-700 px-2.5 py-1 text-xs transition-colors"
-          >
-            Đăng xuất
-          </button>
-        </div>
-      </header>
-
-      {/* Portal-Specific Subnavigation */}
-      <div className="border-b border-slate-800 bg-[#090e1a] px-4 sm:px-6 py-2 overflow-x-auto">
-        <nav className="flex gap-2 text-xs">
-          {portal === 'user' ? (
-            <>
-              {(
-                [
-                  ['overview', 'Tổng Quan Vốn & Lãi Lỗ'],
-                  ['accounts', `Tài Khoản & Ghép Nối EA (${accounts.length})`],
-                  ['orders', `Nhật Ký Lệnh & Khớp Deal (${orders.length})`],
-                  ['assistant', 'Trợ Lý AI (Vercel SDK 6)'],
-                ] as Array<[UserTabKey, string]>
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setUserTab(key)}
-                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
-                    userTab === key
-                      ? 'bg-cyan-500 text-slate-950 font-bold shadow'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </>
-          ) : (
-            <>
-              {(
-                [
-                  ['overview', 'Hai Đội Agent & Giám Sát Vận Hành'],
-                  ['approvals', 'Hàng Đợi Phê Duyệt Chiến Lược (AI SDK 6)'],
-                  ['activity', `Nhật Ký Toàn Hệ Thống (${consolidatedActivities.length})`],
-                  ['tracing', 'LangSmith Tracing Telemetry'],
-                  ['news', 'Lịch Rủi Ro Tin Tức USD'],
-                ] as Array<[AdminTabKey, string]>
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setAdminTab(key)}
-                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
-                    adminTab === key
-                      ? 'bg-cyan-500 text-slate-950 font-bold shadow'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </>
-          )}
-        </nav>
-      </div>
-
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-6">
+    <PortalShell portal={portal} page={portal === 'admin' ? adminTab : userTab} email={currentUser.email}
+      onNavigate={(page) => portal === 'admin' ? setAdminTab(page as AdminTabKey) : setUserTab(page as UserTabKey)}
+      logout={handleLogout} switchPortal={isAdmin ? switchPortal : undefined}>
+        {status === 'loading' && <div className="quant-status" role="status">Đang tải dữ liệu…</div>}
+        {status === 'offline' && <div className="quant-alert" role="status">Không thể cập nhật. Dữ liệu đang hiển thị có thể đã cũ.</div>}
         {notice && (
           <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-xs text-amber-200 font-mono flex items-center justify-between">
             <span>■ {notice}</span>
@@ -752,46 +530,49 @@ export const App: React.FC = () => {
             {userTab === 'overview' && (
               <div className="space-y-6">
                 {/* Metric Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
-                    <div className="text-[11px] text-slate-500">TỔNG SỐ DƯ (BALANCE)</div>
+                <div className="quant-metrics grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
+                    <div className="text-[11px] text-slate-500">Tổng số dư</div>
                     <div className="text-xl font-bold text-slate-100 mt-1">${totalBalance.toLocaleString()}</div>
                     <div className="text-[10px] text-slate-500 mt-1">{accounts.length} tài khoản liên kết</div>
                   </div>
 
-                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
-                    <div className="text-[11px] text-slate-500">VỐN THẢ NỔI (EQUITY)</div>
+                  <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
+                    <div className="text-[11px] text-slate-500">Vốn thả nổi</div>
                     <div className="text-xl font-bold text-cyan-300 mt-1">${totalEquity.toLocaleString()}</div>
                     <div className={`text-[10px] mt-1 ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {totalPnl >= 0 ? `+${totalPnl.toFixed(2)}` : `${totalPnl.toFixed(2)}`} P&L thả nổi
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
-                    <div className="text-[11px] text-slate-500">VỊ THẾ ĐANG MỞ</div>
+                  <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
+                    <div className="text-[11px] text-slate-500">Vị thế đang mở</div>
                     <div className="text-xl font-bold text-slate-100 mt-1">{totalPositions}</div>
-                    <div className="text-[10px] text-emerald-400 mt-1">Giới hạn max 3 lệnh/tài khoản</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Trên các tài khoản liên kết</div>
                   </div>
 
-                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
-                    <div className="text-[11px] text-slate-500">BẢO VỆ RỦI RO (DD LIMIT)</div>
-                    <div className="text-xl font-bold text-emerald-400 mt-1">&lt; 5.0%</div>
-                    <div className="text-[10px] text-slate-400 mt-1">Hard lock tự động khi DD &gt; 5%</div>
+                  <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
+                    <div className="text-[11px] text-slate-500">Đang bật sao chép</div>
+                    <div className="text-xl font-bold text-cyan-300 mt-1">{accounts.filter((account: any) => account.enabled).length}</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Tài khoản đã bật</div>
                   </div>
                 </div>
 
                 {/* Market Chart */}
-                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-slate-200">XAUUSD Chuỗi Thời Gian · TimescaleDB</span>
-                      <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
-                        Hypertable Chunks
-                      </span>
+                      <span className="font-bold text-sm text-slate-200">{chartMode === 'candles' ? 'Biểu đồ XAU/USD' : 'Lịch sử vốn'}</span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-mono">
+                      {chartMode === 'equity' && accounts.length > 0 && (
+                        <select aria-label="Tài khoản hiển thị" className="quant-chart-select" value={selectedAccount}
+                          onChange={(event) => setSelectedAccount(event.target.value)}>
+                          {accounts.map((account: any) => <option key={account.id} value={account.id}>#{account.login} · {account.server}</option>)}
+                        </select>
+                      )}
+                      {chartMode === 'candles' && <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-mono">
                         {(['M1', 'M5', 'M15', 'H1', 'D1'] as const).map((tf) => (
                           <button
                             key={tf}
@@ -806,7 +587,7 @@ export const App: React.FC = () => {
                             {tf}
                           </button>
                         ))}
-                      </div>
+                      </div>}
 
                       <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-mono">
                         <button
@@ -832,11 +613,7 @@ export const App: React.FC = () => {
                   {chartMode === 'candles' ? (
                     renderCandlestickSvg()
                   ) : (
-                    <div className="h-64 flex flex-col items-center justify-center text-slate-500 font-mono text-xs">
-                      <div className="text-cyan-400 font-bold text-lg mb-1">${totalEquity.toLocaleString()}</div>
-                      <span>Đường cong vốn tài khoản khách hàng (Cập nhật theo nhịp tick)</span>
-                      <span className="text-[10px] text-slate-600 mt-1">Nguồn: snapshots hypertable PostgreSQL</span>
-                    </div>
+                    <EquityHistory samples={dashboard.series.filter((point: {account_id: string}) => point.account_id === selectedAccount)} />
                   )}
                 </div>
               </div>
@@ -846,16 +623,16 @@ export const App: React.FC = () => {
             {userTab === 'accounts' && (
               <div className="space-y-6">
                 {/* Form Add Demo Account & Pair EA */}
-                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                   <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
-                    <span>🔌 Ghép Nối EA MT5 Demo Mới</span>
+                    <span>Ghép nối EA MT5</span>
                     <span className="text-xs font-normal text-slate-400">(Nhận tín hiệu trực tiếp qua WebRequest HTTP)</span>
                   </h3>
 
                   <form onSubmit={handleAddDemoAccount} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-[11px] font-mono text-slate-400 mb-1">SỐ LOGIN MT5 DEMO</label>
-                      <input
+                      <label htmlFor="mt5-login" className="block text-[11px] font-mono text-slate-400 mb-1">Số đăng nhập MT5</label>
+                      <input id="mt5-login"
                         type="text"
                         required
                         value={newDemoLogin}
@@ -866,13 +643,13 @@ export const App: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-mono text-slate-400 mb-1">TÊN SERVER BROKER DEMO</label>
-                      <input
+                      <label htmlFor="mt5-server" className="block text-[11px] font-mono text-slate-400 mb-1">Máy chủ MT5</label>
+                      <input id="mt5-server"
                         type="text"
                         required
                         value={newDemoServer}
                         onChange={(e) => setNewDemoServer(e.target.value)}
-                        placeholder="Ví dụ: MetaQuotes-Demo hoặc ICMarketsSC-Demo"
+                        placeholder="Nhập máy chủ từ MT5"
                         className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
                       />
                     </div>
@@ -888,16 +665,16 @@ export const App: React.FC = () => {
                         type="button"
                         onClick={handleCreateReplay}
                         className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-2 text-xs text-slate-300 transition-colors whitespace-nowrap"
-                        title="Tạo tài khoản giả lập replay để test nhanh không cần mở MT5"
+                        title="Theo dõi danh mục bằng dữ liệu phát lại"
                       >
-                        + Replay Test
+                        + Tạo tài khoản phát lại
                       </button>
                     </div>
                   </form>
                 </div>
 
                 {/* Account List */}
-                <div className="rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
+                <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
                   <div className="border-b border-slate-800 px-5 py-3 flex items-center justify-between">
                     <span className="font-bold text-sm text-slate-200">Danh Sách Tài Khoản Đang Liên Kết</span>
                     <span className="text-xs font-mono text-slate-400">{accounts.length} tài khoản</span>
@@ -905,13 +682,13 @@ export const App: React.FC = () => {
 
                   {accounts.length === 0 ? (
                     <div className="p-8 text-center text-slate-500 font-mono text-xs">
-                      Chưa có tài khoản nào được kết nối. Hãy thêm tài khoản Demo ở trên.
+                      Chưa có tài khoản MT5 nào được liên kết.
                     </div>
                   ) : (
                     <div className="divide-y divide-slate-800/80">
                       {accounts.map((a: any) => {
                         const code = pairCodes[a.id];
-                        const isOnline = a.seen && Date.now() / 1000 - a.seen < 45;
+                        const isOnline = a.seen && Date.now() / 1000 - a.seen < 30;
                         return (
                           <div key={a.id} className="p-5 space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -932,9 +709,9 @@ export const App: React.FC = () => {
                                 </span>
                               </div>
 
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <button
-                                  onClick={() => handleToggleCopy(a.id, a.enabled)}
+                                  onClick={() => handleToggleCopy(a)}
                                   className={`rounded-lg px-3 py-1 text-xs font-mono font-medium transition-colors ${
                                     a.enabled
                                       ? 'bg-amber-950/80 text-amber-300 border border-amber-700/40 hover:bg-amber-900/80'
@@ -945,6 +722,7 @@ export const App: React.FC = () => {
                                 </button>
 
                                 <button
+                                  hidden={a.mode === 'REPLAY'}
                                   onClick={() => handleCreatePairCode(a.id)}
                                   className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1 text-xs font-mono text-slate-300 transition-colors"
                                 >
@@ -952,6 +730,7 @@ export const App: React.FC = () => {
                                 </button>
 
                                 <button
+                                  hidden={a.mode === 'REPLAY'}
                                   onClick={() => handleRevoke(a.id)}
                                   className="rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 px-3 py-1 text-xs font-mono text-rose-300 transition-colors"
                                 >
@@ -988,16 +767,16 @@ export const App: React.FC = () => {
                             {code && (
                               <div className="rounded-lg border border-cyan-500/40 bg-cyan-950/20 p-3 text-xs font-mono space-y-1">
                                 <div className="text-cyan-300 font-bold flex items-center justify-between">
-                                  <span>MÃ GHÉP NỐI EA DÙNG MỘT LẦN: {code}</span>
-                                  <span className="text-[10px] text-slate-400">TTL 10 phút</span>
+                                  <span>Mã dùng một lần: <code className="break-all">{code}</code></span>
+                                  <span className="text-[10px] text-slate-400">Hết hạn sau 5 phút</span>
                                 </div>
                                 <p className="text-slate-400 text-[11px]">
-                                  Trong MT5 chart XAUUSD, mở Inputs của EA <code className="text-cyan-200">Zupirus_Demo_Link_EA</code>:
+                                  Trong MT5 chart XAUUSD, mở Inputs của EA <code className="text-cyan-200">Zupirus_Copy_EA</code>:
                                 </p>
                                 <div className="bg-slate-900/80 p-2 rounded text-[11px] text-slate-300 select-all">
-                                  InpServerUrl = <span className="text-cyan-300">{window.location.origin}</span>
+                                  ApiURL = <span className="text-cyan-300">{window.location.origin}</span>
                                   <br />
-                                  InpPairingCode = <span className="text-cyan-300">{code}</span>
+                                  PairingCode = <span className="text-cyan-300">{code}</span>
                                 </div>
                               </div>
                             )}
@@ -1013,7 +792,7 @@ export const App: React.FC = () => {
             {/* USER TAB: ORDERS & DEALS */}
             {userTab === 'orders' && (
               <div className="space-y-6">
-                <div className="rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
+                <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
                   <div className="border-b border-slate-800 px-5 py-3 flex items-center justify-between">
                     <span className="font-bold text-sm text-slate-200">Nhật Ký Tín Hiệu & Đối Soát Lệnh Thực Thi</span>
                     <span className="text-xs font-mono text-slate-400">{orders.length} lệnh</span>
@@ -1099,7 +878,7 @@ export const App: React.FC = () => {
             {/* USER TAB: ASSISTANT */}
             {userTab === 'assistant' && (
               <div className="space-y-4">
-                <CustomerAssistant />
+                <Suspense fallback={<div className="quant-status" role="status">Đang tải trợ lý…</div>}><CustomerAssistant /></Suspense>
               </div>
             )}
           </>
@@ -1113,6 +892,19 @@ export const App: React.FC = () => {
             {/* ADMIN TAB: TWO AGENT TEAMS & OVERVIEW */}
             {adminTab === 'overview' && (
               <div className="space-y-6">
+                <div className="quant-metrics grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {[
+                    ['Tài khoản', monitorData.accounts.length],
+                    ['Đang sao chép', monitorData.accounts.filter((account: any) => account.enabled).length],
+                    ['Nghiên cứu đang chờ', monitorData.jobs.filter((job: any) => ['queued', 'waiting_approval'].includes(job.state)).length],
+                    ['Kết nối hệ thống', readyData?.status === 'ready' ? 'Sẵn sàng' : readyData ? 'Gián đoạn' : '—'],
+                  ].map(([label, value]) => (
+                    <div className="quant-panel p-4" key={label}>
+                      <div className="text-slate-400 text-xs">{label}</div>
+                      <div className="mt-2 text-xl font-semibold">{status === 'ready' ? value : '—'}</div>
+                    </div>
+                  ))}
+                </div>
                 {/* Kill Switch Banner */}
                 <div
                   className={`rounded-xl border p-5 transition-colors ${
@@ -1125,26 +917,19 @@ export const App: React.FC = () => {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 font-bold text-sm">
                         <span className={`h-3 w-3 rounded-full ${monitorData.halted ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
-                        <span>NÚT NGẮT KHẨN CẤP TOÀN HỆ THỐNG (SYSTEM KILL-SWITCH)</span>
+                        <span>Ngắt cấp lệnh khẩn cấp</span>
                       </div>
                       <p className="text-xs text-slate-300">
-                        {monitorData.halted
-                          ? 'HỆ THỐNG ĐANG DỪNG: Toàn bộ việc cấp tín hiệu và gửi lệnh copy đã bị chặn hoàn toàn.'
-                          : 'HỆ THỐNG ĐANG HOẠT ĐỘNG: Tín hiệu và lệnh sao chép được cấp phát bình thường.'}
+                        {monitorData.halted == null ? 'Chưa xác định trạng thái cấp lệnh.' : monitorData.halted
+                          ? 'Cấp lệnh sao chép đang được khóa. Các vị thế đã mở vẫn được theo dõi.'
+                          : 'Đang cho phép cấp lệnh sao chép theo giới hạn rủi ro.'}
                       </p>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={killSwitchReason}
-                        onChange={(e) => setKillSwitchReason(e.target.value)}
-                        placeholder="Lý do thao tác..."
-                        className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 font-mono"
-                      />
                       <button
                         onClick={() => handleToggleKillSwitch(monitorData.halted)}
-                        disabled={killSwitchLoading}
+                        disabled={killSwitchLoading || status !== 'ready' || monitorData.halted == null}
                         className={`rounded-lg px-4 py-2 text-xs font-bold font-mono transition-colors shadow ${
                           monitorData.halted
                             ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
@@ -1154,8 +939,8 @@ export const App: React.FC = () => {
                         {killSwitchLoading
                           ? 'Đang xử lý...'
                           : monitorData.halted
-                          ? 'Khôi Phục Vận Hành ↗'
-                          : 'KÍCH HOẠT KILL-SWITCH ✕'}
+                          ? 'Mở lại cấp lệnh'
+                          : 'Ngắt cấp lệnh'}
                       </button>
                     </div>
                   </div>
@@ -1164,11 +949,11 @@ export const App: React.FC = () => {
                 {/* The Two Agent Teams */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* TEAM 1: Execution & Real-Time Dispatch Team */}
-                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                  <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                     <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                       <div className="flex items-center gap-2">
                         <span className="h-2.5 w-2.5 rounded-full bg-cyan-400" />
-                        <h3 className="font-bold text-sm text-slate-100">Đội Phân Tích & Thực Thi (Execution Team)</h3>
+                        <h3 className="font-bold text-sm text-slate-100">Phân tích & Thực thi</h3>
                       </div>
                       <span className="rounded bg-cyan-950/70 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
                         Deterministic Engine
@@ -1176,40 +961,35 @@ export const App: React.FC = () => {
                     </div>
 
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Chịu trách nhiệm tiếp nhận tick nến XAUUSD chuỗi thời gian, điều phối đa chiến lược (Trend Following,
-                      Mean Reversion, Breakout), kiểm tra risk gate, đẩy vào Transactional Outbox và phân phối qua Redis Streams.
+                      Theo dõi báo giá XAU/USD, đánh giá chiến lược và kiểm tra rủi ro trước khi cấp tín hiệu.
                     </p>
 
                     <div className="space-y-2 text-xs font-mono bg-slate-950/40 p-3 rounded-lg border border-slate-800/60">
                       <div className="flex justify-between">
                         <span className="text-slate-500">Trạng thái vận hành:</span>
                         <span className="text-emerald-400 font-bold">
-                          {monitorData.halted ? 'HALTED' : 'RUNNING (Loop 2s)'}
+                          {monitorData.halted ? 'Đã ngắt cấp lệnh' : readyData?.execution_worker?.heartbeat_active ? 'Đang hoạt động' : 'Chưa có nhịp gần đây'}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-500">Heartbeat gần nhất:</span>
                         <span className="text-slate-200">
-                          {readyData?.execution_worker?.heartbeat_active ? 'Healthy (<60s)' : 'Active (Local WAL)'}
+                          {formatHeartbeat(executionTick)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Redis Stream Outbox:</span>
-                        <span className="text-cyan-300">stream:signals (Pub/Sub & ACK)</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-500">Distributed Lock:</span>
-                        <span className="text-slate-300">lock:dispatch:aid:sid (Anti-Duplicate)</span>
+                        <span className="text-slate-500">Kết nối Redis:</span>
+                        <span className="text-cyan-300">{readyData ? readyData.redis?.connected ? 'Đã kết nối' : 'Gián đoạn' : '—'}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* TEAM 2: Research & Validation Team */}
-                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                  <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                     <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                       <div className="flex items-center gap-2">
                         <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-                        <h3 className="font-bold text-sm text-slate-100">Đội Nghiên Cứu & Kiểm Định (Research Team)</h3>
+                        <h3 className="font-bold text-sm text-slate-100">Nghiên cứu & Kiểm định</h3>
                       </div>
                       <span className="rounded bg-amber-950/70 border border-amber-500/30 px-2 py-0.5 text-[10px] font-mono text-amber-300">
                         LangGraph Checkpoint
@@ -1217,18 +997,21 @@ export const App: React.FC = () => {
                     </div>
 
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Chạy Walk-Forward out-of-sample loại trừ chồng lấn, đánh giá candidate strategy có trừ phí/spread.
-                      Tạo interrupt checkpoint chờ Admin phê duyệt trước khi lưu trữ ứng viên.
+                      Kiểm định Walk-Forward ngoài mẫu và đưa ứng viên vào hàng đợi phê duyệt.
                     </p>
 
                     <div className="space-y-2 text-xs font-mono bg-slate-950/40 p-3 rounded-lg border border-slate-800/60">
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Mô hình kiểm định:</span>
-                        <span className="text-amber-300">Walk-Forward 120 Train / 60 OOS</span>
+                        <span className="text-slate-500">Trạng thái worker:</span>
+                        <span className={researchActive ? 'text-emerald-400' : 'text-slate-300'}>{researchActive ? 'Đang hoạt động' : 'Chưa có nhịp gần đây'}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-500">LangGraph Checkpointer:</span>
-                        <span className="text-slate-200">PostgresSaver / SqliteSaver Durable</span>
+                        <span className="text-slate-500">Heartbeat gần nhất:</span>
+                        <span className="text-slate-200">{formatHeartbeat(researchTick)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Kiểm định gần nhất:</span>
+                        <span className="text-slate-200">{lastResearchJob ? formatHeartbeat(Number(lastResearchJob.created)) : 'Chưa có'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-slate-500">Đề xuất chờ duyệt:</span>
@@ -1243,7 +1026,7 @@ export const App: React.FC = () => {
                         onClick={handleStartResearch}
                         className="w-full rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold py-2 text-xs font-mono transition-colors"
                       >
-                        + Kích Hoạt Vòng Kiểm Định Walk-Forward Mới
+                        + Chạy kiểm định
                       </button>
                     </div>
                   </div>
@@ -1254,14 +1037,14 @@ export const App: React.FC = () => {
             {/* ADMIN TAB: STRATEGY APPROVALS */}
             {adminTab === 'approvals' && (
               <div className="space-y-6">
-                <AdminApprovalQueue />
+                <Suspense fallback={<div className="quant-status" role="status">Đang tải hàng đợi…</div>}><AdminApprovalQueue /></Suspense>
               </div>
             )}
 
             {/* ADMIN TAB: CONSOLIDATED ACTIVITY LOGS */}
             {adminTab === 'activity' && (
               <div className="space-y-4">
-                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
                     <h3 className="font-bold text-sm text-slate-200">
                       Nhật Ký Hoạt Động Toàn Hệ Thống & Truy Vết
@@ -1371,7 +1154,7 @@ export const App: React.FC = () => {
             {/* ADMIN TAB: LANGSMITH TRACING */}
             {adminTab === 'tracing' && (
               <div className="space-y-6">
-                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm text-slate-200">LangSmith Tracing Telemetry</span>
@@ -1447,7 +1230,7 @@ export const App: React.FC = () => {
             {/* ADMIN TAB: NEWS BLACKOUT */}
             {adminTab === 'news' && (
               <div className="space-y-6">
-                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                   <h3 className="font-bold text-sm text-slate-200">Thêm Sự Kiện Lịch Kinh Tế USD High Impact</h3>
                   <p className="text-xs text-slate-400">
                     Cơ chế bảo vệ tài khoản: Tự động chặn mở lệnh mới trong khoảng ±15 phút trước và sau thời điểm ra tin.
@@ -1482,13 +1265,7 @@ export const App: React.FC = () => {
             )}
           </>
         )}
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-800/80 bg-[#080d1a] px-6 py-4 text-center text-xs text-slate-500 font-mono">
-        ZUPIRUS Quant Lab · Phiên bản 0.2.0 · Khóa cứng giao dịch tiền thật · PostgreSQL + TimescaleDB + Redis Streams + LangSmith + Vercel AI SDK 6
-      </footer>
-    </div>
+    </PortalShell>
   );
 };
 

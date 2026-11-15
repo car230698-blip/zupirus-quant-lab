@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
-from .db import tx, init, ROOT, audit, setkv, insert_timescale_quote, query_timescale_candles, DatabaseUnavailableError, check_db_health, check_timescale_metadata, is_postgres
+from .db import tx, init, ROOT, audit, getkv, setkv, insert_timescale_quote, query_timescale_candles, DatabaseUnavailableError, check_db_health, check_timescale_metadata, is_postgres
 from .security import bootstrap, digest, token, password_hash, verify
 from .engine import news_blocked
 from .redis_client import cache_heartbeat, get_cached_heartbeat, acquire_dispatch_lock, release_dispatch_lock, get_redis_client
@@ -351,7 +351,8 @@ def monitor(u=Depends(admin)):
             'accounts': [dict(r) for r in c.execute('SELECT a.*,u.email FROM accounts a JOIN users u ON u.id=a.user_id')],
             'audit': [dict(r) for r in c.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')],
             'jobs': [dict(r) for r in c.execute('SELECT * FROM jobs ORDER BY created DESC LIMIT 30')],
-            'news': [dict(r) for r in c.execute('SELECT * FROM news ORDER BY ts DESC LIMIT 50')]
+            'news': [dict(r) for r in c.execute('SELECT * FROM news ORDER BY ts DESC LIMIT 50')],
+            'halted': getkv(c, 'halted') == '1'
         }
 
 class Safety(Model): halted: bool
@@ -421,77 +422,119 @@ def vision(p: Vision, u=Depends(admin)):
 
 class ChatMessage(BaseModel):
     role: Literal['user', 'assistant', 'system']
-    content: str
+    content: str = Field(default='', max_length=12000)
+    parts: list[dict] | None = None
+
 
 class ChatPayload(BaseModel):
-    messages: List[ChatMessage]
+    messages: list[ChatMessage] = Field(max_length=200)
+
+    def question(self):
+        message = next((m for m in reversed(self.messages) if m.role == 'user'), None)
+        if not message:
+            return ''
+        if message.parts is None:
+            return message.content[:2000]
+        return ' '.join(
+            part['text'] for part in message.parts
+            if part.get('type') == 'text' and isinstance(part.get('text'), str)
+        )[:2000]
+
+    def uses_ui_message_stream(self):
+        return any(message.parts is not None for message in self.messages)
+
+
+def ui_message_stream(text, data_type=None, data=None):
+    def events():
+        text_id = secrets.token_hex(8)
+        chunks = [
+            {'type': 'start'},
+            {'type': 'text-start', 'id': text_id},
+            {'type': 'text-delta', 'id': text_id, 'delta': text},
+            {'type': 'text-end', 'id': text_id},
+        ]
+        if data_type:
+            chunks.append({'type': f'data-{data_type}', 'data': data})
+        chunks.append({'type': 'finish'})
+        for chunk in chunks:
+            yield f'data: {json.dumps(chunk, ensure_ascii=False)}\n\n'
+        yield 'data: [DONE]\n\n'
+
+    return StreamingResponse(events(), media_type='text/event-stream', headers={
+        'x-vercel-ai-ui-message-stream': 'v1',
+        'X-Accel-Buffering': 'no',
+    })
+
 
 @app.post('/api/chat/assistant')
-async def chat_assistant(payload: ChatPayload, u=Depends(user)):
-    """Vercel AI SDK 6 compatible streaming endpoint for customer queries with Generative UI widgets."""
-    user_msg = payload.messages[-1].content if payload.messages else ""
+def chat_assistant(payload: ChatPayload, u=Depends(user)):
+    question = payload.question()
     snapshot = dashboard(u)
-    
-    # Tool resolution for Generative UI
-    invoked_tool = None
-    if any(k in user_msg.lower() for k in ('tài khoản', 'số dư', 'balance', 'equity', 'vốn', 'danh mục')):
-        invoked_tool = {
-            "name": "renderPortfolioCard",
-            "parameters": {
-                "accountsCount": len(snapshot['accounts']),
-                "accounts": snapshot['accounts'][:5],
-                "totalBalance": sum(a['balance'] for a in snapshot['accounts']),
-                "totalEquity": sum(a['equity'] for a in snapshot['accounts']),
-            }
+    accounts, orders = snapshot['accounts'], snapshot['orders']
+    card_type = tool = None
+    card = None
+    if any(word in question.lower() for word in ('tài khoản', 'số dư', 'balance', 'equity', 'vốn', 'danh mục')):
+        card_type, tool = 'portfolio', 'renderPortfolioCard'
+        card = {
+            'accountsCount': len(accounts),
+            'accounts': [{k: a[k] for k in ('id', 'login', 'server', 'mode', 'balance', 'equity', 'positions')} for a in accounts[:5]],
+            'totalBalance': sum(a['balance'] for a in accounts),
+            'totalEquity': sum(a['equity'] for a in accounts),
         }
-    elif any(k in user_msg.lower() for k in ('lệnh', 'giao dịch', 'order', 'deal', 'lịch sử')):
-        invoked_tool = {
-            "name": "renderRecentOrdersCard",
-            "parameters": {
-                "orders": snapshot['orders'][:10]
-            }
-        }
+    elif any(word in question.lower() for word in ('lệnh', 'giao dịch', 'order', 'deal', 'lịch sử')):
+        card_type, tool = 'orders', 'renderRecentOrdersCard'
+        card = {'orders': [
+            {k: o[k] for k in ('id', 'source', 'side', 'price', 'state', 'ticket', 'deal', 'created')}
+            for o in orders[:10]
+        ]}
 
     from .research import ai_text
-    ans = ai_text("Giải thích dữ liệu demo tài chính: " + json.dumps(snapshot, ensure_ascii=False)[:8000] + "\nCâu hỏi khách hàng: " + user_msg)
-    response_text = ans['text'] if ans['available'] else f"Trợ lý quy tắc · Hệ thống demo ghi nhận {len(snapshot['accounts'])} tài khoản đang hoạt động ({len(snapshot['orders'])} lệnh gần nhất). Vốn thả nổi và số dư được cập nhật liên tục từ broker."
+    summary = {
+        'accounts': len(accounts), 'orders': len(orders),
+        'balance': sum(a['balance'] for a in accounts),
+        'equity': sum(a['equity'] for a in accounts),
+        'positions': sum(a['positions'] for a in accounts),
+        'recent_order_statuses': [o['state'] for o in orders[:10]],
+    }
+    answer = ai_text('Giải thích dữ liệu danh mục cho người dùng. Dữ liệu: ' +
+                     json.dumps(summary, ensure_ascii=False) + '\nCâu hỏi: ' + question)
+    text = answer['text'] if answer['available'] else (
+        f"Trợ lý quy tắc · Danh mục có {len(accounts)} tài khoản, "
+        f"{summary['positions']} vị thế đang mở và {len(orders)} lệnh gần đây."
+    )
+    if payload.uses_ui_message_stream():
+        return ui_message_stream(text, card_type, card)
 
-    # Generator emitting Vercel AI SDK Data Stream protocol
-    async def event_generator():
-        # Stream text piece
-        yield f'0:{json.dumps(response_text)}\n'
-        # Stream Generative UI tool call if relevant
-        if invoked_tool:
+    def legacy_events():
+        yield f'0:{json.dumps(text)}\n'
+        if tool:
             call_id = f"tool_{secrets.token_hex(6)}"
-            yield f'9:{json.dumps({"toolCallId": call_id, "toolName": invoked_tool["name"], "args": invoked_tool["parameters"]})}\n'
-            yield f'a:{json.dumps({"toolCallId": call_id, "result": {"rendered": True, **invoked_tool["parameters"]}})}\n'
+            yield f'9:{json.dumps({"toolCallId": call_id, "toolName": tool, "args": card})}\n'
+            yield f'a:{json.dumps({"toolCallId": call_id, "result": {"rendered": True, **card}})}\n'
         yield 'd:{"finishReason":"stop"}\n'
 
-    return StreamingResponse(event_generator(), media_type='text/plain; charset=utf-8', headers={'x-vercel-ai-data-stream': 'v1'})
+    return StreamingResponse(legacy_events(), media_type='text/plain', headers={'x-vercel-ai-data-stream': 'v1'})
 
 
 @app.post('/api/chat/admin-agent')
-async def chat_admin_agent(payload: ChatPayload, u=Depends(admin)):
-    """Vercel AI SDK 6 ToolLoopAgent with interactive needsApproval: true for Admin Strategy Review."""
-    user_msg = payload.messages[-1].content if payload.messages else ""
+def chat_admin_agent(payload: ChatPayload, u=Depends(admin)):
     with tx() as c:
-        pending_jobs = [dict(r) for r in c.execute("SELECT * FROM jobs WHERE state='waiting_approval' ORDER BY created DESC LIMIT 5")]
+        row = c.execute("SELECT id, result FROM jobs WHERE state='waiting_approval' ORDER BY created DESC LIMIT 1").fetchone()
+    proposal = None
+    if row:
+        result = json.loads(row['result'] or '{}')
+        proposal = {'jobId': row['id'], 'report': result.get('report', {})}
+    text = 'Ứng viên Walk-Forward gần nhất cần được xem xét.' if proposal else 'Không có ứng viên đang chờ phê duyệt.'
+    if payload.uses_ui_message_stream():
+        return ui_message_stream(text, 'approval' if proposal else None, proposal)
 
-    async def admin_stream_generator():
-        if pending_jobs:
-            target_job = pending_jobs[0]
-            call_id = f"call_approval_{target_job['id']}"
-            result_data = json.loads(target_job.get('result') or '{}')
-            report = result_data.get('report', {})
-            
-            yield f'0:"Phát hiện chiến lược ứng viên Walk-Forward cần Admin duyệt trước khi lưu trữ:"\n'
-            # Tool call with needsApproval: true
-            yield f'9:{json.dumps({"toolCallId": call_id, "toolName": "requestStrategyApproval", "args": {"jobId": target_job["id"], "report": report, "needsApproval": True}})}\n'
-        else:
-            yield f'0:"Không có chiến lược nào đang chờ phê duyệt. Toàn bộ chu kỳ Walk-Forward đã hoàn tất."\n'
+    def legacy_events():
+        yield f'0:{json.dumps(text)}\n'
+        if proposal:
+            yield f'9:{json.dumps({"toolCallId": f"call_approval_{proposal['jobId']}", "toolName": "requestStrategyApproval", "args": {**proposal, "needsApproval": True}})}\n'
         yield 'd:{"finishReason":"stop"}\n'
 
-    return StreamingResponse(admin_stream_generator(), media_type='text/plain; charset=utf-8', headers={'x-vercel-ai-data-stream': 'v1'})
+    return StreamingResponse(legacy_events(), media_type='text/plain', headers={'x-vercel-ai-data-stream': 'v1'})
 
 # ---------------------------------------------------------------------------
 # Monitoring, Tracing & TimescaleDB Endpoints

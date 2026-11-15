@@ -24,7 +24,7 @@ Tài liệu chi tiết tiếng Việt: [README_VI.md](README_VI.md) · Hướng 
    - Single-Page Application (SPA) viết bằng TypeScript + React 19 + Vite.
    - Tích hợp `ai@^6.0.332` và `@ai-sdk/react@^3.0.335` với giao thức Vercel AI Data Stream Protocol.
    - Generative UI: `PortfolioGenerativeUI`, `RecentOrdersGenerativeUI`.
-   - ToolLoopAgent với cơ chế phê duyệt tương tác `needsApproval: true` cho Hàng đợi duyệt chiến lược Walk-Forward của Admin.
+   - Trợ lý kiểm định và thẻ dữ liệu có cấu trúc trên AI SDK 6. Quyết định Walk-Forward vẫn được xác thực và ghi nhận qua API quản trị.
 4. **LangSmith & LangGraph:**
    - Tự động kích hoạt khi có `LANGSMITH_API_KEY` trong `.env`, có cơ chế fallback an toàn (fail-safe offline buffer) khi không có mạng.
    - Tracing toàn bộ luồng suy luận, tool calls, độ trễ và lượng token; tự động ẩn (redact) mật khẩu, token, dữ liệu nhạy cảm.
@@ -76,16 +76,9 @@ python scripts/local_smoke.py
 python scripts/run_dom_smoke.py
 ```
 
-### Chụp Ảnh Giao Diện Nghiệm Thu
+### Kiểm tra hai cổng sau khi build
 
-```bash
-python scripts/capture_screenshots.py
-# Ảnh được lưu tại screenshots/ và copy vào brain artifacts:
-# - screenshots/user_desktop_1440.png
-# - screenshots/user_mobile_390.png
-# - screenshots/admin_desktop_1440.png
-# - screenshots/admin_mobile_390.png
-```
+Mở trang chủ để kiểm tra cổng người dùng. Trong môi trường phát triển, mở `/?portal=admin` và đăng nhập bằng tài khoản quản trị để kiểm tra cổng admin. Kiểm tra trên desktop và mobile, bao gồm đăng nhập, dữ liệu tài khoản và phản hồi trợ lý.
 
 ---
 
@@ -143,7 +136,7 @@ docker compose -p zupirus-test -f compose.yaml -f compose.staging.yaml up -d --b
 |---|---|---|
 | **Multi-stage Docker Build (React + Vite)** | **ĐẠT** | Multi-stage Dockerfile biên dịch React 19 + TypeScript (`dist/`), phục vụ cùng origin qua FastAPI `app.mount('/assets')` và SPA catch-all fallback |
 | **API Pure JSON & 404/401 Safety** | **ĐẠT** | Tuyến `/api/*` trả về 100% JSON, không bao giờ rơi về HTML khi 404, 401 hoặc lỗi máy chủ (`test_spa_fallback_and_api_pure_json` PASSED) |
-| **Vercel AI SDK 6 Integration** | **ĐẠT** | `@ai-sdk/react@^3.0.335` & `ai@^6.0.332` tích hợp Data Stream Protocol, Generative UI và ToolLoopAgent `needsApproval: true` |
+| **Vercel AI SDK 6 Integration** | **ĐẠT** | `@ai-sdk/react@^3.0.335` & `ai@^6.0.332` dùng `useChat`, `DefaultChatTransport` và UI Message Stream SSE cho trợ lý và thẻ dữ liệu |
 | **PostgreSQL & TimescaleDB Hypertables** | **ĐẠT** | Hypertables `quotes`, `candles`, `snapshots`, migration phiên bản tương thích DB mới lẫn cũ, chống ghi trùng tick |
 | **Redis Streams & Distributed Lock** | **ĐẠT** | Transactional Outbox + Redis Streams `stream:signals`, khóa `lock:dispatch:{aid}:{sid}` chống mở lệnh đúp (`test_redis_distributed_locking` PASSED) |
 | **Fail-Closed Docker Smoke** | **ĐẠT** | Tách riêng ngắt Redis và PostgreSQL: `/readyz` trả đúng HTTP 503 và báo lỗi chính xác phụ thuộc, tự động hồi phục khi unpause |

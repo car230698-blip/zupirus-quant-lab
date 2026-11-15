@@ -3,67 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      (function () {
-        try {
-          var currentFetch = window.fetch ? window.fetch.bind(window) : undefined;
-          if (currentFetch) {
-            try {
-              Object.defineProperty(window, 'fetch', {
-                configurable: true,
-                enumerable: true,
-                get: function () {
-                  return currentFetch;
-                },
-                set: function (nextFetch) {
-                  if (typeof nextFetch === 'function') {
-                    currentFetch = nextFetch;
-                  }
-                },
-              });
-            } catch (_e) {}
-            try {
-              if (typeof Window !== 'undefined' && Window.prototype) {
-                Object.defineProperty(Window.prototype, 'fetch', {
-                  configurable: true,
-                  enumerable: true,
-                  get: function () {
-                    return currentFetch;
-                  },
-                  set: function (nextFetch) {
-                    if (typeof nextFetch === 'function') {
-                      currentFetch = nextFetch;
-                    }
-                  },
-                });
-              }
-            } catch (_e2) {}
-          }
-          window.addEventListener(
-            'error',
-            function (event) {
-              var filename = String((event && event.filename) || '');
-              var message = String((event && event.message) || '');
-              if (
-                filename.indexOf('chrome-extension://') === 0 ||
-                message.indexOf('Cannot set property fetch of #<Window>') !== -1
-              ) {
-                event.stopImmediatePropagation();
-                event.preventDefault();
-              }
-            },
-            true
-          );
-        } catch (_err) {}
-      })();
-    </script>
     <title>ZUPIRUS Quant Lab</title>
-    <meta name="description" content="Phòng thí nghiệm định lượng XAUUSD M15 và nền tảng copy MT5 Demo với PostgreSQL, TimescaleDB, Redis và Vercel AI SDK 6." />
+    <meta name="description" content="Phân tích định lượng XAU/USD, theo dõi danh mục MT5 và quản trị vận hành." />
     <meta property="og:title" content="ZUPIRUS Quant Lab" />
-    <meta property="og:description" content="Phòng thí nghiệm định lượng XAUUSD M15 và nền tảng copy MT5 Demo với PostgreSQL, TimescaleDB, Redis và Vercel AI SDK 6." />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <meta property="og:description" content="Phân tích định lượng XAU/USD, theo dõi danh mục MT5 và quản trị vận hành." />
   </head>
   <body class="bg-[#070b14] text-slate-100 antialiased selection:bg-cyan-500/20 selection:text-cyan-300">
     <div id="root"></div>

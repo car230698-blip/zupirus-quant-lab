@@ -197,6 +197,38 @@ def test_vercel_ai_sdk_admin_tool_loop_approval_endpoint(client):
     assert 'd:{"finishReason":"stop"}' in body
 
 
+def test_ai_sdk_ui_message_stream_and_role_boundary(client, customer):
+    payload = {'messages': [{'id': 'msg-1', 'role': 'user', 'parts': [
+        {'type': 'text', 'text': 'Xem số dư và vốn danh mục'},
+    ]}]}
+    assert customer.post('/api/chat/admin-agent', json=payload).status_code == 403
+    response = customer.post('/api/chat/assistant', json=payload)
+    assert response.headers['x-vercel-ai-ui-message-stream'] == 'v1'
+    assert response.headers['content-type'].startswith('text/event-stream')
+    chunks = [json.loads(line[6:]) for line in response.text.splitlines()
+              if line.startswith('data: ') and line != 'data: [DONE]']
+    assert [c['type'] for c in chunks] == [
+        'start', 'text-start', 'text-delta', 'text-end', 'data-portfolio', 'finish',
+    ]
+    assert chunks[-2]['data']['accounts'] == []
+    assert response.text.endswith('data: [DONE]\n\n')
+
+    assert client.post('/api/login', json={
+        'email': 'admin@zupirus.local', 'password': 'test-only-admin-password-123',
+    }).status_code == 200
+    with tx() as conn:
+        conn.execute('INSERT INTO jobs(id,state,created,result) VALUES(?,?,?,?)',
+                     ('review1', 'waiting_approval', time.time(), '{"report":{"trades":3}}'))
+    review = client.post('/api/chat/admin-agent', json=payload)
+    assert review.headers['x-vercel-ai-ui-message-stream'] == 'v1'
+    events = [json.loads(line[6:]) for line in review.text.splitlines()
+              if line.startswith('data: ') and line != 'data: [DONE]']
+    assert {'type': 'data-approval', 'data': {'jobId': 'review1', 'report': {'trades': 3}}} in events
+    assert client.get('/api/admin/monitor').json()['halted'] is False
+    assert client.post('/api/admin/safety', json={'halted': True}).status_code == 200
+    assert client.get('/api/admin/monitor').json()['halted'] is True
+
+
 def test_admin_tracing_telemetry_endpoint(client):
     """Verify GET /api/admin/tracing returns valid telemetry to Admin."""
     p = {'email': 'admin@zupirus.local', 'password': 'test-only-admin-password-123'}
