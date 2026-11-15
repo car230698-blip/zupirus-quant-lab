@@ -33,7 +33,10 @@ def run_acceptance_check(base_url: str = BASE_URL):
     assert resp.status == 200
 
     # 3. Create DEMO account
-    acc_payload = json.dumps({"login": "889900", "server": "ICMarketsSC-Demo", "mode": "DEMO"}).encode()
+    # Using random suffix to allow multiple runs
+    import secrets
+    acc_login = str(secrets.randbelow(899999) + 100000)
+    acc_payload = json.dumps({"login": acc_login, "server": "ICMarketsSC-Demo", "mode": "DEMO"}).encode()
     req = urllib.request.Request(
         f"{base_url}/api/accounts",
         data=acc_payload,
@@ -41,7 +44,7 @@ def run_acceptance_check(base_url: str = BASE_URL):
     )
     resp = opener.open(req)
     acc = json.loads(resp.read().decode())
-    print(f"[+] DEMO Account created: id={acc['id']}")
+    print(f"[+] DEMO Account created: id={acc['id']} login={acc_login}")
 
     # 4. Generate Pairing Code
     req = urllib.request.Request(
@@ -55,7 +58,7 @@ def run_acceptance_check(base_url: str = BASE_URL):
     print(f"[+] Pairing code generated: {code}")
 
     # 5. EA pairs with backend via /api/ea/pair
-    ea_req = json.dumps({"login": "889900", "server": "ICMarketsSC-Demo", "code": code}).encode()
+    ea_req = json.dumps({"login": acc_login, "server": "ICMarketsSC-Demo", "mode": "DEMO", "code": code}).encode()
     req = urllib.request.Request(f"{base_url}/api/ea/pair", data=ea_req, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req) as resp:
         token = resp.read().decode().strip()
@@ -64,14 +67,21 @@ def run_acceptance_check(base_url: str = BASE_URL):
 
     # 6. EA sends heartbeat via /api/ea/heartbeat
     hb_payload = json.dumps({
-        "login": "889900",
+        "login": acc_login,
         "server": "ICMarketsSC-Demo",
-        "token": token,
+        "mode": "DEMO",
         "balance": 10000.0,
         "equity": 10050.0,
         "positions": 0
     }).encode()
-    req = urllib.request.Request(f"{base_url}/api/ea/heartbeat", data=hb_payload, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        f"{base_url}/api/ea/heartbeat",
+        data=hb_payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
+    )
     with urllib.request.urlopen(req) as resp:
         hb_res = resp.read().decode().strip()
         print(f"[+] EA heartbeat response: {hb_res}")
