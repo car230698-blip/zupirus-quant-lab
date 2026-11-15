@@ -84,18 +84,20 @@ assert ready.get('status') == 'ready', 'System must recover to ready status afte
 print('PASS: Services and data persist across restart')
 "
 
-echo "=== 8. Verifying Fail-Closed Readiness on Disconnection ==="
-# Pause Redis: /readyz must detect disconnection and fail-closed
+echo "=== 8. Verifying Fail-Closed Readiness on Disconnection (PostgreSQL and Redis Separately) ==="
+# 8a. Pause Redis: /readyz must return HTTP 503 and report Redis failure
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml pause redis
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
-import urllib.request, json
+import urllib.request, urllib.error, json
 try:
-    resp = urllib.request.urlopen('http://localhost:8000/readyz', timeout=3)
-    data = json.loads(resp.read().decode())
-    assert data.get('status') != 'ready' or not data.get('redis', {}).get('connected'), f'Redis pause must report degraded/unready: {data}'
-except Exception:
-    pass # 503 is expected fail-closed response
-print('PASS: Disconnect strictly detected as unready / fail-closed')
+    urllib.request.urlopen('http://localhost:8000/readyz', timeout=4)
+    raise AssertionError('Expected HTTP 503 when Redis is paused, but got 200 OK')
+except urllib.error.HTTPError as e:
+    assert e.code == 503, f'Expected HTTP 503, got {e.code}'
+    data = json.loads(e.read().decode())
+    assert data.get('status') == 'not_ready', f'Expected not_ready: {data}'
+    assert data.get('redis', {}).get('connected') is False, f'Redis should report disconnected: {data}'
+print('PASS: Redis disconnect strictly returns HTTP 503 and reports redis failure')
 "
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml unpause redis
 
@@ -105,7 +107,43 @@ import urllib.request, json, time
 time.sleep(2)
 ready = json.loads(urllib.request.urlopen('http://localhost:8000/readyz').read().decode())
 assert ready.get('redis', {}).get('connected') is True, f'Redis did not recover: {ready}'
+assert ready.get('status') == 'ready', f'System should be ready: {ready}'
 print('PASS: Redis recovery verified')
 "
 
-printf 'PASS: compose startup, TimescaleDB, Redis, health, tests, persistence, fail-closed\n'
+# 8b. Pause PostgreSQL: /readyz must return HTTP 503 and report database failure
+docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml pause postgres
+docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
+import urllib.request, urllib.error, json
+try:
+    urllib.request.urlopen('http://localhost:8000/readyz', timeout=4)
+    raise AssertionError('Expected HTTP 503 when PostgreSQL is paused, but got 200 OK')
+except urllib.error.HTTPError as e:
+    assert e.code == 503, f'Expected HTTP 503, got {e.code}'
+    data = json.loads(e.read().decode())
+    assert data.get('status') == 'not_ready', f'Expected not_ready: {data}'
+    assert data.get('database', {}).get('connected') is False, f'Database should report disconnected: {data}'
+print('PASS: PostgreSQL disconnect strictly returns HTTP 503 and reports database failure')
+"
+docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml unpause postgres
+
+# Wait for PostgreSQL reconnection
+docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
+import urllib.request, json, time
+time.sleep(3)
+ready = json.loads(urllib.request.urlopen('http://localhost:8000/readyz').read().decode())
+assert ready.get('database', {}).get('connected') is True, f'PostgreSQL did not recover: {ready}'
+assert ready.get('status') == 'ready', f'System should be ready: {ready}'
+print('PASS: PostgreSQL recovery verified')
+"
+
+echo "=== 9. Verifying React Production Bundle on Docker ==="
+docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
+import urllib.request
+html = urllib.request.urlopen('http://localhost:8000/').read().decode('utf-8')
+assert 'id=\"root\"' in html, 'Production bundle must contain #root div'
+assert '/assets/' in html, 'Production bundle must reference Vite compiled assets'
+print('PASS: React production bundle verified in Docker image')
+"
+
+printf 'PASS: compose startup, TimescaleDB, Redis, health, tests, persistence, fail-closed, react-bundle\n'

@@ -45,14 +45,14 @@ def run():
         desktop_admin = SCREENSHOT_DIR / "admin_desktop_1440.png"
         mobile_admin = SCREENSHOT_DIR / "admin_mobile_390.png"
 
-        # Capture customer view
+        # 1. Capture customer user portal
         subprocess.run([
             CHROME,
             "--headless=new",
             "--disable-gpu",
             f"--screenshot={desktop_user}",
             "--window-size=1440,900",
-            "http://127.0.0.1:8765/"
+            "http://127.0.0.1:8765/?demo_user=1"
         ], check=True)
 
         subprocess.run([
@@ -61,26 +61,34 @@ def run():
             "--disable-gpu",
             f"--screenshot={mobile_user}",
             "--window-size=390,844",
-            "http://127.0.0.1:8765/"
+            "http://127.0.0.1:8765/?demo_user=1"
         ], check=True)
 
-        # For admin view, we can render the dashboard
-        # Let's verify files created
-        for p in [desktop_user, mobile_user]:
+        # 2. Capture admin portal
+        subprocess.run([
+            CHROME,
+            "--headless=new",
+            "--disable-gpu",
+            f"--screenshot={desktop_admin}",
+            "--window-size=1440,900",
+            "http://127.0.0.1:8765/?demo_admin=1"
+        ], check=True)
+
+        subprocess.run([
+            CHROME,
+            "--headless=new",
+            "--disable-gpu",
+            f"--screenshot={mobile_admin}",
+            "--window-size=390,844",
+            "http://127.0.0.1:8765/?demo_admin=1"
+        ], check=True)
+
+        # Copy all 4 screenshots to artifact directory if it exists
+        for p in [desktop_user, mobile_user, desktop_admin, mobile_admin]:
             if p.exists() and ARTIFACT_DIR.exists():
                 shutil.copy2(p, ARTIFACT_DIR / p.name)
 
-        # Admin shots
-        if not desktop_admin.exists():
-            shutil.copy2(desktop_user, desktop_admin)
-        if not mobile_admin.exists():
-            shutil.copy2(mobile_user, mobile_admin)
-
-        if ARTIFACT_DIR.exists():
-            shutil.copy2(desktop_admin, ARTIFACT_DIR / desktop_admin.name)
-            shutil.copy2(mobile_admin, ARTIFACT_DIR / mobile_admin.name)
-
-        print("[+] Screenshots successfully captured and saved.")
+        print("[+] All 4 screenshots (User & Admin on Desktop & Mobile) captured and verified.")
     finally:
         proc.terminate()
         proc.wait()

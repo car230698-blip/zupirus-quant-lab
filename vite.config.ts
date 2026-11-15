@@ -1035,6 +1035,22 @@ function zupirusApiPlugin(): Plugin {
 }
 
 export default defineConfig(() => {
+  const backendUrl = process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000';
+  const proxyConfig = {
+    '/api': {
+      target: backendUrl,
+      changeOrigin: true,
+    },
+    '/healthz': {
+      target: backendUrl,
+      changeOrigin: true,
+    },
+    '/readyz': {
+      target: backendUrl,
+      changeOrigin: true,
+    },
+  };
+
   return {
     plugins: [zupirusApiPlugin(), react()],
     server: {
@@ -1045,6 +1061,12 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      proxy: proxyConfig,
+    },
+    preview: {
+      port: 3000,
+      host: '0.0.0.0',
+      proxy: proxyConfig,
     },
     build: {
       outDir: 'dist',

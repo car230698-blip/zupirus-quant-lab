@@ -1,11 +1,53 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CustomerAssistant } from './components/CustomerAssistant.tsx';
 import { AdminApprovalQueue } from './components/AdminApprovalQueue.tsx';
 
-type TabKey = 'overview' | 'accounts' | 'orders' | 'assistant' | 'admin_approvals' | 'monitor';
+type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
+type AdminTabKey = 'overview' | 'approvals' | 'activity' | 'tracing' | 'news';
+
+interface UserInfo {
+  email: string;
+  role: 'customer' | 'admin';
+}
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  // Determine initial portal based on hostname or search params
+  const [portal, setPortal] = useState<'user' | 'admin'>(() => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('portal') === 'admin' || host === 'adm.zupirus.com' || host.startsWith('adm.')) {
+        return 'admin';
+      }
+    }
+    return 'user';
+  });
+
+  // Auth state
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('demo_admin') === '1') {
+        return { email: 'admin@zupirus.com', role: 'admin' };
+      }
+      if (params.get('demo_user') === '1') {
+        return { email: 'user@zupirus.com', role: 'customer' };
+      }
+    }
+    return null;
+  });
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
+  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Tab navigation
+  const [userTab, setUserTab] = useState<UserTabKey>('overview');
+  const [adminTab, setAdminTab] = useState<AdminTabKey>('overview');
+
+  // Dashboard & Market Data
   const [dashboard, setDashboard] = useState<any>({
     accounts: [],
     orders: [],
@@ -13,7 +55,7 @@ export const App: React.FC = () => {
     health: {},
     real_trading: false,
   });
-  const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [, setSelectedAccount] = useState<string>('');
   const [candles, setCandles] = useState<any[]>([]);
   const [timeframe, setTimeframe] = useState<'M1' | 'M5' | 'M15' | 'H1' | 'D1'>('M15');
   const [chartMode, setChartMode] = useState<'equity' | 'candles'>('equity');
@@ -28,6 +70,11 @@ export const App: React.FC = () => {
   });
   const [readyData, setReadyData] = useState<any>(null);
 
+  // Activity filter state
+  const [activityTeamFilter, setActivityTeamFilter] = useState<'all' | 'execution' | 'research' | 'security'>('all');
+  const [activityStatusFilter, setActivityStatusFilter] = useState<'all' | 'running' | 'waiting' | 'completed' | 'error' | 'stale'>('all');
+  const [activitySearchQuery, setActivitySearchQuery] = useState<string>('');
+
   // Forms & notices
   const [notice, setNotice] = useState<string | null>(null);
   const [newDemoLogin, setNewDemoLogin] = useState('');
@@ -35,8 +82,29 @@ export const App: React.FC = () => {
   const [pairCodes, setPairCodes] = useState<Record<string, string>>({});
   const [newsTitle, setNewsTitle] = useState('');
   const [newsWhen, setNewsWhen] = useState('');
-  const [visionResult, setVisionResult] = useState<string>('');
-  const [visionLoading, setVisionLoading] = useState(false);
+  const [killSwitchReason, setKillSwitchReason] = useState('');
+  const [killSwitchLoading, setKillSwitchLoading] = useState(false);
+
+  // Check auth session
+  const checkAuth = useCallback(async () => {
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const hasDemoParam = params && (params.get('demo_admin') === '1' || params.get('demo_user') === '1');
+    try {
+      const res = await fetch('/api/me');
+      if (res.ok) {
+        const u = await res.json();
+        setCurrentUser(u);
+      } else if (!hasDemoParam) {
+        setCurrentUser(null);
+      }
+    } catch {
+      if (!hasDemoParam) {
+        setCurrentUser(null);
+      }
+    } finally {
+      setAuthChecking(false);
+    }
+  }, []);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -50,7 +118,7 @@ export const App: React.FC = () => {
         });
       }
     } catch {
-      // ignore offline
+      // offline fallback
     }
   }, []);
 
@@ -82,131 +150,200 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    loadDashboard();
-    loadCandles(timeframe);
-    loadAdminMonitor();
-    const timer = setInterval(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  useEffect(() => {
+    if (currentUser) {
       loadDashboard();
-      if (activeTab === 'monitor' || activeTab === 'admin_approvals') {
+      loadCandles(timeframe);
+      if (currentUser.role === 'admin') {
         loadAdminMonitor();
       }
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [loadDashboard, loadCandles, loadAdminMonitor, timeframe, activeTab]);
+      const timer = setInterval(() => {
+        loadDashboard();
+        if (currentUser.role === 'admin') {
+          loadAdminMonitor();
+        }
+      }, 5000);
+      return () => clearInterval(timer);
+    }
+  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe]);
 
   const showNotice = (msg: string) => {
     setNotice(msg);
   };
 
-  const handleCreateReplay = async () => {
-    const res = await fetch('/api/replay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-    });
-    if (res.ok) {
-      showNotice('Đã khởi tạo tài khoản Replay XAUUSD mới với dữ liệu 900 bar tổng hợp.');
-      await loadDashboard();
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Đăng nhập thất bại' }));
+        throw new Error(err.detail || 'Email hoặc mật khẩu không chính xác');
+      }
+      const u = await res.json();
+      setCurrentUser(u);
+      showNotice(`Đăng nhập thành công với vai trò ${u.role === 'admin' ? 'Quản Trị Viên (Admin)' : 'Khách Hàng (User)'}`);
+    } catch (err: any) {
+      setAuthError(err.message || 'Lỗi kết nối máy chủ');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
-  const handleCreateDemo = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Đăng ký thất bại' }));
+        throw new Error(err.detail || 'Không thể tạo tài khoản');
+      }
+      showNotice('Đăng ký tài khoản thành công! Đang tự động đăng nhập...');
+      // Auto-login
+      const logRes = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+      if (logRes.ok) {
+        const u = await logRes.json();
+        setCurrentUser(u);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'Lỗi đăng ký');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST', headers: { 'X-Zupirus': '1' } });
+    } catch {
+      // ignore
+    }
+    setCurrentUser(null);
+    showNotice('Đã đăng xuất an toàn.');
+  };
+
+  // EA & Account operations
+  const handleToggleCopy = async (aid: string, currentEnabled: boolean) => {
+    const res = await fetch(`/api/accounts/${aid}/toggle`, {
+      method: 'POST',
+      headers: { 'X-Zupirus': '1' },
+    });
+    if (res.ok) {
+      showNotice(`Đã ${currentEnabled ? 'tạm dừng' : 'bật kích hoạt'} nhận lệnh sao chép cho tài khoản #${aid.slice(0, 8)}.`);
+      await loadDashboard();
+      if (currentUser?.role === 'admin') await loadAdminMonitor();
+    }
+  };
+
+  const handleRevoke = async (aid: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn thu hồi quyền truy cập của EA MT5 này?')) return;
+    const res = await fetch(`/api/accounts/${aid}/revoke`, {
+      method: 'POST',
+      headers: { 'X-Zupirus': '1' },
+    });
+    if (res.ok) {
+      showNotice(`Đã thu hồi liên kết EA cho tài khoản #${aid.slice(0, 8)}. EA sẽ bị ngắt kết nối.`);
+      await loadDashboard();
+      if (currentUser?.role === 'admin') await loadAdminMonitor();
+    }
+  };
+
+  const handleCreatePairCode = async (aid: string) => {
+    const res = await fetch(`/api/accounts/${aid}/pair`, {
+      method: 'POST',
+      headers: { 'X-Zupirus': '1' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setPairCodes((prev) => ({ ...prev, [aid]: data.code }));
+      showNotice(`Đã sinh mã ghép nối EA một lần: ${data.code} (Hết hạn sau 10 phút)`);
+    }
+  };
+
+  const handleAddDemoAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDemoLogin.trim()) return;
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({ login: newDemoLogin, server: newDemoServer, mode: 'DEMO' }),
-    });
-    const d = await res.json();
-    if (!res.ok) {
-      showNotice(`Lỗi: ${d.detail || 'Không thể thêm tài khoản'}`);
-      return;
-    }
-    setNewDemoLogin('');
-    showNotice(`Đã thêm tài khoản MT5 Demo #${newDemoLogin} (${newDemoServer}).`);
-    await loadDashboard();
-  };
-
-  const handleSaveRisk = async (acc: any, formData: FormData) => {
-    const payload = {
-      enabled: Boolean(acc.enabled),
-      risk: Number(formData.get('risk')),
-      max_spread: Number(formData.get('max_spread')),
-      max_positions: Number(formData.get('max_positions')),
-      max_dd: Number(formData.get('max_dd')),
-    };
-    const res = await fetch(`/api/accounts/${acc.id}/risk`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        login: newDemoLogin.trim(),
+        server: newDemoServer.trim(),
+        mode: 'DEMO',
+      }),
     });
     if (res.ok) {
-      showNotice(`Đã lưu cấu hình giới hạn rủi ro cho tài khoản #${acc.login}.`);
+      const data = await res.json();
+      setNewDemoLogin('');
+      showNotice(`Đã thêm tài khoản MT5 Demo #${newDemoLogin}. Tiến hành tạo mã ghép nối bên dưới.`);
       await loadDashboard();
-    }
-  };
-
-  const handleToggleCopy = async (acc: any) => {
-    const payload = {
-      enabled: !acc.enabled,
-      risk: acc.risk,
-      max_spread: acc.max_spread,
-      max_positions: acc.max_positions,
-      max_dd: acc.max_dd,
-    };
-    const res = await fetch(`/api/accounts/${acc.id}/risk`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) {
-      showNotice(`${!acc.enabled ? 'Đã bật' : 'Đã tạm dừng'} sao chép cho tài khoản #${acc.login}.`);
-      await loadDashboard();
-    }
-  };
-
-  const handlePairCode = async (accId: string) => {
-    const res = await fetch(`/api/accounts/${accId}/pair`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-    });
-    const d = await res.json();
-    if (res.ok) {
-      setPairCodes((prev) => ({ ...prev, [accId]: d.code }));
-      showNotice(`Đã cấp mã ghép nối EA dùng một lần (hiệu lực 5 phút): ${d.code}`);
+      if (data.id) handleCreatePairCode(data.id);
     } else {
-      showNotice(`Lỗi: ${d.detail}`);
+      const err = await res.json().catch(() => ({ detail: 'Lỗi' }));
+      showNotice(`Lỗi tạo tài khoản: ${err.detail}`);
     }
   };
 
-  const handleRevoke = async (accId: string, login: string) => {
-    const res = await fetch(`/api/accounts/${accId}/revoke`, {
+  const handleCreateReplay = async () => {
+    const res = await fetch('/api/replay', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+      headers: { 'X-Zupirus': '1' },
     });
     if (res.ok) {
-      setPairCodes((prev) => {
-        const copy = { ...prev };
-        delete copy[accId];
-        return copy;
+      showNotice('Đã tạo tài khoản Replay tự động mô phỏng nến XAUUSD.');
+      await loadDashboard();
+    }
+  };
+
+  // Admin operations
+  const handleToggleKillSwitch = async (currentHalted: boolean) => {
+    setKillSwitchLoading(true);
+    try {
+      const nextHalt = !currentHalted;
+      const res = await fetch('/api/admin/safety', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({
+          halted: nextHalt,
+          reason: killSwitchReason || (nextHalt ? 'Bật nút ngắt khẩn cấp từ Admin Portal' : 'Khôi phục vận hành hệ thống'),
+        }),
       });
-      showNotice(`Đã thu hồi thiết bị EA và tạm dừng copy cho tài khoản #${login}.`);
-      await loadDashboard();
+      if (res.ok) {
+        showNotice(nextHalt ? 'ĐÃ KÍCH HOẠT KILL-SWITCH: Toàn bộ việc cấp lệnh copy đã dừng an toàn.' : 'ĐÃ TẮT KILL-SWITCH: Hệ thống tiếp tục vận hành bình thường.');
+        setKillSwitchReason('');
+        await loadDashboard();
+        await loadAdminMonitor();
+      }
+    } finally {
+      setKillSwitchLoading(false);
     }
   };
 
-  const handleSystemSafety = async (haltState: boolean) => {
-    const res = await fetch('/api/admin/safety', {
+  const handleStartResearch = async () => {
+    const res = await fetch('/api/admin/research', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({ halted: haltState }),
+      headers: { 'X-Zupirus': '1' },
     });
     if (res.ok) {
-      showNotice(
-        haltState
-          ? 'ĐÃ DỪNG TOÀN HỆ THỐNG: Mọi tín hiệu mới bị chặn; các vị thế đang mở giữ nguyên SL/TP tại broker.'
-          : 'ĐÃ GỠ KHÓA HỆ THỐNG: Khách hàng có thể bật lại sao chép cho từng tài khoản.'
-      );
-      await loadDashboard();
+      showNotice('Đã bắt đầu chu kỳ nghiên cứu Walk-Forward. LangGraph đang lưu checkpoint trên PostgreSQL.');
       await loadAdminMonitor();
     }
   };
@@ -218,191 +355,384 @@ export const App: React.FC = () => {
     const res = await fetch('/api/admin/news', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({ title: newsTitle, ts, currency: 'USD', impact: 'high' }),
+      body: JSON.stringify({
+        currency: 'USD',
+        impact: 'high',
+        title: newsTitle.trim(),
+        ts,
+      }),
     });
     if (res.ok) {
       setNewsTitle('');
       setNewsWhen('');
-      showNotice('Đã thêm sự kiện lịch kinh tế USD · High Impact (chặn lệnh Demo mới ±15 phút).');
+      showNotice('Đã thêm sự kiện tin tức USD High Impact (bảo vệ tài khoản: chặn lệnh mới ±15 phút).');
       await loadAdminMonitor();
     }
   };
 
-  const handleVisionSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fileInput = e.currentTarget.querySelector('input[type="file"]') as HTMLInputElement | null;
-    const file = fileInput?.files?.[0];
-    setVisionLoading(true);
-    try {
-      let dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-      if (file) {
-        dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+  // Consolidated activity items
+  const consolidatedActivities = useMemo(() => {
+    const list: any[] = [];
+    // From audit logs
+    (monitorData.audit || []).forEach((a: any) => {
+      let team = 'security';
+      if (a.event.includes('replay') || a.event.includes('signal') || a.event.includes('dispatch') || a.event.includes('deal')) {
+        team = 'execution';
+      } else if (a.event.includes('research') || a.event.includes('walk_forward') || a.event.includes('approval')) {
+        team = 'research';
       }
-      const res = await fetch('/api/admin/vision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ image: dataUrl }),
+      list.push({
+        id: `audit_${a.id}`,
+        ts: a.ts,
+        team,
+        type: 'audit',
+        event: a.event,
+        actor: a.actor,
+        status: 'completed',
+        detail: typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail),
       });
-      const d = await res.json();
-      setVisionResult(d.text || 'Đã hoàn tất phân tích biểu đồ.');
-    } catch (err: any) {
-      setVisionResult(`Lỗi phân tích: ${err.message}`);
-    } finally {
-      setVisionLoading(false);
-    }
-  };
+    });
 
+    // From jobs (Research Walk-Forward)
+    (monitorData.jobs || []).forEach((j: any) => {
+      list.push({
+        id: `job_${j.id}`,
+        ts: j.created || Date.now() / 1000,
+        team: 'research',
+        type: 'job',
+        event: 'walk_forward_evaluation',
+        actor: 'langgraph_worker',
+        status: j.state === 'waiting_approval' ? 'waiting' : j.state === 'completed' ? 'completed' : j.state === 'running' ? 'running' : 'error',
+        detail: `Proposal ID: ${j.id} · Decision: ${j.decision || 'Chờ duyệt'}`,
+      });
+    });
+
+    // From recent orders
+    (dashboard.orders || []).forEach((o: any) => {
+      list.push({
+        id: `disp_${o.id}`,
+        ts: o.created || Date.now() / 1000,
+        team: 'execution',
+        type: 'dispatch',
+        event: `order_${o.side.toLowerCase()}`,
+        actor: o.source,
+        status: o.state === 'filled' ? 'completed' : o.state === 'rejected' ? 'error' : o.state === 'queued' ? 'waiting' : 'running',
+        detail: `Signal: ${o.signal_id} · Ticket: ${o.ticket || '—'} · Deal: ${o.deal || '—'}${o.reason ? ` · Lý do: ${o.reason}` : ''}`,
+      });
+    });
+
+    // Sort descending by timestamp
+    return list.sort((a, b) => b.ts - a.ts);
+  }, [monitorData, dashboard]);
+
+  const filteredActivities = useMemo(() => {
+    return consolidatedActivities.filter((item) => {
+      if (activityTeamFilter !== 'all' && item.team !== activityTeamFilter) return false;
+      if (activityStatusFilter !== 'all' && item.status !== activityStatusFilter) return false;
+      if (activitySearchQuery.trim()) {
+        const q = activitySearchQuery.toLowerCase();
+        const matches =
+          item.id.toLowerCase().includes(q) ||
+          item.event.toLowerCase().includes(q) ||
+          item.detail.toLowerCase().includes(q) ||
+          item.actor.toLowerCase().includes(q);
+        if (!matches) return false;
+      }
+      return true;
+    });
+  }, [consolidatedActivities, activityTeamFilter, activityStatusFilter, activitySearchQuery]);
+
+  // Calculations for User Dashboard
   const accounts = dashboard.accounts || [];
   const orders = dashboard.orders || [];
-  const totalBalance = accounts.reduce((s: number, a: any) => s + (a.balance || 0), 0);
-  const totalEquity = accounts.reduce((s: number, a: any) => s + (a.equity || 0), 0);
-  const activeCopyCount = accounts.filter((a: any) => a.enabled).length;
-  const pendingReconcile = orders.filter((o: any) => ['unknown', 'intent', 'queued'].includes(o.state)).length;
+  const totalBalance = accounts.reduce((acc: number, a: any) => acc + (a.balance || 0), 0);
+  const totalEquity = accounts.reduce((acc: number, a: any) => acc + (a.equity || 0), 0);
+  const totalPositions = accounts.reduce((acc: number, a: any) => acc + (a.positions || 0), 0);
+  const totalPnl = totalEquity - totalBalance;
 
-  // Prepare SVG chart points
-  const accountSeries = (dashboard.series || []).filter((s: any) => s.account_id === selectedAccount);
-  const renderEquitySvg = () => {
-    if (accountSeries.length < 2) {
+  // Render SVG Candlestick Chart
+  const renderCandlestickSvg = () => {
+    if (!candles || candles.length === 0) {
       return (
-        <svg viewBox="0 0 760 220" className="w-full h-52 overflow-visible">
-          <text x="380" y="110" textAnchor="middle" fill="#64748b" fontSize="12" fontFamily="monospace">
-            Chờ dữ liệu snapshot • nhấn &ldquo;+ Tạo Tài Khoản Replay&rdquo; để bắt đầu
-          </text>
-        </svg>
+        <div className="h-64 flex flex-col items-center justify-center text-slate-500 font-mono text-xs">
+          <span>Chưa có dữ liệu nến cho khung {timeframe}</span>
+          <span className="text-[10px] mt-1 text-slate-600">Nguồn: PostgreSQL/TimescaleDB hypertable</span>
+        </div>
       );
     }
-    const vals = accountSeries.flatMap((x: any) => [x.equity, x.balance]);
-    const min = Math.min(...vals) - 8;
-    const max = Math.max(...vals) + 8;
-    const span = Math.max(max - min, 1);
-    const pts = (key: 'balance' | 'equity') =>
-      accountSeries
-        .map(
-          (v: any, i: number) =>
-            `${48 + (i / (accountSeries.length - 1)) * 695},${195 - ((v[key] - min) / span) * 165}`
-        )
-        .join(' ');
+
+    const minLow = Math.min(...candles.map((c) => c.low));
+    const maxHigh = Math.max(...candles.map((c) => c.high));
+    const range = Math.max(maxHigh - minLow, 1.0);
+    const width = 800;
+    const height = 240;
+    const padding = 25;
+    const chartH = height - padding * 2;
+    const barWidth = Math.max(width / (candles.length * 1.5), 6);
+
+    const yOf = (val: number) => height - padding - ((val - minLow) / range) * chartH;
 
     return (
-      <svg viewBox="0 0 760 220" className="w-full h-52 overflow-visible">
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
-          const y = 195 - t * 165;
-          const label = Math.round(min + t * span).toLocaleString();
-          return (
-            <g key={t}>
-              <line x1="48" x2="745" y1={y} y2={y} stroke="#1e293b" strokeDasharray="3 5" />
-              <text x="4" y={y + 4} fill="#64748b" fontSize="9.5" fontFamily="monospace">
-                ${label}
-              </text>
-            </g>
-          );
-        })}
-        <polyline points={pts('balance')} fill="none" stroke="#64748b" strokeWidth="1.6" strokeDasharray="4 3" />
-        <polyline points={pts('equity')} fill="none" stroke="#22d3ee" strokeWidth="2.5" />
-      </svg>
-    );
-  };
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-64 overflow-visible font-mono">
+        <line x1={0} x2={width} y1={yOf(maxHigh)} y2={yOf(maxHigh)} stroke="#334155" strokeDasharray="3 3" />
+        <line x1={0} x2={width} y1={yOf(minLow)} y2={yOf(minLow)} stroke="#334155" strokeDasharray="3 3" />
+        <text x={10} y={yOf(maxHigh) - 4} fill="#64748b" fontSize="10">High: ${maxHigh.toFixed(2)}</text>
+        <text x={10} y={yOf(minLow) + 12} fill="#64748b" fontSize="10">Low: ${minLow.toFixed(2)}</text>
 
-  const renderCandlesSvg = () => {
-    if (candles.length < 2) {
-      return (
-        <svg viewBox="0 0 760 220" className="w-full h-52">
-          <text x="380" y="110" textAnchor="middle" fill="#64748b" fontSize="12" fontFamily="monospace">
-            Đang tải chuỗi nến TimescaleDB time_bucket...
-          </text>
-        </svg>
-      );
-    }
-    const lows = candles.map((c) => c.low);
-    const highs = candles.map((c) => c.high);
-    const min = Math.min(...lows) - 1;
-    const max = Math.max(...highs) + 1;
-    const span = Math.max(max - min, 1);
-    const yOf = (val: number) => 195 - ((val - min) / span) * 165;
-
-    return (
-      <svg viewBox="0 0 760 220" className="w-full h-52 overflow-visible">
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
-          const y = 195 - t * 165;
-          const label = (min + t * span).toFixed(1);
-          return (
-            <g key={t}>
-              <line x1="48" x2="745" y1={y} y2={y} stroke="#1e293b" strokeDasharray="3 5" />
-              <text x="4" y={y + 4} fill="#64748b" fontSize="9.5" fontFamily="monospace">
-                {label}
-              </text>
-            </g>
-          );
-        })}
         {candles.map((c, i) => {
-          const x = 58 + (i / Math.max(candles.length - 1, 1)) * 675;
-          const bull = c.close >= c.open;
-          const color = bull ? '#10b981' : '#f43f5e';
+          const x = padding + (i / Math.max(candles.length - 1, 1)) * (width - padding * 2);
+          const isUp = c.close >= c.open;
+          const color = isUp ? '#10b981' : '#f43f5e';
           const top = yOf(Math.max(c.open, c.close));
           const bot = yOf(Math.min(c.open, c.close));
-          const bodyH = Math.max(Math.abs(bot - top), 2.5);
+          const bodyH = Math.max(bot - top, 2);
+
           return (
-            <g key={i}>
+            <g key={i} className="hover:opacity-80 transition-opacity">
               <line x1={x} x2={x} y1={yOf(c.high)} y2={yOf(c.low)} stroke={color} strokeWidth="1.2" />
-              <rect x={x - 5} y={top} width="10" height={bodyH} fill={color} rx="1" />
+              <rect x={x - barWidth / 2} y={top} width={barWidth} height={bodyH} fill={color} rx="1" />
             </g>
           );
         })}
       </svg>
     );
   };
+
+  // If loading session
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-[#070b14] text-slate-300 flex items-center justify-center font-mono text-xs">
+        <div className="flex items-center gap-3">
+          <span className="h-3 w-3 rounded-full bg-cyan-400 animate-ping" />
+          <span>Đang khởi động ZUPIRUS Quant Lab...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If unauthenticated: render login / register screen according to active portal
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans">
+        {/* Top Navbar */}
+        <header className="border-b border-slate-800 bg-[#0c1322] px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="font-bold tracking-tight text-lg text-cyan-400 font-mono">Z◈ ZUPIRUS QUANT LAB</span>
+            <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-slate-300">
+              v0.2.0 · TimescaleDB + Redis + AI SDK 6
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPortal(portal === 'user' ? 'admin' : 'user')}
+              className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-xs font-mono text-cyan-300 transition-colors"
+            >
+              {portal === 'user' ? 'Chuyển sang Cổng Quản Trị (adm.zupirus.com) ↗' : 'Chuyển sang Cổng Người Dùng (zupirus.com) ↗'}
+            </button>
+          </div>
+        </header>
+
+        {/* Auth Container */}
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#0d1424] p-8 shadow-2xl space-y-6">
+            <div className="text-center space-y-2">
+              <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 font-bold text-xl font-mono">
+                Z
+              </div>
+              <h1 className="text-xl font-bold tracking-tight text-slate-100">
+                {portal === 'admin' ? 'Cổng Quản Trị Hệ Thống (adm.zupirus.com)' : 'Cổng Khách Hàng (zupirus.com)'}
+              </h1>
+              <p className="text-xs text-slate-400">
+                {portal === 'admin'
+                  ? 'Yêu cầu tài khoản có quyền Quản trị viên để truy cập Control Plane'
+                  : 'Nền tảng phân tích định lượng XAUUSD M15 & sao chép lệnh MT5 Demo'}
+              </p>
+            </div>
+
+            {/* User portal can toggle login / register; Admin portal is login only */}
+            {portal === 'user' && (
+              <div className="flex rounded-lg bg-slate-900/80 p-1 border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setAuthTab('login')}
+                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-all ${
+                    authTab === 'login' ? 'bg-cyan-500 text-slate-950 font-bold shadow' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Đăng Nhập
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthTab('register')}
+                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-all ${
+                    authTab === 'register' ? 'bg-cyan-500 text-slate-950 font-bold shadow' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Đăng Ký Mới
+                </button>
+              </div>
+            )}
+
+            {authError && (
+              <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 p-3 text-xs text-rose-300 font-mono">
+                ⚠ {authError}
+              </div>
+            )}
+
+            <form onSubmit={authTab === 'login' || portal === 'admin' ? handleLogin : handleRegister} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">ĐỊA CHỈ EMAIL</label>
+                <input
+                  type="email"
+                  required
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder={portal === 'admin' ? 'admin@zupirus.com' : 'user@zupirus.com'}
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">MẬT KHẨU</label>
+                <input
+                  type="password"
+                  required
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2.5 text-xs transition-colors shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+              >
+                {authLoading ? 'Đang xác thực...' : authTab === 'login' || portal === 'admin' ? 'Đăng Nhập Vào Hệ Thống →' : 'Tạo Tài Khoản Mới →'}
+              </button>
+            </form>
+
+            <div className="border-t border-slate-800/80 pt-4 text-center">
+              <div className="text-[11px] text-slate-500 font-mono">
+                {portal === 'admin' ? 'Gợi ý tài khoản demo: admin@zupirus.com' : 'Gợi ý tài khoản demo: test@zupirus.com'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // AUTHENTICATED: RENDER USER PORTAL OR ADMIN PORTAL
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans">
-      <header className="border-b border-slate-800 bg-[#0c1322] px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+      {/* Universal Header */}
+      <header className="border-b border-slate-800 bg-[#0c1322] px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-50 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <div className="font-bold tracking-tight text-lg text-cyan-400 font-mono">
-            Z◈ ZUPIRUS QUANT LAB
-          </div>
-          <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-slate-300">
-            v0.2.0 · TimescaleDB + Redis + LangSmith + Vercel AI SDK 6
+          <span className="font-bold tracking-tight text-base sm:text-lg text-cyan-400 font-mono flex items-center gap-2">
+            <span>Z◈</span>
+            <span>{portal === 'admin' ? 'ZUPIRUS ADMIN CONTROL' : 'ZUPIRUS QUANT LAB'}</span>
           </span>
-          <span className="hidden sm:inline-flex items-center gap-1.5 rounded bg-emerald-950/70 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
+          <span className="hidden md:inline-flex rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-slate-300">
+            {portal === 'admin' ? 'adm.zupirus.com' : 'zupirus.com'}
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded bg-emerald-950/70 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
             DEMO & REPLAY ONLY · REAL LOCKED
           </span>
         </div>
 
-        <nav className="flex flex-wrap gap-1.5 text-xs">
-          {(
-            [
-              ['overview', 'Tổng Quan'],
-              ['accounts', `Tài Khoản & EA (${accounts.length})`],
-              ['orders', `Nhật Ký Lệnh (${orders.length})`],
-              ['assistant', 'Trợ Lý AI (Vercel SDK 6)'],
-              ['admin_approvals', 'Admin Phê Duyệt & Lab'],
-              ['monitor', 'Giám Sát & Tracing'],
-            ] as Array<[TabKey, string]>
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`px-3 py-1.5 rounded-lg transition-colors ${
-                activeTab === key
-                  ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+        {/* User Info & Switcher */}
+        <div className="flex items-center gap-3">
+          {/* Quick portal switch */}
+          <button
+            onClick={() => setPortal(portal === 'user' ? 'admin' : 'user')}
+            className="rounded bg-slate-800/90 hover:bg-slate-700 border border-slate-700 px-2.5 py-1 text-[11px] font-mono text-cyan-300 transition-colors"
+            title="Chuyển chế độ xem cổng"
+          >
+            {portal === 'user' ? 'Cổng Admin ↗' : 'Cổng Khách Hàng ↗'}
+          </button>
+
+          <div className="hidden sm:flex flex-col text-right">
+            <span className="text-xs font-semibold text-slate-200">{currentUser.email}</span>
+            <span className="text-[10px] font-mono text-cyan-400 uppercase">
+              {currentUser.role === 'admin' ? 'Quản Trị Viên' : 'Khách Hàng'}
+            </span>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            className="rounded bg-slate-800 hover:bg-rose-950/50 hover:text-rose-300 border border-slate-700 px-2.5 py-1 text-xs transition-colors"
+          >
+            Đăng xuất
+          </button>
+        </div>
       </header>
 
-      <main className="flex-1 max-w-6xl w-full mx-auto p-6 space-y-6">
+      {/* Portal-Specific Subnavigation */}
+      <div className="border-b border-slate-800 bg-[#090e1a] px-4 sm:px-6 py-2 overflow-x-auto">
+        <nav className="flex gap-2 text-xs">
+          {portal === 'user' ? (
+            <>
+              {(
+                [
+                  ['overview', 'Tổng Quan Vốn & Lãi Lỗ'],
+                  ['accounts', `Tài Khoản & Ghép Nối EA (${accounts.length})`],
+                  ['orders', `Nhật Ký Lệnh & Khớp Deal (${orders.length})`],
+                  ['assistant', 'Trợ Lý AI (Vercel SDK 6)'],
+                ] as Array<[UserTabKey, string]>
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setUserTab(key)}
+                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
+                    userTab === key
+                      ? 'bg-cyan-500 text-slate-950 font-bold shadow'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </>
+          ) : (
+            <>
+              {(
+                [
+                  ['overview', 'Hai Đội Agent & Giám Sát Vận Hành'],
+                  ['approvals', 'Hàng Đợi Phê Duyệt Chiến Lược (AI SDK 6)'],
+                  ['activity', `Nhật Ký Toàn Hệ Thống (${consolidatedActivities.length})`],
+                  ['tracing', 'LangSmith Tracing Telemetry'],
+                  ['news', 'Lịch Rủi Ro Tin Tức USD'],
+                ] as Array<[AdminTabKey, string]>
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setAdminTab(key)}
+                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
+                    adminTab === key
+                      ? 'bg-cyan-500 text-slate-950 font-bold shadow'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </>
+          )}
+        </nav>
+      </div>
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {notice && (
           <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-xs text-amber-200 font-mono flex items-center justify-between">
-            <span>▣ {notice}</span>
+            <span>■ {notice}</span>
             <button
               type="button"
               onClick={() => setNotice(null)}
@@ -413,789 +743,753 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
-            {/* Safety & Architecture Banner */}
-            <div className="rounded-xl border border-slate-800 bg-gradient-to-r from-[#0c1624] to-[#0c1322] p-5 flex flex-wrap items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-semibold">
-                    QUANT WORKSPACE 01 · SYSTEMATIC EXECUTION
-                  </span>
-                  {dashboard.health?.halted === '1' && (
-                    <span className="rounded bg-rose-950 border border-rose-500 px-2 py-0.5 text-[10px] font-mono text-rose-300 font-bold">
-                      SYSTEM HALTED
-                    </span>
-                  )}
-                </div>
-                <h1 className="text-lg font-bold text-slate-100">
-                  Một góc nhìn. Toàn bộ danh mục định lượng XAUUSD.
-                </h1>
-                <p className="text-xs text-slate-400 max-w-3xl leading-relaxed">
-                  Real bị khóa cứng ở cả Backend và EA. Dữ liệu chuỗi thời gian lưu trên PostgreSQL + TimescaleDB
-                  (Hypertables), phân phối tín hiệu qua Redis Streams/PubSub kèm Khóa phân tán (Distributed Lock),
-                  và phê duyệt chiến lược qua Vercel AI SDK 6 ToolLoopAgent.
-                </p>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleCreateReplay}
-                  className="rounded-lg bg-cyan-500 hover:bg-cyan-400 px-4 py-2 text-xs font-bold text-slate-950 transition-colors"
-                >
-                  + Tạo Tài Khoản Replay
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    loadDashboard();
-                    loadCandles(timeframe);
-                  }}
-                  className="rounded-lg border border-slate-700 bg-slate-900 hover:border-cyan-500/50 px-3 py-2 text-xs text-slate-200 font-mono transition-colors"
-                >
-                  ↻ Cập Nhật
-                </button>
-              </div>
-            </div>
-
-            {/* 4 KPI Stat Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Tổng Balance</span>
-                  <span className="text-cyan-400 font-mono">↗</span>
-                </div>
-                <div className="text-2xl font-bold font-mono text-slate-100 my-1.5">
-                  ${totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div className="text-[11px] text-slate-500 font-mono">TimescaleDB snapshot / Postgres</div>
-              </div>
-
-              <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Tổng Equity</span>
-                  <span className="text-emerald-400 font-mono">●</span>
-                </div>
-                <div className="text-2xl font-bold font-mono text-cyan-300 my-1.5">
-                  ${totalEquity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div className="text-[11px] text-slate-500 font-mono">Vốn thả nổi cập nhật thời gian thực</div>
-              </div>
-
-              <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Copy Đang Bật</span>
-                  <span className="text-cyan-400 font-mono">⌁</span>
-                </div>
-                <div className="text-2xl font-bold font-mono text-slate-100 my-1.5">
-                  {activeCopyCount} / {accounts.length}
-                </div>
-                <div className="text-[11px] text-slate-500 font-mono">Redis Stream & Heartbeat Cache</div>
-              </div>
-
-              <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Chờ Đối Soát</span>
-                  <span className="text-amber-400 font-mono">⇄</span>
-                </div>
-                <div className="text-2xl font-bold font-mono text-slate-100 my-1.5">{pendingReconcile}</div>
-                <div className="text-[11px] text-slate-500 font-mono">Distributed Lock chống gửi trùng</div>
-              </div>
-            </div>
-
-            {/* Chart + Execution Pipeline */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <article className="lg:col-span-2 rounded-xl border border-slate-800 bg-[#0c1322] p-5 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider">
-                      PORTFOLIO & TIMESCALEDB TELEMETRY
-                    </div>
-                    <h2 className="text-base font-bold text-slate-100">
-                      {chartMode === 'equity' ? 'Biểu Đồ Equity & Balance' : `Nến XAUUSD (${timeframe}) — TimescaleDB`}
-                    </h2>
+        {/* ================================================================= */}
+        {/* USER PORTAL VIEWS */}
+        {/* ================================================================= */}
+        {portal === 'user' && (
+          <>
+            {/* USER TAB: OVERVIEW */}
+            {userTab === 'overview' && (
+              <div className="space-y-6">
+                {/* Metric Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
+                    <div className="text-[11px] text-slate-500">TỔNG SỐ DƯ (BALANCE)</div>
+                    <div className="text-xl font-bold text-slate-100 mt-1">${totalBalance.toLocaleString()}</div>
+                    <div className="text-[10px] text-slate-500 mt-1">{accounts.length} tài khoản liên kết</div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex rounded-lg border border-slate-800 bg-slate-950 p-0.5 text-[11px] font-mono">
-                      <button
-                        type="button"
-                        onClick={() => setChartMode('equity')}
-                        className={`px-2.5 py-1 rounded-md ${
-                          chartMode === 'equity' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400'
-                        }`}
-                      >
-                        Equity
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setChartMode('candles')}
-                        className={`px-2.5 py-1 rounded-md ${
-                          chartMode === 'candles' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400'
-                        }`}
-                      >
-                        Nến XAUUSD
-                      </button>
+                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
+                    <div className="text-[11px] text-slate-500">VỐN THẢ NỔI (EQUITY)</div>
+                    <div className="text-xl font-bold text-cyan-300 mt-1">${totalEquity.toLocaleString()}</div>
+                    <div className={`text-[10px] mt-1 ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {totalPnl >= 0 ? `+${totalPnl.toFixed(2)}` : `${totalPnl.toFixed(2)}`} P&L thả nổi
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
+                    <div className="text-[11px] text-slate-500">VỊ THẾ ĐANG MỞ</div>
+                    <div className="text-xl font-bold text-slate-100 mt-1">{totalPositions}</div>
+                    <div className="text-[10px] text-emerald-400 mt-1">Giới hạn max 3 lệnh/tài khoản</div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
+                    <div className="text-[11px] text-slate-500">BẢO VỆ RỦI RO (DD LIMIT)</div>
+                    <div className="text-xl font-bold text-emerald-400 mt-1">&lt; 5.0%</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Hard lock tự động khi DD &gt; 5%</div>
+                  </div>
+                </div>
+
+                {/* Market Chart */}
+                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-slate-200">XAUUSD Chuỗi Thời Gian · TimescaleDB</span>
+                      <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                        Hypertable Chunks
+                      </span>
                     </div>
 
-                    {chartMode === 'equity' ? (
-                      <select
-                        aria-label="Chọn tài khoản biểu đồ"
-                        value={selectedAccount}
-                        onChange={(e) => setSelectedAccount(e.target.value)}
-                        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-mono text-slate-200"
-                      >
-                        {accounts.map((a: any) => (
-                          <option key={a.id} value={a.id}>
-                            {a.mode} · #{a.login} ({a.server})
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <select
-                        aria-label="Chọn khung thời gian TimescaleDB"
-                        value={timeframe}
-                        onChange={(e) => {
-                          const tf = e.target.value as any;
-                          setTimeframe(tf);
-                          loadCandles(tf);
-                        }}
-                        className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-mono text-slate-200"
-                      >
+                    <div className="flex items-center gap-2">
+                      <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-mono">
                         {(['M1', 'M5', 'M15', 'H1', 'D1'] as const).map((tf) => (
-                          <option key={tf} value={tf}>
-                            Khung {tf}
-                          </option>
+                          <button
+                            key={tf}
+                            onClick={() => {
+                              setTimeframe(tf);
+                              loadCandles(tf);
+                            }}
+                            className={`px-2 py-0.5 rounded ${
+                              timeframe === tf ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {tf}
+                          </button>
                         ))}
-                      </select>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-                  {chartMode === 'equity' ? (
-                    <div className="flex items-center gap-4">
-                      <span className="text-cyan-400">● Equity</span>
-                      <span className="text-slate-400">--- Balance</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-4">
-                      <span className="text-emerald-400">▮ Nến Tăng</span>
-                      <span className="text-rose-400">▮ Nến Giảm</span>
-                    </div>
-                  )}
-                  <span>
-                    Giá XAUUSD tham chiếu: <b className="text-slate-200">${dashboard.health?.replay_price || '2655.20'}</b>
-                  </span>
-                </div>
-
-                <div className="rounded-lg bg-[#080d19] border border-slate-800/80 p-3">
-                  {chartMode === 'equity' ? renderEquitySvg() : renderCandlesSvg()}
-                </div>
-
-                <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 border-t border-slate-800/80 pt-2.5">
-                  <span>Quan sát theo thời gian thực • Đơn vị USD</span>
-                  <span>
-                    Nguồn:{' '}
-                    {accounts.find((a: any) => a.id === selectedAccount)?.mode === 'REPLAY'
-                      ? 'SYNTHETIC REPLAY (900 bars)'
-                      : 'MT5 DEMO · TimescaleDB Hypertable'}
-                  </span>
-                </div>
-              </article>
-
-              {/* Execution Pipeline */}
-              <article className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 flex flex-col justify-between space-y-4">
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider">
-                      EXECUTION PIPELINE
-                    </div>
-                    <h2 className="text-base font-bold text-slate-100">Từ dữ liệu tới thực thi</h2>
-                  </div>
-
-                  <ol className="space-y-3.5 text-xs">
-                    <li className="flex items-center justify-between rounded-lg bg-slate-900/70 border border-slate-800/80 p-3">
-                      <div className="flex items-center gap-3">
-                        <span className="h-7 w-7 rounded-full border border-cyan-500/40 bg-cyan-950/50 text-cyan-300 font-mono text-[11px] flex items-center justify-center font-bold">
-                          01
-                        </span>
-                        <div>
-                          <div className="font-semibold text-slate-200">Price Engine & TimescaleDB</div>
-                          <div className="text-[11px] text-slate-400 font-mono">
-                            Online · Hypertable quotes & candles
-                          </div>
-                        </div>
                       </div>
-                      <span className="text-emerald-400 text-xs">●</span>
-                    </li>
 
-                    <li className="flex items-center justify-between rounded-lg bg-slate-900/70 border border-slate-800/80 p-3">
-                      <div className="flex items-center gap-3">
-                        <span className="h-7 w-7 rounded-full border border-cyan-500/40 bg-cyan-950/50 text-cyan-300 font-mono text-[11px] flex items-center justify-center font-bold">
-                          02
-                        </span>
-                        <div>
-                          <div className="font-semibold text-slate-200">Risk Gates (2 Lớp)</div>
-                          <div className="text-[11px] text-slate-400 font-mono">
-                            Spread, DD, News USD, Margin & TTL
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-emerald-400 text-xs">●</span>
-                    </li>
-
-                    <li className="flex items-center justify-between rounded-lg bg-slate-900/70 border border-slate-800/80 p-3">
-                      <div className="flex items-center gap-3">
-                        <span className="h-7 w-7 rounded-full border border-cyan-500/40 bg-cyan-950/50 text-cyan-300 font-mono text-[11px] flex items-center justify-center font-bold">
-                          03
-                        </span>
-                        <div>
-                          <div className="font-semibold text-slate-200">Redis Stream & Lock</div>
-                          <div className="text-[11px] text-slate-400 font-mono">
-                            SET NX PX · SEND_ONCE / RECONCILE
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-emerald-400 text-xs">●</span>
-                    </li>
-
-                    <li className="flex items-center justify-between rounded-lg bg-slate-900/70 border border-slate-800/80 p-3">
-                      <div className="flex items-center gap-3">
-                        <span className="h-7 w-7 rounded-full border border-cyan-500/40 bg-cyan-950/50 text-cyan-300 font-mono text-[11px] flex items-center justify-center font-bold">
-                          04
-                        </span>
-                        <div>
-                          <div className="font-semibold text-slate-200">LangGraph WFO + LangSmith</div>
-                          <div className="text-[11px] text-slate-400 font-mono">
-                            Checkpoint bền vững · Admin duyệt
-                          </div>
-                        </div>
-                      </div>
-                      <span className="text-emerald-400 text-xs">●</span>
-                    </li>
-                  </ol>
-                </div>
-
-                <div className="text-[11px] text-slate-500 font-mono border-t border-slate-800 pt-3">
-                  Execution hoạt động độc lập, không phụ thuộc vào trạng thái của AI hay LangGraph.
-                </div>
-              </article>
-            </div>
-
-            {/* Strategy Approval Queue Preview */}
-            <AdminApprovalQueue />
-          </div>
-        )}
-
-        {activeTab === 'accounts' && (
-          <div className="space-y-6">
-            <article className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-bold text-slate-100">Kết Nối Tài Khoản MT5 Demo & Replay</h2>
-                  <p className="text-xs text-slate-400">
-                    Tên Broker Server phải khớp chính xác với terminal MT5. Mã ghép nối EA có hiệu lực một lần trong 5 phút.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCreateReplay}
-                  className="rounded-lg border border-cyan-500/50 bg-cyan-950/40 hover:bg-cyan-900/50 px-3.5 py-2 text-xs font-mono font-semibold text-cyan-300 transition-colors"
-                >
-                  + Thêm Tài Khoản Replay
-                </button>
-              </div>
-
-              <form onSubmit={handleCreateDemo} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end pt-1">
-                <label className="block text-xs text-slate-300 font-mono">
-                  MT5 Login (Chỉ số)
-                  <input
-                    type="text"
-                    required
-                    pattern="[0-9]+"
-                    value={newDemoLogin}
-                    onChange={(e) => setNewDemoLogin(e.target.value)}
-                    placeholder="Ví dụ: 50918274"
-                    className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-400"
-                  />
-                </label>
-                <label className="block text-xs text-slate-300 font-mono">
-                  Broker Server
-                  <input
-                    type="text"
-                    required
-                    value={newDemoServer}
-                    onChange={(e) => setNewDemoServer(e.target.value)}
-                    placeholder="ICMarketsSC-Demo"
-                    className="mt-1.5 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-400"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-cyan-500 hover:bg-cyan-400 px-4 py-2 text-xs font-bold text-slate-950 transition-colors h-[34px]"
-                >
-                  Thêm MT5 Demo ↗
-                </button>
-              </form>
-            </article>
-
-            <div className="space-y-4">
-              {accounts.map((acc: any) => (
-                <article
-                  key={acc.id}
-                  className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 space-y-4 shadow-md"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <h3 className="text-base font-bold font-mono text-slate-100">#{acc.login}</h3>
-                        <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-cyan-300 font-semibold">
-                          {acc.mode}
-                        </span>
-                        {acc.cached_heartbeat && (
-                          <span className="rounded bg-emerald-950/70 border border-emerald-600/40 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
-                            Redis Heartbeat Cache: OK
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-slate-400 font-mono mt-1">
-                        {acc.server} · Balance:{' '}
-                        <b className="text-slate-200">${Number(acc.balance).toLocaleString()}</b> · Equity:{' '}
-                        <b className="text-cyan-300">${Number(acc.equity).toLocaleString()}</b> · Vị thế mở:{' '}
-                        <b className="text-slate-200">{acc.positions}</b>
-                      </div>
-                    </div>
-
-                    <span
-                      className={`rounded-md px-2.5 py-1 text-[11px] font-mono font-bold uppercase ${
-                        acc.enabled
-                          ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
-                          : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
-                      }`}
-                    >
-                      {acc.enabled ? 'COPY ON' : 'PAUSED'}
-                    </span>
-                  </div>
-
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleSaveRisk(acc, new FormData(e.currentTarget));
-                    }}
-                    className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end font-mono text-xs"
-                  >
-                    <label className="block text-slate-400">
-                      Rủi ro / lệnh (%)
-                      <input
-                        name="risk"
-                        type="number"
-                        min="0.01"
-                        max="1"
-                        step="0.01"
-                        defaultValue={acc.risk}
-                        required
-                        className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-slate-100"
-                      />
-                    </label>
-                    <label className="block text-slate-400">
-                      Spread tối đa ($/oz)
-                      <input
-                        name="max_spread"
-                        type="number"
-                        min="0.01"
-                        max="2"
-                        step="0.01"
-                        defaultValue={acc.max_spread}
-                        required
-                        className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-slate-100"
-                      />
-                    </label>
-                    <label className="block text-slate-400">
-                      Số lệnh tối đa
-                      <input
-                        name="max_positions"
-                        type="number"
-                        min="1"
-                        max="3"
-                        defaultValue={acc.max_positions}
-                        required
-                        className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-slate-100"
-                      />
-                    </label>
-                    <label className="block text-slate-400">
-                      Drawdown tối đa (%)
-                      <input
-                        name="max_dd"
-                        type="number"
-                        min="1"
-                        max="20"
-                        step="0.1"
-                        defaultValue={acc.max_dd}
-                        required
-                        className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-slate-100"
-                      />
-                    </label>
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-slate-700 bg-slate-800 hover:border-cyan-400 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-colors h-[34px]"
-                    >
-                      Lưu Giới Hạn
-                    </button>
-                  </form>
-
-                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleCopy(acc)}
-                      className={`rounded-lg px-4 py-1.5 text-xs font-bold transition-colors ${
-                        acc.enabled
-                          ? 'bg-amber-500/20 border border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
-                          : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
-                      }`}
-                    >
-                      {acc.enabled ? 'Tạm Dừng Copy' : 'Bật Copy Ngay'}
-                    </button>
-
-                    {acc.mode === 'DEMO' && (
-                      <>
+                      <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-mono">
                         <button
-                          type="button"
-                          onClick={() => handlePairCode(acc.id)}
-                          className="rounded-lg border border-slate-700 bg-slate-900 hover:border-cyan-400 px-3.5 py-1.5 text-xs font-mono text-slate-200 transition-colors"
-                        >
-                          Lấy Mã Ghép Nối EA
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRevoke(acc.id, acc.login)}
-                          className="rounded-lg border border-rose-700/50 bg-rose-950/30 hover:bg-rose-900/40 px-3.5 py-1.5 text-xs font-mono text-rose-300 transition-colors"
-                        >
-                          Thu Hồi EA
-                        </button>
-                      </>
-                    )}
-                  </div>
-
-                  {pairCodes[acc.id] && (
-                    <div className="rounded-lg border border-cyan-500/40 bg-cyan-950/30 p-3 font-mono text-xs text-cyan-300">
-                      🔑 Mã ghép nối dùng một lần (hết hạn sau 5 phút): <b className="text-white">{pairCodes[acc.id]}</b>
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'orders' && (
-          <article className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-base font-bold text-slate-100">Nhật Ký Thực Thi & Đối Soát Lệnh</h2>
-                <p className="text-xs text-slate-400">
-                  UNKNOWN: chờ EA đối soát lịch sử broker, tuyệt đối không gửi lại. FILLED: đã xác nhận đủ Order Ticket & Deal.
-                </p>
-              </div>
-              <span className="text-xs font-mono text-slate-400">100 lệnh gần nhất</span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse font-mono text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800 text-[10px] text-slate-400 uppercase">
-                    <th className="py-3 px-2.5">ID / Nguồn</th>
-                    <th className="py-3 px-2.5">Chiều</th>
-                    <th className="py-3 px-2.5">Giá Tín Hiệu</th>
-                    <th className="py-3 px-2.5">Trạng Thái</th>
-                    <th className="py-3 px-2.5">Order Ticket / Deal</th>
-                    <th className="py-3 px-2.5">Thời Điểm</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/70">
-                  {orders.map((o: any) => (
-                    <tr key={o.id} className="hover:bg-slate-900/40">
-                      <td className="py-3 px-2.5">
-                        <span className="text-slate-200 font-semibold">#{o.id}</span>{' '}
-                        <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-cyan-300 ml-1">
-                          {o.source}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2.5">
-                        <span className={o.side === 'BUY' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
-                          {o.side}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2.5 text-slate-200">${Number(o.price).toFixed(2)}</td>
-                      <td className="py-3 px-2.5">
-                        <span
-                          className={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
-                            o.state === 'filled'
-                              ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-600/40'
-                              : 'bg-amber-950/80 text-amber-300 border border-amber-600/40'
+                          onClick={() => setChartMode('equity')}
+                          className={`px-2 py-0.5 rounded ${
+                            chartMode === 'equity' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
                           }`}
                         >
-                          {o.state}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2.5 text-slate-300">
-                        {o.ticket || '—'} / {o.deal || '—'}
-                      </td>
-                      <td className="py-3 px-2.5 text-slate-400">
-                        {o.created ? new Date(o.created * 1000).toLocaleString('vi-VN') : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        )}
-
-        {activeTab === 'assistant' && (
-          <div className="space-y-4">
-            <CustomerAssistant />
-          </div>
-        )}
-
-        {activeTab === 'admin_approvals' && (
-          <div className="space-y-6">
-            <AdminApprovalQueue />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Economic Calendar Filter */}
-              <article className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 space-y-4">
-                <div>
-                  <div className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider">
-                    DETERMINISTIC NEWS GATE
+                          Vốn
+                        </button>
+                        <button
+                          onClick={() => setChartMode('candles')}
+                          className={`px-2 py-0.5 rounded ${
+                            chartMode === 'candles' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Nến
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <h3 className="text-base font-bold text-slate-100">Bộ Lọc Lịch Kinh Tế (USD · High)</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Sự kiện USD/ALL tác động cao tự động khóa phát lệnh Demo mới trong khung ±15 phút.
-                  </p>
+
+                  {chartMode === 'candles' ? (
+                    renderCandlestickSvg()
+                  ) : (
+                    <div className="h-64 flex flex-col items-center justify-center text-slate-500 font-mono text-xs">
+                      <div className="text-cyan-400 font-bold text-lg mb-1">${totalEquity.toLocaleString()}</div>
+                      <span>Đường cong vốn tài khoản khách hàng (Cập nhật theo nhịp tick)</span>
+                      <span className="text-[10px] text-slate-600 mt-1">Nguồn: snapshots hypertable PostgreSQL</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* USER TAB: ACCOUNTS & EA PAIRING */}
+            {userTab === 'accounts' && (
+              <div className="space-y-6">
+                {/* Form Add Demo Account & Pair EA */}
+                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                  <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
+                    <span>🔌 Ghép Nối EA MT5 Demo Mới</span>
+                    <span className="text-xs font-normal text-slate-400">(Nhận tín hiệu trực tiếp qua WebRequest HTTP)</span>
+                  </h3>
+
+                  <form onSubmit={handleAddDemoAccount} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-mono text-slate-400 mb-1">SỐ LOGIN MT5 DEMO</label>
+                      <input
+                        type="text"
+                        required
+                        value={newDemoLogin}
+                        onChange={(e) => setNewDemoLogin(e.target.value)}
+                        placeholder="Ví dụ: 61713217"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-mono text-slate-400 mb-1">TÊN SERVER BROKER DEMO</label>
+                      <input
+                        type="text"
+                        required
+                        value={newDemoServer}
+                        onChange={(e) => setNewDemoServer(e.target.value)}
+                        placeholder="Ví dụ: MetaQuotes-Demo hoặc ICMarketsSC-Demo"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                      />
+                    </div>
+
+                    <div className="flex items-end gap-2">
+                      <button
+                        type="submit"
+                        className="flex-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2 text-xs transition-colors"
+                      >
+                        Tạo & Sinh Mã Ghép Nối ↗
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateReplay}
+                        className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-2 text-xs text-slate-300 transition-colors whitespace-nowrap"
+                        title="Tạo tài khoản giả lập replay để test nhanh không cần mở MT5"
+                      >
+                        + Replay Test
+                      </button>
+                    </div>
+                  </form>
                 </div>
 
-                <form onSubmit={handleAddNews} className="space-y-3 font-mono text-xs">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <input
-                      type="text"
-                      required
-                      value={newsTitle}
-                      onChange={(e) => setNewsTitle(e.target.value)}
-                      placeholder="Tên sự kiện (VD: US CPI, FOMC)"
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
-                    />
-                    <input
-                      type="datetime-local"
-                      value={newsWhen}
-                      onChange={(e) => setNewsWhen(e.target.value)}
-                      className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-100"
-                    />
+                {/* Account List */}
+                <div className="rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
+                  <div className="border-b border-slate-800 px-5 py-3 flex items-center justify-between">
+                    <span className="font-bold text-sm text-slate-200">Danh Sách Tài Khoản Đang Liên Kết</span>
+                    <span className="text-xs font-mono text-slate-400">{accounts.length} tài khoản</span>
                   </div>
-                  <button
-                    type="submit"
-                    className="rounded-lg bg-cyan-500 hover:bg-cyan-400 px-4 py-2 text-xs font-bold text-slate-950 transition-colors"
-                  >
-                    + Thêm Lịch USD · High Impact
-                  </button>
-                </form>
 
-                <div className="space-y-1.5 pt-2">
-                  {(monitorData.news || []).map((n: any) => (
-                    <div
-                      key={n.id}
-                      className="flex items-center justify-between rounded-lg bg-slate-900/70 border border-slate-800 px-3 py-2 text-xs font-mono"
-                    >
-                      <span className="text-slate-200 font-semibold">{n.title}</span>
+                  {accounts.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500 font-mono text-xs">
+                      Chưa có tài khoản nào được kết nối. Hãy thêm tài khoản Demo ở trên.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-800/80">
+                      {accounts.map((a: any) => {
+                        const code = pairCodes[a.id];
+                        const isOnline = a.seen && Date.now() / 1000 - a.seen < 45;
+                        return (
+                          <div key={a.id} className="p-5 space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                                <span className="font-bold font-mono text-sm text-slate-100">
+                                  #{a.login} · {a.server}
+                                </span>
+                                <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                                  {a.mode}
+                                </span>
+                                <span
+                                  className={`rounded px-2 py-0.5 text-[10px] font-mono ${
+                                    a.enabled ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' : 'bg-rose-950 text-rose-300 border border-rose-700/50'
+                                  }`}
+                                >
+                                  {a.enabled ? 'ĐANG SAO CHÉP' : 'TẠM DỪNG'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleToggleCopy(a.id, a.enabled)}
+                                  className={`rounded-lg px-3 py-1 text-xs font-mono font-medium transition-colors ${
+                                    a.enabled
+                                      ? 'bg-amber-950/80 text-amber-300 border border-amber-700/40 hover:bg-amber-900/80'
+                                      : 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/40 hover:bg-emerald-900/80'
+                                  }`}
+                                >
+                                  {a.enabled ? 'Tạm Dừng Sao Chép' : 'Bật Sao Chép'}
+                                </button>
+
+                                <button
+                                  onClick={() => handleCreatePairCode(a.id)}
+                                  className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1 text-xs font-mono text-slate-300 transition-colors"
+                                >
+                                  Cấp Mã Ghép Nối
+                                </button>
+
+                                <button
+                                  onClick={() => handleRevoke(a.id)}
+                                  className="rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 px-3 py-1 text-xs font-mono text-rose-300 transition-colors"
+                                >
+                                  Thu Hồi
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Metrics details */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono bg-slate-950/40 p-3 rounded-lg border border-slate-800/50">
+                              <div>
+                                <span className="text-slate-500 text-[10px] block">SỐ DƯ (BALANCE)</span>
+                                <span className="font-bold text-slate-200">${Number(a.balance || 0).toFixed(2)}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500 text-[10px] block">VỐN (EQUITY)</span>
+                                <span className="font-bold text-cyan-300">${Number(a.equity || 0).toFixed(2)}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500 text-[10px] block">DRAWDOWN HIỆN TẠI</span>
+                                <span className="font-bold text-slate-300">
+                                  {(((a.peak - a.equity) / Math.max(a.peak, 1)) * 100).toFixed(2)}%
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500 text-[10px] block">HEARTBEAT GẦN NHẤT</span>
+                                <span className="text-slate-400">
+                                  {a.seen ? `${Math.round(Date.now() / 1000 - a.seen)}s trước` : 'Chưa có'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Pairing box if generated */}
+                            {code && (
+                              <div className="rounded-lg border border-cyan-500/40 bg-cyan-950/20 p-3 text-xs font-mono space-y-1">
+                                <div className="text-cyan-300 font-bold flex items-center justify-between">
+                                  <span>MÃ GHÉP NỐI EA DÙNG MỘT LẦN: {code}</span>
+                                  <span className="text-[10px] text-slate-400">TTL 10 phút</span>
+                                </div>
+                                <p className="text-slate-400 text-[11px]">
+                                  Trong MT5 chart XAUUSD, mở Inputs của EA <code className="text-cyan-200">Zupirus_Demo_Link_EA</code>:
+                                </p>
+                                <div className="bg-slate-900/80 p-2 rounded text-[11px] text-slate-300 select-all">
+                                  InpServerUrl = <span className="text-cyan-300">{window.location.origin}</span>
+                                  <br />
+                                  InpPairingCode = <span className="text-cyan-300">{code}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* USER TAB: ORDERS & DEALS */}
+            {userTab === 'orders' && (
+              <div className="space-y-6">
+                <div className="rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
+                  <div className="border-b border-slate-800 px-5 py-3 flex items-center justify-between">
+                    <span className="font-bold text-sm text-slate-200">Nhật Ký Tín Hiệu & Đối Soát Lệnh Thực Thi</span>
+                    <span className="text-xs font-mono text-slate-400">{orders.length} lệnh</span>
+                  </div>
+
+                  {orders.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500 font-mono text-xs">
+                      Chưa có lệnh nào được tạo. Khi Quant Engine phát tín hiệu hoặc EA khớp lệnh, bản ghi sẽ xuất hiện tại đây.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs font-mono">
+                        <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
+                          <tr>
+                            <th className="p-3">ID / TÍN HIỆU</th>
+                            <th className="p-3">NGUỒN</th>
+                            <th className="p-3">CHIỀU</th>
+                            <th className="p-3">GIÁ VÀO</th>
+                            <th className="p-3">SL / TP</th>
+                            <th className="p-3">TICKET / DEAL</th>
+                            <th className="p-3">TRẠNG THÁI</th>
+                            <th className="p-3">LÝ DO THỰC TẾ (NẾU BỎ LỠ/TỪ CHỐI)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {orders.map((o: any) => {
+                            let reasonText = o.reason || '—';
+                            if (o.state === 'rejected' && o.reason === 'below_min_lot') {
+                              reasonText = 'Vốn hoặc tỷ lệ rủi ro không đủ mở khối lượng tối thiểu (0.01 lot)';
+                            } else if (o.state === 'expired') {
+                              reasonText = 'Hết hạn nhận lệnh (quá 45s EA không phản hồi)';
+                            } else if (o.state === 'cancelled') {
+                              reasonText = 'Tài khoản tạm dừng sao chép hoặc vượt ngưỡng Max DD > 5%';
+                            }
+
+                            return (
+                              <tr key={o.id} className="hover:bg-slate-900/40">
+                                <td className="p-3 font-bold text-slate-300">#{o.id}</td>
+                                <td className="p-3">
+                                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-cyan-300">
+                                    {o.source}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  <span className={o.side === 'BUY' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                                    {o.side}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-slate-200">${Number(o.price).toFixed(2)}</td>
+                                <td className="p-3 text-slate-400">
+                                  ${Number(o.sl).toFixed(1)} / ${Number(o.tp).toFixed(1)}
+                                </td>
+                                <td className="p-3 text-slate-300">
+                                  {o.ticket || '—'} {o.deal ? `/ Deal: ${o.deal}` : ''}
+                                </td>
+                                <td className="p-3">
+                                  <span
+                                    className={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
+                                      o.state === 'filled'
+                                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
+                                        : o.state === 'queued'
+                                        ? 'bg-amber-950 text-amber-300 border border-amber-700/50 animate-pulse'
+                                        : 'bg-rose-950 text-rose-300 border border-rose-700/50'
+                                    }`}
+                                  >
+                                    {o.state}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-slate-400 max-w-xs truncate" title={reasonText}>
+                                  {reasonText}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* USER TAB: ASSISTANT */}
+            {userTab === 'assistant' && (
+              <div className="space-y-4">
+                <CustomerAssistant />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ================================================================= */}
+        {/* ADMIN PORTAL VIEWS */}
+        {/* ================================================================= */}
+        {portal === 'admin' && (
+          <>
+            {/* ADMIN TAB: TWO AGENT TEAMS & OVERVIEW */}
+            {adminTab === 'overview' && (
+              <div className="space-y-6">
+                {/* Kill Switch Banner */}
+                <div
+                  className={`rounded-xl border p-5 transition-colors ${
+                    monitorData.halted
+                      ? 'border-rose-500/60 bg-rose-950/40 text-rose-200'
+                      : 'border-emerald-500/40 bg-emerald-950/20 text-emerald-200'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 font-bold text-sm">
+                        <span className={`h-3 w-3 rounded-full ${monitorData.halted ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
+                        <span>NÚT NGẮT KHẨN CẤP TOÀN HỆ THỐNG (SYSTEM KILL-SWITCH)</span>
+                      </div>
+                      <p className="text-xs text-slate-300">
+                        {monitorData.halted
+                          ? 'HỆ THỐNG ĐANG DỪNG: Toàn bộ việc cấp tín hiệu và gửi lệnh copy đã bị chặn hoàn toàn.'
+                          : 'HỆ THỐNG ĐANG HOẠT ĐỘNG: Tín hiệu và lệnh sao chép được cấp phát bình thường.'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={killSwitchReason}
+                        onChange={(e) => setKillSwitchReason(e.target.value)}
+                        placeholder="Lý do thao tác..."
+                        className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 font-mono"
+                      />
+                      <button
+                        onClick={() => handleToggleKillSwitch(monitorData.halted)}
+                        disabled={killSwitchLoading}
+                        className={`rounded-lg px-4 py-2 text-xs font-bold font-mono transition-colors shadow ${
+                          monitorData.halted
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                            : 'bg-rose-600 hover:bg-rose-500 text-white'
+                        }`}
+                      >
+                        {killSwitchLoading
+                          ? 'Đang xử lý...'
+                          : monitorData.halted
+                          ? 'Khôi Phục Vận Hành ↗'
+                          : 'KÍCH HOẠT KILL-SWITCH ✕'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* The Two Agent Teams */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* TEAM 1: Execution & Real-Time Dispatch Team */}
+                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-slate-400 text-[11px]">
-                          {n.ts ? new Date(n.ts * 1000).toLocaleString('vi-VN') : ''}
+                        <span className="h-2.5 w-2.5 rounded-full bg-cyan-400" />
+                        <h3 className="font-bold text-sm text-slate-100">Đội Phân Tích & Thực Thi (Execution Team)</h3>
+                      </div>
+                      <span className="rounded bg-cyan-950/70 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                        Deterministic Engine
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Chịu trách nhiệm tiếp nhận tick nến XAUUSD chuỗi thời gian, điều phối đa chiến lược (Trend Following,
+                      Mean Reversion, Breakout), kiểm tra risk gate, đẩy vào Transactional Outbox và phân phối qua Redis Streams.
+                    </p>
+
+                    <div className="space-y-2 text-xs font-mono bg-slate-950/40 p-3 rounded-lg border border-slate-800/60">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Trạng thái vận hành:</span>
+                        <span className="text-emerald-400 font-bold">
+                          {monitorData.halted ? 'HALTED' : 'RUNNING (Loop 2s)'}
                         </span>
-                        <span className="rounded bg-amber-950 border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-300 uppercase">
-                          {n.impact}
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Heartbeat gần nhất:</span>
+                        <span className="text-slate-200">
+                          {readyData?.execution_worker?.heartbeat_active ? 'Healthy (<60s)' : 'Active (Local WAL)'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Redis Stream Outbox:</span>
+                        <span className="text-cyan-300">stream:signals (Pub/Sub & ACK)</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Distributed Lock:</span>
+                        <span className="text-slate-300">lock:dispatch:aid:sid (Anti-Duplicate)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* TEAM 2: Research & Validation Team */}
+                  <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
+                        <h3 className="font-bold text-sm text-slate-100">Đội Nghiên Cứu & Kiểm Định (Research Team)</h3>
+                      </div>
+                      <span className="rounded bg-amber-950/70 border border-amber-500/30 px-2 py-0.5 text-[10px] font-mono text-amber-300">
+                        LangGraph Checkpoint
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Chạy Walk-Forward out-of-sample loại trừ chồng lấn, đánh giá candidate strategy có trừ phí/spread.
+                      Tạo interrupt checkpoint chờ Admin phê duyệt trước khi lưu trữ ứng viên.
+                    </p>
+
+                    <div className="space-y-2 text-xs font-mono bg-slate-950/40 p-3 rounded-lg border border-slate-800/60">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Mô hình kiểm định:</span>
+                        <span className="text-amber-300">Walk-Forward 120 Train / 60 OOS</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">LangGraph Checkpointer:</span>
+                        <span className="text-slate-200">PostgresSaver / SqliteSaver Durable</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Đề xuất chờ duyệt:</span>
+                        <span className="text-amber-400 font-bold">
+                          {(monitorData.jobs || []).filter((j: any) => j.state === 'waiting_approval').length} chiến lược
                         </span>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </article>
 
-              {/* Vision Incident Review */}
-              <article className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 space-y-4">
-                <div>
-                  <div className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider">
-                    VISION INCIDENT REVIEW
-                  </div>
-                  <h3 className="text-base font-bold text-slate-100">Đọc & Chẩn Đoán Biểu Đồ Sự Cố</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Phân tích ảnh chụp biểu đồ XAUUSD M15 (PNG/JPEG) và ghi vết trực tiếp vào LangSmith Tracing.
-                  </p>
-                </div>
-
-                <form onSubmit={handleVisionSubmit} className="space-y-3 text-xs font-mono">
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg"
-                    className="block w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-slate-300 text-xs"
-                  />
-                  <button
-                    type="submit"
-                    disabled={visionLoading}
-                    className="rounded-lg border border-cyan-500/50 bg-cyan-950/40 hover:bg-cyan-900/50 px-4 py-2 text-xs font-semibold text-cyan-300 transition-colors disabled:opacity-50"
-                  >
-                    {visionLoading ? 'Đang phân tích bằng Vision AI...' : 'Phân Tích Biểu Đồ Sự Cố ↗'}
-                  </button>
-                </form>
-
-                {visionResult && (
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-3.5 text-xs text-slate-300 leading-relaxed font-mono">
-                    {visionResult}
-                  </div>
-                )}
-              </article>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'monitor' && (
-          <div className="space-y-6">
-            {/* System Safety Switch */}
-            <article className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <div className="text-[10px] font-mono text-amber-400 uppercase tracking-wider">
-                  EMERGENCY CIRCUIT BREAKER
-                </div>
-                <h2 className="text-base font-bold text-slate-100">System Safety Switch (Khóa Khẩn Cấp Toàn Hệ Thống)</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Dừng ngay lập tức mọi lệnh mới trên toàn hệ thống. Không tự động đóng vị thế đang mở; các intent đang chờ vẫn được đối soát an toàn.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleSystemSafety(true)}
-                  className="rounded-lg border border-rose-600/60 bg-rose-950/60 hover:bg-rose-900/60 px-4 py-2 text-xs font-bold text-rose-200 transition-colors"
-                >
-                  ■ Dừng Toàn Hệ Thống
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSystemSafety(false)}
-                  className="rounded-lg bg-emerald-500 hover:bg-emerald-400 px-4 py-2 text-xs font-bold text-slate-950 transition-colors"
-                >
-                  ▶ Gỡ Khóa Hệ Thống
-                </button>
-              </div>
-            </article>
-
-            {/* Readiness Probe & 4 Core Technologies Status */}
-            {readyData && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-mono text-xs">
-                <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4 space-y-1.5">
-                  <div className="text-[10px] text-slate-400">POSTGRESQL + TIMESCALEDB</div>
-                  <div className="text-sm font-bold text-emerald-400">
-                    ● {readyData.database?.engine?.toUpperCase()} ({readyData.status?.toUpperCase()})
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Hypertables: {(readyData.timescaledb?.hypertables || []).map((h: any) => h.table).join(', ')}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4 space-y-1.5">
-                  <div className="text-[10px] text-slate-400">REDIS STREAMS & LOCK</div>
-                  <div className="text-sm font-bold text-emerald-400">
-                    ● {readyData.redis?.connected ? 'CONNECTED (stream:signals)' : 'FALLBACK'}
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Worker Heartbeat: {readyData.execution_worker?.heartbeat_active ? 'Active (<60s)' : 'Idle'}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4 space-y-1.5">
-                  <div className="text-[10px] text-slate-400">LANGSMITH TELEMETRY</div>
-                  <div className="text-sm font-bold text-cyan-400">
-                    ● Project: {tracingData.project}
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Tổng số vết (Traces): {tracingData.total_traces_recorded} runs
+                    <div className="pt-2">
+                      <button
+                        onClick={handleStartResearch}
+                        className="w-full rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold py-2 text-xs font-mono transition-colors"
+                      >
+                        + Kích Hoạt Vòng Kiểm Định Walk-Forward Mới
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* LangSmith Recent Traces */}
-            <article className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-100 font-mono">
-                  LangSmith Tracing Telemetry (Sanitized Inputs/Outputs)
-                </h3>
-                <span className="text-xs font-mono text-cyan-400">
-                  {tracingData.recent_traces?.length || 0} traces gần nhất
-                </span>
+            {/* ADMIN TAB: STRATEGY APPROVALS */}
+            {adminTab === 'approvals' && (
+              <div className="space-y-6">
+                <AdminApprovalQueue />
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse font-mono text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-[10px] text-slate-400 uppercase">
-                      <th className="py-2.5 px-2">Run Name</th>
-                      <th className="py-2.5 px-2">Loại</th>
-                      <th className="py-2.5 px-2">Độ Trễ</th>
-                      <th className="py-2.5 px-2">Tokens</th>
-                      <th className="py-2.5 px-2">Tóm Tắt Output</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/70">
-                    {(tracingData.recent_traces || []).map((t: any) => (
-                      <tr key={t.id} className="hover:bg-slate-900/40">
-                        <td className="py-2.5 px-2 text-cyan-300 font-semibold">{t.name}</td>
-                        <td className="py-2.5 px-2 text-slate-400">{t.run_type}</td>
-                        <td className="py-2.5 px-2 text-emerald-400">{t.latency_ms} ms</td>
-                        <td className="py-2.5 px-2 text-slate-300">{t.tokens?.total_tokens || 0} tok</td>
-                        <td className="py-2.5 px-2 text-slate-400 truncate max-w-xs">
-                          {JSON.stringify(t.outputs)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </article>
+            )}
 
-            {/* Audit Trail */}
-            <article className="rounded-xl border border-slate-800 bg-[#0c1322] p-5 space-y-3">
-              <h3 className="text-sm font-bold text-slate-100 font-mono">Audit Trail (Nhật Ký Kiểm Toán Bất Biến)</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse font-mono text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-[10px] text-slate-400 uppercase">
-                      <th className="py-2.5 px-2">Thời Điểm</th>
-                      <th className="py-2.5 px-2">Actor</th>
-                      <th className="py-2.5 px-2">Sự Kiện</th>
-                      <th className="py-2.5 px-2">Chi Tiết</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/70">
-                    {(monitorData.audit || []).map((a: any) => (
-                      <tr key={a.id} className="hover:bg-slate-900/40">
-                        <td className="py-2.5 px-2 text-slate-400">
-                          {a.ts ? new Date(a.ts * 1000).toLocaleString('vi-VN') : ''}
-                        </td>
-                        <td className="py-2.5 px-2 text-slate-300">{a.actor}</td>
-                        <td className="py-2.5 px-2 text-cyan-300 font-semibold">{a.event}</td>
-                        <td className="py-2.5 px-2 text-slate-400">{a.detail}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* ADMIN TAB: CONSOLIDATED ACTIVITY LOGS */}
+            {adminTab === 'activity' && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                    <h3 className="font-bold text-sm text-slate-200">
+                      Nhật Ký Hoạt Động Toàn Hệ Thống & Truy Vết
+                    </h3>
+
+                    {/* Filter controls */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={activityTeamFilter}
+                        onChange={(e: any) => setActivityTeamFilter(e.target.value)}
+                        className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                      >
+                        <option value="all">Tất cả đội</option>
+                        <option value="execution">Đội Thực Thi (Execution)</option>
+                        <option value="research">Đội Nghiên Cứu (Research)</option>
+                        <option value="security">Bảo Mật & Rủi Ro (Security)</option>
+                      </select>
+
+                      <select
+                        value={activityStatusFilter}
+                        onChange={(e: any) => setActivityStatusFilter(e.target.value)}
+                        className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                      >
+                        <option value="all">Tất cả trạng thái</option>
+                        <option value="running">Đang chạy</option>
+                        <option value="waiting">Đang chờ</option>
+                        <option value="completed">Hoàn tất</option>
+                        <option value="error">Lỗi</option>
+                      </select>
+
+                      <input
+                        type="text"
+                        value={activitySearchQuery}
+                        onChange={(e) => setActivitySearchQuery(e.target.value)}
+                        placeholder="Tìm ID tín hiệu / job / cycle..."
+                        className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1 text-xs text-slate-200 font-mono placeholder-slate-500"
+                      />
+                    </div>
+                  </div>
+
+                  {filteredActivities.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500 font-mono text-xs">
+                      Không tìm thấy bản ghi hoạt động nào phù hợp với bộ lọc.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs font-mono">
+                        <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
+                          <tr>
+                            <th className="p-3">THỜI ĐIỂM</th>
+                            <th className="p-3">ĐỘI PHỤ TRÁCH</th>
+                            <th className="p-3">SỰ KIỆN</th>
+                            <th className="p-3">TÁC NHÂN</th>
+                            <th className="p-3">TRẠNG THÁI</th>
+                            <th className="p-3">CHI TIẾT & TRUY VẾT ID</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {filteredActivities.slice(0, 100).map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-900/40">
+                              <td className="p-3 text-slate-400 whitespace-nowrap">
+                                {new Date(item.ts * 1000).toLocaleTimeString()}
+                              </td>
+                              <td className="p-3">
+                                <span
+                                  className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                    item.team === 'execution'
+                                      ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/40'
+                                      : item.team === 'research'
+                                      ? 'bg-amber-950 text-amber-300 border border-amber-800/40'
+                                      : 'bg-purple-950 text-purple-300 border border-purple-800/40'
+                                  }`}
+                                >
+                                  {item.team.toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="p-3 font-semibold text-slate-200">{item.event}</td>
+                              <td className="p-3 text-slate-400">{item.actor}</td>
+                              <td className="p-3">
+                                <span
+                                  className={`rounded px-1.5 py-0.5 text-[10px] uppercase font-bold ${
+                                    item.status === 'completed'
+                                      ? 'bg-emerald-950 text-emerald-300'
+                                      : item.status === 'waiting'
+                                      ? 'bg-amber-950 text-amber-300'
+                                      : item.status === 'running'
+                                      ? 'bg-cyan-950 text-cyan-300 animate-pulse'
+                                      : 'bg-rose-950 text-rose-300'
+                                  }`}
+                                >
+                                  {item.status}
+                                </span>
+                              </td>
+                              <td className="p-3 text-slate-300 max-w-sm truncate" title={item.detail}>
+                                {item.detail}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-            </article>
-          </div>
+            )}
+
+            {/* ADMIN TAB: LANGSMITH TRACING */}
+            {adminTab === 'tracing' && (
+              <div className="space-y-6">
+                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-slate-200">LangSmith Tracing Telemetry</span>
+                      <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                        {tracingData.project}
+                      </span>
+                    </div>
+
+                    <span
+                      className={`rounded px-2 py-0.5 text-[10px] font-mono ${
+                        tracingData.langsmith_connected
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
+                          : 'bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      {tracingData.langsmith_connected ? 'CONNECTED TO CLOUD' : 'OFFLINE BUFFER MODE'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
+                    <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
+                      <span className="text-slate-500 block text-[10px]">TỔNG TRACES ĐÃ GHI</span>
+                      <span className="text-lg font-bold text-slate-100 mt-1">{tracingData.total_traces_recorded}</span>
+                    </div>
+                    <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
+                      <span className="text-slate-500 block text-[10px]">TRUY VẾT LANGGRAPH</span>
+                      <span className="text-lg font-bold text-cyan-300 mt-1">Bật (StateGraph)</span>
+                    </div>
+                    <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
+                      <span className="text-slate-500 block text-[10px]">VERCEL AI SDK 6</span>
+                      <span className="text-lg font-bold text-amber-300 mt-1">Traced (ToolLoop)</span>
+                    </div>
+                    <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
+                      <span className="text-slate-500 block text-[10px]">BẢO MẬT BÍ MẬT</span>
+                      <span className="text-lg font-bold text-emerald-400 mt-1">Sanitized [REDACTED]</span>
+                    </div>
+                  </div>
+
+                  {/* Recent trace events */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-slate-300">Các vết suy luận gần nhất:</h4>
+                    {tracingData.recent_traces?.length === 0 ? (
+                      <div className="p-4 text-center text-slate-500 font-mono text-xs">
+                        Chưa có trace event nào được ghi. Khi AI hoặc LangGraph chạy, vết sự kiện sẽ hiển thị ở đây.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {tracingData.recent_traces.map((t: any, idx: number) => (
+                          <div
+                            key={idx}
+                            className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded bg-slate-950/60 border border-slate-800/80 font-mono text-xs"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-cyan-400 font-bold">{t.run_type || 'llm'}</span>
+                              <span className="text-slate-300">{t.name}</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-slate-400 text-[11px]">
+                              <span>Độ trễ: {Number(t.latency_ms || 0).toFixed(1)}ms</span>
+                              <span>Tokens: {(t.prompt_tokens || 0) + (t.completion_tokens || 0)}</span>
+                              <span className={t.status === 'success' ? 'text-emerald-400' : 'text-rose-400'}>
+                                {t.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ADMIN TAB: NEWS BLACKOUT */}
+            {adminTab === 'news' && (
+              <div className="space-y-6">
+                <div className="rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
+                  <h3 className="font-bold text-sm text-slate-200">Thêm Sự Kiện Lịch Kinh Tế USD High Impact</h3>
+                  <p className="text-xs text-slate-400">
+                    Cơ chế bảo vệ tài khoản: Tự động chặn mở lệnh mới trong khoảng ±15 phút trước và sau thời điểm ra tin.
+                  </p>
+
+                  <form onSubmit={handleAddNews} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <input
+                      type="text"
+                      required
+                      value={newsTitle}
+                      onChange={(e) => setNewsTitle(e.target.value)}
+                      placeholder="Tên tin (ví dụ: US Non-Farm Payrolls)"
+                      className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 font-mono"
+                    />
+
+                    <input
+                      type="datetime-local"
+                      value={newsWhen}
+                      onChange={(e) => setNewsWhen(e.target.value)}
+                      className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 font-mono"
+                    />
+
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2 text-xs font-mono transition-colors"
+                    >
+                      + Thêm Khung Giờ Chặn Lệnh
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
 
-      <footer className="border-t border-slate-900 py-3 text-center text-[11px] text-slate-500 font-mono">
-        ZUPIRUS QUANT LAB · SYSTEMATIC THINKING · MEASURED EXECUTION
+      {/* Footer */}
+      <footer className="border-t border-slate-800/80 bg-[#080d1a] px-6 py-4 text-center text-xs text-slate-500 font-mono">
+        ZUPIRUS Quant Lab · Phiên bản 0.2.0 · Khóa cứng giao dịch tiền thật · PostgreSQL + TimescaleDB + Redis Streams + LangSmith + Vercel AI SDK 6
       </footer>
     </div>
   );
 };
+
+export default App;

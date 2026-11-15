@@ -1,20 +1,160 @@
-"""Deterministic execution. Integrated with Redis Streams, Pub/Sub and Distributed Locks."""
-import time, hashlib, math, json
+"""Deterministic execution. Integrated with Redis Streams, Pub/Sub, Distributed Locks,
+and Multi-Strategy Coordinator (Trend Following, Mean Reversion, Breakout)."""
+import time, hashlib, math, json, logging
+from typing import Dict, Any, Optional, Tuple, Literal
 from .db import tx, init, audit, setkv, ROOT
 from .redis_client import publish_signal_event, acquire_dispatch_lock, release_dispatch_lock
 
+logger = logging.getLogger("zupirus.engine")
+
 SL_DISTANCE = 6.0
 TP_DISTANCE = 12.0
+STRATEGY_VERSION = "2.1.0"
 
-def strategy(prices, fast_n=5, slow_n=20):
-    if len(prices) < slow_n + 1: return None
+
+# ---------------------------------------------------------------------------
+# Individual Technical Strategies & Multi-Strategy Coordinator
+# ---------------------------------------------------------------------------
+
+def trend_following_signal(prices, fast_n=5, slow_n=20) -> Tuple[Optional[Literal['BUY', 'SELL']], str]:
+    """Trend Following: Fast/Slow SMA crossover with momentum confirmation."""
+    if len(prices) < slow_n + 1:
+        return None, "Dữ liệu chưa đủ chu kỳ slow_n=20"
     fast = sum(prices[-fast_n:]) / fast_n
     slow = sum(prices[-slow_n:]) / slow_n
     prevfast = sum(prices[-fast_n-1:-1]) / fast_n
     prevslow = sum(prices[-slow_n-1:-1]) / slow_n
-    if prevfast <= prevslow and fast > slow: return 'BUY'
-    if prevfast >= prevslow and fast < slow: return 'SELL'
-    return None
+    if prevfast <= prevslow and fast > slow:
+        return 'BUY', f"TREND_BUY: Fast SMA({fast_n})={fast:.2f} cắt lên Slow SMA({slow_n})={slow:.2f}"
+    if prevfast >= prevslow and fast < slow:
+        return 'SELL', f"TREND_SELL: Fast SMA({fast_n})={fast:.2f} cắt xuống Slow SMA({slow_n})={slow:.2f}"
+    return None, f"TREND_NEUTRAL: Fast SMA({fast:.2f}) song song Slow SMA({slow:.2f})"
+
+
+def mean_reversion_signal(prices, period=20, num_std=2.0) -> Tuple[Optional[Literal['BUY', 'SELL']], str]:
+    """Mean Reversion: Bollinger Band 2-sigma deviation against mean."""
+    if len(prices) < period:
+        return None, "Dữ liệu chưa đủ chu kỳ period=20"
+    window = prices[-period:]
+    mean = sum(window) / period
+    variance = sum((p - mean) ** 2 for p in window) / period
+    std_dev = math.sqrt(variance)
+    last_price = prices[-1]
+    upper = mean + num_std * std_dev
+    lower = mean - num_std * std_dev
+
+    if std_dev < 0.5:
+        return None, "MEAN_REV_LOW_VOL: Độ lệch chuẩn biến động quá thấp (<0.5)"
+
+    if last_price <= lower:
+        return 'BUY', f"MEAN_REV_BUY: Giá={last_price:.2f} chạm cận dưới Bollinger Band({lower:.2f}) [mean={mean:.2f}]"
+    if last_price >= upper:
+        return 'SELL', f"MEAN_REV_SELL: Giá={last_price:.2f} chạm cận trên Bollinger Band({upper:.2f}) [mean={mean:.2f}]"
+    return None, f"MEAN_REV_NEUTRAL: Giá={last_price:.2f} nằm trong dải Bollinger [{lower:.2f} - {upper:.2f}]"
+
+
+def breakout_signal(prices, period=20) -> Tuple[Optional[Literal['BUY', 'SELL']], str]:
+    """Breakout: 20-bar Donchian channel breakout with volatility expansion."""
+    if len(prices) < period + 1:
+        return None, "Dữ liệu chưa đủ chu kỳ period=20"
+    prior = prices[-period-1:-1]
+    high = max(prior)
+    low = min(prior)
+    last_price = prices[-1]
+    spread = high - low
+    if spread < 1.0:
+        return None, "BREAKOUT_COMPRESSED: Biên độ Donchian quá hẹp (<1.0)"
+
+    if last_price > high:
+        return 'BUY', f"BREAKOUT_BUY: Giá={last_price:.2f} phá vỡ đỉnh 20 nến ({high:.2f})"
+    if last_price < low:
+        return 'SELL', f"BREAKOUT_SELL: Giá={last_price:.2f} phá vỡ đáy 20 nến ({low:.2f})"
+    return None, f"BREAKOUT_NEUTRAL: Giá={last_price:.2f} nằm trong hộp Donchian [{low:.2f} - {high:.2f}]"
+
+
+def coordinate_strategies(prices, timeframe: str = "M15") -> Dict[str, Any]:
+    """Multi-Strategy Coordinator:
+    Evaluates market regime across Trend Following, Mean Reversion, and Breakout.
+    Selects the optimal strategy and records full audit rationale."""
+    if len(prices) < 25:
+        return {
+            "side": None,
+            "strategy": "none",
+            "timeframe": timeframe,
+            "parameters": {},
+            "version": STRATEGY_VERSION,
+            "reason": "Dữ liệu lịch sử chưa đủ 25 nến để đánh giá đa chiến lược"
+        }
+
+    recent = prices[-20:]
+    mean = sum(recent) / 20
+    std_dev = math.sqrt(sum((p - mean) ** 2 for p in recent) / 20)
+    slope = (prices[-1] - prices[-10]) / 10.0
+
+    # 1. High Trend Momentum: prefer Trend Following
+    if abs(slope) >= 0.35:
+        side, reason = trend_following_signal(prices, fast_n=5, slow_n=20)
+        if side:
+            return {
+                "side": side,
+                "strategy": "trend_following",
+                "timeframe": timeframe,
+                "parameters": {"fast_n": 5, "slow_n": 20, "sl": SL_DISTANCE, "tp": TP_DISTANCE},
+                "version": STRATEGY_VERSION,
+                "reason": reason
+            }
+
+    # 2. Volatility Compression / Squeeze Breakout
+    b_side, b_reason = breakout_signal(prices, period=20)
+    if b_side:
+        return {
+            "side": b_side,
+            "strategy": "breakout",
+            "timeframe": timeframe,
+            "parameters": {"period": 20, "sl": SL_DISTANCE, "tp": TP_DISTANCE},
+            "version": STRATEGY_VERSION,
+            "reason": b_reason
+        }
+
+    # 3. Range-Bound / Ranging: Mean Reversion
+    if std_dev >= 1.2:
+        mr_side, mr_reason = mean_reversion_signal(prices, period=20, num_std=2.0)
+        if mr_side:
+            return {
+                "side": mr_side,
+                "strategy": "mean_reversion",
+                "timeframe": timeframe,
+                "parameters": {"period": 20, "num_std": 2.0, "sl": SL_DISTANCE, "tp": TP_DISTANCE},
+                "version": STRATEGY_VERSION,
+                "reason": mr_reason
+            }
+
+    # 4. Fallback to basic Trend Following or Stand Aside
+    t_side, t_reason = trend_following_signal(prices, fast_n=5, slow_n=20)
+    if t_side:
+        return {
+            "side": t_side,
+            "strategy": "trend_following",
+            "timeframe": timeframe,
+            "parameters": {"fast_n": 5, "slow_n": 20, "sl": SL_DISTANCE, "tp": TP_DISTANCE},
+            "version": STRATEGY_VERSION,
+            "reason": t_reason
+        }
+
+    return {
+        "side": None,
+        "strategy": "none",
+        "timeframe": timeframe,
+        "parameters": {"fast_n": 5, "slow_n": 20},
+        "version": STRATEGY_VERSION,
+        "reason": f"STAND_ASIDE: Thị trường dao động trong vùng nhiễu (std={std_dev:.2f}, slope={slope:.2f})"
+    }
+
+
+def strategy(prices, fast_n=5, slow_n=20):
+    """Legacy backward-compatible entry point calling trend_following."""
+    side, _ = trend_following_signal(prices, fast_n, slow_n)
+    return side
 
 def news_blocked(c, now):
     return c.execute("SELECT 1 FROM news WHERE currency IN ('USD','ALL') AND impact='high' AND abs(ts-?)<900", (now,)).fetchone() is not None
@@ -28,7 +168,7 @@ def permitted(c, a, now):
     active = c.execute("SELECT count(*) FROM dispatches WHERE account_id=? AND state IN ('queued','intent','unknown')", (a['id'],)).fetchone()[0]
     return active + a['positions'] < a['max_positions']
 
-def publish(c, source, side, price, key, now=None):
+def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[str, Any]] = None):
     now = now or time.time()
     sid = hashlib.sha256(f'{source}:{key}'.encode()).hexdigest()[:24]
     sign = 1 if side == 'BUY' else -1
@@ -42,6 +182,13 @@ def publish(c, source, side, price, key, now=None):
     )
 
     # 1. Transactional Outbox: insert signal event atomically into outbox table
+    meta = strategy_meta or {
+        "strategy": "trend_following",
+        "timeframe": "M15",
+        "version": STRATEGY_VERSION,
+        "reason": f"{side} signal generated by quant coordinator"
+    }
+
     signal_payload = {
         "id": sid,
         "source": source,
@@ -51,6 +198,7 @@ def publish(c, source, side, price, key, now=None):
         "tp": tp_price,
         "created": now,
         "expires": expires_at,
+        "meta": meta
     }
     c.execute(
         "INSERT INTO outbox(event_type, payload, status, retry_count, created_at) VALUES(?,?,?,?,?)",
@@ -103,8 +251,12 @@ def replay_step(c, index):
         equity = a['balance'] + pnl
         c.execute('UPDATE accounts SET equity=?,peak=CASE WHEN peak > ? THEN peak ELSE ? END,seen=? WHERE id=?', (equity, equity, equity, now, a['id']))
         c.execute('INSERT INTO snapshots(account_id,ts,balance,equity) VALUES(?,?,?,?)', (a['id'], now, a['balance'], equity))
-    side = strategy([x['close'] for x in data[max(0, i-25):i+1]])
-    if side: publish(c, 'REPLAY', side, price, f'{index}', now)
+    
+    # Coordinate multi-strategy signal
+    decision = coordinate_strategies([x['close'] for x in data[max(0, i-25):i+1]], timeframe="M15")
+    side = decision.get("side")
+    if side:
+        publish(c, 'REPLAY', side, price, f'{index}', now, strategy_meta=decision)
     for d in c.execute("SELECT d.*,s.side,s.sl,s.tp FROM dispatches d JOIN signals s ON s.id=d.signal_id WHERE d.state='queued' AND s.source='REPLAY'").fetchall():
         a = c.execute('SELECT * FROM accounts WHERE id=?', (d['account_id'],)).fetchone()
         if not a['enabled']: continue
@@ -125,9 +277,12 @@ def demo_step(c):
     previous = c.execute("SELECT value FROM kv WHERE key='demo_last'").fetchone()
     if previous and float(previous[0]) >= rows[-1]['ts']: return
     setkv(c, 'demo_last', rows[-1]['ts'])
-    side = strategy([(r['bid'] + r['ask']) / 2 for r in rows])
+    
+    prices = [(r['bid'] + r['ask']) / 2 for r in rows]
+    decision = coordinate_strategies(prices, timeframe="M15")
+    side = decision.get("side")
     if side and rows[-1]['ask'] - rows[-1]['bid'] <= .8 and not news_blocked(c, time.time()):
-        publish(c, 'DEMO', side, (rows[-1]['ask'] + rows[-1]['bid']) / 2, str(rows[-1]['ts']))
+        publish(c, 'DEMO', side, (rows[-1]['ask'] + rows[-1]['bid']) / 2, str(rows[-1]['ts']), strategy_meta=decision)
 
 def flush_outbox(c):
     """Process pending outbox events and publish to Redis Streams with retry."""

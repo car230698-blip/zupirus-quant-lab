@@ -357,3 +357,86 @@ def test_migration_fresh_and_legacy_database_upgrade():
                 pass
 
 
+def test_multi_strategy_coordinator():
+    """Verify Multi-Strategy Coordinator handles Trend Following, Mean Reversion, Breakout, and Stand Aside."""
+    from app.engine import (
+        trend_following_signal,
+        mean_reversion_signal,
+        breakout_signal,
+        coordinate_strategies,
+        STRATEGY_VERSION,
+    )
+
+    # 1. Trend Following test series: rising slope with upward crossover
+    rising = [2650.0] * 20 + [2650.0, 2650.0, 2650.5]
+    t_side, t_reason = trend_following_signal(rising, fast_n=5, slow_n=20)
+    assert t_side == 'BUY'
+    assert 'TREND_BUY' in t_reason
+
+    falling = [2650.0] * 20 + [2650.0, 2650.0, 2649.5]
+    t_side_fall, t_reason_fall = trend_following_signal(falling, fast_n=5, slow_n=20)
+    assert t_side_fall == 'SELL'
+    assert 'TREND_SELL' in t_reason_fall
+
+    # 2. Mean Reversion test series: oscillating range where last price drops below 2-sigma lower band
+    import math
+    base = [2650.0 + math.sin(i / 2.0) * 3.0 for i in range(25)]
+    # Dip sharply below lower band
+    base[-1] = 2640.0
+    mr_side, mr_reason = mean_reversion_signal(base, period=20, num_std=2.0)
+    assert mr_side == 'BUY'
+    assert 'MEAN_REV_BUY' in mr_reason
+
+    # 3. Breakout test series: range with spread >= 1.0 followed by strong breakout
+    box = [2650.0 + (i % 3) * 1.5 for i in range(25)]
+    box[-1] = 2660.0  # Breaks out above 2653.0
+    b_side, b_reason = breakout_signal(box, period=20)
+    assert b_side == 'BUY'
+    assert 'BREAKOUT_BUY' in b_reason
+
+    # 4. Multi-Strategy Coordinator evaluation
+    decision = coordinate_strategies(box, timeframe="M15")
+    assert decision["side"] in ('BUY', 'SELL')
+    assert decision["strategy"] in ("trend_following", "breakout", "mean_reversion")
+    assert decision["version"] == STRATEGY_VERSION
+    assert "parameters" in decision
+    assert len(decision["reason"]) > 0
+
+    # 5. Stand aside regime
+    flat = [2650.0] * 30
+    flat_decision = coordinate_strategies(flat, timeframe="M15")
+    assert flat_decision["side"] is None
+    assert "STAND_ASIDE" in flat_decision["reason"]
+
+
+def test_spa_fallback_and_api_pure_json(client):
+    """Verify SPA fallback returns HTML for client routes but pure JSON 404/401 for /api/*."""
+    # 1. Root and SPA client routes return HTML (status 200)
+    root_resp = client.get('/')
+    assert root_resp.status_code == 200
+    assert 'text/html' in root_resp.headers.get('content-type', '')
+
+    spa_resp = client.get('/overview')
+    assert spa_resp.status_code == 200
+    assert 'text/html' in spa_resp.headers.get('content-type', '')
+
+    admin_spa = client.get('/admin/approvals')
+    assert admin_spa.status_code == 200
+    assert 'text/html' in admin_spa.headers.get('content-type', '')
+
+    # 2. Non-existent API route MUST return 404 JSON, NEVER HTML
+    api_404 = client.get('/api/does_not_exist_endpoint')
+    assert api_404.status_code == 404
+    assert 'application/json' in api_404.headers.get('content-type', '')
+    data = api_404.json()
+    assert 'detail' in data
+
+    # 3. Unauthenticated API route MUST return 401 JSON, NEVER HTML
+    api_unauth = client.get('/api/admin/monitor')
+    assert api_unauth.status_code == 401
+    assert 'application/json' in api_unauth.headers.get('content-type', '')
+    unauth_data = api_unauth.json()
+    assert 'detail' in unauth_data
+
+
+

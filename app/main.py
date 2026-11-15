@@ -1,4 +1,5 @@
 import os, time, secrets, json, sqlite3, re
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Literal, List, Dict, Any, Optional
 from fastapi import FastAPI, Request, HTTPException, Depends
@@ -581,8 +582,52 @@ def readyz():
         return JSONResponse(status_code=503, content=payload)
     return payload
 
-app.mount('/assets', StaticFiles(directory=ROOT / 'web'), name='assets')
+DIST_DIR = ROOT / 'dist'
+WEB_DIR = ROOT / 'web'
 
-@app.get('/')
-def index():
-    return FileResponse(ROOT / 'web/index.html')
+class CombinedStaticFiles(StaticFiles):
+    """Static file provider that serves from Vite dist/assets with seamless fallback to web/."""
+    def __init__(self, primary_dir, fallback_dir=None):
+        super().__init__(directory=primary_dir)
+        self.fallback_dir = Path(fallback_dir) if fallback_dir else None
+
+    def lookup_path(self, path: str):
+        full_path, stat_result = super().lookup_path(path)
+        if stat_result is None and self.fallback_dir:
+            fallback_file = (self.fallback_dir / path).resolve()
+            if fallback_file.is_file():
+                try:
+                    return str(fallback_file), os.stat(fallback_file)
+                except (os.error, ValueError):
+                    pass
+        return full_path, stat_result
+
+# Mount static asset directory
+if (DIST_DIR / 'assets').exists():
+    app.mount('/assets', CombinedStaticFiles(DIST_DIR / 'assets', WEB_DIR), name='assets')
+elif WEB_DIR.exists():
+    app.mount('/assets', StaticFiles(directory=WEB_DIR), name='assets')
+
+@app.get('/{full_path:path}')
+async def spa_fallback(request: Request, full_path: str):
+    # API endpoints, health endpoints, or MT5 EA endpoints must NEVER return HTML
+    if full_path.startswith('api/') or full_path in ('healthz', 'readyz', 'api'):
+        return JSONResponse({'detail': f'Not Found: {full_path}'}, status_code=404)
+
+    # 1. Direct static file in dist (e.g. index.html, favicon, robots.txt, metadata.json)
+    if DIST_DIR.exists():
+        direct_file = DIST_DIR / full_path
+        if full_path and direct_file.is_file():
+            return FileResponse(direct_file)
+        if (DIST_DIR / 'index.html').exists():
+            return FileResponse(DIST_DIR / 'index.html')
+
+    # 2. Fallback to web directory
+    if WEB_DIR.exists():
+        direct_file = WEB_DIR / full_path
+        if full_path and direct_file.is_file():
+            return FileResponse(direct_file)
+        if (WEB_DIR / 'index.html').exists():
+            return FileResponse(WEB_DIR / 'index.html')
+
+    return JSONResponse({'detail': 'Not Found'}, status_code=404)
