@@ -37,7 +37,7 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
             Ứng Viên Walk-Forward #{jobId.slice(0, 8)}
           </h3>
           <span className="rounded bg-amber-950/60 border border-amber-600/50 px-2 py-0.5 text-[10px] font-mono text-amber-300 font-bold">
-            needsApproval: true
+            needsApproval: {needsApproval ? 'true' : 'false'}
           </span>
         </div>
         <span className="text-slate-400 font-mono text-[11px]">ToolLoopAgent Review</span>

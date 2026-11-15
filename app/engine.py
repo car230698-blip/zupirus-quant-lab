@@ -41,18 +41,26 @@ def publish(c, source, side, price, key, now=None):
         (sid, source, side, price, sl_price, tp_price, now, expires_at)
     )
 
-    # 1. Publish to Redis Streams & Pub/Sub for real-time dispatch to connected EA subscribers
+    # 1. Transactional Outbox: insert signal event atomically into outbox table
+    signal_payload = {
+        "id": sid,
+        "source": source,
+        "side": side,
+        "price": price,
+        "sl": sl_price,
+        "tp": tp_price,
+        "created": now,
+        "expires": expires_at,
+    }
+    c.execute(
+        "INSERT INTO outbox(event_type, payload, status, retry_count, created_at) VALUES(?,?,?,?,?)",
+        ("signal_created", json.dumps(signal_payload), "pending", 0, now)
+    )
+
+    # Publish to Redis Streams & Pub/Sub immediately if connection available
     try:
-        publish_signal_event({
-            "id": sid,
-            "source": source,
-            "side": side,
-            "price": price,
-            "sl": sl_price,
-            "tp": tp_price,
-            "created": now,
-            "expires": expires_at,
-        })
+        publish_signal_event(signal_payload)
+        c.execute("UPDATE outbox SET status='published', published_at=? WHERE event_type='signal_created' AND status='pending' AND payload LIKE ?", (now, f'%{sid}%'))
     except Exception:
         pass
 
@@ -87,13 +95,13 @@ def replay_step(c, index):
         hit = (price - p['sl']) * sign <= 0 or (price - p['tp']) * sign >= 0
         if hit or i == 0:
             pnl = (price - p['entry']) * sign * p['lots'] * 100 - p['lots'] * 7
-            c.execute('UPDATE accounts SET balance=balance+?,positions=max(0,positions-1) WHERE id=?', (pnl, p['account_id']))
+            c.execute('UPDATE accounts SET balance=balance+?,positions=CASE WHEN positions > 0 THEN positions - 1 ELSE 0 END WHERE id=?', (pnl, p['account_id']))
             c.execute('DELETE FROM sim_positions WHERE dispatch_id=?', (p['dispatch_id'],))
             audit(c, 'replay', 'position_closed', {'dispatch': p['dispatch_id'], 'pnl': round(pnl, 2)})
     for a in c.execute("SELECT * FROM accounts WHERE mode='REPLAY'").fetchall():
         pnl = sum((price - p['entry']) * (1 if p['side'] == 'BUY' else -1) * p['lots'] * 100 for p in c.execute('SELECT * FROM sim_positions WHERE account_id=?', (a['id'],)))
         equity = a['balance'] + pnl
-        c.execute('UPDATE accounts SET equity=?,peak=max(peak,?),seen=? WHERE id=?', (equity, equity, now, a['id']))
+        c.execute('UPDATE accounts SET equity=?,peak=CASE WHEN peak > ? THEN peak ELSE ? END,seen=? WHERE id=?', (equity, equity, equity, now, a['id']))
         c.execute('INSERT INTO snapshots(account_id,ts,balance,equity) VALUES(?,?,?,?)', (a['id'], now, a['balance'], equity))
     side = strategy([x['close'] for x in data[max(0, i-25):i+1]])
     if side: publish(c, 'REPLAY', side, price, f'{index}', now)
@@ -121,9 +129,24 @@ def demo_step(c):
     if side and rows[-1]['ask'] - rows[-1]['bid'] <= .8 and not news_blocked(c, time.time()):
         publish(c, 'DEMO', side, (rows[-1]['ask'] + rows[-1]['bid']) / 2, str(rows[-1]['ts']))
 
+def flush_outbox(c):
+    """Process pending outbox events and publish to Redis Streams with retry."""
+    rows = c.execute("SELECT id, event_type, payload, retry_count FROM outbox WHERE status='pending' ORDER BY id LIMIT 20").fetchall()
+    for row in rows:
+        oid, etype, payload_raw, retries = row['id'], row['event_type'], row['payload'], row['retry_count']
+        try:
+            payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
+            if etype == "signal_created":
+                publish_signal_event(payload)
+            c.execute("UPDATE outbox SET status='published', published_at=? WHERE id=?", (time.time(), oid))
+        except Exception as e:
+            c.execute("UPDATE outbox SET retry_count=retry_count+1, error=? WHERE id=?", (str(e), oid))
+
+
 def tick():
     with tx() as c:
         now = time.time()
+        flush_outbox(c)
         c.execute("UPDATE dispatches SET state='expired',updated=? WHERE state='queued' AND signal_id IN (SELECT id FROM signals WHERE expires<?)", (now, now))
         row = c.execute("SELECT value FROM kv WHERE key='replay_index'").fetchone()
         replay_step(c, int(row[0]) if row else 0)

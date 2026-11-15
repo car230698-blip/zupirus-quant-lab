@@ -74,9 +74,14 @@ def get_checkpointer():
             conn_str = DATABASE_URL
             if conn_str.startswith("postgres://"):
                 conn_str = "postgresql://" + conn_str[11:]
-            return PostgresSaver.from_conn_string(conn_str)
+            saver = PostgresSaver.from_conn_string(conn_str)
+            try:
+                saver.setup()
+            except Exception:
+                pass
+            return saver
         except Exception as e:
-            pass
+            logger.warning("PostgresSaver initialization error (%s); falling back to sqlite checkpointer.", e)
     from langgraph.checkpoint.sqlite import SqliteSaver
     return SqliteSaver.from_conn_string(str(DATA / 'research.sqlite3'))
 
