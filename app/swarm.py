@@ -215,3 +215,4 @@ def trigger_swarm_cycle(c=None) -> Dict[str, Any]:
         return _execute(c)
     with tx() as conn:
         return _execute(conn)
+

@@ -237,3 +237,4 @@ def run_monte_carlo_simulation(
         "median_final_equity": median_final_equity,
         "robustness_score": round(max(0.0, min(100.0, 100.0 - (dd_95 * 2.0) - (risk_of_ruin_pct * 3.0))), 1),
     }
+
