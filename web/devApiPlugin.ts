@@ -319,6 +319,25 @@ export function zupirusApiPlugin(): Plugin {
     },
   ];
 
+  const mockAdminUsers: Array<Record<string, any>> = [
+    { id: 'usr_admin', email: 'admin@zupirus.local', role: 'admin', active: true, created: '2026-03-01T00:00:00Z', last_login: '2026-11-15T12:00:00Z' },
+    { id: 'usr_customer_demo', email: 'trader@client.org', role: 'customer', active: true, created: '2026-03-05T08:00:00Z', last_login: null }
+  ];
+
+  const mockGeminiKeys: Array<Record<string, any>> = [
+    { id: 'gem_1', name: 'Primary Gemini Flash #1', key_masked: 'AQ.Ab8...XVA', is_active: true, requests_count: 42, last_used: '2026-11-15T14:00:00Z', created: '2026-11-15T00:00:00Z' },
+    { id: 'gem_2', name: 'Gemini Flash Failover #2', key_masked: 'AQ.Ab8...s_A', is_active: true, requests_count: 18, last_used: '2026-11-15T13:45:00Z', created: '2026-11-15T00:00:00Z' },
+    { id: 'gem_3', name: 'Gemini Reserve #3', key_masked: 'AQ.Ab8...rViIw', is_active: true, requests_count: 5, last_used: '2026-11-15T11:20:00Z', created: '2026-11-15T00:00:00Z' },
+    { id: 'gem_4', name: 'Gemini Reserve #4', key_masked: 'AQ.Ab8...1yFfA', is_active: true, requests_count: 2, last_used: '2026-11-15T09:10:00Z', created: '2026-11-15T00:00:00Z' },
+    { id: 'gem_5', name: 'Gemini Reserve #5', key_masked: 'AQ.Ab8...jihSAA', is_active: true, requests_count: 0, last_used: null, created: '2026-11-15T00:00:00Z' }
+  ];
+
+  const mockHindsightMemories: Array<Record<string, any>> = [
+    { id: 'mem_sem_risk', category: 'semantic', content: 'Chiến lược XAUUSD M15 yêu cầu tỷ lệ R:R tối thiểu 1:2.0 (SL=6.0, TP=12.0) với điều kiện lọc biến động ATR và chặn vào lệnh ±15 phút quanh tin tức kinh tế quan trọng.', metadata: { domain: 'risk_management' }, created: '2026-11-15T08:00:00Z' },
+    { id: 'mem_sem_wfo', category: 'semantic', content: 'Quy trình Walk-Forward Optimization (WFO) yêu cầu kiểm định Rolling Folds với Out-of-Sample (OOS) tối thiểu 3 fold, Sharpe > 1.0 và max drawdown dưới 5%.', metadata: { domain: 'wfo_standard' }, created: '2026-11-15T08:00:00Z' },
+    { id: 'mem_ref_cand', category: 'reflective', content: 'Chiến lược Mean Reversion có hiệu quả vượt trội trong các phiên Tokyo và đầu London, trong khi Breakout hiệu quả cao nhất vào phiên New York sau 13:30 UTC.', metadata: { source: 'post_mortem_analysis' }, created: '2026-11-15T09:30:00Z' }
+  ];
+
   const auditLogs: Array<Record<string, any>> = [
     {
       id: 4,
@@ -916,6 +935,142 @@ export function zupirusApiPlugin(): Plugin {
         event: 'calendar_deleted',
         detail: JSON.stringify(removed),
       });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Auto-sync Economic Calendar News
+    if (pathname === '/api/admin/news/sync' && method === 'POST') {
+      const now = nowSec();
+      const synced = [
+        { id: `news_auto_${now}_1`, title: 'US Initial Jobless Claims & Core PPI', currency: 'USD', impact: 'high', ts: now + 3600 * 6 },
+        { id: `news_auto_${now}_2`, title: 'US Retail Sales & Consumer Sentiment', currency: 'USD', impact: 'high', ts: now + 3600 * 30 },
+      ];
+      news.push(...synced);
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts: now,
+        actor: 'usr_admin',
+        event: 'calendar_auto_synced',
+        detail: JSON.stringify({ synced_count: synced.length }),
+      });
+      return sendJson(res, 200, { ok: true, synced_count: synced.length, total_events: news.length });
+    }
+
+    // Admin Users Management Endpoints
+    if (pathname === '/api/admin/users' && method === 'GET') {
+      return sendJson(res, 200, { users: mockAdminUsers });
+    }
+    if (pathname === '/api/admin/users' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const newUser = {
+        id: `usr_${crypto.randomBytes(6).toString('hex')}`,
+        email: body.email,
+        role: body.role || 'customer',
+        active: true,
+        created: new Date().toISOString(),
+        last_login: null,
+      };
+      mockAdminUsers.unshift(newUser);
+      return sendJson(res, 200, { ok: true, user: newUser });
+    }
+    const userRoleMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/role$/);
+    if (userRoleMatch && method === 'PUT') {
+      const uid = userRoleMatch[1];
+      const body = await readJsonBody(req);
+      const u = mockAdminUsers.find((x) => x.id === uid);
+      if (u) u.role = body.role;
+      return sendJson(res, 200, { ok: true, role: body.role });
+    }
+    const userPassMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)\/password$/);
+    if (userPassMatch && method === 'PUT') {
+      return sendJson(res, 200, { ok: true });
+    }
+    const userDelMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
+    if (userDelMatch && method === 'DELETE') {
+      const uid = userDelMatch[1];
+      const idx = mockAdminUsers.findIndex((x) => x.id === uid);
+      if (idx !== -1) mockAdminUsers.splice(idx, 1);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Admin Gemini Keys Pool Endpoints
+    if (pathname === '/api/admin/gemini/keys' && method === 'GET') {
+      return sendJson(res, 200, {
+        keys: mockGeminiKeys,
+        total: mockGeminiKeys.length,
+        active: mockGeminiKeys.filter((k) => k.is_active).length,
+      });
+    }
+    if (pathname === '/api/admin/gemini/keys' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const raw = String(body.key || '').trim();
+      const masked = raw.length > 10 ? `${raw.slice(0, 6)}...${raw.slice(-4)}` : '***';
+      const item = {
+        id: `gem_${crypto.randomBytes(4).toString('hex')}`,
+        name: body.name || `Gemini Key #${mockGeminiKeys.length + 1}`,
+        key_masked: masked,
+        is_active: true,
+        requests_count: 0,
+        last_used: null,
+        created: new Date().toISOString(),
+      };
+      mockGeminiKeys.push(item);
+      return sendJson(res, 200, { ok: true, key: item });
+    }
+    const gemToggleMatch = pathname.match(/^\/api\/admin\/gemini\/keys\/([^/]+)\/toggle$/);
+    if (gemToggleMatch && method === 'PUT') {
+      const kid = gemToggleMatch[1];
+      const k = mockGeminiKeys.find((x) => x.id === kid);
+      if (k) k.is_active = !k.is_active;
+      return sendJson(res, 200, { ok: true, is_active: k?.is_active });
+    }
+    const gemDelMatch = pathname.match(/^\/api\/admin\/gemini\/keys\/([^/]+)$/);
+    if (gemDelMatch && method === 'DELETE') {
+      const kid = gemDelMatch[1];
+      const idx = mockGeminiKeys.findIndex((x) => x.id === kid);
+      if (idx !== -1) mockGeminiKeys.splice(idx, 1);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/admin/gemini/test' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const activeKey = mockGeminiKeys.find((k) => k.is_active) || mockGeminiKeys[0];
+      if (activeKey) {
+        activeKey.requests_count += 1;
+        activeKey.last_used = new Date().toISOString();
+      }
+      return sendJson(res, 200, {
+        success: true,
+        key_used: activeKey ? `${activeKey.name} (${activeKey.key_masked})` : 'N/A',
+        response: `[Gemini Multi-Key Failover Pool Response]: Đã phân tích điều kiện rủi ro cho prompt '${(body.prompt || '').slice(0, 50)}...'. Vùng kháng cự $2,662.00, hỗ trợ $2,645.00. Cơ chế dừng lệnh SL=6.0 / TP=12.0 đảm bảo an toàn vốn.`,
+      });
+    }
+
+    // Admin Hindsight Memory Endpoints
+    if (pathname === '/api/admin/memory' && method === 'GET') {
+      const cat = parsedUrl.searchParams.get('category');
+      const q = parsedUrl.searchParams.get('q');
+      let resMem = [...mockHindsightMemories];
+      if (cat) resMem = resMem.filter((m) => m.category === cat);
+      if (q) resMem = resMem.filter((m) => m.content.toLowerCase().includes(q.toLowerCase()));
+      return sendJson(res, 200, { memories: resMem, total: resMem.length });
+    }
+    if (pathname === '/api/admin/memory' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const mem = {
+        id: `mem_${crypto.randomBytes(6).toString('hex')}`,
+        category: body.category || 'semantic',
+        content: body.content,
+        metadata: body.metadata || {},
+        created: new Date().toISOString(),
+      };
+      mockHindsightMemories.unshift(mem);
+      return sendJson(res, 200, { ok: true, memory: mem });
+    }
+    const memDelMatch = pathname.match(/^\/api\/admin\/memory\/([^/]+)$/);
+    if (memDelMatch && method === 'DELETE') {
+      const mid = memDelMatch[1];
+      const idx = mockHindsightMemories.findIndex((x) => x.id === mid);
+      if (idx !== -1) mockHindsightMemories.splice(idx, 1);
       return sendJson(res, 200, { ok: true });
     }
 

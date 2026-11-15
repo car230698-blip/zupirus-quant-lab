@@ -331,16 +331,21 @@ def test_migration_fresh_and_legacy_database_upgrade():
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tf:
         fresh_path = tf.name
 
+    fresh_conn = None
     try:
         fresh_conn = sqlite3.connect(fresh_path)
         wrapped_fresh = ConnectionWrapper(fresh_conn, is_pg=False)
         run_all_migrations(wrapped_fresh, is_pg=False)
         versions = get_applied_versions(wrapped_fresh)
-        assert versions == [1, 2, 3, 4]
-        fresh_conn.close()
+        assert versions == [1, 2, 3, 4, 5]
     finally:
+        if fresh_conn is not None:
+            fresh_conn.close()
         if os.path.exists(fresh_path):
-            os.remove(fresh_path)
+            try:
+                os.remove(fresh_path)
+            except Exception:
+                pass
 
     # 2. Legacy database scenario: pre-create tables without Timescale partition key, populate data, then run migrations
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tf:
@@ -373,7 +378,7 @@ def test_migration_fresh_and_legacy_database_upgrade():
         # Run migrations on legacy
         run_all_migrations(wrapped_legacy, is_pg=False)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == [1, 2, 3, 4]
+        assert legacy_versions == [1, 2, 3, 4, 5]
 
         # Verify existing data is preserved
         row = legacy_conn.execute("SELECT count(*), bid, ask FROM quotes WHERE source='DEMO'").fetchone()

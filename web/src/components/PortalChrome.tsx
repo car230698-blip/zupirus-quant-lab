@@ -10,13 +10,14 @@ const navigation = {
   admin: [
     ['overview', 'Điều hành', '◫'], ['approvals', 'Phê duyệt', '◇'],
     ['activity', 'Hoạt động agent', '⌁'], ['tracing', 'Truy vết AI', '⊙'],
-    ['news', 'Lịch rủi ro', '≡'],
+    ['news', 'Lịch rủi ro', '≡'], ['users', 'Người dùng', '👥'],
+    ['ai', 'Bộ nhớ & Gemini', '🧠'],
   ],
 };
 
 const pageTitles: Record<Portal, Record<string, string>> = {
   user: { overview: 'Tổng quan danh mục', accounts: 'Tài khoản MT5', orders: 'Lịch sử lệnh', assistant: 'Trợ lý định lượng' },
-  admin: { overview: 'Điều hành hệ thống', approvals: 'Phê duyệt chiến lược', activity: 'Hoạt động agent', tracing: 'Truy vết AI', news: 'Lịch rủi ro' },
+  admin: { overview: 'Điều hành hệ thống', approvals: 'Phê duyệt chiến lược', activity: 'Hoạt động agent', tracing: 'Truy vết AI', news: 'Lịch rủi ro', users: 'Quản trị người dùng', ai: 'Bộ nhớ Hindsight & Gemini API' },
 };
 
 function Brand() {

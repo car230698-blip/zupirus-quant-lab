@@ -9,6 +9,8 @@ import { AdminOverviewTab } from './components/AdminOverviewTab.tsx';
 import { AdminActivityTab } from './components/AdminActivityTab.tsx';
 import { AdminTracingTab } from './components/AdminTracingTab.tsx';
 import { AdminRiskCalendarTab } from './components/AdminRiskCalendarTab.tsx';
+import { AdminUsersTab, type AdminUser } from './components/AdminUsersTab.tsx';
+import { AdminAITab, type GeminiKeyItem, type HindsightMemoryItem } from './components/AdminAITab.tsx';
 
 const CustomerAssistant = lazy(() =>
   import('./components/CustomerAssistant.tsx').then((module) => ({ default: module.CustomerAssistant }))
@@ -20,7 +22,7 @@ const AdminApprovalQueue = lazy(() =>
 type CopyAccount = { id: string; enabled: boolean; risk: number; max_spread: number; max_positions: number; max_dd: number };
 
 type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
-type AdminTabKey = 'overview' | 'approvals' | 'activity' | 'tracing' | 'news';
+type AdminTabKey = 'overview' | 'approvals' | 'activity' | 'tracing' | 'news' | 'users' | 'ai';
 
 interface UserInfo {
   email: string;
@@ -102,6 +104,17 @@ export const App: React.FC = () => {
   const [newsTitle, setNewsTitle] = useState('');
   const [newsWhen, setNewsWhen] = useState('');
   const [killSwitchLoading, setKillSwitchLoading] = useState(false);
+
+  // User Management state
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  // Gemini & Memory state
+  const [geminiKeys, setGeminiKeys] = useState<GeminiKeyItem[]>([]);
+  const [loadingGeminiKeys, setLoadingGeminiKeys] = useState(false);
+  const [hindsightMemories, setHindsightMemories] = useState<HindsightMemoryItem[]>([]);
+  const [loadingMemories, setLoadingMemories] = useState(false);
+  const [syncingCalendar, setSyncingCalendar] = useState(false);
 
   // Check auth session
   const checkAuth = useCallback(async () => {
@@ -418,6 +431,231 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSyncCalendar = async () => {
+    setSyncingCalendar(true);
+    try {
+      const res = await fetch('/api/admin/news/sync', { method: 'POST', headers: { 'X-Zupirus': '1' } });
+      if (res.ok) {
+        const d = await res.json();
+        showNotice(`Đã tự động đồng bộ ${d.synced_count || 0} sự kiện kinh tế quan trọng`);
+        await loadAdminMonitor();
+      } else {
+        showNotice('Không thể đồng bộ lịch kinh tế tự động.');
+      }
+    } catch {
+      showNotice('Lỗi kết nối khi đồng bộ lịch kinh tế.');
+    } finally {
+      setSyncingCalendar(false);
+    }
+  };
+
+  // User Management Handlers
+  const loadAdminUsers = useCallback(async () => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    setLoadingUsers(true);
+    try {
+      const res = await fetch('/api/admin/users');
+      if (res.ok) {
+        const d = await res.json();
+        setAdminUsers(d.users || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, [currentUser]);
+
+  const handleCreateUser = async (email: string, pass: string, role: string) => {
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ email, password: pass, role }),
+      });
+      if (res.ok) {
+        showNotice(`Đã tạo thành công tài khoản ${email}`);
+        await loadAdminUsers();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showNotice(`Lỗi: ${err.detail || 'Không thể tạo tài khoản'}`);
+      }
+    } catch {
+      showNotice('Lỗi kết nối khi tạo tài khoản');
+    }
+  };
+
+  const handleToggleUserRole = async (uid: string, newRole: string) => {
+    try {
+      const res = await fetch(`/api/admin/users/${uid}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ role: newRole }),
+      });
+      if (res.ok) {
+        showNotice(`Đã cập nhật vai trò thành ${newRole}`);
+        await loadAdminUsers();
+      }
+    } catch {
+      showNotice('Lỗi khi cập nhật vai trò người dùng');
+    }
+  };
+
+  const handleResetUserPassword = async (uid: string, newPass: string) => {
+    try {
+      const res = await fetch(`/api/admin/users/${uid}/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ password: newPass }),
+      });
+      if (res.ok) {
+        showNotice('Đã đặt lại mật khẩu thành công');
+      }
+    } catch {
+      showNotice('Lỗi khi đặt lại mật khẩu');
+    }
+  };
+
+  const handleDeleteUser = async (uid: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xoá người dùng này?')) return;
+    try {
+      const res = await fetch(`/api/admin/users/${uid}`, { method: 'DELETE', headers: { 'X-Zupirus': '1' } });
+      if (res.ok) {
+        showNotice('Đã xoá người dùng');
+        await loadAdminUsers();
+      }
+    } catch {
+      showNotice('Lỗi khi xoá người dùng');
+    }
+  };
+
+  // Gemini & Memory Handlers
+  const loadGeminiKeys = useCallback(async () => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    setLoadingGeminiKeys(true);
+    try {
+      const res = await fetch('/api/admin/gemini/keys');
+      if (res.ok) {
+        const d = await res.json();
+        setGeminiKeys(d.keys || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingGeminiKeys(false);
+    }
+  }, [currentUser]);
+
+  const handleAddGeminiKey = async (key: string, name?: string) => {
+    try {
+      const res = await fetch('/api/admin/gemini/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ key, name }),
+      });
+      if (res.ok) {
+        showNotice('Đã thêm API Key Gemini vào bể xoay vòng');
+        await loadGeminiKeys();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showNotice(`Lỗi: ${err.detail || 'Không thể thêm API Key'}`);
+      }
+    } catch {
+      showNotice('Lỗi kết nối khi thêm API Key');
+    }
+  };
+
+  const handleToggleGeminiKey = async (kid: string) => {
+    try {
+      const res = await fetch(`/api/admin/gemini/keys/${kid}/toggle`, { method: 'PUT', headers: { 'X-Zupirus': '1' } });
+      if (res.ok) {
+        await loadGeminiKeys();
+      }
+    } catch {
+      showNotice('Lỗi khi cập nhật trạng thái khóa');
+    }
+  };
+
+  const handleDeleteGeminiKey = async (kid: string) => {
+    if (!window.confirm('Bạn có chắc muốn xoá khóa Gemini này khỏi bể?')) return;
+    try {
+      const res = await fetch(`/api/admin/gemini/keys/${kid}`, { method: 'DELETE', headers: { 'X-Zupirus': '1' } });
+      if (res.ok) {
+        showNotice('Đã xoá API Key khỏi bể');
+        await loadGeminiKeys();
+      }
+    } catch {
+      showNotice('Lỗi khi xoá API Key');
+    }
+  };
+
+  const handleTestGemini = async (prompt: string) => {
+    try {
+      const res = await fetch('/api/admin/gemini/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ prompt }),
+      });
+      return await res.json();
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Lỗi kết nối máy chủ' };
+    }
+  };
+
+  const loadHindsightMemories = useCallback(async () => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    setLoadingMemories(true);
+    try {
+      const res = await fetch('/api/admin/memory');
+      if (res.ok) {
+        const d = await res.json();
+        setHindsightMemories(d.memories || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingMemories(false);
+    }
+  }, [currentUser]);
+
+  const handleAddMemory = async (category: 'episodic' | 'semantic' | 'reflective', content: string) => {
+    try {
+      const res = await fetch('/api/admin/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ category, content }),
+      });
+      if (res.ok) {
+        showNotice('Đã lưu ký ức vào bộ nhớ Hindsight');
+        await loadHindsightMemories();
+      }
+    } catch {
+      showNotice('Lỗi khi ghi nhớ vào Hindsight');
+    }
+  };
+
+  const handleDeleteMemory = async (mid: string) => {
+    try {
+      const res = await fetch(`/api/admin/memory/${mid}`, { method: 'DELETE', headers: { 'X-Zupirus': '1' } });
+      if (res.ok) {
+        await loadHindsightMemories();
+      }
+    } catch {
+      showNotice('Lỗi khi xoá ký ức');
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser?.role === 'admin') {
+      if (adminTab === 'users') {
+        loadAdminUsers();
+      } else if (adminTab === 'ai') {
+        loadGeminiKeys();
+        loadHindsightMemories();
+      }
+    }
+  }, [currentUser, adminTab, loadAdminUsers, loadGeminiKeys, loadHindsightMemories]);
+
   // Consolidated activity items
   const consolidatedActivities = useMemo(() => {
     const list: any[] = [];
@@ -680,6 +918,34 @@ export const App: React.FC = () => {
               setEditNewsImpact={setEditNewsImpact}
               handleUpdateNews={handleUpdateNews}
               handleDeleteNews={handleDeleteNews}
+              onSyncCalendar={handleSyncCalendar}
+              syncing={syncingCalendar}
+            />
+          )}
+
+          {adminTab === 'users' && (
+            <AdminUsersTab
+              users={adminUsers}
+              loading={loadingUsers}
+              onCreateUser={handleCreateUser}
+              onToggleRole={handleToggleUserRole}
+              onResetPassword={handleResetUserPassword}
+              onDeleteUser={handleDeleteUser}
+            />
+          )}
+
+          {adminTab === 'ai' && (
+            <AdminAITab
+              keys={geminiKeys}
+              memories={hindsightMemories}
+              loadingKeys={loadingGeminiKeys}
+              loadingMemories={loadingMemories}
+              onAddKey={handleAddGeminiKey}
+              onToggleKey={handleToggleGeminiKey}
+              onDeleteKey={handleDeleteGeminiKey}
+              onTestGemini={handleTestGemini}
+              onAddMemory={handleAddMemory}
+              onDeleteMemory={handleDeleteMemory}
             />
           )}
         </>

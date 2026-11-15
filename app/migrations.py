@@ -26,6 +26,11 @@ MIGRATIONS = [
         "version": 4,
         "name": "004_dispatch_concurrency_indexes",
         "description": "Guaranteed dispatch ordering and deduplication indexes"
+    },
+    {
+        "version": 5,
+        "name": "005_hindsight_memory_and_gemini_keys",
+        "description": "Hindsight agent memory tables (vectorize-io/hindsight) and Gemini API key management pool"
     }
 ]
 
@@ -356,6 +361,90 @@ def apply_migration_004(c, is_pg: bool):
         """)
 
 
+def apply_migration_005(c, is_pg: bool):
+    """Migration 005: Hindsight long-term agent memory and Gemini API key management pool."""
+    from .gemini_client import seed_default_keys
+    from .hindsight import store_memory, CATEGORY_SEMANTIC, CATEGORY_REFLECTIVE
+
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS hindsight_memories (
+            id TEXT PRIMARY KEY,
+            category TEXT NOT NULL,
+            entity_id TEXT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            tags TEXT,
+            relevance_score DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            created DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_hindsight_category ON hindsight_memories(category);
+        CREATE INDEX IF NOT EXISTS idx_hindsight_entity ON hindsight_memories(entity_id);
+        CREATE INDEX IF NOT EXISTS idx_hindsight_created ON hindsight_memories(created DESC);
+
+        CREATE TABLE IF NOT EXISTS gemini_keys (
+            id TEXT PRIMARY KEY,
+            key_hash TEXT UNIQUE NOT NULL,
+            key_masked TEXT NOT NULL,
+            key_cipher TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            calls_count INTEGER NOT NULL DEFAULT 0,
+            last_used DOUBLE PRECISION,
+            status TEXT NOT NULL DEFAULT 'active',
+            created DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_gemini_active ON gemini_keys(is_active, status);
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS hindsight_memories (
+            id TEXT PRIMARY KEY,
+            category TEXT NOT NULL,
+            entity_id TEXT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            tags TEXT,
+            relevance_score REAL NOT NULL DEFAULT 1.0,
+            created REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_hindsight_category ON hindsight_memories(category);
+        CREATE INDEX IF NOT EXISTS idx_hindsight_entity ON hindsight_memories(entity_id);
+        CREATE INDEX IF NOT EXISTS idx_hindsight_created ON hindsight_memories(created DESC);
+
+        CREATE TABLE IF NOT EXISTS gemini_keys (
+            id TEXT PRIMARY KEY,
+            key_hash TEXT UNIQUE NOT NULL,
+            key_masked TEXT NOT NULL,
+            key_cipher TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            calls_count INTEGER NOT NULL DEFAULT 0,
+            last_used REAL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_gemini_active ON gemini_keys(is_active, status);
+        """)
+
+    # Seed Gemini Keys Pool
+    seed_default_keys(c)
+
+    # Seed initial Hindsight long-term memories
+    store_memory(
+        c,
+        category=CATEGORY_SEMANTIC,
+        title="Quy tắc định lượng XAUUSD M15 cốt lõi",
+        content="Chiến lược chỉ kích hoạt khi nến M15 đã đóng hoàn toàn; không vào lệnh giữa nến để tránh repaint. Khóa phân tán Redis lock:dispatch bảo vệ chống double-dispatch.",
+        tags=["core_rules", "xauusd", "closed_candles"],
+    )
+    store_memory(
+        c,
+        category=CATEGORY_REFLECTIVE,
+        title="Chính sách bảo vệ an toàn tin tức",
+        content="Toàn bộ lệnh mở mới phải bị chặn trong cửa sổ ±15 phút trước và sau khi công bố tin tức USD High Impact (CPI, Non-Farm, FOMC). Các vị thế hiện hữu giữ nguyên SL/TP broker.",
+        tags=["risk_policy", "news_blackout", "fail_closed"],
+    )
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -366,6 +455,7 @@ def run_all_migrations(c, is_pg: bool):
         2: apply_migration_002,
         3: apply_migration_003,
         4: apply_migration_004,
+        5: apply_migration_005,
     }
 
     for m in MIGRATIONS:
@@ -449,7 +539,7 @@ def run_postgres_migration_test(database_url: str = None):
         wrapped_fresh = ConnectionWrapper(raw_conn, is_pg=True)
         run_all_migrations(wrapped_fresh, is_pg=True)
         fresh_versions = get_applied_versions(wrapped_fresh)
-        assert fresh_versions == [1, 2, 3, 4], f"Expected all migrations [1, 2, 3, 4], got {fresh_versions}"
+        assert fresh_versions == [1, 2, 3, 4, 5], f"Expected all migrations [1, 2, 3, 4, 5], got {fresh_versions}"
 
         with raw_conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS fresh_schema_test CASCADE;")
@@ -483,7 +573,7 @@ def run_postgres_migration_test(database_url: str = None):
         # Run all migrations on legacy schema
         run_all_migrations(wrapped_legacy, is_pg=True)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == [1, 2, 3, 4], f"Expected [1, 2, 3, 4], got {legacy_versions}"
+        assert legacy_versions == [1, 2, 3, 4, 5], f"Expected [1, 2, 3, 4, 5], got {legacy_versions}"
 
         # Verify existing data is preserved
         with raw_conn.cursor() as cur:

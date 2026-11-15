@@ -504,6 +504,234 @@ def delete_news(nid: str, u=Depends(admin)):
         audit(c, u['id'], 'calendar_deleted', {'id': nid, 'title': row['title'], 'ts': row['ts']})
     return {'ok': True}
 
+@app.post('/api/admin/news/sync')
+def sync_news(u=Depends(admin)):
+    """Automatically synchronizes high impact economic events from financial calendar feeds."""
+    from .calendar_sync import sync_economic_calendar
+    with tx() as c:
+        added, existing = sync_economic_calendar(c)
+        audit(c, u['id'], 'calendar_synced', {'added': added, 'existing': existing})
+    return {'ok': True, 'added': added, 'existing': existing}
+
+# ---------------------------------------------------------------------------
+# Admin User Management Endpoints
+# ---------------------------------------------------------------------------
+
+class CreateUser(Model):
+    email: str = Field(min_length=3, max_length=150)
+    password: str = Field(min_length=8, max_length=128)
+    role: Literal['customer', 'admin'] = 'customer'
+
+class UpdateUserRole(Model):
+    role: Literal['customer', 'admin']
+
+class UpdateUserPassword(Model):
+    password: str = Field(min_length=8, max_length=128)
+
+@app.get('/api/admin/users')
+def list_admin_users(u=Depends(admin)):
+    with tx() as c:
+        rows = c.execute("""
+            SELECT u.id, u.email, u.role,
+                   (SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) as accounts_count,
+                   (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires > ?) as active_sessions
+            FROM users u
+            ORDER BY u.email ASC
+        """, (time.time(),)).fetchall()
+        users_list = []
+        for r in rows:
+            users_list.append({
+                'id': r[0],
+                'email': r[1],
+                'role': r[2],
+                'accounts_count': r[3],
+                'active_sessions': r[4],
+            })
+    return {'users': users_list, 'total': len(users_list)}
+
+@app.post('/api/admin/users')
+def create_admin_user(p: CreateUser, u=Depends(admin)):
+    email = p.email.strip().lower()
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+        fail(422, 'Email không hợp lệ')
+    with tx() as c:
+        if c.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone():
+            fail(409, 'Email đã tồn tại')
+        uid = f"usr_{secrets.token_hex(8)}"
+        c.execute('INSERT INTO users VALUES(?,?,?,?)', (uid, email, password_hash(p.password), p.role))
+        audit(c, u['id'], 'user_created', {'target_user_id': uid, 'email': email, 'role': p.role})
+    return {'ok': True, 'id': uid, 'email': email, 'role': p.role}
+
+@app.put('/api/admin/users/{target_uid}/role')
+def update_user_role(target_uid: str, p: UpdateUserRole, u=Depends(admin)):
+    if target_uid == u['id'] and p.role != 'admin':
+        fail(400, 'Không thể tự hạ quyền quản trị của chính mình')
+    with tx() as c:
+        row = c.execute('SELECT id, email, role FROM users WHERE id=?', (target_uid,)).fetchone()
+        if not row:
+            fail(404, 'Không tìm thấy người dùng')
+        c.execute('UPDATE users SET role=? WHERE id=?', (p.role, target_uid))
+        audit(c, u['id'], 'user_role_changed', {'target_user_id': target_uid, 'email': row[1], 'new_role': p.role})
+    return {'ok': True}
+
+@app.put('/api/admin/users/{target_uid}/password')
+def reset_user_password(target_uid: str, p: UpdateUserPassword, u=Depends(admin)):
+    with tx() as c:
+        row = c.execute('SELECT id, email FROM users WHERE id=?', (target_uid,)).fetchone()
+        if not row:
+            fail(404, 'Không tìm thấy người dùng')
+        c.execute('UPDATE users SET password=? WHERE id=?', (password_hash(p.password), target_uid))
+        c.execute('DELETE FROM sessions WHERE user_id=?', (target_uid,))
+        audit(c, u['id'], 'user_password_reset', {'target_user_id': target_uid, 'email': row[1]})
+    return {'ok': True}
+
+@app.delete('/api/admin/users/{target_uid}')
+def delete_admin_user(target_uid: str, u=Depends(admin)):
+    if target_uid == u['id']:
+        fail(400, 'Không thể xóa tài khoản của chính mình')
+    with tx() as c:
+        row = c.execute('SELECT id, email, role FROM users WHERE id=?', (target_uid,)).fetchone()
+        if not row:
+            fail(404, 'Không tìm thấy người dùng')
+        acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
+        for aid in acc_ids:
+            c.execute('DELETE FROM pairings WHERE account_id=?', (aid,))
+            c.execute('DELETE FROM devices WHERE account_id=?', (aid,))
+            c.execute('DELETE FROM dispatches WHERE account_id=?', (aid,))
+            c.execute('DELETE FROM accounts WHERE id=?', (aid,))
+        c.execute('DELETE FROM sessions WHERE user_id=?', (target_uid,))
+        c.execute('DELETE FROM users WHERE id=?', (target_uid,))
+        audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': row[1]})
+    return {'ok': True}
+
+# ---------------------------------------------------------------------------
+# Admin Gemini API Keys Pool Endpoints
+# ---------------------------------------------------------------------------
+
+class AddGeminiKey(Model):
+    key: str = Field(min_length=20, max_length=150)
+
+class TestGeminiPrompt(Model):
+    prompt: str = Field(min_length=1, max_length=1000)
+
+@app.get('/api/admin/gemini/keys')
+def list_gemini_keys(u=Depends(admin)):
+    from .gemini_client import seed_default_keys
+    with tx() as c:
+        seed_default_keys(c)
+        rows = c.execute("""
+            SELECT id, key_masked, is_active, calls_count, last_used, status, created
+            FROM gemini_keys
+            ORDER BY created ASC
+        """).fetchall()
+        keys_list = []
+        for r in rows:
+            keys_list.append({
+                'id': r[0],
+                'key_masked': r[1],
+                'is_active': bool(r[2]),
+                'calls_count': r[3],
+                'last_used': r[4],
+                'status': r[5],
+                'created': r[6],
+            })
+    return {'keys': keys_list, 'total': len(keys_list)}
+
+@app.post('/api/admin/gemini/keys')
+def add_gemini_key(p: AddGeminiKey, u=Depends(admin)):
+    from .gemini_client import hash_key, mask_key
+    raw_key = p.key.strip()
+    k_hash = hash_key(raw_key)
+    k_masked = mask_key(raw_key)
+    with tx() as c:
+        existing = c.execute('SELECT id FROM gemini_keys WHERE key_hash=?', (k_hash,)).fetchone()
+        if existing:
+            fail(409, 'API Key này đã tồn tại trong hệ thống')
+        kid = f"gemini_{secrets.token_hex(6)}"
+        c.execute("""
+            INSERT INTO gemini_keys (id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created)
+            VALUES (?, ?, ?, ?, 1, 0, NULL, 'active', ?)
+        """, (kid, k_hash, k_masked, raw_key, time.time()))
+        audit(c, u['id'], 'gemini_key_added', {'id': kid, 'masked': k_masked})
+    return {'ok': True, 'id': kid, 'masked': k_masked}
+
+@app.put('/api/admin/gemini/keys/{kid}/toggle')
+def toggle_gemini_key(kid: str, u=Depends(admin)):
+    with tx() as c:
+        row = c.execute('SELECT id, is_active, key_masked FROM gemini_keys WHERE id=?', (kid,)).fetchone()
+        if not row:
+            fail(404, 'Không tìm thấy API Key')
+        next_active = 0 if row[1] == 1 else 1
+        c.execute('UPDATE gemini_keys SET is_active=? WHERE id=?', (next_active, kid))
+        audit(c, u['id'], 'gemini_key_toggled', {'id': kid, 'masked': row[2], 'is_active': bool(next_active)})
+    return {'ok': True, 'is_active': bool(next_active)}
+
+@app.delete('/api/admin/gemini/keys/{kid}')
+def delete_gemini_key(kid: str, u=Depends(admin)):
+    with tx() as c:
+        row = c.execute('SELECT id, key_masked FROM gemini_keys WHERE id=?', (kid,)).fetchone()
+        if not row:
+            fail(404, 'Không tìm thấy API Key')
+        c.execute('DELETE FROM gemini_keys WHERE id=?', (kid,))
+        audit(c, u['id'], 'gemini_key_deleted', {'id': kid, 'masked': row[1]})
+    return {'ok': True}
+
+@app.post('/api/admin/gemini/test')
+def test_gemini(p: TestGeminiPrompt, u=Depends(admin)):
+    from .gemini_client import call_gemini
+    t0 = time.perf_counter()
+    with tx() as c:
+        ans, kid = call_gemini(
+            p.prompt,
+            system_instruction="Bạn là AI Quản trị viên ZUPIRUS Quant Lab. Trả lời súc tích bằng tiếng Việt.",
+            c=c
+        )
+    latency_ms = (time.perf_counter() - t0) * 1000
+    if not ans:
+        return {'ok': False, 'message': 'Không thể gọi Gemini API từ pool keys hiện tại. Kiểm tra kết nối mạng hoặc quota key.', 'latency_ms': latency_ms}
+    return {'ok': True, 'text': ans, 'key_used': kid, 'latency_ms': latency_ms}
+
+# ---------------------------------------------------------------------------
+# Admin Hindsight Memory (vectorize-io/hindsight) Endpoints
+# ---------------------------------------------------------------------------
+
+class CreateMemory(Model):
+    category: Literal['episodic', 'semantic', 'reflective'] = 'semantic'
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=2000)
+    tags: Optional[str] = None
+    entity_id: Optional[str] = None
+
+@app.get('/api/admin/memory')
+def get_hindsight_memories(category: Optional[str] = None, q: Optional[str] = None, limit: int = 50, u=Depends(admin)):
+    from .hindsight import recall_memories
+    with tx() as c:
+        items = recall_memories(c, query=q, category=category, limit=min(limit, 100))
+    return {'memories': items, 'total': len(items)}
+
+@app.post('/api/admin/memory')
+def add_hindsight_memory(p: CreateMemory, u=Depends(admin)):
+    from .hindsight import store_memory
+    tag_list = [t.strip() for t in (p.tags or "").split(",") if t.strip()]
+    with tx() as c:
+        mid = store_memory(
+            c,
+            category=p.category,
+            title=p.title,
+            content=p.content,
+            entity_id=p.entity_id,
+            tags=tag_list,
+        )
+        audit(c, u['id'], 'memory_stored', {'id': mid, 'category': p.category, 'title': p.title})
+    return {'ok': True, 'id': mid}
+
+@app.delete('/api/admin/memory/{mid}')
+def delete_hindsight_memory(mid: str, u=Depends(admin)):
+    with tx() as c:
+        c.execute('DELETE FROM hindsight_memories WHERE id=?', (mid,))
+        audit(c, u['id'], 'memory_deleted', {'id': mid})
+    return {'ok': True}
+
 class Ask(Model): question: str = Field(min_length=1, max_length=2000)
 
 @app.post('/api/assistant')
@@ -512,7 +740,8 @@ def assistant(p: Ask, u=Depends(user)):
     local = f"Bạn có {len(snapshot['accounts'])} tài khoản, {len(snapshot['orders'])} lệnh gần nhất. Real luôn bị khóa. Tạm dừng copy ngăn lệnh mới; SL/TP hiện hữu vẫn do broker xử lý."
     from .research import ai_text
     answer = ai_text('Chỉ giải thích dữ liệu demo của khách này: ' + json.dumps(snapshot, ensure_ascii=False)[:18000] + '\nCâu hỏi: ' + p.question)
-    return {'text': answer['text'] if answer['available'] else local, 'ai': answer['available']}
+    reply_text = f"Bạn có {len(snapshot['accounts'])} tài khoản. {answer['text']}" if answer['available'] else local
+    return {'text': reply_text, 'ai': answer['available']}
 
 class Vision(Model):
     image: str = Field(max_length=2_500_000, pattern=r'^data:image/(png|jpeg);base64,[A-Za-z0-9+/=]+$')
@@ -596,6 +825,12 @@ def chat_assistant(payload: ChatPayload, u=Depends(user)):
         ]}
 
     from .research import ai_text
+    from .hindsight import recall_memories, store_memory
+    memories = recall_memories(query=question, limit=3)
+    mem_ctx = ""
+    if memories:
+        mem_ctx = "\nNgữ cảnh bộ nhớ dài hạn Hindsight:\n" + "\n".join(f"- [{m.get('category')}]: {m.get('content')}" for m in memories)
+
     summary = {
         'accounts': len(accounts), 'orders': len(orders),
         'balance': sum(a['balance'] for a in accounts),
@@ -604,11 +839,16 @@ def chat_assistant(payload: ChatPayload, u=Depends(user)):
         'recent_order_statuses': [o['state'] for o in orders[:10]],
     }
     answer = ai_text('Giải thích dữ liệu danh mục cho người dùng. Dữ liệu: ' +
-                     json.dumps(summary, ensure_ascii=False) + '\nCâu hỏi: ' + question)
-    text = answer['text'] if answer['available'] else (
+                     json.dumps(summary, ensure_ascii=False) + mem_ctx + '\nCâu hỏi: ' + question)
+    base_summary = (
         f"Trợ lý quy tắc · Danh mục có {len(accounts)} tài khoản, "
         f"{summary['positions']} vị thế đang mở và {len(orders)} lệnh gần đây."
     )
+    text = f"{base_summary}\n\n{answer['text']}" if answer['available'] else base_summary
+    try:
+        store_memory('episodic', f"User chat: '{question[:100]}' -> Response: '{text[:120]}'", metadata={'user': u.get('user')})
+    except Exception:
+        pass
     if payload.uses_ui_message_stream():
         return ui_message_stream(text, card_type, card)
 

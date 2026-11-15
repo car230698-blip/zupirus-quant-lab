@@ -19,6 +19,8 @@ interface AdminRiskCalendarTabProps {
   setEditNewsImpact: (v: any) => void;
   handleUpdateNews: (e: React.FormEvent) => void;
   handleDeleteNews: (nid: string) => void;
+  onSyncCalendar?: () => Promise<void>;
+  syncing?: boolean;
 }
 
 export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
@@ -38,15 +40,31 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
   setEditNewsImpact,
   handleUpdateNews,
   handleDeleteNews,
+  onSyncCalendar,
+  syncing = false,
 }) => {
   return (
     <div className="space-y-6">
       {/* Form Add Event */}
       <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
-        <h3 className="font-bold text-sm text-slate-200 flex flex-wrap gap-2 items-center justify-between">
-          <span>Thêm sự kiện kinh tế</span>
-          <span className="text-xs font-normal text-cyan-300 font-mono">Cửa sổ chặn: ±15 phút quanh giờ tin</span>
-        </h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-bold text-sm text-slate-200">
+            Thêm Sự Kiện Lịch Kinh Tế (Bảo Vệ Rủi Ro Ra Tin)
+          </h3>
+          <div className="flex items-center gap-3">
+            {onSyncCalendar && (
+              <button
+                type="button"
+                onClick={() => void onSyncCalendar()}
+                disabled={syncing}
+                className="rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-white font-mono text-xs px-3 py-1.5 transition-colors flex items-center gap-1.5 shadow"
+              >
+                ⚡ {syncing ? 'Đang đồng bộ...' : 'Tự Động Đồng Bộ Tin Tức'}
+              </button>
+            )}
+            <span className="text-xs font-normal text-cyan-300 font-mono">Cửa sổ chặn: ±15 phút</span>
+          </div>
+        </div>
         <p className="text-xs text-slate-400">
           Cơ chế bảo vệ tài khoản khách: Tự động chặn mở lệnh mới trong khoảng ±15 phút trước và sau thời điểm ra tin để tránh trượt giá dãn spread.
         </p>
