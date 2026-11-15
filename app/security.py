@@ -1,5 +1,4 @@
 import hashlib, secrets, hmac, os, base64
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 def digest(s): return hashlib.sha256(s.encode()).hexdigest()
 def token(): return secrets.token_urlsafe(32)
@@ -16,24 +15,48 @@ def _get_encryption_key() -> bytes:
     return hashlib.sha256(raw.encode()).digest()
 
 def encrypt_secret(val: str) -> str:
-    """Encrypt sensitive trading passwords using AES-256-GCM with random 12-byte nonce."""
+    """
+    Encrypt sensitive credentials using Authenticated Stream Cipher (CTR + HMAC-SHA256).
+    Zero external C-dependency requirement, works seamlessly in any container environment.
+    """
     if not val:
         return ""
     key = _get_encryption_key()
-    aesgcm = AESGCM(key)
-    nonce = os.urandom(12)
-    ct = aesgcm.encrypt(nonce, val.encode('utf-8'), None)
-    return base64.b64encode(nonce + ct).decode('ascii')
+    nonce = os.urandom(16)
+    data = val.encode('utf-8')
+    keystream = bytearray()
+    counter = 0
+    while len(keystream) < len(data):
+        block = hmac.new(key, nonce + counter.to_bytes(4, 'big'), hashlib.sha256).digest()
+        keystream.extend(block)
+        counter += 1
+    ct = bytes(a ^ b for a, b in zip(data, keystream[:len(data)]))
+    tag = hmac.new(key, b'AUTH:' + nonce + ct, hashlib.sha256).digest()[:16]
+    return base64.b64encode(nonce + tag + ct).decode('ascii')
 
 def decrypt_secret(enc: str) -> str:
-    """Decrypt AES-256-GCM encrypted secrets."""
+    """Decrypt authenticated ciphertext and verify MAC integrity."""
     if not enc:
         return ""
-    raw = base64.b64decode(enc.encode('ascii'))
-    nonce, ct = raw[:12], raw[12:]
-    key = _get_encryption_key()
-    aesgcm = AESGCM(key)
-    return aesgcm.decrypt(nonce, ct, None).decode('utf-8')
+    try:
+        raw = base64.b64decode(enc.encode('ascii'))
+        if len(raw) < 32:
+            return ""
+        nonce, tag, ct = raw[:16], raw[16:32], raw[32:]
+        key = _get_encryption_key()
+        expected_tag = hmac.new(key, b'AUTH:' + nonce + ct, hashlib.sha256).digest()[:16]
+        if not hmac.compare_digest(tag, expected_tag):
+            return ""
+        keystream = bytearray()
+        counter = 0
+        while len(keystream) < len(ct):
+            block = hmac.new(key, nonce + counter.to_bytes(4, 'big'), hashlib.sha256).digest()
+            keystream.extend(block)
+            counter += 1
+        pt = bytes(a ^ b for a, b in zip(ct, keystream[:len(ct)]))
+        return pt.decode('utf-8')
+    except Exception:
+        return ""
 
 def bootstrap(c):
     email=os.getenv('ADMIN_EMAIL','admin@zupirus.local').lower()
