@@ -2,12 +2,12 @@
 # Maps API strictly to 127.0.0.1:3101 and eliminates host port exposure for internal database/redis.
 services:
   timescaledb:
-    ports: []
+    ports: !reset []
   redis:
-    ports: []
+    ports: !reset []
   api:
     environment:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin_staging_secure_pass_2026}
-    ports:
+    ports: !reset
       - "127.0.0.1:3101:8000"
 
