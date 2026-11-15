@@ -4,44 +4,29 @@ Tài liệu này cung cấp quy trình vận hành tiêu chuẩn (SOP) cho việ
 
 ---
 
-## 1. Sao Lưu Cơ Sở Dữ Liệu (Backup)
+## 1. Sao lưu PostgreSQL / TimescaleDB
 
-Hệ thống hỗ trợ cả script Python tự động tạo metadata kiểm định và script Bash tiêu chuẩn cho môi trường Docker / Linux.
+Trong thư mục dự án, chọn đúng tên project và file Compose của stack đang chạy. Khi không cấu hình `DATABASE_URL`, script dùng `pg_dump` và `pg_restore` trong container TimescaleDB.
 
-### Cách 1: Sử dụng Python Script (Khuyến nghị - Tạo file `.meta.json` đối soát)
 ```bash
-python scripts/backup_postgres.py --url "postgresql://zupirus:zupirus_secure_password@127.0.0.1:5432/zupirus" --out ./backups
-```
-*Đầu ra:*
-- File nén sao lưu: `./backups/zupirus_pg_backup_<TIMESTAMP>.sql.gz`
-- File metadata kiểm định: `./backups/zupirus_pg_backup_<TIMESTAMP>.meta.json` chứa số lượng bản ghi của toàn bộ bảng tại thời điểm sao lưu.
-
-### Cách 2: Sử dụng Docker Compose / Bash
-```bash
+export COMPOSE_PROJECT_NAME=zupirus-test
+export COMPOSE_FILE=compose.yaml:compose.staging.yaml
 bash scripts/backup_postgres.sh ./backups
 ```
 
----
+Script in đường dẫn file `.dump` sau khi `pg_dump` thành công và danh mục trong archive đọc được. Với database bên ngoài Compose, dùng `python3 scripts/backup_postgres.py --url "$DATABASE_URL" --out ./backups` và cài các công cụ PostgreSQL client tương thích.
 
-## 2. Khôi Phục Cơ Sở Dữ Liệu (Restore & Verification)
+## 2. Khôi phục và kiểm chứng
 
-### Bước 1: Khôi phục và đối soát số lượng bản ghi
+Dùng database mới, trống, trên môi trường tương thích với phiên bản PostgreSQL và TimescaleDB của nguồn sao lưu. Ví dụ dưới đây dùng cùng container TimescaleDB nhưng một database riêng.
+
 ```bash
-python scripts/restore_postgres.py \
-  --url "postgresql://zupirus:zupirus_secure_password@127.0.0.1:5432/zupirus_test" \
-  --backup "./backups/zupirus_pg_backup_<TIMESTAMP>.sql.gz" \
-  --meta "./backups/zupirus_pg_backup_<TIMESTAMP>.meta.json"
+docker compose exec -T timescaledb sh -ec 'createdb -U "$POSTGRES_USER" zupirus_restore_check'
+bash scripts/restore_postgres.sh ./backups/zupirus_pg_backup_TIMESTAMP.dump zupirus_restore_check
+docker compose exec -T timescaledb sh -ec 'psql -X -U "$POSTGRES_USER" -d zupirus_restore_check'
 ```
 
-*Cơ chế đối soát:*
-Script tự động đọc file `.meta.json`, truy vấn `COUNT(*)` của từng bảng sau khi khôi phục, và in bảng báo cáo PASS/FAIL đối chiếu số dòng thực tế so với bản sao lưu gốc.
-
-### Khôi phục trực tiếp qua Docker:
-```bash
-bash scripts/restore_postgres.sh ./backups/zupirus_pg_backup_<TIMESTAMP>.sql.gz
-```
-
----
+Script chuẩn bị TimescaleDB, chạy restore và trả lỗi khi công cụ PostgreSQL thất bại. Script cũng đọc các bản `.sql.gz` do `pg_dump` tạo. Trong database khôi phục, kiểm tra số bản ghi và giá trị mẫu của các bảng quan trọng, đồng thời kiểm tra `timescaledb_information.hypertables`. Docker smoke tự chạy một lượt restore, đối chiếu báo giá đã ghi và xác nhận bảng `quotes` vẫn là hypertable.
 
 ## 3. Chuyển Đổi Dữ Liệu Từ SQLite Cũ Sang PostgreSQL (Migration & Rollback)
 

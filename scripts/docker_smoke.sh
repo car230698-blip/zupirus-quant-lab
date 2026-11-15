@@ -19,7 +19,10 @@ dump_debug() {
     docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml logs --tail 100 || true
 }
 
+backup_dir=$(mktemp -d)
+
 cleanup() {
+    rm -rf "$backup_dir"
     docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml --profile test down -v --remove-orphans || true
 }
 
@@ -161,4 +164,25 @@ assert '/assets/' in html, 'Production bundle must reference Vite compiled asset
 print('PASS: React production bundle verified in Docker image')
 "
 
-printf 'PASS: compose startup, TimescaleDB, Redis, health, tests, persistence, fail-closed, react-bundle\n'
+echo "=== 10. Verifying TimescaleDB Backup and Restore ==="
+export COMPOSE_FILE=compose.yaml:compose.smoke.yaml COMPOSE_PROJECT_NAME="$project"
+unset DATABASE_URL
+docker compose exec -T timescaledb sh -ec 'createdb -U "$POSTGRES_USER" restore_smoke'
+backup_file=$(bash scripts/backup_postgres.sh "$backup_dir")
+bash scripts/restore_postgres.sh "$backup_file" restore_smoke
+restored=$(docker compose exec -T timescaledb sh -ec '
+    exec psql -XAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d restore_smoke -v tick="$1"
+' restore-smoke "$smoke_ts" <<'SQL'
+SELECT count(*) FROM quotes WHERE source = 'DEMO' AND ts = :tick AND bid = 2655.10 AND ask = 2655.40;
+SELECT count(*) FROM timescaledb_information.hypertables WHERE hypertable_schema = 'public' AND hypertable_name = 'quotes';
+SQL
+)
+[[ "$restored" == $'1\n1' ]]
+# A second restore must fail because the target now contains application tables.
+if bash scripts/restore_postgres.sh "$backup_file" restore_smoke; then
+    echo "Restore unexpectedly accepted an occupied database" >&2
+    exit 1
+fi
+echo "PASS: backup restored into a fresh database; quote and hypertable verified"
+
+printf 'PASS: compose startup, TimescaleDB, Redis, health, tests, persistence, fail-closed, React bundle, backup/restore\n'

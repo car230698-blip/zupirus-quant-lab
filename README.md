@@ -113,15 +113,17 @@ curl -f http://127.0.0.1:3101/healthz
 curl -f http://127.0.0.1:3101/readyz
 ```
 
-### Sao lưu (Backup) và Khôi phục (Restore) PostgreSQL
+### Sao lưu và khôi phục PostgreSQL
+
+Chọn đúng stack trước khi sao lưu. Các script dùng công cụ PostgreSQL trong container TimescaleDB.
 
 ```bash
-# Sao lưu dữ liệu ra file nén .sql.gz và file metadata .json
-python scripts/backup_postgres.py --url "$DATABASE_URL" --out /backups
-
-# Khôi phục dữ liệu từ bản sao lưu
-python scripts/restore_postgres.py --url "$DATABASE_URL" --file /backups/zupirus_pg_backup_TIMESTAMP.sql.gz
+export COMPOSE_PROJECT_NAME=zupirus-test
+export COMPOSE_FILE=compose.yaml:compose.staging.yaml
+bash scripts/backup_postgres.sh ./backups
 ```
+
+Xem [quy trình khôi phục vào database mới](docs/BACKUP_RESTORE_MIGRATION.md) để kiểm chứng bản sao lưu.
 
 ### Quy trình Quay Lui (Rollback)
 
@@ -130,7 +132,7 @@ Nếu cần quay lui phiên bản:
 ```bash
 cd ~/zupirus-quant-lab-test
 git checkout <PREVIOUS_COMMIT_SHA>
-docker compose -p zupirus-test up -d --build
+docker compose -p zupirus-test -f compose.yaml -f compose.staging.yaml up -d --build --wait
 ```
 
 ---
