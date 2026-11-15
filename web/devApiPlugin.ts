@@ -1168,6 +1168,42 @@ export function zupirusApiPlugin(): Plugin {
       });
     }
 
+    // Resend Mailer Endpoints
+    if (pathname === '/api/admin/mailer/status' && method === 'GET') {
+      return sendJson(res, 200, {
+        configured: true,
+        key_masked: 're_9n3W...gPc1',
+        sender: 'ZUPIRUS Quant Lab <system@zupirus.com>',
+        verified_domain: 'zupirus.com',
+        provider: 'Resend (Tokyo ap-northeast-1)',
+      });
+    }
+
+    if (pathname === '/api/admin/mailer/test' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, {
+        ok: true,
+        id: 'mock_resend_' + Math.random().toString(36).substring(2, 10),
+        recipients: [body.to || 'admin@zupirus.com'],
+      });
+    }
+
+    if (pathname === '/api/auth/send-otp' && method === 'POST') {
+      return sendJson(res, 200, {
+        ok: true,
+        message: 'Mã xác thực OTP đã được gửi đến email của bạn',
+        expires_in: 600,
+      });
+    }
+
+    if (pathname === '/api/auth/verify-otp' && method === 'POST') {
+      return sendJson(res, 200, {
+        ok: true,
+        verified: true,
+        message: 'Xác thực email thành công',
+      });
+    }
+
     // Admin Vision Incident Review
     if (pathname === '/api/admin/vision' && method === 'POST') {
       const body = await readJsonBody(req);

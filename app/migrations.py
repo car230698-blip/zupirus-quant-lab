@@ -394,6 +394,13 @@ def apply_migration_005(c, is_pg: bool):
             created DOUBLE PRECISION NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_gemini_active ON gemini_keys(is_active, status);
+
+        CREATE TABLE IF NOT EXISTS otp_codes (
+            email TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            expires_at DOUBLE PRECISION NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0
+        );
         """)
     else:
         c.executescript("""
@@ -423,6 +430,13 @@ def apply_migration_005(c, is_pg: bool):
             created REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_gemini_active ON gemini_keys(is_active, status);
+
+        CREATE TABLE IF NOT EXISTS otp_codes (
+            email TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0
+        );
         """)
 
     # Seed Gemini Keys Pool

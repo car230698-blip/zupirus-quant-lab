@@ -232,3 +232,39 @@ def test_strategy_closed_candle_evaluation_and_rationale(client):
         assert 'reason' in last_decision
         assert 'candle_time' in last_decision
         assert last_decision['timeframe'] == 'M15'
+
+
+def test_resend_mailer_and_otp_workflow(client):
+    """Verify Resend mailer status, test send endpoint, and OTP generation + verification."""
+    # 1. Admin mailer status
+    admin_login = {'email': 'admin@zupirus.local', 'password': 'test-only-admin-password-123'}
+    assert client.post('/api/login', json=admin_login).status_code == 200
+
+    st_res = client.get('/api/admin/mailer/status')
+    assert st_res.status_code == 200
+    st_data = st_res.json()
+    assert st_data['configured'] is True
+    assert st_data['verified_domain'] == 'zupirus.com'
+    assert 'system@zupirus.com' in st_data['sender']
+
+    # 2. OTP Request & Verification
+    test_email = 'trader.test@zupirus.com'
+    otp_req = client.post('/api/auth/send-otp', json={'email': test_email})
+    assert otp_req.status_code == 200
+    assert otp_req.json()['ok'] is True
+
+    # Retrieve code from DB to test verification
+    with tx() as c:
+        row = c.execute("SELECT code FROM otp_codes WHERE email=?", (test_email,)).fetchone()
+        assert row is not None
+        code = row['code']
+
+    # Wrong code should fail
+    bad_verify = client.post('/api/auth/verify-otp', json={'email': test_email, 'code': '000000'})
+    assert bad_verify.status_code == 400
+
+    # Correct code should succeed
+    good_verify = client.post('/api/auth/verify-otp', json={'email': test_email, 'code': code})
+    assert good_verify.status_code == 200
+    assert good_verify.json()['verified'] is True
+

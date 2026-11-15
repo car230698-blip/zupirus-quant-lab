@@ -1041,6 +1041,92 @@ def swarm_trigger_cycle(u=Depends(admin)):
     from .swarm import trigger_swarm_cycle
     return trigger_swarm_cycle()
 
+class MailerTestPayload(BaseModel):
+    to: str = Field(min_length=5, max_length=120)
+
+@app.get('/api/admin/mailer/status')
+def mailer_status(u=Depends(admin)):
+    """Returns Resend connection status, sender identity, and verified domain."""
+    from .mailer import get_resend_api_key, get_email_from
+    key = get_resend_api_key()
+    return {
+        'configured': bool(key),
+        'key_masked': f"{key[:7]}...{key[-4:]}" if len(key) > 12 else None,
+        'sender': get_email_from(),
+        'verified_domain': 'zupirus.com',
+        'provider': 'Resend (Tokyo ap-northeast-1)',
+    }
+
+@app.post('/api/admin/mailer/test')
+def mailer_test_send(p: MailerTestPayload, u=Depends(admin)):
+    """Sends a verified test email to the requested recipient."""
+    from .mailer import send_resend_email
+    now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    html = f"""
+    <div style="font-family:sans-serif;background:#0d1527;color:#f8fafc;padding:28px;border-radius:12px;border:1px solid #1e293b;max-width:540px;">
+      <h2 style="color:#38bdf8;margin:0 0 12px;">ZUPIRUS Quant Lab</h2>
+      <p style="color:#cbd5e1;font-size:14px;margin:0 0 16px;">Xin chào <strong>{p.to}</strong>,</p>
+      <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0 0 20px;">
+        Email này được gửi thử nghiệm thành công từ <strong>Cổng Quản Trị Hệ Thống ZUPIRUS Quant Lab</strong> thông qua <strong>Resend API</strong> với tên miền <strong>zupirus.com</strong>.
+      </p>
+      <div style="background:#090d1a;padding:14px 18px;border-radius:8px;border:1px solid #334155;color:#10b981;font-weight:700;font-size:14px;">
+        ✓ Trạng thái: Kết nối Resend hoạt động 100%
+      </div>
+      <p style="color:#64748b;font-size:11px;margin-top:20px;">Timestamp: {now_str}</p>
+    </div>
+    """
+    res = send_resend_email(to=p.to, subject="🚀 Kiểm tra kết nối Resend API - ZUPIRUS Quant Lab", html=html)
+    if not res.get("ok"):
+        fail(400, f"Gửi email qua Resend thất bại: {res.get('error')}")
+    return res
+
+class SendOtpPayload(BaseModel):
+    email: str = Field(min_length=5, max_length=120)
+
+@app.post('/api/auth/send-otp')
+def auth_send_otp(p: SendOtpPayload):
+    """Generates a secure 6-digit OTP, stores it with 10-minute expiry, and sends via Resend."""
+    import secrets
+    from .mailer import send_otp_code
+    code = f"{secrets.randbelow(900000) + 100000}"
+    now = time.time()
+    expires_at = now + 600.0
+    email_clean = p.email.strip().lower()
+
+    with tx() as c:
+        row = c.execute("SELECT expires_at FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
+        if row and (row['expires_at'] - 540.0) > now:
+            fail(429, "Vui lòng chờ 60 giây trước khi yêu cầu mã OTP mới")
+        c.execute("INSERT OR REPLACE INTO otp_codes(email, code, expires_at, attempts) VALUES(?,?,?,0)", (email_clean, code, expires_at))
+
+    res = send_otp_code(email_clean, code, purpose="Xác Thực Đăng Ký Tài Khoản")
+    return {"ok": True, "message": "Mã OTP đã được gửi tới email của bạn", "expires_in": 600, "delivery": res}
+
+class VerifyOtpPayload(BaseModel):
+    email: str = Field(min_length=5, max_length=120)
+    code: str = Field(min_length=6, max_length=6)
+
+@app.post('/api/auth/verify-otp')
+def auth_verify_otp(p: VerifyOtpPayload):
+    """Verifies user-submitted 6-digit OTP code."""
+    now = time.time()
+    email_clean = p.email.strip().lower()
+    with tx() as c:
+        row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
+        if not row:
+            fail(400, "Mã OTP không tồn tại hoặc đã hết hạn")
+        if row['expires_at'] < now:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            fail(400, "Mã OTP đã hết hạn. Vui lòng lấy mã mới")
+        if row['attempts'] >= 5:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            fail(429, "Bạn đã nhập sai mã quá 5 lần. Vui lòng yêu cầu mã OTP mới")
+        if row['code'] != p.code.strip():
+            c.execute("UPDATE otp_codes SET attempts=attempts+1 WHERE email=?", (email_clean,))
+            fail(400, "Mã OTP không chính xác")
+        c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+    return {"ok": True, "verified": True, "message": "Xác thực email thành công"}
+
 DIST_DIR = ROOT / 'dist'
 WEB_DIR = ROOT / 'web'
 

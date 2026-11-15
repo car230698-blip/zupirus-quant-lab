@@ -4,6 +4,8 @@ services:
     environment:
       COOKIE_SECURE: "true"
       ALLOWED_ORIGINS: "http://localhost:8080,https://zupirus.com,https://www.zupirus.com,https://app.zupirus.com,https://adm.zupirus.com"
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
     networks:
       private:
       npm_default:

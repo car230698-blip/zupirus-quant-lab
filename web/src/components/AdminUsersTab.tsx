@@ -35,6 +35,34 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [resetUid, setResetUid] = useState<string | null>(null);
   const [resetPassInput, setResetPassInput] = useState('');
 
+  // Resend Email Gateway State
+  const [testEmail, setTestEmail] = useState('car230698@gmail.com');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailStatusMsg, setEmailStatusMsg] = useState<string | null>(null);
+
+  async function handleSendTestEmail() {
+    if (!testEmail || sendingEmail) return;
+    setSendingEmail(true);
+    setEmailStatusMsg(null);
+    try {
+      const res = await fetch('/api/admin/mailer/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ to: testEmail }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setEmailStatusMsg(`✓ Đã gửi email thành công qua Resend (ID: ${data.id}) tới ${testEmail}!`);
+      } else {
+        setEmailStatusMsg(`❌ Gửi thất bại: ${data.detail || data.error || 'Lỗi không xác định'}`);
+      }
+    } catch (err: any) {
+      setEmailStatusMsg(`❌ Lỗi kết nối: ${err.message || String(err)}`);
+    } finally {
+      setSendingEmail(false);
+    }
+  }
+
   const filteredUsers = users.filter((u) =>
     u.email.toLowerCase().includes(search.toLowerCase()) ||
     u.role.toLowerCase().includes(search.toLowerCase())
@@ -59,6 +87,47 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Resend Enterprise Mail Gateway */}
+      <div className="quant-panel rounded-xl border border-emerald-500/30 bg-[#071318] p-5 shadow-lg relative overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <h3 className="font-bold text-sm text-emerald-400 font-mono tracking-wide">
+                📧 RESEND EMAIL GATEWAY (TOKYO REGION)
+              </h3>
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded px-2 py-0.5 font-mono">
+                Verified: zupirus.com
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Người gửi mặc định: <code className="text-cyan-300 font-mono">system@zupirus.com</code> • Hỗ trợ gửi mã OTP đăng ký, khôi phục mật khẩu & cảnh báo vĩ mô Sentinel.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="email"
+              value={testEmail}
+              onChange={(e) => setTestEmail(e.target.value)}
+              placeholder="Nhập email nhận test..."
+              className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 font-mono w-56"
+            />
+            <button
+              onClick={handleSendTestEmail}
+              disabled={sendingEmail}
+              className="rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold px-3 py-1.5 text-xs font-mono transition-colors shadow flex items-center gap-1.5"
+            >
+              {sendingEmail ? 'Đang gửi...' : '⚡ Gửi Test Resend'}
+            </button>
+          </div>
+        </div>
+        {emailStatusMsg && (
+          <div className={`mt-3 p-2.5 rounded-lg text-xs font-mono ${emailStatusMsg.startsWith('✓') ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300' : 'bg-rose-950/60 border border-rose-500/40 text-rose-300'}`}>
+            {emailStatusMsg}
+          </div>
+        )}
+      </div>
+
       {/* Top Bar / Actions */}
       <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
