@@ -75,9 +75,25 @@ Dispatches a test signal to a target account through the execution pipeline.
 #### 3.2 `zupirus-cli signal trace <signal_id> --json`
 Provides end-to-end observability from signal creation -> outbox -> Redis stream -> Cloud Execution -> Deal Ticket, verifying anti-duplicate constraints.
 
+#### 3.3 `zupirus-cli signal test-ingest --action BUY|SELL --price <price> [--sl <sl>] [--tp <tp>] [--tier STANDARD|ALPHA] --json`
+Simulates signal ingestion through all 4 Mandatory Safety Guards (Mandatory ATR SL, News Shield, Slippage Guard, Redis Deduplication) and outputs audit results.
+
+#### 3.4 `zupirus-cli signal list-audit [--limit 20] --json`
+Queries the `signal_audit_logs` table for recent approval and rejection decisions with exact reasons.
+
 ---
 
-### Domain 4: `research` — Strategy Validation & Approval Workflow
+### Domain 4: `billing` — Real-Time FX Rate & Subscription Orders
+
+#### 4.1 `zupirus-cli billing fx [--force] --json`
+Inspects the current USD/VND live exchange rate, Redis cache status, and VND equivalents for all platform tiers.
+
+#### 4.2 `zupirus-cli billing orders [--limit 20] --json`
+Lists recent VietQR subscription and cloud slot checkout orders with status and timestamps.
+
+---
+
+### Domain 5: `research` — Strategy Validation & Approval Workflow
 
 #### 4.1 `zupirus-cli research run-validation [--cutoff <timestamp>] --json`
 Executes rolling Walk-Forward Out-of-Sample analysis and halts at the LangGraph `interrupt` approval gate (`state = waiting_approval`).

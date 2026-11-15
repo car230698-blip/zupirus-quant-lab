@@ -271,3 +271,106 @@ def cmd_signal_trace(signal_id: str, as_json: bool = False):
 
     print(f"\n[4. Anti-Duplicate]    : {anti_duplicate_audit['status']}")
     print("=" * 70)
+
+
+def cmd_signal_test_ingest(
+    action: str,
+    price: float,
+    sl: Optional[float] = None,
+    tp: Optional[float] = None,
+    strategy_tier: str = "STANDARD",
+    symbol: str = "XAUUSD",
+    as_json: bool = False
+):
+    """Test ingest an external signal through all 4 ZUPIRUS Safety Guards."""
+    from app.schemas.signals import TradingViewWebhookPayload
+    from app.services.signal_ingestion.normalizer import normalize_tradingview_signal
+    from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
+
+    init()
+    clean_action = (action or "").strip().upper()
+    if clean_action not in ("BUY", "SELL"):
+        emit_error(f"Invalid action '{action}'. Must be BUY or SELL.", as_json=as_json)
+
+    payload = TradingViewWebhookPayload(
+        action=clean_action,
+        ticker=symbol.upper(),
+        price=price,
+        sl=sl,
+        tp=tp,
+        strategy_tier=strategy_tier.upper(),
+        signal_id=f"test_cli_{secrets.token_hex(4)}"
+    )
+
+    sig = normalize_tradingview_signal(payload)
+    approved, reject_reason, sanitized = sanitize_and_audit_signal(sig)
+
+    result = {
+        "status": "APPROVED" if approved else "REJECTED",
+        "signal_id": sanitized.id,
+        "symbol": sanitized.symbol,
+        "action": sanitized.action,
+        "entry_price": sanitized.entry_price,
+        "stop_loss": sanitized.stop_loss,
+        "take_profit": sanitized.take_profit,
+        "strategy_tier": sanitized.strategy_tier,
+        "reject_reason": reject_reason,
+        "auto_sl_attached": sl is None and sanitized.stop_loss is not None,
+    }
+
+    if as_json:
+        emit_json(result)
+        return
+
+    print("=== Signal Ingestion & 4 Safety Guards Test ===")
+    print(f"Status:        {'[APPROVED]' if approved else '[REJECTED]'}")
+    print(f"Signal ID:     {sanitized.id}")
+    print(f"Order:         {sanitized.action} {sanitized.symbol} @ {sanitized.entry_price}")
+    print(f"Stop Loss:     {sanitized.stop_loss} {'(Auto-attached by ATR Guard 1)' if result['auto_sl_attached'] else ''}")
+    print(f"Take Profit:   {sanitized.take_profit or 'Open'}")
+    if reject_reason:
+        print(f"Reject Reason: {reject_reason}")
+
+
+def cmd_signal_list_audit(limit: int = 20, as_json: bool = False):
+    """List recent signal audit logs recorded by the safety guard pipeline."""
+    init()
+    with tx() as c:
+        rows = c.execute(
+            """
+            SELECT id, signal_id, source_name, strategy_tier, symbol, side,
+                   entry_price, stop_loss, take_profit, status, reject_reason, created_at
+            FROM signal_audit_logs
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,)
+        ).fetchall()
+
+    logs = [dict(r) for r in rows]
+
+    if as_json:
+        emit_json({"audit_logs": logs, "total": len(logs)})
+        return
+
+    if not logs:
+        print("No signal audit logs found.")
+        return
+
+    headers = ["ID", "Signal", "Source", "Tier", "Side", "Entry", "SL", "Status", "Reason"]
+    table_rows = []
+    for l in logs:
+        table_rows.append([
+            l["id"][:12],
+            l["signal_id"][:10],
+            l["source_name"],
+            l["strategy_tier"],
+            l["side"],
+            f"{l['entry_price']:.2f}",
+            f"{l['stop_loss']:.2f}" if l["stop_loss"] else "-",
+            l["status"],
+            l["reject_reason"] or "Passed All Guards",
+        ])
+
+    print(format_table(headers, table_rows))
+

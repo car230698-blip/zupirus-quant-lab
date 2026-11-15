@@ -21,11 +21,14 @@ async def lifespan(app):
 
 app = FastAPI(title='ZUPIRUS Quant Lab · Production Engine', version='0.2.0', lifespan=lifespan)
 SECURE = os.getenv('COOKIE_SECURE', 'true').lower() == 'true'
-ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://zupirus.com,https://adm.zupirus.com').split(',')
+ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://zupirus.com,https://app.zupirus.com,https://adm.zupirus.com,http://localhost:5173,http://localhost:3000').split(',')
 
 @app.middleware('http')
 async def perimeter(request: Request, call_next):
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        # External webhooks bypass browser origin checks
+        if request.url.path.startswith('/api/v1/webhooks') or request.url.path.startswith('/api/sepay') or request.url.path == '/api/webhooks/sepay':
+            return await call_next(request)
         origin = request.headers.get('origin')
         if origin and origin not in ORIGINS:
             return JSONResponse({'detail': 'Origin denied'}, 403)
@@ -1518,142 +1521,12 @@ class DispatchSignalPayload(BaseModel):
     tp: Optional[float] = None
     rationale: Optional[str] = None
 
-@app.get('/api/metaapi/accounts')
-def list_metaapi_accounts(u=Depends(user)):
-    """List Direct-to-User MT5 Cloud accounts."""
-    with tx() as c:
-        if u['role'] == 'admin':
-            rows = c.execute("SELECT * FROM metaapi_cloud_accounts ORDER BY created_at DESC").fetchall()
-        else:
-            rows = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE user_id=? ORDER BY created_at DESC", (u['id'],)).fetchall()
-        
-        results = []
-        for r in rows:
-            d = dict(r)
-            d.pop('encrypted_password', None)
-            results.append(d)
-        return {"accounts": results}
-
-@app.post('/api/metaapi/accounts')
-async def create_metaapi_account(p: MetaApiAccountPayload, u=Depends(user)):
-    """Provision MT5 terminal on MetaApi Cloud without needing EA installation or VPS."""
-    with tx() as c:
-        disc = c.execute("SELECT id FROM legal_disclaimers WHERE user_id=? AND status='active'", (u['id'],)).fetchone()
-        if not disc:
-            fail(403, "Yêu cầu đọc và ký Điều khoản Miễn trừ trách nhiệm pháp lý trước khi kết nối Cloud MT5.")
-
-    from .metaapi import MetaApiClient
-    from .security import encrypt_secret
-
-    client = MetaApiClient()
-    try:
-        prov = await client.provision_account(
-            name=p.account_name or f"User-{u['id'][:6]}",
-            login=p.login,
-            password=p.password,
-            server=p.server,
-            platform=p.platform
-        )
-    except Exception as e:
-        fail(400, f"Lỗi kết nối MetaApi Cloud: {str(e)}")
-
-    meta_id = prov.get("id")
-    meta_state = prov.get("state", "DEPLOYED")
-    aid = f"cloud_{secrets.token_hex(8)}"
-    enc_pwd = encrypt_secret(p.password)
-    now_ts = time.time()
-
-    with tx() as c:
-        try:
-            c.execute("""
-                INSERT INTO metaapi_cloud_accounts(
-                    id, user_id, login, server, platform, account_name,
-                    metaapi_account_id, metaapi_state, disclaimer_id,
-                    risk_percent, max_lot, multiplier, auto_trade,
-                    balance, equity, currency, encrypted_password, last_sync, created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,10000.0,10000.0,'USD',?,?,?)
-            """, (
-                aid, u['id'], p.login, p.server, p.platform, p.account_name,
-                meta_id, meta_state, disc['id'],
-                p.risk_percent, p.max_lot, p.multiplier,
-                enc_pwd, now_ts, now_ts
-            ))
-        except (sqlite3.IntegrityError, Exception):
-            fail(409, "Tài khoản MT5 trên Server này đã được liên kết.")
-
-        audit(c, u['id'], 'metaapi_cloud_account_created', {
-            'account_id': aid,
-            'login': p.login,
-            'server': p.server,
-            'metaapi_id': meta_id
-        })
-
-    return {
-        "id": aid,
-        "metaapi_account_id": meta_id,
-        "state": meta_state,
-        "message": "Đã kết nối tài khoản MT5 Cloud thành công. Hệ thống tự động bắn lệnh trực tiếp khi có tín hiệu."
-    }
-
-@app.post('/api/metaapi/accounts/{account_id}/toggle')
-def toggle_metaapi_account(account_id: str, u=Depends(user)):
-    """Toggle auto trading on/off for a cloud account."""
-    with tx() as c:
-        acc = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE id=?", (account_id,)).fetchone()
-        if not acc:
-            fail(404, "Tài khoản không tồn tại.")
-        if u['role'] != 'admin' and acc['user_id'] != u['id']:
-            fail(403, "Không có quyền.")
-        new_state = 1 if acc['auto_trade'] == 0 else 0
-        c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=?", (new_state, account_id))
-        audit(c, u['id'], 'metaapi_cloud_toggle_auto_trade', {'account_id': account_id, 'auto_trade': new_state})
-    return {"id": account_id, "auto_trade": new_state, "status": "ACTIVE" if new_state else "PAUSED"}
-
-@app.post('/api/metaapi/accounts/{account_id}/sync')
-async def sync_metaapi_account(account_id: str, u=Depends(user)):
-    """Sync real-time equity & balance from MetaApi cloud terminal."""
-    with tx() as c:
-        acc = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE id=?", (account_id,)).fetchone()
-        if not acc:
-            fail(404, "Tài khoản không tồn tại.")
-        if u['role'] != 'admin' and acc['user_id'] != u['id']:
-            fail(403, "Không có quyền.")
-
-    from .metaapi import MetaApiClient
-    client = MetaApiClient()
-    info = await client.get_account_information(acc['metaapi_account_id'] or acc['id'])
-    eq = float(info.get('equity', acc['equity']))
-    bal = float(info.get('balance', acc['balance']))
-    now_ts = time.time()
-
-    with tx() as c:
-        c.execute("UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=?", (eq, bal, now_ts, account_id))
-
-    return {"id": account_id, "equity": eq, "balance": bal, "last_sync": now_ts}
-
-@app.delete('/api/metaapi/accounts/{account_id}')
-async def delete_metaapi_account(account_id: str, u=Depends(user)):
-    """Undeploy cloud terminal and remove account from platform."""
-    with tx() as c:
-        acc = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE id=?", (account_id,)).fetchone()
-        if not acc:
-            fail(404, "Tài khoản không tồn tại.")
-        if u['role'] != 'admin' and acc['user_id'] != u['id']:
-            fail(403, "Không có quyền.")
-
-    from .metaapi import MetaApiClient
-    client = MetaApiClient()
-    if acc['metaapi_account_id']:
-        try:
-            await client.undeploy_account(acc['metaapi_account_id'])
-        except Exception as e:
-            logger.warning(f"Could not undeploy MetaApi account {acc['metaapi_account_id']}: {e}")
-
-    with tx() as c:
-        c.execute("DELETE FROM metaapi_cloud_accounts WHERE id=?", (account_id,))
-        audit(c, u['id'], 'metaapi_cloud_account_deleted', {'account_id': account_id})
-
-    return {"id": account_id, "deleted": True}
+# Modular domain routers: Billing, Webhooks, Signals, Accounts
+from app.routers import billing_router, webhooks_router, signals_router, accounts_router
+app.include_router(billing_router)
+app.include_router(webhooks_router)
+app.include_router(signals_router)
+app.include_router(accounts_router)
 
 @app.post('/api/metaapi/dispatch-signal')
 async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(user)):

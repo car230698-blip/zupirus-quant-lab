@@ -20,8 +20,6 @@ const AdminApprovalQueue = lazy(() =>
   import('./components/AdminApprovalQueue.tsx').then((module) => ({ default: module.AdminApprovalQueue }))
 );
 
-type CopyAccount = { id: string; enabled: boolean; risk: number; max_spread: number; max_positions: number; max_dd: number };
-
 type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
 type AdminTabKey = 'overview' | 'approvals' | 'activity' | 'tracing' | 'news' | 'users' | 'ai';
 export type PortalType = 'landing' | 'user' | 'admin';
@@ -107,9 +105,6 @@ export const App: React.FC = () => {
 
   // Forms & notices
   const [notice, setNotice] = useState<string | null>(null);
-  const [newDemoLogin, setNewDemoLogin] = useState('');
-  const [newDemoServer, setNewDemoServer] = useState('');
-  const [pairCodes, setPairCodes] = useState<Record<string, string>>({});
   const [newsTitle, setNewsTitle] = useState('');
   const [newsWhen, setNewsWhen] = useState('');
   const [killSwitchLoading, setKillSwitchLoading] = useState(false);
@@ -274,88 +269,7 @@ export const App: React.FC = () => {
     setCurrentUser(null);
     setDashboard({ accounts: [], orders: [], series: [], health: {} });
     setMonitorData({ accounts: [], audit: [], jobs: [], news: [], halted: null });
-    setPairCodes({});
     setNotice(null);
-  };
-
-  // EA & Account operations
-  const handleToggleCopy = async (account: CopyAccount) => {
-    const { id, enabled, risk, max_spread, max_positions, max_dd } = account;
-    try {
-      const res = await fetch(`/api/accounts/${id}/risk`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ enabled: !enabled, risk, max_spread, max_positions, max_dd }),
-      });
-      if (!res.ok) throw new Error('Không thể thay đổi trạng thái sao chép.');
-      showNotice(enabled ? 'Đã tạm dừng sao chép.' : 'Đã bật sao chép.');
-      await loadDashboard();
-      if (currentUser?.role === 'admin') await loadAdminMonitor();
-    } catch {
-      showNotice('Không thể thay đổi trạng thái sao chép. Vui lòng thử lại.');
-    }
-  };
-
-  const handleRevoke = async (aid: string) => {
-    if (!window.confirm('Bạn có chắc chắn muốn thu hồi quyền truy cập của EA MT5 này?')) return;
-    const res = await fetch(`/api/accounts/${aid}/revoke`, {
-      method: 'POST',
-      headers: { 'X-Zupirus': '1' },
-    });
-    if (res.ok) {
-      showNotice(`Đã thu hồi liên kết EA cho tài khoản #${aid.slice(0, 8)}. EA sẽ bị ngắt kết nối.`);
-      await loadDashboard();
-      if (currentUser?.role === 'admin') await loadAdminMonitor();
-    }
-  };
-
-  const handleCreatePairCode = async (aid: string) => {
-    const res = await fetch(`/api/accounts/${aid}/pair`, {
-      method: 'POST',
-      headers: { 'X-Zupirus': '1' },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setPairCodes((prev) => ({ ...prev, [aid]: data.code }));
-      showNotice('Đã cấp mã ghép nối. Xem mã trong tài khoản bên dưới.');
-    } else {
-      showNotice(res.status === 409 ? 'Hãy thu hồi liên kết hiện tại trước khi cấp mã mới.' : 'Không thể cấp mã ghép nối.');
-    }
-  };
-
-  const handleAddDemoAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDemoLogin.trim()) return;
-    const res = await fetch('/api/accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({
-        login: newDemoLogin.trim(),
-        server: newDemoServer.trim(),
-        mode: 'DEMO',
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setNewDemoLogin('');
-      showNotice(`Đã thêm tài khoản MT5 #${newDemoLogin}. Tiến hành tạo mã ghép nối bên dưới.`);
-      await loadDashboard();
-      if (data.id) handleCreatePairCode(data.id);
-    } else {
-      const err = await res.json().catch(() => ({ detail: 'Lỗi' }));
-      showNotice(`Lỗi tạo tài khoản: ${err.detail}`);
-    }
-  };
-
-  const handleCreateReplay = async () => {
-    const res = await fetch('/api/replay', {
-      method: 'POST',
-      headers: { 'X-Zupirus': '1' },
-    });
-    if (res.ok) {
-      showNotice('Đã tạo tài khoản Replay tự động mô phỏng nến XAUUSD.');
-      await loadDashboard();
-    }
   };
 
   // Admin operations
@@ -822,7 +736,7 @@ export const App: React.FC = () => {
   const executionTick = Number(dashboard.health?.execution_heartbeat);
   const researchActive = Number.isFinite(researchTick) && Date.now() / 1000 - researchTick < 60;
   const lastResearchJob = monitorData.jobs?.[0];
-  const formatHeartbeat = (timestamp: number) => Number.isFinite(timestamp)
+  const formatHeartbeat = (timestamp: number | null | undefined) => (typeof timestamp === 'number' && Number.isFinite(timestamp))
     ? new Date(timestamp * 1000).toLocaleTimeString('vi-VN') : 'Chưa ghi nhận';
   const status = portal === 'admin' ? monitorStatus : dashboardStatus;
   const alternatePortal = portal === 'admin' ? 'user' : 'admin';
@@ -884,19 +798,7 @@ export const App: React.FC = () => {
           )}
 
           {userTab === 'accounts' && (
-            <UserAccountsTab
-              accounts={accounts}
-              newDemoLogin={newDemoLogin}
-              setNewDemoLogin={setNewDemoLogin}
-              newDemoServer={newDemoServer}
-              setNewDemoServer={setNewDemoServer}
-              handleAddDemoAccount={handleAddDemoAccount}
-              handleCreateReplay={handleCreateReplay}
-              pairCodes={pairCodes}
-              handleCreatePairCode={handleCreatePairCode}
-              handleToggleCopy={handleToggleCopy}
-              handleRevoke={handleRevoke}
-            />
+            <UserAccountsTab />
           )}
 
           {userTab === 'orders' && (

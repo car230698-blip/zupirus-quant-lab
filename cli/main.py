@@ -14,7 +14,13 @@ from cli.cloud import (
     cmd_cloud_undeploy_expired,
     cmd_cloud_dispatch_test,
 )
-from cli.signal import cmd_signal_send_test, cmd_signal_trace
+from cli.signal import (
+    cmd_signal_send_test,
+    cmd_signal_trace,
+    cmd_signal_test_ingest,
+    cmd_signal_list_audit,
+)
+from cli.billing import cmd_billing_fx, cmd_billing_orders
 from cli.research import (
     cmd_research_run_validation,
     cmd_research_pending,
@@ -102,6 +108,37 @@ def build_parser() -> argparse.ArgumentParser:
     p_sig_trace = sig_subs.add_parser("trace", help="Trace signal from DB -> Redis -> EA -> Deal Ticket")
     p_sig_trace.add_argument("signal_id", type=str, help="Signal ID to trace")
     p_sig_trace.add_argument("--json", action="store_true", help="Output pure JSON")
+
+    # signal test-ingest
+    p_sig_ingest = sig_subs.add_parser("test-ingest", help="Test ingest signal through 4 safety guards")
+    p_sig_ingest.add_argument("--action", type=str, required=True, choices=["BUY", "SELL", "buy", "sell"], help="Order direction")
+    p_sig_ingest.add_argument("--price", type=float, required=True, help="Entry price")
+    p_sig_ingest.add_argument("--sl", type=float, default=None, help="Stop loss price (optional)")
+    p_sig_ingest.add_argument("--tp", type=float, default=None, help="Take profit price (optional)")
+    p_sig_ingest.add_argument("--tier", type=str, default="STANDARD", choices=["STANDARD", "ALPHA"], help="Strategy tier")
+    p_sig_ingest.add_argument("--symbol", type=str, default="XAUUSD", help="Symbol (default XAUUSD)")
+    p_sig_ingest.add_argument("--json", action="store_true", help="Output pure JSON")
+
+    # signal list-audit
+    p_sig_audit = sig_subs.add_parser("list-audit", help="List recent signal audit logs from the safety pipeline")
+    p_sig_audit.add_argument("--limit", type=int, default=20, help="Max records to return")
+    p_sig_audit.add_argument("--json", action="store_true", help="Output pure JSON")
+
+    # -------------------------------------------------------------
+    # 4. BILLING & FX DOMAIN
+    # -------------------------------------------------------------
+    p_bill = subparsers.add_parser("billing", help="Real-time FX rates, subscription tiers, and orders")
+    bill_subs = p_bill.add_subparsers(dest="subcommand")
+
+    # billing fx
+    p_bill_fx = bill_subs.add_parser("fx", help="Inspect real-time USD/VND rate and pricing")
+    p_bill_fx.add_argument("--force", action="store_true", help="Force refresh from external FX API")
+    p_bill_fx.add_argument("--json", action="store_true", help="Output pure JSON")
+
+    # billing orders
+    p_bill_ord = bill_subs.add_parser("orders", help="List subscription & cloud slot orders")
+    p_bill_ord.add_argument("--limit", type=int, default=20, help="Max orders to return")
+    p_bill_ord.add_argument("--json", action="store_true", help="Output pure JSON")
 
     # -------------------------------------------------------------
     # 4. RESEARCH & APPROVAL DOMAIN
@@ -209,8 +246,28 @@ def main(argv: Optional[List[str]] = None):
                 )
             elif args.subcommand == "trace":
                 cmd_signal_trace(signal_id=args.signal_id, as_json=effective_json)
+            elif args.subcommand == "test-ingest":
+                cmd_signal_test_ingest(
+                    action=args.action,
+                    price=args.price,
+                    sl=args.sl,
+                    tp=args.tp,
+                    strategy_tier=args.tier,
+                    symbol=args.symbol,
+                    as_json=effective_json
+                )
+            elif args.subcommand == "list-audit":
+                cmd_signal_list_audit(limit=args.limit, as_json=effective_json)
             else:
                 emit_error(f"Unknown signal subcommand '{args.subcommand}'. Use --help.", as_json=effective_json)
+
+        elif args.command == "billing":
+            if args.subcommand == "fx":
+                cmd_billing_fx(force=args.force, as_json=effective_json)
+            elif args.subcommand == "orders":
+                cmd_billing_orders(limit=args.limit, as_json=effective_json)
+            else:
+                emit_error(f"Unknown billing subcommand '{args.subcommand}'. Use --help.", as_json=effective_json)
 
         elif args.command == "research":
             if args.subcommand == "run-validation":

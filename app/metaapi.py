@@ -255,19 +255,25 @@ async def execute_fan_out_for_signal(
             except Exception as e:
                 logger.error(f"Redis idempotency lock error: {e}")
 
-        # 2. Calculate dynamic lot
-        equity = float(acc.get("equity") or acc.get("balance") or 10000.0)
+        # 2. Calculate dynamic lot with compounding & risk multiplier
+        is_comp = bool(acc.get("is_compounding", False))
+        balance = float(acc.get("balance") or 10000.0)
+        equity = float(acc.get("equity") or balance)
+        base_capital = equity if is_comp else balance
+
         risk_pct = float(acc.get("risk_percent", 1.0))
-        max_lot = float(acc.get("max_lot", 1.0))
-        mult = float(acc.get("multiplier", 1.0))
-        volume = calculate_lot_size(equity, risk_pct, sl_points, symbol=symbol, max_lot=max_lot, multiplier=mult)
+        max_lot = float(acc.get("max_lot", 5.0))
+        mult = float(acc.get("risk_multiplier") or acc.get("multiplier") or 1.0)
+        volume = calculate_lot_size(base_capital, risk_pct, sl_points, symbol=symbol, max_lot=max_lot, multiplier=mult)
 
         account_metas.append({
             "account_id": acc_id,
             "metaapi_account_id": meta_id,
             "user_id": acc.get("user_id"),
             "volume": volume,
-            "equity": equity
+            "equity": equity,
+            "is_compounding": is_comp,
+            "multiplier": mult,
         })
 
         # 3. Schedule concurrent execution task

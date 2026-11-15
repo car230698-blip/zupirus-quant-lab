@@ -1,63 +1,88 @@
-# Kiến trúc và quyết định thiết kế
+# ZUPIRUS Quant Lab · Architecture Documentation
 
-## Phạm vi
+## 1. Executive Summary & Core Architectural Shift
 
-Một VPS, một replica API, một Execution worker, một Research worker. SQLite WAL + transaction `BEGIN IMMEDIATE` serialize mutations, có foreign keys và unique constraints. Dữ liệu ứng dụng và LangGraph được lưu trong volume `lab_data`. Đây là lựa chọn triển khai Demo nhỏ, không phải kiến trúc HA đa vùng. Khi mở rộng cần PostgreSQL, migrations có version và PostgreSQL LangGraph checkpointer cùng distributed leasing.
+ZUPIRUS Quant Lab is an institutional-grade algorithmic trading and quantitative intelligence platform specializing in closed-candle execution for XAUUSD (Gold).
 
-```mermaid
-flowchart TD
-  C["zupirus.com · Khách"] --> P["Caddy · TLS"]
-  A["adm.zupirus.com · Admin"] --> P
-  P --> API["FastAPI · RBAC / ownership"]
-  API --> DB["SQLite WAL · durable state"]
-  F["Windows Demo price service"] --> API
-  X["Execution worker · deterministic"] <--> DB
-  R["LangGraph Research worker"] <--> DB
-  R --> CP["Persistent checkpoints"]
-  API <--> EA["MT5 EA Copy · Demo only"]
-  EA --> B["Demo broker · order / deal"]
+Starting in **v2026.2**, ZUPIRUS has completely deprecated all legacy client-side EA binaries (`.ex5`), local VPS requirements, pairing codes, and master trading accounts. The entire execution infrastructure operates on a **100% Direct-to-User Cloud MT5 Architecture via MetaApi Cloud Bridge**.
+
+```
+                           ┌────────────────────────────┐
+                           │    Signal Sources          │
+                           │  - TradingView Webhooks    │
+                           │  - MetaApi Demo Feed       │
+                           └─────────────┬──────────────┘
+                                         │
+                                         ▼
+                           ┌────────────────────────────┐
+                           │   4 Mandatory Safety       │
+                           │   Guards & Sanitizer       │
+                           │ 1. Mandatory ATR(14) SL    │
+                           │ 2. News Shield (±15m USD)  │
+                           │ 3. Entry Slippage (20 pips)│
+                           │ 4. Redis Idempotency (60s) │
+                           └─────────────┬──────────────┘
+                                         │
+                                         ▼
+                           ┌────────────────────────────┐
+                           │   Fan-Out Dispatcher       │
+                           │   (MetaApi Trading API)    │
+                           └─────────────┬──────────────┘
+                                         │
+                 ┌───────────────────────┼───────────────────────┐
+                 ▼                       ▼                       ▼
+      ┌──────────────────────┐┌──────────────────────┐┌──────────────────────┐
+      │ MT5 Client Terminal  ││ MT5 Client Terminal  ││ MT5 Client Terminal  │
+      │ User #1 (London G2)  ││ User #2 (London G2)  ││ User #3 (London G2)  │
+      └──────────────────────┘└──────────────────────┘└──────────────────────┘
 ```
 
-Execution không import LangGraph hoặc gọi LLM; worker Research dừng không gây dừng Execution. Các tiến trình cùng dùng một image có phiên bản dependency được khóa; tách biệt là theo tiến trình và đường gọi, không phải miền bảo mật riêng giữa các tenant trên cùng VPS.
+---
 
-## Thực thi
+## 2. The 3-Domain Surface Model
 
-- Price service có bearer token riêng chỉ được phép nạp `DEMO`. Timestamp cũ hơn 10 giây, future quá 10 giây, bid/ask ngược bị từ chối. Symbol feeder phải là XAU/USD và account terminal là Demo.
-- Chiến lược minh họa: SMA nhanh 5 / chậm 20, phát tại giao cắt; SL 6 USD/oz, TP 12 USD/oz. Không có hứa hẹn alpha hoặc lợi nhuận. Chưa có portfolio optimizer hay strategy marketplace.
-- Mỗi quote timestamp và signal source/key được deduplicate. Dispatch unique `(account_id, signal_id)`.
-- Rủi ro backend: copy flag, môi trường, heartbeat, TTL, spread, số lệnh/intent, drawdown trên equity peak, tiền rủi ro dự kiến, lịch tin và system halt.
-- EA dùng giá broker thực; tính lot bằng `OrderCalcProfit`, floor về step; không nâng lên min lot nếu vượt budget. Kiểm tra margin, spread, slippage/drift, stop level, filling mode, tổng vị thế/lệnh pending và `OrderCheck`.
-- Lot sizing dùng 90% budget để chừa phí/slippage. Đây không phải bảo đảm lỗ tối đa khi gap thị trường.
-- Lệnh thoát do SL/TP broker xử lý. Pause ngăn lệnh mới, không tự đóng vị thế đã có. Bản này không phát lệnh đóng/sửa SL từ trung tâm.
+| Domain | Target User | Responsibility |
+|---|---|---|
+| `zupirus.com` | Public / Prospects | Next-gen landing page, 100% Cloud MT5 showcase, 4 safety shields visual, dynamic USD/VND pricing calculator. |
+| `app.zupirus.com` | End Investors / Clients | MT5 connection portal, dual expiry tracker (Cloud vs Copy-Trade), SePay VietQR payment checkout, tier-gated risk management (Compounding, Prop Firm Mode). |
+| `adm.zupirus.com` | Quant Engineers & Admins | Real-time USD/VND rate monitor with cache controls, dual-currency revenue metrics, MetaApi telemetry, signal pipeline testing, and live audit feed. |
 
-## Replay
+---
 
-900 bar tổng hợp được phát 2 giây/bar, tự lặp; khi vòng lặp reset, các vị thế mô phỏng còn lại được đóng theo giá bar mới. Contract mô phỏng cố định 100 oz/lot, tài khoản USD, spread 0.30 USD/oz, phí 7 USD/lot. Replay không mô phỏng order book, gap intrabar, latency phân phối thực tế hoặc đặc tính riêng của broker.
+## 3. Product & Billing Architecture
 
-Balance/Equity lấy từ bảng snapshot; không bịa đường equity. Snapshot giữ 7 ngày, quote giữ 2 ngày; signals/receipts/audit/checkpoints được giữ để đối soát. Admin phải giám sát dung lượng đĩa.
+The pricing structure cleanly separates physical cloud computing infrastructure from copy-trade quantitative signal services:
 
-## LangGraph
+1. **Cloud MT5 Bridge Infrastructure ($10 / month / slot):**
+   - Provisions an isolated MT5 terminal on MetaApi Cloud (`cloud-g2`, London).
+   - Replaces traditional VPS requirements and avoids MT5 terminal crashes.
+2. **Copy-Trade Signal Tiers:**
+   - **Starter Tier ($20/mo | Combo $30/mo):** 1 MT5 slot, 100% 4 default safety shields, standard 1.0x multiplier.
+   - **Growth Tier ($35/mo | Combo $45/mo):** Up to 3 MT5 slots, Custom Risk Multiplier (0.5x–3.0x), Auto-Compounding, Break-Even & Partial TP.
+   - **Prop Firm Alpha Tier ($49/mo | Combo $59/mo):** Up to 5 MT5 slots, Prop Firm Pass Guard (Daily Drawdown 4.5%, Profit Target 8.0%), access to Alpha Quant strategies, dedicated support.
 
-`START → walk_forward → admin_review (interrupt) → archive → END`.
+### Real-Time USD $\rightarrow$ VND Conversion Engine
+- Automatic exchange rate lookup via exchangerate-api, cached in Redis (`fx:usd_vnd`, TTL 2 hours), with a hardcoded fallback (`25,500.0`).
+- Mathematical ceiling to nearest 1,000 VND (`math.ceil(amount_vnd / 1000.0) * 1000`).
+- Exchange rate lock mechanism: When an order is created, the rate and exact VND amount are locked in `orders` for 20 minutes (`ORDER_LOCK_MINUTES`).
 
-- `thread_id=job.id`, `SqliteSaver` dùng file riêng `/data/research.sqlite3`.
-- Queue/job decisions ở `/data/lab.sqlite3`. Worker mở lại checkpoint sau restart; nếu graph đã hoàn tất nhưng queue chưa cập nhật thì khôi phục kết quả, không chạy lại phê duyệt.
-- WFO rolling 120 bar train / 60 bar OOS, 13 folds, chọn fast SMA trong 3/5/8 chỉ trên train; slow=20, cùng họ chiến lược Execution. OOS không chồng lấn. Fills giả lập tại bar tiếp theo, barrier đánh giá trên close, đóng còn lại cuối fold, phí 0.37 price-unit mỗi round trip.
-- Không dùng thông tin tương lai để chọn tham số. Có test thay toàn bộ tương lai rồi xác minh fold trước không đổi.
-- Metrics theo **price units**, không phải phần trăm lợi nhuận khách. Mọi report có `production_qualified=false` vì dữ liệu tổng hợp chưa chứng minh chiến lược trên broker.
-- Admin duyệt chỉ lưu ứng viên `approved_for_demo_review`; muốn thay chiến lược cần quy trình thay mã, test và triển khai riêng.
+---
 
-## AI và lịch kinh tế
+## 4. The 4 Mandatory Safety Guards
 
-Vision dùng endpoint chat completions có ảnh; nhận PNG/JPEG do Admin gửi, giới hạn kích thước. Trợ lý chỉ nhận dashboard của user từ SQL có filter owner; không có tools ghi dữ liệu/giao dịch. Khi không có key hoặc provider lỗi, trợ lý dùng trả lời quy tắc, Vision thông báo không khả dụng. API key không được chuyển xuống browser, EA hay Execution worker.
+Every signal passing through the ingestion pipeline must strictly pass all 4 guards before fan-out dispatch:
 
-Lịch tin được nhập bởi Admin. Bộ lọc USD/ALL + high impact là quyết định xác định, không phụ thuộc LLM. Chưa có nguồn tin realtime mặc định hoặc lời khẳng định rằng lịch trống đồng nghĩa không có tin.
+1. **Mandatory Stop Loss & Anti-Martingale:**
+   - Evaluates signal SL. If missing, auto-attaches ATR(14) stop loss ($3.50 / 35 pips on XAUUSD).
+   - Limits maximum concurrent open trades to 2.
+2. **News Shield (±15 min USD High-Impact Window):**
+   - Queries `news` table for high-impact USD events (CPI, NFP, FOMC interest rate announcements).
+   - Blocks new order entries during `[event_time - 15m, event_time + 15m]`.
+3. **Entry Slippage Guard:**
+   - Verifies market price drift at ingestion time.
+   - Rejects the signal if `abs(market_price - entry_price) > 20 pips` ($2.00 on XAUUSD).
+4. **Redis Idempotency Deduplication:**
+   - Computes SHA-256 fingerprint of `source:symbol:action:entry_price`.
+   - Uses `SET NX` with 60s TTL to guarantee exactly-once processing.
 
-## Cơ sở tham chiếu kỹ thuật
-
-- LangGraph interrupt/persistence: https://docs.langchain.com/oss/python/langgraph/interrupts
-- MT5 OrderSend và ý nghĩa kết quả: https://www.mql5.com/en/docs/trading/ordersend
-- MT5 HistorySelect: https://www.mql5.com/en/docs/trading/historyselect
-- Account trade mode: https://www.mql5.com/en/docs/constants/environment_state/accountinformation
-
-OrderSend trả true chưa chứng minh đã khớp. Hệ thống chỉ ghi `filled` khi có order ticket và deal từ đối soát broker của EA.
+All evaluations are recorded to `signal_audit_logs` table for institutional traceability.

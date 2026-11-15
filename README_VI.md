@@ -1,53 +1,42 @@
-# ZUPIRUS Quant Lab — Demo/Replay 0.2.0
+# ZUPIRUS Quant Lab · Hệ Thống Giao Dịch Định Lượng Tự Hành
 
-Bản nâng cấp kiến trúc toàn diện cho **ZUPIRUS Quant Lab**, tích hợp đồng bộ 4 công nghệ lõi:
+> **Thực thi 100% Điện toán đám mây Cloud MT5 · Không EA · Không VPS · 4 Màng Lọc Bảo Vệ Vốn Bắt Buộc**
 
-1. **PostgreSQL + TimescaleDB:** Cơ sở dữ liệu chính (lưu tài khoản Cloud MT5, cấu hình rủi ro, đối soát giao dịch và checkpoint phê duyệt), kết hợp hypertable của TimescaleDB để lưu trữ và truy vấn chuỗi thời gian nến/tick XAUUSD tốc độ cao với hàm `time_bucket`.
-2. **MetaApi Direct Cloud Execution + Redis:** Động cơ phát lệnh trực tiếp từ Quant Engine tới toàn bộ tài khoản MT5 của khách hàng qua API đám mây MetaApi song song (<50ms, Zero EA, Zero VPS), bảo vệ bằng khóa phân tán Redis (`lock:dispatch:{account_id}:{signal_id}`) chống mở trùng lệnh.
-3. **Vercel AI SDK 6:** Tầng giao diện và tương tác AI (`web/`) sử dụng **Vercel AI SDK 6** (`ToolLoopAgent`, `useChat`, Generative UI và cơ chế `needsApproval: true`) cho bảng hàng đợi phê duyệt chiến lược của Admin và trợ lý tra cứu danh mục của khách hàng.
-4. **LangSmith:** Tracing và giám sát toàn diện (bật tự động khi có `LANGSMITH_API_KEY` trong `.env`, có cơ chế fallback an toàn khi chạy offline) để ghi vết toàn bộ luồng suy luận, gọi công cụ, độ trễ và lượng token của cả LangGraph lẫn Vercel AI SDK 6.
+ZUPIRUS Quant Lab là nền tảng giao dịch định lượng chuẩn tổ chức chuyên biệt cho chiến lược nến đóng XAUUSD (Vàng). Hệ thống kết nối trực tiếp đến tài khoản MT5 của nhà đầu tư qua MetaApi Cloud Bridge (máy chủ London G2) và phân bổ lệnh song song với độ trễ tính bằng mili-giây.
 
 ---
 
-## 1. Khởi động với Docker Compose
+## 4 Trụ Cột Nền Tảng
 
-Yêu cầu: Linux VPS có Docker Engine + Docker Compose v2.24.4 trở lên.
-
-```bash
-docker compose up -d --build
-```
-
-Compose tự động khởi tạo 5 dịch vụ liên hoàn:
-- `timescaledb`: PostgreSQL 16 tích hợp TimescaleDB với volume bền vững `timescaledb_data`.
-- `redis`: Redis 7 Alpine hỗ trợ Streams, Pub/Sub và Khóa phân tán.
-- `api`: FastAPI với Vercel AI SDK 6 Data Stream endpoints và RBAC.
-- `execution`: Quant Engine phát tín hiệu SMA crossover, nạp Redis Stream và chốt chặn rủi ro.
-- `research`: LangGraph Walk-Forward Optimization kết nối LangSmith và checkpoint PostgreSQL.
-
----
-
-## 2. Cấu hình Môi trường (.env)
-
-Xem chi tiết trong `.env.example`:
-
-| Biến | Ý nghĩa |
-|---|---|
-| `DATABASE_URL` | Chuỗi kết nối PostgreSQL + TimescaleDB (`postgresql://zupirus:...@timescaledb:5432/zupirus`) |
-| `REDIS_URL` | Chuỗi kết nối Redis Streams & Cache (`redis://:...@redis:6379/0`) |
-| `LANGSMITH_API_KEY` | Khóa API LangSmith để bật tracing giám sát toàn diện |
-| `LANGSMITH_TRACING` | `true` để kích hoạt LangSmith tracing |
-| `LANGSMITH_PROJECT` | Tên dự án trên LangSmith (mặc định: `zupirus-quant-lab`) |
-| `AI_API_KEY` | Khóa API mô hình ngôn ngữ (OpenAI / Gemini / Vercel AI) |
+1. **Kiến Trúc Thực Thi Trực Tiếp Đám Mây (Direct-to-User):**
+   - Loại bỏ hoàn toàn việc cài đặt file EA `.ex5` trên máy khách.
+   - Khách hàng không cần tốn tiền thuê VPS hay lo lắng mất điện, mất mạng.
+   - Không phụ thuộc vào tài khoản Master trung gian (triệt tiêu độ trễ kép và trượt khối lượng).
+2. **4 Màng Lọc An Toàn Bắt Buộc (Tặng mặc định 100% ở mọi gói):**
+   - **Màng lọc 1:** Bắt buộc có Stop Loss & Chống Martingale (Tự động gắn SL ATR(14) 35 pips / $3.50 nếu thiếu; tối đa 2 lệnh đồng thời).
+   - **Màng lọc 2:** Cửa sổ bảo vệ tin tức News Shield (Khóa lệnh ±15 phút trước và sau khi ra tin USD High-Impact: CPI, NFP, FED).
+   - **Màng lọc 3:** Chống trượt giá Entry Slippage Guard (Hủy lệnh ngay nếu giá thị trường lệch quá 20 pips / $2.00).
+   - **Màng lọc 4:** Khóa phân tán Redis Deduplication (Chống trùng lặp lệnh tuyệt đối trong 60 giây).
+3. **Mô Hình Giá Minh Bạch & Quy Đổi Tỷ Giá USD → VND Thực Tế:**
+   - Phí Hạ Tầng Cloud MT5: $10/tháng/slot.
+   - Phí Dịch Vụ Tín Hiệu: Starter ($20/tháng), Growth ($35/tháng), Prop Firm Alpha ($49/tháng).
+   - Tỷ giá USD/VND lấy thời gian thực, cache Redis, làm tròn lên bội số 1.000đ và chốt cố định 20 phút khi tạo mã SePay VietQR.
+4. **Công Cụ Dòng Lệnh Agent-Native CLI (`zupirus-cli`):**
+   - Hỗ trợ thao tác hoàn toàn qua Terminal với cờ `--json` chuẩn máy đọc.
 
 ---
 
-## 3. Cấu trúc Thư mục
+## Cấu Trúc 3 Tên Miền
 
-- `app/db.py`: Tầng kết nối PostgreSQL + TimescaleDB (hypertables, time-series query helpers, fallback SQLite).
-- `app/redis_client.py`: Hàng đợi phân phối tín hiệu Redis Streams, Pub/Sub, Heartbeat Cache và Distributed Lock (`SET NX PX`).
-- `app/tracing.py`: Tầng giám sát LangSmith tracing, đo độ trễ và ghi vết token prompt/completion.
-- `app/engine.py`: Động cơ giao dịch định lượng kết nối Redis Streams và khóa phân tán.
-- `app/research.py`: LangGraph WFO tích hợp PostgreSQL checkpointer và LangSmith telemetry.
-- `app/main.py`: API Server với các endpoint Vercel AI SDK 6 Data Stream và Generative UI.
-- `web/`: Giao diện React + TypeScript, Vercel AI SDK 6 `ToolLoopAgent` (`needsApproval: true`) và `useChat`.
-- `tests/test_modern_architecture.py`: Bộ kiểm thử tự động toàn diện cho cả 4 công nghệ.
+- `https://zupirus.com`: Trang chủ giới thiệu công nghệ, 4 màng lọc an toàn và bảng giá tương tác USD / VNĐ.
+- `https://app.zupirus.com`: Ứng dụng người dùng kết nối MT5, theo dõi hạn dùng (Cloud & Tín hiệu), thanh toán VietQR và tinh chỉnh đòn bẩy.
+- `https://adm.zupirus.com`: Trung tâm điều hành Admin giám sát tỷ giá, doanh thu, telemetry MetaApi và nhật ký kiểm toán tín hiệu.
+
+---
+
+## Tài Liệu Tham Khảo
+
+- [Kiến trúc hệ thống](docs/ARCHITECTURE.md)
+- [Đặc tả API](docs/API.md)
+- [Cơ chế thanh toán & Tỷ giá](docs/BILLING.md)
+- [Hướng dẫn triển khai VPS](docs/DEPLOYMENT.md)

@@ -1,155 +1,64 @@
-# ZUPIRUS Quant Lab · Demo-Only Production Release (v0.2.0)
+# ZUPIRUS Quant Lab · Institutional Quantitative Trading System
 
-[![Demo safety and smoke](https://github.com/car230698-blip/zupirus-quant-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/car230698-blip/zupirus-quant-lab/actions/workflows/ci.yml)
-[![Branch](https://img.shields.io/badge/branch-main-cyan.svg)](https://github.com/car230698-blip/zupirus-quant-lab/tree/main)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+> **100% Direct Cloud MT5 Execution · Zero EA · Zero VPS · 4 Mandatory Safety Guards**
 
-Nền tảng phân tích định lượng XAUUSD chuỗi thời gian tốc độ cao và hệ thống sao chép lệnh MT5 Demo (Hard-locked against live real capital execution).
-
-Tài liệu chi tiết tiếng Việt: [README_VI.md](README_VI.md) · Hướng dẫn Agent CLI: [SKILL.md](SKILL.md)
+ZUPIRUS Quant Lab is a production-grade algorithmic trading platform designed for closed-candle execution on XAUUSD (Gold). It connects directly to investor MT5 accounts via MetaApi Cloud Bridge (London G2 datacenter) and dispatches verified signals concurrently with microsecond latency.
 
 ---
 
-## 1. Kiến Trúc Cốt Lõi (4 Công Nghệ Nâng Cấp)
+## Key Pillars
 
-1. **PostgreSQL 16 + TimescaleDB 2.17:**
-   - CSDL chính lưu trữ tài khoản, cấu hình rủi ro, đối soát lệnh và checkpoint bền vững LangGraph.
-   - Hypertables (`quotes`, `candles`, `snapshots`) phân vùng theo cột `time`, hỗ trợ hàm `time_bucket` truy vấn nến M1, M5, M15, H1, D1 siêu tốc.
-   - Ràng buộc duy nhất tương thích TimescaleDB (`UNIQUE(time, source, ts)`).
-2. **Redis 7 (Streams, Pub/Sub & Distributed Lock):**
-   - Hàng đợi tín hiệu thời gian thực `stream:signals` kết hợp Transactional Outbox (commit PostgreSQL trước khi publish).
-   - Khóa phân tán `lock:dispatch:{account_id}:{signal_id}` chống mở trùng lệnh khi nhiều worker hoặc request đồng thời.
-   - Cache trạng thái heartbeat EA `cache:heartbeat:{account_id}` với TTL 45 giây.
-3. **Vercel AI SDK 6 & React 19:**
-   - Single-Page Application (SPA) viết bằng TypeScript + React 19 + Vite.
-   - Tích hợp `ai@^6.0.332` và `@ai-sdk/react@^3.0.335` với giao thức Vercel AI Data Stream Protocol.
-   - Generative UI: `PortfolioGenerativeUI`, `RecentOrdersGenerativeUI`.
-   - Trợ lý kiểm định và thẻ dữ liệu có cấu trúc trên AI SDK 6. Quyết định Walk-Forward vẫn được xác thực và ghi nhận qua API quản trị.
-4. **LangSmith & LangGraph:**
-   - Tự động kích hoạt khi có `LANGSMITH_API_KEY` trong `.env`, có cơ chế fallback an toàn (fail-safe offline buffer) khi không có mạng.
-   - Tracing toàn bộ luồng suy luận, tool calls, độ trễ và lượng token; tự động ẩn (redact) mật khẩu, token, dữ liệu nhạy cảm.
-   - Tách rời hoàn toàn: Execution worker vẫn vận hành bình thường ngay cả khi dịch vụ AI bị gián đoạn.
-5. **Bộ Điều Phối Đa Chiến Lược (Multi-Strategy Coordinator):**
-   - Đội ngũ chiến lược định lượng XAUUSD M15:
-     - **Trend Following:** Giao cắt Fast SMA(5) / Slow SMA(20) khi có xung lực.
-     - **Mean Reversion:** Bollinger Band 2-sigma hồi quy về trung bình trong thị trường dao động biên độ.
-     - **Breakout:** Đột phá Donchian Channel 20 nến khi biến động mở rộng.
-     - **Regime Detector:** Tự động đứng ngoài (`STAND_ASIDE`) khi thị trường đi ngang trong vùng nhiễu.
+1. **Direct-to-User Cloud Architecture:**
+   - No client-side `.ex5` files or Expert Advisors to install.
+   - No personal VPS needed.
+   - No intermediary master accounts (eliminates dual-latency and volume mismatch).
+2. **4 Mandatory Safety Guards:**
+   - **Guard 1:** Mandatory Stop Loss & Anti-Martingale (Auto-attaches ATR(14) $3.50 SL if missing; max 2 concurrent trades).
+   - **Guard 2:** News Shield (Blocks new orders ±15 minutes around USD High-Impact events: CPI, NFP, FED).
+   - **Guard 3:** Entry Slippage Guard (Rejects entry if market price drifts > 20 pips / $2.00).
+   - **Guard 4:** Redis Idempotency Lock (60-second atomic deduplication).
+3. **Transparent Hybrid Pricing & Real-Time FX Conversion:**
+   - Cloud MT5 Bridge Slot: $10 / month / account.
+   - Copy-Trade Signal Service: Starter ($20/mo), Growth ($35/mo), Prop Firm Alpha ($49/mo).
+   - Live USD $\rightarrow$ VND conversion cached in Redis, ceiling-rounded to 1,000 VND, and locked for 20 minutes in SePay VietQR checkout.
+4. **Agent-Native CLI (`zupirus-cli`):**
+   - Full terminal-driven operations with `--json` output support.
 
 ---
 
-## 2. Phân Tuyến và Tên Miền (Same-Origin)
+## Tech Stack
 
-Hệ thống phục vụ cùng origin cho giao diện và backend trên từng tên miền, phân định rõ ràng giữa SPA route, tài nguyên tĩnh và `/api/*`:
-
-| Tên Miền | Vai Trò | Tuyến Đường |
-|---|---|---|
-| **`zupirus.com`** / **`www.zupirus.com`** | Cổng Người Dùng (User Portal) | Đăng ký, đăng nhập, kết nối Cloud MT5 1-bước (không cần EA/VPS), bật/tắt auto-trade, theo dõi số dư/equity, nhật ký lệnh và phân bổ tín hiệu trực tiếp |
-| **`adm.zupirus.com`** | Cổng Quản Trị (Admin Portal) | Giám sát 2 đội Agent (Execution & Research), MetaApi Cloud Terminals, Fan-Out direct dispatch, Kill-Switch, Hàng đợi duyệt chiến lược AI SDK 6, Nhật ký hoạt động toàn hệ thống, LangSmith Tracing |
+- **Backend:** FastAPI, Python 3.12, Pydantic v2, Asyncio Fan-Out
+- **Database:** TimescaleDB (PostgreSQL) Hypertables, Redis Distributed Locks
+- **Cloud Bridge:** MetaApi Cloud Trading API (`cloud-g2`, London)
+- **Frontend:** React 19, TypeScript, TailwindCSS, Vite
+- **Payments:** SePay VietQR Automated Banking Fulfillment
 
 ---
 
-## 3. Khởi Chạy Local & Docker Production
-
-### Chạy bằng Docker Compose (Khuyến nghị cho Production/Staging)
+## Quickstart
 
 ```bash
-# 1. Sao chép biến môi trường mẫu
-cp .env.example .env
+# 1. Install dependencies
+pip install -r requirements.txt
+npm install
 
-# 2. Khởi chạy toàn bộ stack với PostgreSQL, TimescaleDB và Redis thật
-docker compose up -d --build
+# 2. Run backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-# 3. Kiểm tra trạng thái các container
-docker compose ps
-```
+# 3. Run frontend development server
+npm run dev
 
-### Chạy Bộ Kiểm Thử (Unit & Integration Tests)
-
-```bash
-# Kiểm thử toàn diện 81 bài test
-pytest -v
-
-# Kiểm thử giao diện và kịch bản đóng gói
-python scripts/verify_package.py
-python scripts/local_smoke.py
-python scripts/run_dom_smoke.py
-```
-
-### Kiểm tra hai cổng sau khi build
-
-Mở trang chủ để kiểm tra cổng người dùng. Trong môi trường phát triển, dùng `/?portal=admin` và tài khoản quản trị để mở cổng admin. Vite chuyển API đến `VITE_BACKEND_URL` (mặc định `http://127.0.0.1:8000`). Khi chạy giao diện qua Vite, cấu hình `ALLOWED_ORIGINS` trên backend cho địa chỉ giao diện đang dùng. Nếu cần dữ liệu mẫu trong quá trình thiết kế, bật tường minh `ZUPIRUS_UI_FIXTURES=1` để chạy preview trên loopback.
-
-Kiểm thử hai vai trò và tạo bốn ảnh desktop/mobile bằng một backend FastAPI cục bộ, với database tạm. Cài Playwright và Chromium trước khi chạy.
-
-```bash
-npm ci
-npm run build
-python -m pip install playwright
-python -m playwright install chromium
-python scripts/capture_screenshots.py
+# 4. Agent-native CLI
+python -m cli billing fx --json
+python -m cli signal test-ingest --action BUY --price 2680.50 --json
 ```
 
 ---
 
-## 4. Hướng Dẫn Vận Hành Trên VPS Thử Nghiệm
+## Documentation
 
-VPS cấu hình độc lập, không can thiệp vào stack chính đang chạy trên cổng 80/443 (Nginx Proxy Manager):
-
-- **SSH:** `hoangminh2306@109.199.100.120` (Cổng 22)
-- **Thư mục bản thử:** `~/zupirus-quant-lab-test`
-- **Compose project:** `zupirus-test`
-- **Cổng loopback:** `127.0.0.1:3101`
-
-### Khởi động bản thử trên VPS
-
-```bash
-cd ~/zupirus-quant-lab-test
-git fetch origin main && git checkout main && git pull origin main
-docker compose -p zupirus-test -f compose.yaml -f compose.staging.yaml up -d --build
-```
-
-### Kiểm tra sức khỏe & Readiness Fail-Closed
-
-```bash
-curl -f http://127.0.0.1:3101/healthz
-curl -f http://127.0.0.1:3101/readyz
-```
-
-### Sao lưu và khôi phục PostgreSQL
-
-Chọn đúng stack trước khi sao lưu. Các script dùng công cụ PostgreSQL trong container TimescaleDB.
-
-```bash
-export COMPOSE_PROJECT_NAME=zupirus-test
-export COMPOSE_FILE=compose.yaml:compose.staging.yaml
-bash scripts/backup_postgres.sh ./backups
-```
-
-Xem [quy trình khôi phục vào database mới](docs/BACKUP_RESTORE_MIGRATION.md) để kiểm chứng bản sao lưu.
-
-### Quy trình Quay Lui (Rollback)
-
-Nếu cần quay lui phiên bản:
-
-```bash
-cd ~/zupirus-quant-lab-test
-git checkout <PREVIOUS_COMMIT_SHA>
-docker compose -p zupirus-test -f compose.yaml -f compose.staging.yaml up -d --build --wait
-```
-
----
-
-## 5. Kết Quả Nghiệm Thu (Acceptance Table)
-
-| Hạng mục | Trạng thái | Bằng chứng |
-|---|---|---|
-| **Multi-stage Docker Build (React + Vite)** | **ĐẠT** | Multi-stage Dockerfile biên dịch React 19 + TypeScript (`dist/`), phục vụ cùng origin qua FastAPI `app.mount('/assets')` và SPA catch-all fallback |
-| **API Pure JSON & 404/401 Safety** | **ĐẠT** | Tuyến `/api/*` trả về 100% JSON, không bao giờ rơi về HTML khi 404, 401 hoặc lỗi máy chủ (`test_spa_fallback_and_api_pure_json` PASSED) |
-| **Vercel AI SDK 6 Integration** | **ĐẠT** | `@ai-sdk/react@^3.0.335` & `ai@^6.0.332` dùng `useChat`, `DefaultChatTransport` và UI Message Stream SSE cho trợ lý và thẻ dữ liệu |
-| **PostgreSQL & TimescaleDB Hypertables** | **ĐẠT** | Hypertables `quotes`, `candles`, `snapshots`, migration phiên bản tương thích DB mới lẫn cũ, chống ghi trùng tick |
-| **Redis Streams & Distributed Lock** | **ĐẠT** | Transactional Outbox + Redis Streams `stream:signals`, khóa `lock:dispatch:{aid}:{sid}` chống mở lệnh đúp (`test_redis_distributed_locking` PASSED) |
-| **Fail-Closed Docker Smoke** | **ĐẠT** | Tách riêng ngắt Redis và PostgreSQL: `/readyz` trả đúng HTTP 503 và báo lỗi chính xác phụ thuộc, tự động hồi phục khi unpause |
-| **Multi-Strategy Coordinator** | **ĐẠT** | Trend Following, Mean Reversion, Breakout, và Stand Aside; ghi nhận lý do vào lệnh/đứng ngoài vào metadata và outbox |
-| **Giao diện Người dùng & Quản trị** | **ĐẠT** | Nghiệm thu cả desktop (1440px) và mobile (390px), kết nối Cloud MT5 1-bước không cần file EA/VPS, toggle auto-trade, deal reconciliation |
-| **Bộ kiểm thử tự động toàn diện** | **ĐẠT** | **81/81 test cases PASSED (100%)** |
+- [System Architecture](docs/ARCHITECTURE.md)
+- [API Reference](docs/API.md)
+- [Billing & FX Conversion](docs/BILLING.md)
+- [Deployment Guide](docs/DEPLOYMENT.md)

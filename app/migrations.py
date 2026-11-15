@@ -56,6 +56,11 @@ MIGRATIONS = [
         "version": 10,
         "name": "010_standardize_trading_accounts_and_cloud_metaapi",
         "description": "Standardize trading_accounts model for 100% MetaApi Cloud Execution and drop legacy EA pairing tables"
+    },
+    {
+        "version": 11,
+        "name": "011_subscriptions_orders_and_signal_audit_logs",
+        "description": "Subscriptions, SePay orders with locked FX rate, signal audit logs, and cloud slots management"
     }
 ]
 
@@ -770,6 +775,141 @@ def apply_migration_010(c, is_pg: bool):
         """)
 
 
+def apply_migration_011(c, is_pg: bool):
+    """Migration 011: Add subscriptions, orders with locked FX rate, signal audit logs, and cloud slot columns."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id) UNIQUE,
+            plan_tier TEXT NOT NULL DEFAULT 'starter',
+            service_expires_at DOUBLE PRECISION,
+            max_mt5_accounts INTEGER NOT NULL DEFAULT 1,
+            allow_custom_multiplier INTEGER NOT NULL DEFAULT 0,
+            allow_compounding INTEGER NOT NULL DEFAULT 0,
+            allow_partial_tp_be INTEGER NOT NULL DEFAULT 0,
+            allow_prop_firm_mode INTEGER NOT NULL DEFAULT 0,
+            allow_alpha_strategies INTEGER NOT NULL DEFAULT 0,
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
+
+        CREATE TABLE IF NOT EXISTS orders (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            amount_usd DOUBLE PRECISION NOT NULL,
+            locked_exchange_rate DOUBLE PRECISION NOT NULL,
+            amount_vnd BIGINT NOT NULL,
+            plan_tier TEXT NOT NULL,
+            cloud_slots_count INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            payment_gateway TEXT NOT NULL DEFAULT 'SEPAY',
+            sepay_transaction_id TEXT,
+            created_at DOUBLE PRECISION NOT NULL,
+            expires_at DOUBLE PRECISION NOT NULL,
+            paid_at DOUBLE PRECISION
+        );
+        CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+        CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+
+        CREATE TABLE IF NOT EXISTS signal_audit_logs (
+            id TEXT PRIMARY KEY,
+            signal_id TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            strategy_tier TEXT NOT NULL DEFAULT 'STANDARD',
+            symbol TEXT NOT NULL DEFAULT 'XAUUSD',
+            side TEXT NOT NULL,
+            entry_price DOUBLE PRECISION NOT NULL,
+            stop_loss DOUBLE PRECISION,
+            take_profit DOUBLE PRECISION,
+            raw_payload TEXT,
+            status TEXT NOT NULL,
+            reject_reason TEXT,
+            pnl DOUBLE PRECISION,
+            created_at DOUBLE PRECISION NOT NULL,
+            processed_at DOUBLE PRECISION
+        );
+        CREATE INDEX IF NOT EXISTS idx_sig_audit_created ON signal_audit_logs(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_sig_audit_status ON signal_audit_logs(status);
+
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS cloud_expires_at DOUBLE PRECISION;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS risk_multiplier DOUBLE PRECISION NOT NULL DEFAULT 1.0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS is_compounding INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS is_prop_firm_mode INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS prop_daily_dd_limit_pct DOUBLE PRECISION NOT NULL DEFAULT 4.5;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS prop_profit_target_pct DOUBLE PRECISION NOT NULL DEFAULT 8.0;
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id) UNIQUE,
+            plan_tier TEXT NOT NULL DEFAULT 'starter',
+            service_expires_at REAL,
+            max_mt5_accounts INTEGER NOT NULL DEFAULT 1,
+            allow_custom_multiplier INTEGER NOT NULL DEFAULT 0,
+            allow_compounding INTEGER NOT NULL DEFAULT 0,
+            allow_partial_tp_be INTEGER NOT NULL DEFAULT 0,
+            allow_prop_firm_mode INTEGER NOT NULL DEFAULT 0,
+            allow_alpha_strategies INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sub_user ON subscriptions(user_id);
+
+        CREATE TABLE IF NOT EXISTS orders (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            amount_usd REAL NOT NULL,
+            locked_exchange_rate REAL NOT NULL,
+            amount_vnd INTEGER NOT NULL,
+            plan_tier TEXT NOT NULL,
+            cloud_slots_count INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            payment_gateway TEXT NOT NULL DEFAULT 'SEPAY',
+            sepay_transaction_id TEXT,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            paid_at REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+        CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+
+        CREATE TABLE IF NOT EXISTS signal_audit_logs (
+            id TEXT PRIMARY KEY,
+            signal_id TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            strategy_tier TEXT NOT NULL DEFAULT 'STANDARD',
+            symbol TEXT NOT NULL DEFAULT 'XAUUSD',
+            side TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            stop_loss REAL,
+            take_profit REAL,
+            raw_payload TEXT,
+            status TEXT NOT NULL,
+            reject_reason TEXT,
+            pnl REAL,
+            created_at REAL NOT NULL,
+            processed_at REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sig_audit_created ON signal_audit_logs(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_sig_audit_status ON signal_audit_logs(status);
+        """)
+        for col, col_def in [
+            ("cloud_expires_at", "REAL"),
+            ("risk_multiplier", "REAL NOT NULL DEFAULT 1.0"),
+            ("is_compounding", "INTEGER NOT NULL DEFAULT 0"),
+            ("is_prop_firm_mode", "INTEGER NOT NULL DEFAULT 0"),
+            ("prop_daily_dd_limit_pct", "REAL NOT NULL DEFAULT 4.5"),
+            ("prop_profit_target_pct", "REAL NOT NULL DEFAULT 8.0")
+        ]:
+            try:
+                c.execute(f"ALTER TABLE trading_accounts ADD COLUMN {col} {col_def}")
+            except Exception:
+                pass
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -786,6 +926,7 @@ def run_all_migrations(c, is_pg: bool):
         8: apply_migration_008,
         9: apply_migration_009,
         10: apply_migration_010,
+        11: apply_migration_011,
     }
 
     for m in MIGRATIONS:
@@ -869,7 +1010,7 @@ def run_postgres_migration_test(database_url: str = None):
         wrapped_fresh = ConnectionWrapper(raw_conn, is_pg=True)
         run_all_migrations(wrapped_fresh, is_pg=True)
         fresh_versions = get_applied_versions(wrapped_fresh)
-        assert fresh_versions == list(range(1, 11)), f"Expected all migrations 1..10, got {fresh_versions}"
+        assert fresh_versions == list(range(1, 12)), f"Expected all migrations 1..11, got {fresh_versions}"
 
         with raw_conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS fresh_schema_test CASCADE;")
@@ -903,7 +1044,7 @@ def run_postgres_migration_test(database_url: str = None):
         # Run all migrations on legacy schema
         run_all_migrations(wrapped_legacy, is_pg=True)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == list(range(1, 11)), f"Expected 1..10, got {legacy_versions}"
+        assert legacy_versions == list(range(1, 12)), f"Expected 1..11, got {legacy_versions}"
 
         # Verify existing data is preserved
         with raw_conn.cursor() as cur:
