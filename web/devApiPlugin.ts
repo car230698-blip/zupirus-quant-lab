@@ -1246,6 +1246,38 @@ export function zupirusApiPlugin(): Plugin {
       });
     }
 
+    // Legal Disclaimer & Real MT5 Accounts Mocks
+    if (pathname === '/api/legal/status' && method === 'GET') {
+      return sendJson(res, 200, {
+        accepted: true,
+        version: '2026.1',
+        details: {
+          accepted_at: nowSec() - 86400,
+          signature_text: 'NGUYEN HOANG MINH',
+          status: 'active',
+        },
+      });
+    }
+
+    if (pathname === '/api/legal/accept' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, {
+        ok: true,
+        disclaimer_id: 'disc_mock_' + Math.random().toString(36).substring(2, 10),
+        accepted_at: nowSec(),
+        message: 'Đã ghi nhận chữ ký điện tử và chấp thuận Điều khoản Miễn trừ trách nhiệm thành công.',
+      });
+    }
+
+    if (pathname === '/api/accounts/real' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, {
+        id: 'real_' + Math.random().toString(36).substring(2, 10),
+        mode: 'REAL',
+        message: 'Đã tạo tài khoản MT5 Real thành công kèm chứng chỉ miễn trừ trách nhiệm pháp lý.',
+      });
+    }
+
     // Admin Vision Incident Review
     if (pathname === '/api/admin/vision' && method === 'POST') {
       const body = await readJsonBody(req);

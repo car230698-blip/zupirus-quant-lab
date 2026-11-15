@@ -3,6 +3,7 @@
 #property description "ZUPIRUS Demo-only copy client. No master EA. Ambiguous intents never resend."
 input string ApiURL="https://zupirus.com";
 input string PairingCode="";
+input bool AcceptRiskAndDisclaimer=false; // BẬT TRUE ĐỂ CHẤP NHẬN ĐIỀU KHOẢN MIỄN TRỪ TRÁCH NHIỆM VÀ KẾT NỐI VỐN THỰC
 input string GoldSymbol="";
 input double LocalRiskPercent=0.25;
 input double LocalMaxSpreadUSD=0.80;
@@ -17,8 +18,8 @@ int lockHandle=INVALID_HANDLE;
 const ulong MAGIC_BASE=530000000000;
 
 string Escape(string s) { StringReplace(s,"\\","\\\\"); StringReplace(s,"\"","\\\""); return s; }
-string Body() { return "\"login\":\""+(string)boundLogin+"\",\"server\":\""+Escape(boundServer)+"\",\"mode\":\"DEMO\""; }
-bool SafeIdentity() { return AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO && AccountInfoInteger(ACCOUNT_LOGIN)==boundLogin && AccountInfoString(ACCOUNT_SERVER)==boundServer; }
+string Body() { string m=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO)?"DEMO":"REAL"; return "\"login\":\""+(string)boundLogin+"\",\"server\":\""+Escape(boundServer)+"\",\"mode\":\""+m+"\""; }
+bool SafeIdentity() { bool validMode=(AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_DEMO)||AcceptRiskAndDisclaimer; return validMode && AccountInfoInteger(ACCOUNT_LOGIN)==boundLogin && AccountInfoString(ACCOUNT_SERVER)==boundServer; }
 int Post(string endpoint,string body,string &out) {
    if(!SafeIdentity()) return -1;
    char data[],result[]; string headers="Content-Type: application/json\r\n";
@@ -60,7 +61,13 @@ string DetectGold() {
    return found;
 }
 int OnInit() {
-   if(AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO) { Print("HARD LOCK: only MT5 DEMO accepted."); return INIT_FAILED; }
+   if(AccountInfoInteger(ACCOUNT_TRADE_MODE)!=ACCOUNT_TRADE_MODE_DEMO) {
+      if(!AcceptRiskAndDisclaimer) {
+         Print("CẢNH BÁO AN TOÀN: Tài khoản MT5 Real mặc định bị khóa bảo vệ vốn. Vui lòng ký Điều khoản Miễn trừ trách nhiệm tại https://app.zupirus.com và bật AcceptRiskAndDisclaimer=true trong EA Inputs.");
+         return INIT_FAILED;
+      }
+      Print("CẢNH BÁO AN TOÀN: Đang vận hành trên tài khoản VỐN THỰC với cam kết miễn trừ trách nhiệm pháp lý.");
+   }
    if(StringFind(ApiURL,"https://")!=0) { Print("HTTPS required."); return INIT_FAILED; }
    if(LocalRiskPercent<=0 || LocalRiskPercent>1 || LocalMaxPositions<1 || LocalMaxPositions>3 || LocalMaxSpreadUSD<=0 || LocalMaxDrawdownPercent<=0 || PollSeconds<2) return INIT_PARAMETERS_INCORRECT;
    boundLogin=AccountInfoInteger(ACCOUNT_LOGIN); boundServer=AccountInfoString(ACCOUNT_SERVER);

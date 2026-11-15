@@ -41,6 +41,11 @@ MIGRATIONS = [
         "version": 7,
         "name": "007_sepay_payment_transactions",
         "description": "SePay banking payment transactions log and subscription activation records"
+    },
+    {
+        "version": 8,
+        "name": "008_legal_disclaimers_and_real_accounts",
+        "description": "High-risk trading terms of service disclaimers and gated real MT5 accounts isolation"
     }
 ]
 
@@ -529,6 +534,78 @@ def apply_migration_007(c, is_pg: bool):
         """)
 
 
+def apply_migration_008(c, is_pg: bool):
+    """Create legal_disclaimers and real_accounts tables for terms compliance and real MT5 accounts."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS legal_disclaimers (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            terms_version TEXT NOT NULL,
+            accepted_at DOUBLE PRECISION NOT NULL,
+            ip_address TEXT,
+            signature_text TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active'
+        );
+        CREATE INDEX IF NOT EXISTS idx_disclaimer_user ON legal_disclaimers(user_id);
+
+        CREATE TABLE IF NOT EXISTS real_accounts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            login TEXT NOT NULL,
+            server TEXT NOT NULL,
+            disclaimer_id TEXT REFERENCES legal_disclaimers(id),
+            mode TEXT NOT NULL DEFAULT 'REAL',
+            enabled INTEGER NOT NULL DEFAULT 0,
+            risk DOUBLE PRECISION NOT NULL DEFAULT 0.01,
+            max_spread DOUBLE PRECISION NOT NULL DEFAULT 0.8,
+            max_positions INTEGER NOT NULL DEFAULT 1,
+            max_dd DOUBLE PRECISION NOT NULL DEFAULT 5.0,
+            balance DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            equity DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            peak DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            seen DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(login, server)
+        );
+        CREATE INDEX IF NOT EXISTS idx_real_acc_user ON real_accounts(user_id);
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS legal_disclaimers (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            terms_version TEXT NOT NULL,
+            accepted_at REAL NOT NULL,
+            ip_address TEXT,
+            signature_text TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active'
+        );
+        CREATE INDEX IF NOT EXISTS idx_disclaimer_user ON legal_disclaimers(user_id);
+
+        CREATE TABLE IF NOT EXISTS real_accounts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            login TEXT NOT NULL,
+            server TEXT NOT NULL,
+            disclaimer_id TEXT REFERENCES legal_disclaimers(id),
+            mode TEXT NOT NULL DEFAULT 'REAL',
+            enabled INTEGER NOT NULL DEFAULT 0,
+            risk REAL NOT NULL DEFAULT 0.01,
+            max_spread REAL NOT NULL DEFAULT 0.8,
+            max_positions INTEGER NOT NULL DEFAULT 1,
+            max_dd REAL NOT NULL DEFAULT 5.0,
+            balance REAL NOT NULL DEFAULT 0.0,
+            equity REAL NOT NULL DEFAULT 0.0,
+            peak REAL NOT NULL DEFAULT 0.0,
+            seen REAL NOT NULL DEFAULT 0.0,
+            created_at REAL NOT NULL,
+            UNIQUE(login, server)
+        );
+        CREATE INDEX IF NOT EXISTS idx_real_acc_user ON real_accounts(user_id);
+        """)
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -542,6 +619,7 @@ def run_all_migrations(c, is_pg: bool):
         5: apply_migration_005,
         6: apply_migration_006,
         7: apply_migration_007,
+        8: apply_migration_008,
     }
 
     for m in MIGRATIONS:

@@ -359,3 +359,67 @@ def test_sepay_webhook_verification_and_recording(client):
     assert any(tx['reference_code'] == 'MANUAL_TEST_REF_888' for tx in admin_res2.json()['transactions'])
 
 
+def test_legal_disclaimer_and_real_account_gating(client):
+    """Verify High-Risk Legal Disclaimer retrieval, digital signature acceptance, and gated Real MT5 account creation."""
+    # 1. Register and login as trader
+    trader_cred = {'email': 'real.trader@zupirus.com', 'password': 'StrongPassword123!'}
+    assert client.post('/api/register', json=trader_cred).status_code == 200
+    assert client.post('/api/login', json=trader_cred).status_code == 200
+
+    # 2. Get legal disclaimer text
+    disc_text_res = client.get('/api/legal/disclaimer')
+    assert disc_text_res.status_code == 200
+    disc_data = disc_text_res.json()
+    assert disc_data['version'] == '2026.1'
+    assert len(disc_data['clauses']) >= 5
+
+    # 3. Status should initially be false
+    st_res = client.get('/api/legal/status')
+    assert st_res.status_code == 200
+    assert st_res.json()['accepted'] is False
+
+    # 4. Attempting to create Real MT5 account before signing disclaimer must return 403 Forbidden
+    unauth_real = client.post('/api/accounts/real', json={'login': '888123', 'server': 'Exness-Real21'})
+    assert unauth_real.status_code == 403
+    assert 'Miễn trừ trách nhiệm' in unauth_real.json()['detail']
+
+    # 5. Partial acceptance fails (missing checkbox)
+    bad_accept = client.post('/api/legal/accept', json={
+        'signature_text': 'REAL TRADER',
+        'confirmed_risk': True,
+        'confirmed_age': False,
+        'confirmed_no_solicitation': True
+    })
+    assert bad_accept.status_code == 400
+
+    # 6. Complete digital signature acceptance succeeds
+    good_accept = client.post('/api/legal/accept', json={
+        'signature_text': 'REAL TRADER CHẤP NHẬN RỦI RO',
+        'confirmed_risk': True,
+        'confirmed_age': True,
+        'confirmed_no_solicitation': True
+    })
+    assert good_accept.status_code == 200
+    assert good_accept.json()['ok'] is True
+
+    # 7. Status is now true
+    st_res2 = client.get('/api/legal/status')
+    assert st_res2.status_code == 200
+    assert st_res2.json()['accepted'] is True
+
+    # 8. Real account creation now succeeds
+    real_acc_res = client.post('/api/accounts/real', json={
+        'login': '888123',
+        'server': 'Exness-Real21',
+        'risk': 0.01
+    })
+    assert real_acc_res.status_code == 200
+    real_data = real_acc_res.json()
+    assert real_data['mode'] == 'REAL'
+    assert real_data['id'].startswith('real_')
+
+    # 9. Verify dashboard includes the real account
+    dash = client.get('/api/dashboard').json()
+    assert any(a['id'] == real_data['id'] and a['mode'] == 'REAL' for a in dash['accounts'])
+
+

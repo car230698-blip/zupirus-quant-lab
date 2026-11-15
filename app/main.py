@@ -59,6 +59,11 @@ def admin(u=Depends(user)):
 
 def owned(c, account, u):
     a = c.execute('SELECT * FROM accounts WHERE id=? AND user_id=?', (account, u['id'])).fetchone()
+    if not a:
+        try:
+            a = c.execute('SELECT * FROM real_accounts WHERE id=? AND user_id=?', (account, u['id'])).fetchone()
+        except Exception:
+            pass
     if not a: fail(404, 'Account not found')
     return a
 
@@ -183,7 +188,11 @@ def pair_code(aid: str, u=Depends(user)):
     code = token()
     with tx() as c:
         a = owned(c, aid, u)
-        if a['mode'] != 'DEMO': fail(400, 'Only DEMO accounts pair with MT5')
+        if a['mode'] not in ('DEMO', 'REAL'): fail(400, 'Only DEMO or REAL accounts pair with MT5')
+        if a['mode'] == 'REAL':
+            disc = c.execute("SELECT id FROM legal_disclaimers WHERE user_id=? AND status='active'", (u['id'],)).fetchone()
+            if not disc:
+                fail(403, "Yêu cầu ký xác nhận Điều khoản Miễn trừ trách nhiệm pháp lý trước khi ghép nối MT5 Real.")
         if c.execute('SELECT 1 FROM devices WHERE account_id=?', (aid,)).fetchone(): fail(409, 'Revoke old device first')
         c.execute('DELETE FROM pairings WHERE account_id=?', (aid,))
         c.execute('INSERT INTO pairings VALUES(?,?,?,0)', (digest(code), aid, time.time() + 300))
@@ -367,6 +376,14 @@ def feed(p: Quote, request: Request):
 def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional[str] = None):
     with tx() as c:
         accounts = [dict(r) for r in c.execute('SELECT * FROM accounts WHERE user_id=?', (u['id'],))]
+        try:
+            real_accs = [dict(r) for r in c.execute('SELECT * FROM real_accounts WHERE user_id=?', (u['id'],))]
+            for ra in real_accs:
+                ra['mode'] = 'REAL'
+                ra['is_real'] = True
+            accounts.extend(real_accs)
+        except Exception:
+            pass
         # Enrich accounts with cached heartbeat from Redis if available
         for a in accounts:
             hb = get_cached_heartbeat(a['id'])
@@ -1341,6 +1358,141 @@ def admin_link_payment_user(tx_id: str, p: LinkPaymentPayload, u=Depends(admin))
         audit(c, u['id'], 'payment_linked_user', {'tx_id': tx_id, 'user_id': user_row['id'], 'user_email': email_clean})
 
     return {"ok": True, "message": f"Đã liên kết giao dịch {tx_id} với tài khoản {email_clean}"}
+
+# ============================================================================
+# LEGAL DISCLAIMER & REAL MT5 TRADING COMPLIANCE GATEWAY
+# ============================================================================
+
+LEGAL_TERMS_VERSION = "2026.1"
+
+LEGAL_DISCLAIMER_TEXT = {
+    "version": LEGAL_TERMS_VERSION,
+    "title": "ĐIỀU KHOẢN DỊCH VỤ & MIỄN TRỪ TRÁCH NHIỆM RỦI RO GIAO DỊCH VỐN THỰC (HIGH-RISK REAL TRADING DISCLAIMER)",
+    "effective_date": "2026-11-15",
+    "summary": "Quy định bắt buộc về nhận thức rủi ro thị trường tài chính, rủi ro đòn bẩy Vàng (XAU/USD) và miễn trừ trách nhiệm pháp lý khi liên kết tài khoản MT5 Real.",
+    "clauses": [
+        {
+            "id": "risk_warning",
+            "title": "1. Cảnh báo rủi ro đòn bẩy và biến động thị trường",
+            "content": "Giao dịch ký quỹ đối với Vàng (XAU/USD) và các hợp đồng chênh lệch (CFD) có mức độ rủi ro vốn rất cao do tác động của đòn bẩy tài chính. Biến động giá có thể diễn ra với tốc độ cực nhanh trong các khung giờ tin tức vĩ mô (NFP, CPI, Lãi suất FED), có thể dẫn đến việc sụt giảm tài sản hoặc mất toàn bộ số dư ký quỹ trong tài khoản của bạn."
+        },
+        {
+            "id": "technology_scope",
+            "title": "2. Bản chất công cụ công nghệ & Không nhận ủy thác",
+            "content": "ZUPIRUS Quant Lab là nền tảng công nghệ định lượng tự hành cung cấp bộ công cụ phân tích thị trường, mô hình hóa dữ liệu và sao chép tín hiệu kỹ thuật. Chúng tôi TUYỆT ĐỐI KHÔNG phải là quỹ đầu tư, không cung cấp dịch vụ ủy thác tài chính, không bảo hiểm rủi ro và không cam kết tỷ lệ lợi nhuận danh nghĩa."
+        },
+        {
+            "id": "broker_execution",
+            "title": "3. Rủi ro trượt giá (Slippage) & Giãn Spread của sàn môi giới",
+            "content": "Giá khớp lệnh thực tế trên tài khoản MT5 của bạn phụ thuộc hoàn toàn vào thanh khoản, độ trễ mạng và chính sách khớp lệnh của Nhà môi giới (Broker) mà bạn tự chọn. ZUPIRUS không chịu trách nhiệm đối với sự chênh lệch giá (slippage), trượt điểm dừng lỗ (Stop Loss) hoặc từ chối lệnh từ phía máy chủ của sàn."
+        },
+        {
+            "id": "default_sandbox",
+            "title": "4. Chế độ Sandbox an toàn & Khuyến nghị thử nghiệm Demo",
+            "content": "Mặc định toàn bộ hệ thống ZUPIRUS Quant Lab luôn vận hành ở chế độ Demo & Replay để bảo vệ nguồn vốn của nhà đầu tư. Chúng tôi khuyến nghị người dùng phải kiểm nghiệm chiến lược tối thiểu 30 ngày trên tài khoản Demo trước khi cân nhắc bất kỳ quyết định kết nối vốn thực nào."
+        },
+        {
+            "id": "user_responsibility",
+            "title": "5. Cam kết tự nguyện và tự chịu trách nhiệm dân sự",
+            "content": "Bằng việc bấm ký điện tử và bật công tắc 'Cho phép mở rộng kết nối Real MT5', bạn xác nhận bạn đã đủ 18 tuổi, có đầy đủ năng lực hành vi dân sự, hoàn toàn tự nguyện quyết định mức rủi ro trên tài khoản cá nhân và đồng ý miễn trừ toàn bộ trách nhiệm pháp lý cho ZUPIRUS Quant Lab đối với bất kỳ thiệt hại tài chính nào phát sinh."
+        }
+    ]
+}
+
+@app.get('/api/legal/disclaimer')
+def get_legal_disclaimer():
+    """Returns the full text and clauses of the High-Risk Trading Disclaimer."""
+    return LEGAL_DISCLAIMER_TEXT
+
+@app.get('/api/legal/status')
+def get_disclaimer_status(u=Depends(user)):
+    """Checks if the authenticated user has signed the legal terms disclaimer."""
+    with tx() as c:
+        row = c.execute("SELECT * FROM legal_disclaimers WHERE user_id=? AND status='active' ORDER BY accepted_at DESC LIMIT 1", (u['id'],)).fetchone()
+    if not row:
+        return {"accepted": False, "version": LEGAL_TERMS_VERSION, "details": None}
+    return {
+        "accepted": True,
+        "version": row['terms_version'],
+        "details": {
+            "accepted_at": row['accepted_at'],
+            "signature_text": row['signature_text'],
+            "status": row['status']
+        }
+    }
+
+class AcceptDisclaimerPayload(BaseModel):
+    signature_text: str = Field(min_length=3, max_length=120)
+    confirmed_risk: bool
+    confirmed_age: bool
+    confirmed_no_solicitation: bool
+
+@app.post('/api/legal/accept')
+def accept_disclaimer(p: AcceptDisclaimerPayload, request: Request, u=Depends(user)):
+    """Records the digital signature and acceptance of the High-Risk Disclaimer."""
+    if not (p.confirmed_risk and p.confirmed_age and p.confirmed_no_solicitation):
+        fail(400, "Bạn cần xác nhận đầy đủ các điều khoản cảnh báo rủi ro trước khi ký nhận.")
+
+    client_ip = request.client.host if request.client else "unknown"
+    now_ts = time.time()
+    disc_id = f"disc_{secrets.token_hex(8)}"
+
+    with tx() as c:
+        c.execute("""
+            INSERT INTO legal_disclaimers(id, user_id, terms_version, accepted_at, ip_address, signature_text, status)
+            VALUES(?,?,?,?,?,?,?)
+        """, (disc_id, u['id'], LEGAL_TERMS_VERSION, now_ts, client_ip, p.signature_text.strip(), 'active'))
+        audit(c, u['id'], 'disclaimer_accepted', {
+            'disclaimer_id': disc_id,
+            'version': LEGAL_TERMS_VERSION,
+            'signature': p.signature_text.strip(),
+            'ip': client_ip
+        })
+
+    return {
+        "ok": True,
+        "disclaimer_id": disc_id,
+        "accepted_at": now_ts,
+        "message": "Đã ghi nhận chữ ký điện tử và chấp thuận Điều khoản Miễn trừ trách nhiệm thành công."
+    }
+
+class RealAccountPayload(BaseModel):
+    login: str = Field(min_length=1, max_length=24, pattern=r'^\d+$')
+    server: str = Field(min_length=1, max_length=100, pattern=r'^[A-Za-z0-9_. -]+$')
+    risk: float = Field(default=0.01, ge=0.005, le=0.05)
+    max_spread: float = Field(default=0.8, gt=0, le=2.0)
+    max_dd: float = Field(default=5.0, ge=1.0, le=10.0)
+
+@app.post('/api/accounts/real')
+def create_real_account(p: RealAccountPayload, u=Depends(user)):
+    """Creates an isolated Real MT5 account entry, strictly requiring signed risk disclaimer."""
+    with tx() as c:
+        disc = c.execute("SELECT id FROM legal_disclaimers WHERE user_id=? AND status='active'", (u['id'],)).fetchone()
+        if not disc:
+            fail(403, "Yêu cầu đọc và ký Điều khoản Miễn trừ trách nhiệm pháp lý trước khi mở kết nối tài khoản MT5 Real.")
+
+        aid = f"real_{secrets.token_hex(8)}"
+        now_ts = time.time()
+        try:
+            c.execute("""
+                INSERT INTO real_accounts(id, user_id, login, server, disclaimer_id, mode, enabled, risk, max_spread, max_positions, max_dd, balance, equity, peak, seen, created_at)
+                VALUES(?,?,?,?,?,?,0,?,?,1,?,10000.0,10000.0,10000.0,?,?)
+            """, (aid, u['id'], p.login, p.server, disc['id'], 'REAL', p.risk, p.max_spread, p.max_dd, now_ts, now_ts))
+        except (sqlite3.IntegrityError, Exception):
+            fail(409, "Tài khoản MT5 Real này đã được liên kết trong hệ thống.")
+
+        audit(c, u['id'], 'real_account_created', {
+            'id': aid,
+            'login': p.login,
+            'server': p.server,
+            'disclaimer_id': disc['id']
+        })
+
+    return {
+        "id": aid,
+        "mode": "REAL",
+        "message": "Đã tạo tài khoản MT5 Real thành công kèm chứng chỉ miễn trừ trách nhiệm pháp lý."
+    }
 
 DIST_DIR = ROOT / 'dist'
 WEB_DIR = ROOT / 'web'
