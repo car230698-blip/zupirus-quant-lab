@@ -138,3 +138,4 @@ def test_ingest_signal(p: TradingViewWebhookPayload, admin=Depends(get_current_a
         "live_price": live_price,
         "reject_reason": reject_reason,
     }
+

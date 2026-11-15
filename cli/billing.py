@@ -80,3 +80,4 @@ def cmd_billing_orders(limit: int = 20, as_json: bool = False):
         ])
 
     print(format_table(headers, table_rows))
+

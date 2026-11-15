@@ -35,6 +35,21 @@ class TestCliSystemDomain:
         assert "kill_switch" in data
         assert data["execution_lock"]["simulation_only"] is True
 
+    def test_healthcheck_commands(self):
+        # 1. Top-level healthcheck
+        res_top = run_cli("healthcheck", "--json")
+        assert res_top.returncode == 0
+        data_top = parse_json_output(res_top.stdout)
+        assert data_top["status"] == "healthy"
+        assert data_top["database"] == "up"
+
+        # 2. System healthcheck subcommand
+        res_sub = run_cli("system", "healthcheck", "--json")
+        assert res_sub.returncode == 0
+        data_sub = parse_json_output(res_sub.stdout)
+        assert data_sub["status"] == "healthy"
+        assert data_sub["database"] == "up"
+
     def test_kill_switch_cycle(self):
         # 1. Turn kill-switch ON
         res_on = run_cli("system", "kill-switch", "--on", "--reason", "Automated pytest halt", "--json")

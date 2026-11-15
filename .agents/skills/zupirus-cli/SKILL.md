@@ -42,7 +42,10 @@ When `--json` is supplied:
 #### 1.1 `zupirus-cli system status --json`
 Inspects PostgreSQL/TimescaleDB connectivity, Redis stream status, Real-Execution Lock enforcement, XAUUSD price feed, worker heartbeats, and kill switch state.
 
-#### 1.2 `zupirus-cli system kill-switch (--on | --off) [--reason "..."] --json`
+#### 1.2 `zupirus-cli healthcheck [--json]` / `zupirus-cli system healthcheck [--json]`
+Fast non-zero exit check for system health, verifying database connectivity and operational status. Designed for automated CI/CD pipelines, Docker health probes, and deployment post-checks.
+
+#### 1.3 `zupirus-cli system kill-switch (--on | --off) [--reason "..."] --json`
 Instantly triggers or disengages the system-wide emergency halt:
 - `--on`: Sets `kv.halted = 1`, pauses all auto trading, cancels all queued dispatches, and logs an audit record.
 - `--off`: Sets `kv.halted = 0` and logs an audit record.

@@ -46,3 +46,4 @@ class SubscriptionResponse(BaseModel):
     allow_prop_firm_mode: bool
     allow_alpha_strategies: bool
     connected_accounts_count: int = 0
+

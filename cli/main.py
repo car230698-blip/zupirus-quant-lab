@@ -7,7 +7,7 @@ import argparse
 from typing import List, Optional
 
 from cli.formatters import emit_error
-from cli.system import cmd_status, cmd_kill_switch
+from cli.system import cmd_status, cmd_kill_switch, cmd_healthcheck
 from cli.cloud import (
     cmd_cloud_list,
     cmd_cloud_sync,
@@ -48,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     # system status
     p_sys_status = system_subs.add_parser("status", help="Inspect DB, Redis, Price Feed, Workers, and Locks")
     p_sys_status.add_argument("--json", action="store_true", help="Output pure JSON")
+
+    # system healthcheck
+    p_sys_health = system_subs.add_parser("healthcheck", help="Quick system and database health check")
+    p_sys_health.add_argument("--json", action="store_true", help="Output pure JSON")
 
     # system kill-switch
     p_sys_kill = system_subs.add_parser("kill-switch", help="Activate or deactivate emergency halt")
@@ -169,6 +173,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_res_rej.add_argument("--reason", type=str, default="", help="Rejection comments")
     p_res_rej.add_argument("--json", action="store_true", help="Output pure JSON")
 
+    # -------------------------------------------------------------
+    # 6. TOP-LEVEL HEALTHCHECK
+    # -------------------------------------------------------------
+    p_health = subparsers.add_parser("healthcheck", help="Quick system and database health check")
+    p_health.add_argument("--json", action="store_true", help="Output pure JSON")
+
     return parser
 
 
@@ -203,9 +213,14 @@ def main(argv: Optional[List[str]] = None):
         sys.exit(0)
 
     try:
-        if args.command == "system":
+        if args.command == "healthcheck":
+            cmd_healthcheck(as_json=effective_json)
+
+        elif args.command == "system":
             if args.subcommand == "status":
                 cmd_status(as_json=effective_json)
+            elif args.subcommand == "healthcheck":
+                cmd_healthcheck(as_json=effective_json)
             elif args.subcommand == "kill-switch":
                 cmd_kill_switch(on=args.on, off=args.off, reason=args.reason, as_json=effective_json)
             else:

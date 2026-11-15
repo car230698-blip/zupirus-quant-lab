@@ -53,3 +53,4 @@ def normalize_metaapi_demo_signal(data: Dict[str, Any]) -> NormalizedSignalSchem
         created_at=now_ts,
         raw_payload=data,
     )
+

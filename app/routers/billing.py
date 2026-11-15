@@ -129,3 +129,4 @@ def get_admin_revenue_stats(admin=Depends(get_current_admin)):
             "current_fx_rate": rate,
             "fx_source": source,
         }
+

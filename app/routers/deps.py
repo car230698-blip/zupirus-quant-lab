@@ -37,3 +37,4 @@ def get_current_admin(u: dict = Depends(get_current_user)) -> dict:
     if u.get('role') != 'admin':
         fail(403, 'Yêu cầu quyền Quản trị viên (Admin)')
     return u
+

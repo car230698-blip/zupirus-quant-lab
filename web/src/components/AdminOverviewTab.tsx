@@ -39,6 +39,11 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
     fetchRevenue();
     fetchSignalAudit();
     fetchSignalStats();
+    fetchCloudAccounts();
+    fetchFxRate();
+    fetchRevenue();
+    fetchSignalAudit();
+    fetchSignalStats();
   }, []);
 
   async function fetchFxRate() {
@@ -371,6 +376,161 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* Signal Safety Guards Audit Log Stream */}
+      <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] overflow-hidden">
+        <div className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-sm text-slate-100 font-mono">
+              Nhật Ký Kiểm Toán Tín Hiệu (Signal Audit Logs)
+            </span>
+            <span className="text-xs text-slate-400 font-mono">
+              (Ghi lại toàn bộ quyết định phê duyệt / từ chối của 4 Màng Lọc)
+            </span>
+          </div>
+          <button
+            onClick={fetchSignalAudit}
+            className="text-xs font-mono text-cyan-400 hover:text-cyan-300"
+          >
+            ↻ Làm mới nhật ký
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          {signalAuditLogs.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 font-mono text-xs">
+              Chưa có tín hiệu nào được tiếp nhận trong phiên này.
+            </div>
+          ) : (
+            <table className="w-full text-left font-mono text-xs">
+              <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="py-2.5 px-4">SIGNAL ID</th>
+                  <th className="py-2.5 px-4">NGUỒN / TIER</th>
+                  <th className="py-2.5 px-4">LỆNH</th>
+                  <th className="py-2.5 px-4">GIÁ VÀO / SL</th>
+                  <th className="py-2.5 px-4">TRẠNG THÁI</th>
+                  <th className="py-2.5 px-4">LÝ DO KIỂM TOÁN</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/80">
+                {signalAuditLogs.map((log: any) => {
+                  const isApproved = log.status === 'APPROVED';
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-900/40">
+                      <td className="py-2.5 px-4 text-slate-300 font-bold">{log.signal_id?.slice(0, 12)}</td>
+                      <td className="py-2.5 px-4 text-slate-400">
+                        {log.source_name} <span className="text-[10px] text-cyan-400">({log.strategy_tier})</span>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${log.side === 'BUY' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}`}>
+                          {log.side} {log.symbol}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-200">
+                        {log.entry_price} / <span className="text-amber-400">{log.stop_loss || 'Auto ATR'}</span>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isApproved ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/50' : 'bg-rose-950 text-rose-300 border border-rose-500/50'}`}>
+                          {log.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-400 text-[11px]">
+                        {log.reject_reason || 'Passed all 4 guards'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* Cloud MT5 Terminals Table */}
+      <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] overflow-hidden">
+        <div className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-sm text-slate-100 font-mono">
+              Quản Trị Tài Khoản Cloud MT5 ({cloudAccounts.length})
+            </span>
+          </div>
+          <button
+            onClick={fetchCloudAccounts}
+            className="text-xs font-mono text-cyan-400 hover:text-cyan-300"
+          >
+            ↻ Làm mới
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          {cloudAccounts.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 font-mono text-xs">
+              Chưa có tài khoản Cloud MT5 nào được kết nối.
+            </div>
+          ) : (
+            <table className="w-full text-left font-mono text-xs">
+              <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th className="py-2.5 px-4">LOGIN / SERVER</th>
+                  <th className="py-2.5 px-4">EQUITY / BALANCE</th>
+                  <th className="py-2.5 px-4">RỦI RO / TIER</th>
+                  <th className="py-2.5 px-4">AUTO-TRADE</th>
+                  <th className="py-2.5 px-4 text-right">THAO TÁC</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/80">
+                {cloudAccounts.map((a: any) => {
+                  const isAuto = a.auto_trade === 1;
+                  return (
+                    <tr key={a.id} className="hover:bg-slate-900/40">
+                      <td className="py-2.5 px-4">
+                        <div className="font-bold text-slate-200">#{a.login || a.mt5_login}</div>
+                        <div className="text-[10px] text-slate-400">{a.server || a.broker_server}</div>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <div className="font-bold text-emerald-400">${Number(a.equity || 0).toLocaleString()}</div>
+                        <div className="text-[10px] text-slate-400">${Number(a.balance || 0).toLocaleString()}</div>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <div className="text-cyan-300 font-bold">{a.risk_multiplier || 1.0}x Multiplier</div>
+                        <div className="text-[10px] text-slate-400">
+                          {a.is_prop_firm_mode ? 'Prop Firm Mode' : a.is_compounding ? 'Compounding' : 'Standard'}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isAuto ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}`}>
+                          {isAuto ? 'ACTIVE' : 'PAUSED'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right space-x-1.5">
+                        <button
+                          onClick={() => handleToggleAccount(a.id)}
+                          className={`px-2 py-1 rounded text-[10px] font-bold ${isAuto ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}
+                        >
+                          {isAuto ? 'Dừng' : 'Bật'}
+                        </button>
+                        <button
+                          onClick={() => handleSyncAccount(a.id)}
+                          className="px-2 py-1 rounded text-[10px] bg-slate-800 text-cyan-300"
+                        >
+                          Sync
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAccount(a.id)}
+                          className="px-2 py-1 rounded text-[10px] bg-rose-950 text-rose-300"
+                        >
+                          Xóa
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
 
       {/* Signal Safety Guards Audit Log Stream */}

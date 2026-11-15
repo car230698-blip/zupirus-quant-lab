@@ -168,6 +168,39 @@ def cmd_status(as_json: bool = False):
         emit_error(f"Failed to inspect system status: {e}", as_json=as_json)
 
 
+def cmd_healthcheck(as_json: bool = False):
+    """Fast non-zero exit check for system health, suitable for CI/CD, Docker, and deployment verification."""
+    try:
+        data = get_system_status()
+        db_ok = data.get("database", {}).get("healthy", False)
+        redis_ok = data.get("redis", {}).get("connected", False)
+
+        is_healthy = bool(db_ok)
+        payload = {
+            "success": is_healthy,
+            "status": "healthy" if is_healthy else "unhealthy",
+            "database": "up" if db_ok else "down",
+            "database_engine": data.get("database", {}).get("engine"),
+            "redis": "connected" if redis_ok else "disconnected",
+            "real_execution_locked": data.get("execution_lock", {}).get("real_execution_locked", True),
+            "timestamp": time.time(),
+        }
+
+        if as_json:
+            emit_json(payload, exit_code=0 if is_healthy else 1)
+        else:
+            if is_healthy:
+                print("OK - System is healthy (Database: up, Redis: checked)")
+            else:
+                print("ERROR - System unhealthy (Database is down)", file=sys.stderr)
+                sys.exit(1)
+
+        if not is_healthy:
+            sys.exit(1)
+    except Exception as e:
+        emit_error(f"Healthcheck failed: {e}", as_json=as_json)
+
+
 def cmd_kill_switch(on: bool = False, off: bool = False, reason: str = "", as_json: bool = False):
     """Handler for `zupirus-cli system kill-switch`."""
     if on == off:

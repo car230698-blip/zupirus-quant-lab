@@ -43,3 +43,4 @@ class TradingAccountResponse(BaseModel):
     equity: float = 0.0
     last_sync: Optional[float] = None
     created_at: float
+

@@ -256,3 +256,4 @@ def cmd_cloud_dispatch_test(
     print(f" Accounts Executed: {report['executed']} filled, {report['failed']} failed")
     print(f" Total Fan-Out Latency: {report.get('total_fanout_elapsed_ms', 0)} ms")
     print(f" Avg Order Latency:     {report.get('avg_latency_ms', 0)} ms\n")
+

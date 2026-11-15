@@ -127,3 +127,4 @@ Aggregate stats on signal throughput, approval rate, rejection reasons, and exec
 
 ### `POST /api/v1/signals/test-ingest`
 Test ingest a hypothetical signal through the 4 guards without sending orders to broker.
+

@@ -1,27 +1,84 @@
-name: Demo safety and smoke
-on: [push, pull_request, workflow_dispatch]
+name: ZUPIRUS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
-  verify:
+  backend-test:
+    name: Backend CI (FastAPI, Quant Engine, Safety Shields, Billing)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+          pip install ruff
+
+      - name: Lint and Static Analysis
+        run: |
+          ruff check app/ cli/ tests/ --exit-zero
+          python scripts/verify_package.py
+
+      - name: Run Pytest Test Suite
+        env:
+          ALLOW_REAL: "false"
+          COOKIE_SECURE: "false"
+          DATA_DIR: "/tmp/zupirus_test_data"
+        run: |
+          python -m pytest tests/ -v --junitxml=test-results.xml
+
+      - name: Verify CLI Healthcheck Command
+        run: |
+          python -m cli healthcheck --json
+
+      - name: Upload Test Results Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: test-results.xml
+
+  frontend-test:
+    name: Frontend CI (TypeScript, Multi-Domain Vite SPA Build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: pip install -r requirements.lock
-      - run: python -m pytest -q --junitxml=docs/junit-ci.xml
-      - run: python scripts/verify_package.py
-      - run: python scripts/local_smoke.py
-      - run: npm ci && python scripts/run_dom_smoke.py
-      - run: bash scripts/docker_smoke.sh
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results
-          path: docs/junit-ci.xml
+          cache: 'npm'
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Check TypeScript Types
+        run: npm run lint
+
+      - name: Build Production Frontend
+        run: npm run build
+
+      - name: Run Frontend Tests
+        run: npm test

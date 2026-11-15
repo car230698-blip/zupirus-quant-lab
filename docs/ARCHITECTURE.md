@@ -86,3 +86,4 @@ Every signal passing through the ingestion pipeline must strictly pass all 4 gua
    - Uses `SET NX` with 60s TTL to guarantee exactly-once processing.
 
 All evaluations are recorded to `signal_audit_logs` table for institutional traceability.
+

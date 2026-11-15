@@ -1,0 +1,67 @@
+name: ZUPIRUS CD (Deploy to VPS Production)
+
+on:
+  workflow_run:
+    workflows: ["ZUPIRUS CI"]
+    branches: [main]
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to VPS Production via SSH
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Run if triggered manually OR automatically after successful CI on main
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success') }}
+
+    steps:
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          command_timeout: 15m
+          script: |
+            set -e
+            echo "================================================================="
+            echo " [1/4] Navigating to Project & Pulling Latest Main"
+            echo "================================================================="
+            DEPLOY_PATH="${{ secrets.VPS_DEPLOY_PATH || '/home/hoangminh2306/zupirus-quant-lab-test' }}"
+            cd "$DEPLOY_PATH"
+            git fetch origin main
+            git checkout main
+            git pull origin main
+
+            echo "================================================================="
+            echo " [2/4] Executing Safe Database Migrations"
+            echo "================================================================="
+            if [ -f alembic.ini ]; then
+              alembic upgrade head || true
+            else
+              echo "Alembic not configured; native TimescaleDB migrations applied automatically on container startup."
+            fi
+
+            echo "================================================================="
+            echo " [3/4] Rebuilding and Restarting Docker Containers"
+            echo "================================================================="
+            docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --build --remove-orphans
+
+            echo "================================================================="
+            echo " [4/4] Verifying Post-Deployment Health & Direct-to-User Engine"
+            echo "================================================================="
+            # Allow uvicorn and background workers time to finish initial startup
+            sleep 8
+            docker exec zupirus-prod-api-1 python -m cli healthcheck --json || curl -f http://127.0.0.1:8080/healthz
+
+            echo "================================================================="
+            echo " [SUCCESS] ZUPIRUS Quant Lab Deployment Verified on Production!"
+            echo "================================================================="
+

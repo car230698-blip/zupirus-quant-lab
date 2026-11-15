@@ -37,3 +37,4 @@ When an investor clicks **"Tạo Mã Thanh Toán VietQR"**:
    - Upserts user subscription, extending `service_expires_at` by 30 days and updating feature flags.
    - Extends `cloud_expires_at` on associated MT5 accounts.
    - Automatically provisions/redeploys any pending MetaApi terminals with retry backoff.
+
