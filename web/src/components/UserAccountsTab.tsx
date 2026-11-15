@@ -70,10 +70,6 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
     checkDisclaimerStatus();
   }, []);
 
-  async function fetchFxRate() {
-    await queryClient.invalidateQueries({ queryKey: ['exchange-rate'] });
-  }
-
   async function fetchSubscription() {
     await queryClient.invalidateQueries({ queryKey: ['subscription'] });
   }
