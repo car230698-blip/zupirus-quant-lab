@@ -228,10 +228,12 @@ def test_walkforward_no_overlap_and_future_leakage():
 
 def test_ai_missing_and_provider_failure(monkeypatch):
     monkeypatch.delenv('AI_API_KEY',raising=False)
+    monkeypatch.delenv('GEMINI_API_KEY',raising=False)
     assert research.ai_text('test')['available'] is False
     monkeypatch.setenv('AI_API_KEY','invalid')
     def fail(*a,**kw):raise RuntimeError('offline')
     monkeypatch.setattr(research.httpx,'post',fail)
+    monkeypatch.setattr(research, 'call_gemini', lambda *a, **k: (None, None))
     assert research.ai_text('test')['available'] is False
 
 def test_research_crash_does_not_stop_execution(customer,monkeypatch):

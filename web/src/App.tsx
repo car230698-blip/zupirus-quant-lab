@@ -232,20 +232,27 @@ export const App: React.FC = () => {
     setNotice(msg);
   };
 
-  const authenticate = async (email: string, password: string, register: boolean) => {
+  const authenticate = async (email: string, password: string, register: boolean, otp?: string) => {
     setAuthLoading(true);
     setAuthError(null);
     const options = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...(otp ? { otp_code: otp } : {}) }),
     };
     try {
       if (register) {
         const registration = await fetch('/api/register', options);
-        if (!registration.ok) throw new Error(registration.status === 409 ? 'Email đã được đăng ký.' : 'Không thể tạo tài khoản. Kiểm tra email và mật khẩu.');
+        if (!registration.ok) {
+          const data = await registration.json().catch(() => ({}));
+          throw new Error(data.detail || (registration.status === 409 ? 'Email đã được đăng ký.' : 'Không thể tạo tài khoản. Kiểm tra email và mã OTP.'));
+        }
       }
-      const session = await fetch('/api/login', options);
+      const session = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ email, password }),
+      });
       if (!session.ok) throw new Error(session.status === 401 ? 'Email hoặc mật khẩu không chính xác.' : 'Không thể đăng nhập. Vui lòng thử lại.');
       setDashboardStatus('loading');
       setMonitorStatus('loading');

@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useState, useEffect, type FormEvent, type ReactNode } from 'react';
 
 export type Portal = 'user' | 'admin';
 
@@ -69,15 +69,67 @@ export function PortalAuth({ portal, loading, error, onSubmit }: {
   portal: Portal;
   loading: boolean;
   error: string | null;
-  onSubmit: (email: string, password: string, register: boolean) => Promise<void>;
+  onSubmit: (email: string, password: string, register: boolean, otp?: string) => Promise<void>;
 }) {
   const [register, setRegister] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpCountdown, setOtpCountdown] = useState(0);
+  const [otpNotice, setOtpNotice] = useState<string | null>(null);
+
   const title = portal === 'admin' ? 'Điều hành hệ thống' : 'Không gian giao dịch';
+
+  useEffect(() => {
+    if (otpCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCountdown((c) => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpCountdown]);
+
+  async function handleSendOtp() {
+    if (!emailInput || !emailInput.includes('@')) {
+      setOtpNotice('❌ Vui lòng nhập email hợp lệ trước khi lấy mã OTP.');
+      return;
+    }
+    setOtpSending(true);
+    setOtpNotice(null);
+    try {
+      const res = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ email: emailInput }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setOtpSent(true);
+        setOtpCountdown(60);
+        setOtpNotice('✓ Mã OTP gồm 6 chữ số đã được gửi qua email. Vui lòng kiểm tra hộp thư!');
+      } else {
+        setOtpNotice(`❌ ${data.detail || data.message || 'Không thể gửi mã OTP. Vui lòng thử lại.'}`);
+      }
+    } catch (err: any) {
+      setOtpNotice(`❌ Lỗi kết nối: ${err.message || String(err)}`);
+    } finally {
+      setOtpSending(false);
+    }
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    void onSubmit(String(data.get('email')), String(data.get('password')), register);
+    const email = String(data.get('email') || emailInput);
+    const password = String(data.get('password'));
+    const otp = register ? String(data.get('otp') || '') : undefined;
+
+    if (register && !otp) {
+      setOtpNotice('❌ Vui lòng bấm "Gửi mã OTP" và nhập mã xác thực từ email để tạo tài khoản.');
+      return;
+    }
+    void onSubmit(email, password, register, otp);
   }
+
   return (
     <div className={`quant-app quant-auth quant-${portal}`}>
       <div className="quant-auth-story">
@@ -89,17 +141,85 @@ export function PortalAuth({ portal, loading, error, onSubmit }: {
       </div>
       <div className="quant-auth-stage">
         <div className="quant-auth-box">
-          <h2>{register ? 'Tạo tài khoản' : 'Đăng nhập'}</h2>
-          <p>{portal === 'admin' ? 'Dành cho tài khoản có quyền quản trị.' : 'Truy cập danh mục và các tài khoản MT5 của bạn.'}</p>
+          <h2>{register ? 'Tạo tài khoản & Xác thực Email' : 'Đăng nhập'}</h2>
+          <p>{portal === 'admin' ? 'Dành cho tài khoản có quyền quản trị.' : register ? 'Xác thực OTP qua email để kích hoạt quyền truy cập.' : 'Truy cập danh mục và các tài khoản MT5 của bạn.'}</p>
           {error && <div className="quant-alert" role="alert">{error}</div>}
+          {otpNotice && (
+            <div className={`quant-alert ${otpNotice.startsWith('✓') ? 'border-emerald-500/50 bg-emerald-950/40 text-emerald-300' : ''}`} role="alert">
+              {otpNotice}
+            </div>
+          )}
           <form onSubmit={submit}>
             <label htmlFor="auth-email">Email</label>
-            <input id="auth-email" name="email" type="email" autoComplete="username" required />
+            <div className="flex gap-2">
+              <input
+                id="auth-email"
+                name="email"
+                type="email"
+                autoComplete="username"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="your.email@example.com"
+                required
+                className="flex-1"
+              />
+              {register && (
+                <button
+                  type="button"
+                  onClick={handleSendOtp}
+                  disabled={otpSending || otpCountdown > 0 || !emailInput}
+                  className="rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-mono text-xs px-3 py-2 transition-colors whitespace-nowrap shadow"
+                >
+                  {otpSending ? 'Đang gửi...' : otpCountdown > 0 ? `Gửi lại (${otpCountdown}s)` : otpSent ? 'Gửi lại OTP' : '⚡ Gửi mã OTP'}
+                </button>
+              )}
+            </div>
+
+            {register && (
+              <>
+                <label htmlFor="auth-otp">Mã xác thực OTP (6 chữ số gửi qua email)</label>
+                <input
+                  id="auth-otp"
+                  name="otp"
+                  type="text"
+                  placeholder="Ví dụ: 849201"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  required
+                  className="font-mono tracking-widest text-base"
+                />
+              </>
+            )}
+
             <label htmlFor="auth-password">Mật khẩu</label>
-            <input id="auth-password" name="password" type="password" autoComplete={register ? 'new-password' : 'current-password'} minLength={register ? 12 : undefined} required />
-            <button className="quant-primary" disabled={loading}>{loading ? 'Đang xác thực…' : register ? 'Tạo tài khoản' : 'Đăng nhập'} <span aria-hidden="true">↗</span></button>
+            <input
+              id="auth-password"
+              name="password"
+              type="password"
+              autoComplete={register ? 'new-password' : 'current-password'}
+              minLength={register ? 12 : undefined}
+              placeholder={register ? 'Tối thiểu 12 ký tự' : 'Mật khẩu của bạn'}
+              required
+            />
+
+            <button className="quant-primary" disabled={loading}>
+              {loading ? 'Đang xử lý…' : register ? 'Xác nhận OTP & Tạo tài khoản' : 'Đăng nhập'}{' '}
+              <span aria-hidden="true">↗</span>
+            </button>
           </form>
-          {portal === 'user' && <button className="quant-quiet" onClick={() => setRegister(!register)} disabled={loading}>{register ? 'Đã có tài khoản? Đăng nhập' : 'Chưa có tài khoản? Đăng ký'}</button>}
+          {portal === 'user' && (
+            <button
+              className="quant-quiet"
+              onClick={() => {
+                setRegister(!register);
+                setOtpNotice(null);
+                setOtpSent(false);
+              }}
+              disabled={loading}
+            >
+              {register ? 'Đã có tài khoản? Đăng nhập' : 'Chưa có tài khoản? Đăng ký với OTP'}
+            </button>
+          )}
         </div>
       </div>
     </div>

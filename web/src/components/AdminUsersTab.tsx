@@ -1,4 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+export interface AdminPaymentTx {
+  id: string;
+  sepay_id?: string | null;
+  user_id?: string | null;
+  user_email?: string | null;
+  amount: number;
+  currency: string;
+  gateway: string;
+  content: string;
+  reference_code: string;
+  status: string;
+  created_at: string | number;
+}
 
 export interface AdminUser {
   id: string;
@@ -39,6 +53,76 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [testEmail, setTestEmail] = useState('car230698@gmail.com');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailStatusMsg, setEmailStatusMsg] = useState<string | null>(null);
+
+  // Payment Management & Manual Approval State
+  const [payments, setPayments] = useState<AdminPaymentTx[]>([]);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [showManualPayModal, setShowManualPayModal] = useState(false);
+  const [manualEmail, setManualEmail] = useState('');
+  const [manualAmount, setManualAmount] = useState('500000');
+  const [manualGateway, setManualGateway] = useState('MBBank');
+  const [manualRef, setManualRef] = useState('');
+  const [manualNote, setManualNote] = useState('Duyệt nạp tiền trực tiếp bởi Admin');
+  const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [manualMsg, setManualMsg] = useState<string | null>(null);
+
+  async function loadPayments() {
+    setPaymentsLoading(true);
+    try {
+      const res = await fetch('/api/admin/payments', {
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPayments(data.transactions || []);
+        setTotalRevenue(data.total_revenue_vnd || 0);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPaymentsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPayments();
+  }, []);
+
+  async function handleManualApproveSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!manualEmail || !manualAmount || manualSubmitting) return;
+    setManualSubmitting(true);
+    setManualMsg(null);
+    try {
+      const res = await fetch('/api/admin/payments/manual-approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({
+          user_email: manualEmail,
+          amount_vnd: parseFloat(manualAmount),
+          gateway: manualGateway,
+          reference_code: manualRef || `MANUAL-${Date.now().toString().slice(-6)}`,
+          note: manualNote,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setManualMsg(`✓ ${data.message || 'Duyệt nạp tiền thành công!'}`);
+        await loadPayments();
+        setTimeout(() => {
+          setShowManualPayModal(false);
+          setManualMsg(null);
+        }, 1500);
+      } else {
+        setManualMsg(`❌ ${data.detail || 'Không thể duyệt nạp tiền. Vui lòng kiểm tra lại.'}`);
+      }
+    } catch (err: any) {
+      setManualMsg(`❌ Lỗi kết nối: ${err.message || String(err)}`);
+    } finally {
+      setManualSubmitting(false);
+    }
+  }
 
   async function handleSendTestEmail() {
     if (!testEmail || sendingEmail) return;
@@ -236,6 +320,244 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Payments Management & Manual Approval */}
+      <div className="quant-panel rounded-xl border border-cyan-500/30 bg-[#07131e] p-5 shadow-lg relative overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+              <h3 className="font-bold text-sm text-cyan-400 font-mono tracking-wide">
+                💳 QUẢN LÝ THANH TOÁN & DUYỆT TAY (SEPAY / CHUYỂN KHOẢN)
+              </h3>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Dòng tiền nạp tự động qua SePay Webhook. Admin có thể can thiệp duyệt thủ công và kích hoạt ngay cho khách nếu chuyển nhầm nội dung.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="bg-slate-900/90 border border-slate-700 rounded-lg px-3 py-1.5 text-right font-mono">
+              <div className="text-[10px] text-slate-400">TỔNG DOANH THU</div>
+              <div className="text-sm font-bold text-emerald-400">{totalRevenue.toLocaleString('vi-VN')} ₫</div>
+            </div>
+            <button
+              onClick={() => void loadPayments()}
+              disabled={paymentsLoading}
+              className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-2 text-xs font-mono text-slate-200 transition-colors"
+              title="Làm mới danh sách giao dịch"
+            >
+              {paymentsLoading ? 'Đang tải…' : '🔄 Làm mới'}
+            </button>
+            <button
+              onClick={() => {
+                setShowManualPayModal(true);
+                setManualMsg(null);
+              }}
+              className="rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold px-3.5 py-2 text-xs font-mono transition-all shadow-lg"
+            >
+              + Duyệt Nạp Tiền Thủ Công
+            </button>
+          </div>
+        </div>
+
+        {/* Transactions Table */}
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-800/80 bg-slate-950/60">
+          <table className="w-full text-left text-xs font-mono">
+            <thead className="bg-slate-900/90 text-slate-400 border-b border-slate-800">
+              <tr>
+                <th className="p-3">Mã GD / SePay</th>
+                <th className="p-3">Khách Hàng (Email)</th>
+                <th className="p-3">Số Tiền (VND)</th>
+                <th className="p-3">Cổng / Ngân Hàng</th>
+                <th className="p-3">Nội Dung / Ref</th>
+                <th className="p-3">Trạng Thái</th>
+                <th className="p-3 text-right">Thời Gian</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 text-slate-200">
+              {paymentsLoading ? (
+                <tr>
+                  <td colSpan={7} className="p-5 text-center text-slate-500">
+                    Đang tải dữ liệu giao dịch SePay…
+                  </td>
+                </tr>
+              ) : payments.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-5 text-center text-slate-500">
+                    Chưa có giao dịch thanh toán nào được ghi nhận.
+                  </td>
+                </tr>
+              ) : (
+                payments.map((tx) => (
+                  <tr key={tx.id} className="hover:bg-slate-900/40 transition-colors">
+                    <td className="p-3">
+                      <div className="font-bold text-cyan-300">{tx.id}</div>
+                      <div className="text-[10px] text-slate-500">{tx.sepay_id || 'Thủ công'}</div>
+                    </td>
+                    <td className="p-3">
+                      <div className="font-medium text-slate-200">{tx.user_email || '—'}</div>
+                      <div className="text-[10px] text-slate-500">{tx.user_id ? `UID: ${tx.user_id.slice(0, 10)}…` : 'Chưa liên kết'}</div>
+                    </td>
+                    <td className="p-3">
+                      <span className="font-bold text-emerald-400 text-sm">
+                        +{Number(tx.amount || 0).toLocaleString('vi-VN')} ₫
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <span className="inline-block bg-slate-800 px-2 py-0.5 rounded text-[11px] text-slate-300 border border-slate-700">
+                        {tx.gateway}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <div className="text-slate-300 max-w-[220px] truncate" title={tx.content}>{tx.content}</div>
+                      <div className="text-[10px] text-slate-500">{tx.reference_code}</div>
+                    </td>
+                    <td className="p-3">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                          tx.status === 'completed'
+                            ? 'bg-emerald-950/70 border border-emerald-600 text-emerald-300'
+                            : tx.status === 'manual_approved'
+                            ? 'bg-cyan-950/70 border border-cyan-500 text-cyan-300'
+                            : 'bg-amber-950/70 border border-amber-600 text-amber-300'
+                        }`}
+                      >
+                        {tx.status === 'completed' ? 'Tự Động' : tx.status === 'manual_approved' ? 'Duyệt Thủ Công' : tx.status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right text-slate-400 text-[11px]">
+                      {typeof tx.created_at === 'number'
+                        ? new Date(tx.created_at * 1000).toLocaleString('vi-VN')
+                        : tx.created_at}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal Manual Approve Payment */}
+      {showManualPayModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-xl border border-cyan-500/50 bg-[#0d1424] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-cyan-400 font-bold">⚡</span>
+                <h4 className="font-bold text-sm text-slate-100 font-mono">Duyệt Nạp Tiền Thủ Công</h4>
+              </div>
+              <button
+                onClick={() => setShowManualPayModal(false)}
+                className="text-slate-400 hover:text-slate-200 text-sm font-mono"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400 font-mono">
+              Chế độ dành riêng cho Admin khi khách hàng chuyển khoản sai cú pháp, ngân hàng xử lý chậm hoặc SePay chưa gửi webhook. Hệ thống sẽ ghi nhận giao dịch và tự động gửi hóa đơn kích hoạt qua email Resend.
+            </p>
+
+            {manualMsg && (
+              <div className={`p-3 rounded-lg text-xs font-mono ${manualMsg.startsWith('✓') ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300' : 'bg-rose-950/60 border border-rose-500/40 text-rose-300'}`}>
+                {manualMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleManualApproveSubmit} className="space-y-4 font-mono text-xs">
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Email Người Dùng Cần Kích Hoạt *</label>
+                <input
+                  type="email"
+                  required
+                  list="users-email-list"
+                  value={manualEmail}
+                  onChange={(e) => setManualEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 placeholder-slate-500"
+                />
+                <datalist id="users-email-list">
+                  {users.map((u) => (
+                    <option key={u.id} value={u.email} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-slate-300 mb-1">Số Tiền Nạp (VND) *</label>
+                  <input
+                    type="number"
+                    required
+                    min={10000}
+                    step={10000}
+                    value={manualAmount}
+                    onChange={(e) => setManualAmount(e.target.value)}
+                    placeholder="500000"
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 font-bold text-emerald-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-300 mb-1">Ngân Hàng / Kênh *</label>
+                  <select
+                    value={manualGateway}
+                    onChange={(e) => setManualGateway(e.target.value)}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100"
+                  >
+                    <option value="MBBank">MBBank (Quân Đội)</option>
+                    <option value="Vietcombank">Vietcombank</option>
+                    <option value="Techcombank">Techcombank</option>
+                    <option value="VPBank">VPBank</option>
+                    <option value="ACB">ACB</option>
+                    <option value="MOMO">Ví MoMo</option>
+                    <option value="Chuyển Khoản Trực Tiếp">Chuyển Khoản Trực Tiếp</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Mã Giao Dịch Ngân Hàng / Mã Bill</label>
+                <input
+                  type="text"
+                  value={manualRef}
+                  onChange={(e) => setManualRef(e.target.value)}
+                  placeholder="Ví dụ: FT24111589104, MBB928401..."
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 placeholder-slate-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Ghi Chú Phê Duyệt</label>
+                <input
+                  type="text"
+                  value={manualNote}
+                  onChange={(e) => setManualNote(e.target.value)}
+                  placeholder="Lý do duyệt: Khách chuyển đúng bill, memo sai cú pháp..."
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 placeholder-slate-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowManualPayModal(false)}
+                  className="rounded-lg bg-slate-800 hover:bg-slate-700 px-4 py-2 text-slate-300 transition-colors"
+                >
+                  Huỷ
+                </button>
+                <button
+                  type="submit"
+                  disabled={manualSubmitting}
+                  className="rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 px-4 py-2 text-slate-950 font-bold transition-colors shadow-lg flex items-center gap-1.5"
+                >
+                  {manualSubmitting ? 'Đang duyệt & Gửi email...' : '✓ Xác Nhận Duyệt & Gửi Email'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal Create User */}
       {showCreateModal && (

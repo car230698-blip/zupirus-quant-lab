@@ -268,6 +268,22 @@ def test_resend_mailer_and_otp_workflow(client):
     assert good_verify.status_code == 200
     assert good_verify.json()['verified'] is True
 
+    # 3. Registration with OTP
+    reg_email = 'new.trader@zupirus.com'
+    client.post('/api/auth/send-otp', json={'email': reg_email})
+    with tx() as c:
+        row = c.execute("SELECT code FROM otp_codes WHERE email=?", (reg_email,)).fetchone()
+        reg_code = row['code']
+
+    # Fails with wrong OTP
+    bad_reg = client.post('/api/register', json={'email': reg_email, 'password': 'StrongPassword123!', 'otp_code': '999999'})
+    assert bad_reg.status_code == 400
+
+    # Succeeds with correct OTP
+    good_reg = client.post('/api/register', json={'email': reg_email, 'password': 'StrongPassword123!', 'otp_code': reg_code})
+    assert good_reg.status_code == 200
+    assert good_reg.json()['ok'] is True
+
 
 def test_sepay_webhook_verification_and_recording(client):
     """Verify SePay HMAC-SHA256 webhook validation, transaction idempotency, and admin listing."""
@@ -324,5 +340,22 @@ def test_sepay_webhook_verification_and_recording(client):
     admin_data = admin_res.json()
     assert admin_data['total_revenue_vnd'] >= 4900000.0
     assert admin_data['total_transactions'] >= 1
+
+    # 5. Admin manual payment approval
+    manual_res = client.post('/api/admin/payments/manual-approve', json={
+        'user_email': 'car230698@gmail.com',
+        'amount_vnd': 500000.0,
+        'gateway': 'MBBank',
+        'reference_code': 'MANUAL_TEST_REF_888',
+        'note': 'Khách chuyển khoản trực tiếp qua nhân viên hỗ trợ'
+    })
+    assert manual_res.status_code == 200
+    assert manual_res.json()['ok'] is True
+    assert manual_res.json()['amount'] == 500000.0
+
+    # Verify total revenue and transaction list updated
+    admin_res2 = client.get('/api/admin/payments')
+    assert admin_res2.status_code == 200
+    assert any(tx['reference_code'] == 'MANUAL_TEST_REF_888' for tx in admin_res2.json()['transactions'])
 
 

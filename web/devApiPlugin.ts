@@ -1235,6 +1235,17 @@ export function zupirusApiPlugin(): Plugin {
       });
     }
 
+    if (pathname === '/api/admin/payments/manual-approve' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, {
+        ok: true,
+        transaction_id: 'manual_' + Math.random().toString(36).substring(2, 10),
+        amount: Number(body.amount_vnd || 0),
+        user_email: String(body.user_email || ''),
+        message: 'Đã duyệt nạp thành công và gửi hóa đơn email cho khách hàng',
+      });
+    }
+
     // Admin Vision Incident Review
     if (pathname === '/api/admin/vision' && method === 'POST') {
       const body = await readJsonBody(req);
