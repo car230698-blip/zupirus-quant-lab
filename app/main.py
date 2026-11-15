@@ -482,7 +482,7 @@ def admin_orders(
 @app.get('/api/admin/monitor')
 def monitor(u=Depends(admin)):
     with tx() as c:
-        accs = [dict(r) for r in c.execute('SELECT a.*,u.email FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.server != "ZUPIRUS-SYNTHETIC"')]
+        accs = [dict(r) for r in c.execute("SELECT a.*,u.email FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.server != 'ZUPIRUS-SYNTHETIC'")]
         try:
             real_accs = [dict(r) for r in c.execute('SELECT r.*,u.email FROM real_accounts r JOIN users u ON u.id=r.user_id')]
             accs.extend(real_accs)
