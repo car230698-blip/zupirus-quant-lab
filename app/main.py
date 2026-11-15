@@ -1098,7 +1098,8 @@ def auth_send_otp(p: SendOtpPayload):
         row = c.execute("SELECT expires_at FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
         if row and (row['expires_at'] - 540.0) > now:
             fail(429, "Vui lòng chờ 60 giây trước khi yêu cầu mã OTP mới")
-        c.execute("INSERT OR REPLACE INTO otp_codes(email, code, expires_at, attempts) VALUES(?,?,?,0)", (email_clean, code, expires_at))
+        c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+        c.execute("INSERT INTO otp_codes(email, code, expires_at, attempts) VALUES(?,?,?,0)", (email_clean, code, expires_at))
 
     res = send_otp_code(email_clean, code, purpose="Xác Thực Đăng Ký Tài Khoản")
     return {"ok": True, "message": "Mã OTP đã được gửi tới email của bạn", "expires_in": 600, "delivery": res}
