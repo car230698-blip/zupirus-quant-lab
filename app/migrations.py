@@ -277,7 +277,7 @@ def apply_migration_002(c, is_pg: bool):
         has_timescale = c.execute("SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'").fetchone()
         if has_timescale:
             for table, time_col in [("quotes", "time"), ("candles", "time"), ("snapshots", "time")]:
-                c.execute(f"SELECT create_hypertable('{table}', '{time_col}', if_not_exists => TRUE);")
+                c.execute(f"SELECT create_hypertable('{table}', '{time_col}', if_not_exists => TRUE, migrate_data => TRUE);")
     else:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT REFERENCES accounts(id), ts REAL NOT NULL, balance REAL NOT NULL, equity REAL NOT NULL);
