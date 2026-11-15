@@ -45,8 +45,9 @@ assert res.get('real_trading') is False, f'real_trading must be False: {res}'
 # Verify readyz strict contract (TimescaleDB + PostgreSQL + Redis must be active, NO fallback to SQLite/mock)
 ready = json.loads(urllib.request.urlopen('http://localhost:8000/readyz').read().decode())
 assert ready.get('status') == 'ready', f'readyz not ready: {ready}'
-assert ready.get('database', {}).get('connected') is True, f'database not connected: {ready}'
-assert ready.get('database', {}).get('is_postgres') is True, f'database must be PostgreSQL, not SQLite: {ready}'
+db_info = ready.get('database', {})
+assert db_info.get('connected') is True, f'database not connected: {ready}'
+assert db_info.get('engine') == 'postgresql' or db_info.get('details', {}).get('is_postgres') is True, f'database must be PostgreSQL, not SQLite: {ready}'
 assert ready.get('redis', {}).get('connected') is True, f'redis not connected: {ready}'
 assert ready.get('timescaledb', {}).get('timescaledb_available') is True, f'timescaledb not available: {ready}'
 assert len(ready.get('timescaledb', {}).get('hypertables', [])) >= 2, f'hypertables missing: {ready}'
@@ -58,7 +59,7 @@ docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api p
 import urllib.request, json
 ready = json.loads(urllib.request.urlopen('http://localhost:8000/readyz').read().decode())
 hb = ready.get('execution_worker', {})
-assert hb.get('active') is True, f'Execution worker heartbeat inactive: {hb}'
+assert hb.get('heartbeat_active') is True or hb.get('active') is True, f'Execution worker heartbeat inactive: {hb}'
 print('PASS: Worker heartbeats active and verified')
 "
 
