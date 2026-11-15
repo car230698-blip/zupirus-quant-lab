@@ -481,10 +481,12 @@ def run_postgres_migration_test(database_url: str = None):
 
         # Verify existing data is preserved
         with raw_conn.cursor() as cur:
-            cur.execute("SELECT count(*), bid, ask FROM quotes WHERE source = 'DEMO'")
+            cur.execute("SELECT count(*) FROM quotes WHERE source = 'DEMO';")
+            cnt = cur.fetchone()[0]
+            assert cnt >= 1, "Legacy data missing after migration"
+            cur.execute("SELECT bid, ask FROM quotes WHERE source = 'DEMO' LIMIT 1;")
             row = cur.fetchone()
-            assert row[0] >= 1, "Legacy data missing after migration"
-            assert float(row[1]) == 2600.0 and float(row[2]) == 2600.3, f"Corrupted data: {row}"
+            assert float(row[0]) == 2600.0 and float(row[1]) == 2600.3, f"Corrupted data: {row}"
             cur.execute("DROP SCHEMA IF EXISTS legacy_schema_test CASCADE;")
             cur.execute("SET search_path TO public;")
 
