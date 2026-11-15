@@ -542,18 +542,18 @@ def readyz():
     except Exception as e:
         redis_err = str(e)
 
-    # Check TimescaleDB if postgres
-    timescale_info = check_timescale_metadata()
-
-    # Check Execution worker heartbeat
+    # Check TimescaleDB if postgres and db is up
+    timescale_info = {"timescaledb_available": False, "connected": False}
     engine_ok = False
-    try:
-        with tx() as c:
-            hb = c.execute("SELECT value FROM kv WHERE key='execution_heartbeat'").fetchone()
-            if hb and time.time() - float(hb[0]) < 60:
-                engine_ok = True
-    except Exception:
-        pass
+    if db_ok:
+        timescale_info = check_timescale_metadata()
+        try:
+            with tx() as c:
+                hb = c.execute("SELECT value FROM kv WHERE key='execution_heartbeat'").fetchone()
+                if hb and time.time() - float(hb[0]) < 60:
+                    engine_ok = True
+        except Exception:
+            pass
 
     overall_ready = db_ok and redis_ok
 

@@ -105,7 +105,7 @@ docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml pause redis
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
 import urllib.request, urllib.error, json
 try:
-    urllib.request.urlopen('http://localhost:8000/readyz', timeout=4)
+    urllib.request.urlopen('http://localhost:8000/readyz', timeout=8)
     raise AssertionError('Expected HTTP 503 when Redis is paused, but got 200 OK')
 except urllib.error.HTTPError as e:
     assert e.code == 503, f'Expected HTTP 503, got {e.code}'
@@ -131,7 +131,7 @@ docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml pause timesca
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
 import urllib.request, urllib.error, json
 try:
-    urllib.request.urlopen('http://localhost:8000/readyz', timeout=4)
+    urllib.request.urlopen('http://localhost:8000/readyz', timeout=8)
     raise AssertionError('Expected HTTP 503 when TimescaleDB is paused, but got 200 OK')
 except urllib.error.HTTPError as e:
     assert e.code == 503, f'Expected HTTP 503, got {e.code}'
