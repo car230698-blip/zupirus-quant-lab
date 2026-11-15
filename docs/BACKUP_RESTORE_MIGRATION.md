@@ -68,3 +68,4 @@ Nếu phát hiện bất thường sau khi chuyển đổi:
    cp data/snapshots/lab_rollback_snap_<TIMESTAMP>.sqlite3 data/lab.sqlite3
    ```
 3. Khởi động lại service bằng Docker Compose.
+

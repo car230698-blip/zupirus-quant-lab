@@ -184,17 +184,10 @@ def apply_migration_001(c, is_pg: bool):
 
 
 def apply_migration_002(c, is_pg: bool):
-    """Migration 002: Partition-compatible quotes and candles schemas with TimescaleDB hypertables."""
+    """Migration 002: Partition-compatible quotes and candles schemas with TimescaleDB hypertables.
+    Safe for both brand new databases and existing legacy databases."""
     if is_pg:
-        # Check if quotes table exists before attempting to alter constraints
-        reg = c.execute("SELECT to_regclass('public.quotes')").fetchone()
-        if reg and reg[0] is not None:
-            try:
-                c.execute("ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_source_ts_key;")
-                c.execute("ALTER TABLE quotes DROP CONSTRAINT IF EXISTS uq_quotes_old;")
-            except Exception:
-                pass
-
+        # 1. Create tables with partition-compatible constraints FIRST
         c.execute("""
         CREATE TABLE IF NOT EXISTS quotes (
             time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -226,12 +219,41 @@ def apply_migration_002(c, is_pg: bool):
         );
         """)
 
-        # Attempt to create TimescaleDB hypertables if extension is active
-        for table, time_col in [("quotes", "time"), ("candles", "time"), ("snapshots", "time")]:
-            try:
+        # 2. Schema upgrade for legacy databases: if old constraints exist, update them safely
+        c.execute("""
+        DO $$
+        BEGIN
+            -- Ensure quotes constraint includes partitioning column 'time'
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'quotes_source_ts_key'
+            ) THEN
+                ALTER TABLE quotes DROP CONSTRAINT quotes_source_ts_key;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'uq_quotes'
+            ) THEN
+                ALTER TABLE quotes ADD CONSTRAINT uq_quotes UNIQUE (time, source, ts);
+            END IF;
+
+            -- Ensure candles constraint includes partitioning column 'time'
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'candles_source_symbol_timeframe_key'
+            ) THEN
+                ALTER TABLE candles DROP CONSTRAINT candles_source_symbol_timeframe_key;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'uq_candles'
+            ) THEN
+                ALTER TABLE candles ADD CONSTRAINT uq_candles UNIQUE (time, source, symbol, timeframe);
+            END IF;
+        END $$;
+        """)
+
+        # 3. Create TimescaleDB hypertables if extension is active
+        has_timescale = c.execute("SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'").fetchone()
+        if has_timescale:
+            for table, time_col in [("quotes", "time"), ("candles", "time"), ("snapshots", "time")]:
                 c.execute(f"SELECT create_hypertable('{table}', '{time_col}', if_not_exists => TRUE);")
-            except Exception as e:
-                logger.debug(f"TimescaleDB create_hypertable skipped for {table}: {e}")
     else:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT REFERENCES accounts(id), ts REAL NOT NULL, balance REAL NOT NULL, equity REAL NOT NULL);

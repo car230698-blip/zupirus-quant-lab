@@ -14,3 +14,4 @@ else
 fi
 
 echo "[+] PostgreSQL backup completed: $BACKUP_FILE"
+

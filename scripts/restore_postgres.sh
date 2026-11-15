@@ -20,3 +20,4 @@ else
 fi
 
 echo "[+] Restore completed successfully."
+
