@@ -19,7 +19,7 @@ async def lifespan(app):
     with tx() as c: bootstrap(c)
     yield
 
-app = FastAPI(title='ZUPIRUS Quant Lab · Demo-only', version='0.2.0', lifespan=lifespan)
+app = FastAPI(title='ZUPIRUS Quant Lab · Production Engine', version='0.2.0', lifespan=lifespan)
 SECURE = os.getenv('COOKIE_SECURE', 'true').lower() == 'true'
 ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://zupirus.com,https://adm.zupirus.com').split(',')
 
@@ -482,8 +482,14 @@ def admin_orders(
 @app.get('/api/admin/monitor')
 def monitor(u=Depends(admin)):
     with tx() as c:
+        accs = [dict(r) for r in c.execute('SELECT a.*,u.email FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.server != "ZUPIRUS-SYNTHETIC"')]
+        try:
+            real_accs = [dict(r) for r in c.execute('SELECT r.*,u.email FROM real_accounts r JOIN users u ON u.id=r.user_id')]
+            accs.extend(real_accs)
+        except Exception:
+            pass
         return {
-            'accounts': [dict(r) for r in c.execute('SELECT a.*,u.email FROM accounts a JOIN users u ON u.id=a.user_id')],
+            'accounts': accs,
             'audit': [dict(r) for r in c.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')],
             'jobs': [dict(r) for r in c.execute('SELECT * FROM jobs ORDER BY created DESC LIMIT 30')],
             'news': [dict(r) for r in c.execute('SELECT * FROM news ORDER BY ts DESC LIMIT 50')],
@@ -784,9 +790,9 @@ class Ask(Model): question: str = Field(min_length=1, max_length=2000)
 @app.post('/api/assistant')
 def assistant(p: Ask, u=Depends(user)):
     snapshot = dashboard(u)
-    local = f"Bạn có {len(snapshot['accounts'])} tài khoản, {len(snapshot['orders'])} lệnh gần nhất. Real luôn bị khóa. Tạm dừng copy ngăn lệnh mới; SL/TP hiện hữu vẫn do broker xử lý."
+    local = f"Bạn có {len(snapshot['accounts'])} tài khoản, {len(snapshot['orders'])} lệnh gần nhất. Hệ thống tự động phân bổ tín hiệu theo mức quản trị rủi ro đã cấu hình. Tạm dừng copy ngăn lệnh mới; SL/TP hiện hữu vẫn do sàn xử lý."
     from .research import ai_text
-    answer = ai_text('Chỉ giải thích dữ liệu demo của khách này: ' + json.dumps(snapshot, ensure_ascii=False)[:18000] + '\nCâu hỏi: ' + p.question)
+    answer = ai_text('Phân tích danh mục và dữ liệu giao dịch của khách hàng này: ' + json.dumps(snapshot, ensure_ascii=False)[:18000] + '\nCâu hỏi: ' + p.question)
     reply_text = f"Bạn có {len(snapshot['accounts'])} tài khoản. {answer['text']}" if answer['available'] else local
     return {'text': reply_text, 'ai': answer['available']}
 
@@ -1493,6 +1499,289 @@ def create_real_account(p: RealAccountPayload, u=Depends(user)):
         "mode": "REAL",
         "message": "Đã tạo tài khoản MT5 Real thành công kèm chứng chỉ miễn trừ trách nhiệm pháp lý."
     }
+
+class MetaApiAccountPayload(BaseModel):
+    login: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=4, max_length=128)
+    server: str = Field(min_length=3, max_length=64)
+    account_name: Optional[str] = Field(default="My Fund MT5", max_length=64)
+    platform: str = Field(default="mt5", max_length=10)
+    risk_percent: float = Field(default=1.0, ge=0.1, le=10.0)
+    max_lot: float = Field(default=1.0, ge=0.01, le=10.0)
+    multiplier: float = Field(default=1.0, ge=0.1, le=5.0)
+
+class DispatchSignalPayload(BaseModel):
+    symbol: str = Field(default="XAUUSD", max_length=16)
+    action: str = Field(pattern="^(BUY|SELL|buy|sell)$")
+    entry_price: float = Field(gt=0)
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+    rationale: Optional[str] = None
+
+@app.get('/api/metaapi/accounts')
+def list_metaapi_accounts(u=Depends(user)):
+    """List Direct-to-User MT5 Cloud accounts."""
+    with tx() as c:
+        if u['role'] == 'admin':
+            rows = c.execute("SELECT * FROM metaapi_cloud_accounts ORDER BY created_at DESC").fetchall()
+        else:
+            rows = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE user_id=? ORDER BY created_at DESC", (u['id'],)).fetchall()
+        
+        results = []
+        for r in rows:
+            d = dict(r)
+            d.pop('encrypted_password', None)
+            results.append(d)
+        return {"accounts": results}
+
+@app.post('/api/metaapi/accounts')
+async def create_metaapi_account(p: MetaApiAccountPayload, u=Depends(user)):
+    """Provision MT5 terminal on MetaApi Cloud without needing EA installation or VPS."""
+    with tx() as c:
+        disc = c.execute("SELECT id FROM legal_disclaimers WHERE user_id=? AND status='active'", (u['id'],)).fetchone()
+        if not disc:
+            fail(403, "Yêu cầu đọc và ký Điều khoản Miễn trừ trách nhiệm pháp lý trước khi kết nối Cloud MT5.")
+
+    from .metaapi import MetaApiClient
+    from .security import encrypt_secret
+
+    client = MetaApiClient()
+    try:
+        prov = await client.provision_account(
+            name=p.account_name or f"User-{u['id'][:6]}",
+            login=p.login,
+            password=p.password,
+            server=p.server,
+            platform=p.platform
+        )
+    except Exception as e:
+        fail(400, f"Lỗi kết nối MetaApi Cloud: {str(e)}")
+
+    meta_id = prov.get("id")
+    meta_state = prov.get("state", "DEPLOYED")
+    aid = f"cloud_{secrets.token_hex(8)}"
+    enc_pwd = encrypt_secret(p.password)
+    now_ts = time.time()
+
+    with tx() as c:
+        try:
+            c.execute("""
+                INSERT INTO metaapi_cloud_accounts(
+                    id, user_id, login, server, platform, account_name,
+                    metaapi_account_id, metaapi_state, disclaimer_id,
+                    risk_percent, max_lot, multiplier, auto_trade,
+                    balance, equity, currency, encrypted_password, last_sync, created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,10000.0,10000.0,'USD',?,?,?)
+            """, (
+                aid, u['id'], p.login, p.server, p.platform, p.account_name,
+                meta_id, meta_state, disc['id'],
+                p.risk_percent, p.max_lot, p.multiplier,
+                enc_pwd, now_ts, now_ts
+            ))
+        except (sqlite3.IntegrityError, Exception):
+            fail(409, "Tài khoản MT5 trên Server này đã được liên kết.")
+
+        audit(c, u['id'], 'metaapi_cloud_account_created', {
+            'account_id': aid,
+            'login': p.login,
+            'server': p.server,
+            'metaapi_id': meta_id
+        })
+
+    return {
+        "id": aid,
+        "metaapi_account_id": meta_id,
+        "state": meta_state,
+        "message": "Đã kết nối tài khoản MT5 Cloud thành công. Hệ thống tự động bắn lệnh trực tiếp khi có tín hiệu."
+    }
+
+@app.post('/api/metaapi/accounts/{account_id}/toggle')
+def toggle_metaapi_account(account_id: str, u=Depends(user)):
+    """Toggle auto trading on/off for a cloud account."""
+    with tx() as c:
+        acc = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE id=?", (account_id,)).fetchone()
+        if not acc:
+            fail(404, "Tài khoản không tồn tại.")
+        if u['role'] != 'admin' and acc['user_id'] != u['id']:
+            fail(403, "Không có quyền.")
+        new_state = 1 if acc['auto_trade'] == 0 else 0
+        c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=?", (new_state, account_id))
+        audit(c, u['id'], 'metaapi_cloud_toggle_auto_trade', {'account_id': account_id, 'auto_trade': new_state})
+    return {"id": account_id, "auto_trade": new_state, "status": "ACTIVE" if new_state else "PAUSED"}
+
+@app.post('/api/metaapi/accounts/{account_id}/sync')
+async def sync_metaapi_account(account_id: str, u=Depends(user)):
+    """Sync real-time equity & balance from MetaApi cloud terminal."""
+    with tx() as c:
+        acc = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE id=?", (account_id,)).fetchone()
+        if not acc:
+            fail(404, "Tài khoản không tồn tại.")
+        if u['role'] != 'admin' and acc['user_id'] != u['id']:
+            fail(403, "Không có quyền.")
+
+    from .metaapi import MetaApiClient
+    client = MetaApiClient()
+    info = await client.get_account_information(acc['metaapi_account_id'] or acc['id'])
+    eq = float(info.get('equity', acc['equity']))
+    bal = float(info.get('balance', acc['balance']))
+    now_ts = time.time()
+
+    with tx() as c:
+        c.execute("UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=?", (eq, bal, now_ts, account_id))
+
+    return {"id": account_id, "equity": eq, "balance": bal, "last_sync": now_ts}
+
+@app.delete('/api/metaapi/accounts/{account_id}')
+async def delete_metaapi_account(account_id: str, u=Depends(user)):
+    """Undeploy cloud terminal and remove account from platform."""
+    with tx() as c:
+        acc = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE id=?", (account_id,)).fetchone()
+        if not acc:
+            fail(404, "Tài khoản không tồn tại.")
+        if u['role'] != 'admin' and acc['user_id'] != u['id']:
+            fail(403, "Không có quyền.")
+
+    from .metaapi import MetaApiClient
+    client = MetaApiClient()
+    if acc['metaapi_account_id']:
+        try:
+            await client.undeploy_account(acc['metaapi_account_id'])
+        except Exception as e:
+            logger.warning(f"Could not undeploy MetaApi account {acc['metaapi_account_id']}: {e}")
+
+    with tx() as c:
+        c.execute("DELETE FROM metaapi_cloud_accounts WHERE id=?", (account_id,))
+        audit(c, u['id'], 'metaapi_cloud_account_deleted', {'account_id': account_id})
+
+    return {"id": account_id, "deleted": True}
+
+@app.post('/api/metaapi/dispatch-signal')
+async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(user)):
+    """Fan-Out Execution Engine: Dispatches market order directly to all connected MT5 Cloud accounts."""
+    now_ts = time.time()
+    signal_id = f"sig_{secrets.token_hex(6)}"
+
+    with tx() as c:
+        # Scan active cloud accounts with accepted disclaimers
+        rows = c.execute("""
+            SELECT id, user_id, metaapi_account_id, balance, equity, risk_percent, max_lot, multiplier
+            FROM metaapi_cloud_accounts
+            WHERE auto_trade=1 AND disclaimer_id IS NOT NULL
+        """).fetchall()
+        accounts = [dict(r) for r in rows]
+
+    if not accounts:
+        return {
+            "signal_id": signal_id,
+            "message": "Không có tài khoản Cloud MT5 nào đang hoạt động.",
+            "total_accounts": 0,
+            "executed": 0,
+            "fanout_elapsed_ms": 0
+        }
+
+    from .metaapi import MetaApiClient, execute_fan_out_for_signal
+    client = MetaApiClient()
+
+    redis_cli = None
+    try:
+        redis_cli = get_redis_client()
+    except Exception:
+        pass
+
+    signal_dict = {
+        "id": signal_id,
+        "symbol": p.symbol.upper(),
+        "action": p.action.upper(),
+        "entry_price": p.entry_price,
+        "sl": p.sl,
+        "tp": p.tp,
+        "rationale": p.rationale
+    }
+
+    report = await execute_fan_out_for_signal(
+        signal=signal_dict,
+        accounts=accounts,
+        metaapi_client=client,
+        redis_client=redis_cli
+    )
+
+    # Persist execution records into database
+    with tx() as c:
+        for ex in report.get("executions", []):
+            exec_id = f"exec_{secrets.token_hex(8)}"
+            try:
+                c.execute("""
+                    INSERT INTO metaapi_trade_executions(
+                        id, signal_id, account_id, metaapi_account_id, symbol,
+                        action, volume, entry_price, sl, tp, position_id,
+                        order_id, status, latency_ms, error_message, executed_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (
+                    exec_id, signal_id, ex["account_id"], ex.get("metaapi_account_id"),
+                    p.symbol.upper(), p.action.upper(), ex["volume"], p.entry_price,
+                    p.sl, p.tp, ex.get("position_id"), ex.get("order_id"),
+                    ex["status"], ex.get("latency_ms", 0), ex.get("error") or ex.get("message"), now_ts
+                ))
+            except Exception as e:
+                logger.error(f"Error persisting trade execution {exec_id}: {e}")
+
+        audit(c, u['id'], 'metaapi_fanout_dispatched', {
+            'signal_id': signal_id,
+            'symbol': p.symbol.upper(),
+            'action': p.action.upper(),
+            'executed': report['executed'],
+            'failed': report['failed'],
+            'avg_latency_ms': report.get('avg_latency_ms')
+        })
+
+    return report
+
+@app.get('/api/metaapi/executions')
+def list_metaapi_executions(limit: int = 50, u=Depends(user)):
+    """List recent direct cloud executions."""
+    with tx() as c:
+        if u['role'] == 'admin':
+            rows = c.execute("""
+                SELECT e.*, a.login, a.server, a.account_name
+                FROM metaapi_trade_executions e
+                LEFT JOIN metaapi_cloud_accounts a ON e.account_id = a.id
+                ORDER BY e.executed_at DESC LIMIT ?
+            """, (limit,)).fetchall()
+        else:
+            rows = c.execute("""
+                SELECT e.*, a.login, a.server, a.account_name
+                FROM metaapi_trade_executions e
+                JOIN metaapi_cloud_accounts a ON e.account_id = a.id
+                WHERE a.user_id = ?
+                ORDER BY e.executed_at DESC LIMIT ?
+            """, (u['id'], limit)).fetchall()
+        return {"executions": [dict(r) for r in rows]}
+
+@app.get('/api/metaapi/telemetry')
+def get_metaapi_telemetry(u=Depends(user)):
+    """Return cloud execution latency metrics and system health."""
+    with tx() as c:
+        total_accounts = c.execute("SELECT count(*) FROM metaapi_cloud_accounts").fetchone()[0]
+        active_accounts = c.execute("SELECT count(*) FROM metaapi_cloud_accounts WHERE auto_trade=1").fetchone()[0]
+        exec_stats = c.execute("""
+            SELECT count(*), coalesce(avg(latency_ms), 0), coalesce(sum(case when status='FILLED' then 1 else 0 end), 0)
+            FROM metaapi_trade_executions
+        """).fetchone()
+
+        from .metaapi import MetaApiClient
+        client = MetaApiClient()
+
+        return {
+            "cloud_engine": "MetaApi Cloud MT5",
+            "mode": "Simulated Cloud" if client.is_mock else "Production MetaApi Gateway",
+            "total_connected_accounts": total_accounts,
+            "active_auto_trading_accounts": active_accounts,
+            "total_orders_executed": exec_stats[0],
+            "average_latency_ms": round(float(exec_stats[1]), 1),
+            "fill_rate_percent": round((exec_stats[2] / exec_stats[0] * 100.0), 1) if exec_stats[0] > 0 else 100.0,
+            "direct_to_user_enabled": True
+        }
+
 
 DIST_DIR = ROOT / 'dist'
 WEB_DIR = ROOT / 'web'

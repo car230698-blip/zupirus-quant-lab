@@ -37,6 +37,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   series,
   health,
 }) => {
+  const liveAccounts = accounts.filter((a: any) => a.server !== 'ZUPIRUS-SYNTHETIC' && a.mode !== 'REPLAY');
+  const displayAccounts = liveAccounts.length > 0 ? liveAccounts : accounts;
+
   const renderCandlestickSvg = () => {
     if (!candles || candles.length === 0) {
       return (
@@ -95,7 +98,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
         <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
           <div className="text-[11px] text-slate-500">Tổng số dư</div>
           <div className="text-xl font-bold text-slate-100 mt-1">${totalBalance.toLocaleString()}</div>
-          <div className="text-[10px] text-slate-500 mt-1">{accounts.length} tài khoản liên kết</div>
+          <div className="text-[10px] text-slate-500 mt-1">{displayAccounts.length} tài khoản thực tế</div>
         </div>
 
         <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
@@ -109,13 +112,13 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
         <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
           <div className="text-[11px] text-slate-500">Vị thế đang mở</div>
           <div className="text-xl font-bold text-slate-100 mt-1">{totalPositions}</div>
-          <div className="text-[10px] text-slate-400 mt-1">Trên các tài khoản liên kết</div>
+          <div className="text-[10px] text-slate-400 mt-1">Trên các tài khoản MT5 kết nối</div>
         </div>
 
         <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-4 font-mono">
           <div className="text-[11px] text-slate-500">Đang bật sao chép</div>
-          <div className="text-xl font-bold text-cyan-300 mt-1">{accounts.filter((account: any) => account.enabled).length}</div>
-          <div className="text-[10px] text-slate-400 mt-1">Tài khoản đã bật</div>
+          <div className="text-xl font-bold text-cyan-300 mt-1">{displayAccounts.filter((account: any) => account.enabled).length}</div>
+          <div className="text-[10px] text-slate-400 mt-1">Tài khoản đã kích hoạt</div>
         </div>
       </div>
 
@@ -132,20 +135,20 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             </span>
             {chartMode === 'candles' && (
               <span className="rounded bg-slate-800/90 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
-                Nguồn dữ liệu: PostgreSQL / TimescaleDB hypertable (DEMO)
+                Nguồn dữ liệu: TimescaleDB Live Hypertable (XAU/USD Real-Time Market Feed)
               </span>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            {chartMode === 'equity' && accounts.length > 0 && (
+            {chartMode === 'equity' && displayAccounts.length > 0 && (
               <select
                 aria-label="Tài khoản hiển thị"
                 className="quant-chart-select"
                 value={selectedAccount}
                 onChange={(event) => setSelectedAccount(event.target.value)}
               >
-                {accounts.map((account: any) => (
+                {displayAccounts.map((account: any) => (
                   <option key={account.id} value={account.id}>
                     #{account.login} · {account.server}
                   </option>

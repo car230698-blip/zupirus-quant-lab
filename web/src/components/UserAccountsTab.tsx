@@ -21,14 +21,18 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   newDemoServer,
   setNewDemoServer,
   handleAddDemoAccount,
-  handleCreateReplay,
   handleToggleCopy,
   handleCreatePairCode,
   handleRevoke,
   pairCodes,
 }) => {
-  // Mode selection & Compliance
+  // Mode: DIRECT_CLOUD (Default, recommended) or LOCAL_EA
+  const [executionMode, setExecutionMode] = useState<'DIRECT_CLOUD' | 'LOCAL_EA'>('DIRECT_CLOUD');
+
+  // Local EA sub-mode (DEMO or REAL)
   const [accountMode, setAccountMode] = useState<'DEMO' | 'REAL'>('DEMO');
+
+  // Legal & Compliance
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [disclaimerDetails, setDisclaimerDetails] = useState<any>(null);
   const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
@@ -41,12 +45,25 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const [confirmNoSol, setConfirmNoSol] = useState(false);
   const [signatureInput, setSignatureInput] = useState('');
 
-  // Real account creation state
+  // Local EA real account state
   const [realSubmitting, setRealSubmitting] = useState(false);
   const [realStatusMsg, setRealStatusMsg] = useState<string | null>(null);
 
+  // Direct Cloud MT5 state
+  const [cloudAccounts, setCloudAccounts] = useState<any[]>([]);
+  const [cloudLogin, setCloudLogin] = useState('');
+  const [cloudPassword, setCloudPassword] = useState('');
+  const [cloudServer, setCloudServer] = useState('');
+  const [cloudAccountName, setCloudAccountName] = useState('');
+  const [cloudRiskPercent, setCloudRiskPercent] = useState('1.0');
+  const [cloudMaxLot, setCloudMaxLot] = useState('1.0');
+  const [cloudSubmitting, setCloudSubmitting] = useState(false);
+  const [cloudMsg, setCloudMsg] = useState<string | null>(null);
+  const [cloudLoading, setCloudLoading] = useState(false);
+
   useEffect(() => {
     checkDisclaimerStatus();
+    fetchCloudAccounts();
   }, []);
 
   async function checkDisclaimerStatus() {
@@ -61,6 +78,23 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       }
     } catch {
       // ignore
+    }
+  }
+
+  async function fetchCloudAccounts() {
+    setCloudLoading(true);
+    try {
+      const res = await fetch('/api/metaapi/accounts', {
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCloudAccounts(data.accounts || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setCloudLoading(false);
     }
   }
 
@@ -98,14 +132,98 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     }
   }
 
-  async function handleSubmitAccount(e: React.FormEvent) {
+  async function handleConnectCloudMT5(e: React.FormEvent) {
+    e.preventDefault();
+    if (!disclaimerAccepted) {
+      setShowDisclaimerModal(true);
+      return;
+    }
+
+    setCloudSubmitting(true);
+    setCloudMsg(null);
+    try {
+      const res = await fetch('/api/metaapi/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({
+          login: cloudLogin.trim(),
+          password: cloudPassword,
+          server: cloudServer.trim(),
+          account_name: cloudAccountName.trim() || 'My Gold Fund',
+          platform: 'mt5',
+          risk_percent: parseFloat(cloudRiskPercent) || 1.0,
+          max_lot: parseFloat(cloudMaxLot) || 1.0,
+          multiplier: 1.0,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.id) {
+        setCloudMsg('✓ Đã kết nối MT5 Cloud thành công! Hệ thống sẵn sàng tự động bắn lệnh khi có tín hiệu.');
+        setCloudLogin('');
+        setCloudPassword('');
+        setCloudServer('');
+        setCloudAccountName('');
+        await fetchCloudAccounts();
+      } else {
+        setCloudMsg(`❌ ${data.detail || 'Không thể kết nối MetaApi Cloud. Vui lòng kiểm tra lại thông tin.'}`);
+      }
+    } catch (err: any) {
+      setCloudMsg(`❌ Lỗi kết nối: ${err.message || String(err)}`);
+    } finally {
+      setCloudSubmitting(false);
+    }
+  }
+
+  async function handleToggleCloudAutoTrade(id: string) {
+    try {
+      const res = await fetch(`/api/metaapi/accounts/${id}/toggle`, {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        await fetchCloudAccounts();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleSyncCloudAccount(id: string) {
+    try {
+      const res = await fetch(`/api/metaapi/accounts/${id}/sync`, {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        await fetchCloudAccounts();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleDeleteCloudAccount(id: string) {
+    if (!window.confirm('Bạn có chắc chắn muốn ngắt kết nối Cloud MT5 này?')) return;
+    try {
+      const res = await fetch(`/api/metaapi/accounts/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        await fetchCloudAccounts();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleSubmitLocalAccount(e: React.FormEvent) {
     e.preventDefault();
     if (accountMode === 'DEMO') {
       handleAddDemoAccount(e);
       return;
     }
 
-    // REAL Account flow
     if (!disclaimerAccepted) {
       setShowDisclaimerModal(true);
       return;
@@ -143,261 +261,469 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Compliance / Safety Mode Header */}
-      <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+      {/* Top Architecture Mode Selector */}
+      <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] p-5 space-y-4 shadow-xl">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
           <div>
-            <h3 className="font-bold text-sm text-slate-200 flex items-center gap-2">
-              <span>Ghép nối EA MT5 & Quản Lý Môi Trường Giao Dịch</span>
-            </h3>
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🚀</span>
+              <h3 className="font-bold text-base text-slate-100 font-mono tracking-wide">
+                Phương Thức Thực Thi Giao Dịch
+              </h3>
+            </div>
             <p className="text-xs text-slate-400 mt-1">
-              Hệ thống hỗ trợ chạy an toàn kép: Môi trường Demo / Replay (Khuyến nghị) và Môi trường Real (Vốn Thật).
+              Lựa chọn giữa mô hình Direct Cloud hiện đại (Không cần EA/VPS) hoặc EA Sao chép truyền thống.
             </p>
           </div>
 
-          {/* Mode Switcher */}
-          <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-700 p-1 rounded-lg">
+          <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 p-1 rounded-xl">
             <button
               type="button"
-              onClick={() => setAccountMode('DEMO')}
-              className={`px-3 py-1.5 rounded-md text-xs font-mono font-bold transition-all ${
-                accountMode === 'DEMO'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md'
+              onClick={() => setExecutionMode('DIRECT_CLOUD')}
+              className={`px-4 py-2 rounded-lg text-xs font-mono font-bold transition-all flex items-center gap-2 ${
+                executionMode === 'DIRECT_CLOUD'
+                  ? 'bg-gradient-to-r from-cyan-500 to-emerald-500 text-slate-950 shadow-lg'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              🟢 Môi Trường DEMO
+              <span>⚡ DIRECT CLOUD MT5</span>
+              <span className="text-[10px] bg-black/30 px-1.5 py-0.5 rounded font-sans">Khuyên dùng</span>
             </button>
             <button
               type="button"
-              onClick={() => {
-                setAccountMode('REAL');
-                if (!disclaimerAccepted) {
-                  setShowDisclaimerModal(true);
-                }
-              }}
-              className={`px-3 py-1.5 rounded-md text-xs font-mono font-bold transition-all flex items-center gap-1.5 ${
-                accountMode === 'REAL'
-                  ? 'bg-gradient-to-r from-rose-600 to-amber-600 text-white shadow-md'
+              onClick={() => setExecutionMode('LOCAL_EA')}
+              className={`px-4 py-2 rounded-lg text-xs font-mono font-bold transition-all flex items-center gap-1.5 ${
+                executionMode === 'LOCAL_EA'
+                  ? 'bg-slate-700 text-white shadow-md'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <span>🔴 Vốn Thật (REAL MT5)</span>
-              {disclaimerAccepted && <span className="text-[10px] bg-black/40 px-1 rounded">Đã ký ToS</span>}
+              <span>🖥️ EA MT5 Local</span>
             </button>
           </div>
         </div>
 
-        {/* Real Mode Warning Banner */}
-        {accountMode === 'REAL' && (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-950/20 p-4 text-xs font-mono space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-amber-400 flex items-center gap-2">
-                ⚠️ CHẾ ĐỘ VỐN THỰC (REAL TRADING IS ENABLED)
-              </span>
-              {disclaimerAccepted ? (
-                <span className="text-[11px] text-emerald-400 bg-emerald-950/60 border border-emerald-600/40 rounded px-2 py-0.5">
-                  ✓ Chứng chỉ ToS: {disclaimerDetails?.signature_text || 'Đã ký'}
+        {/* MODE 1: DIRECT CLOUD EXECUTION */}
+        {executionMode === 'DIRECT_CLOUD' && (
+          <div className="space-y-5">
+            {/* Value Proposition Box */}
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 text-xs font-mono space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-emerald-400 flex items-center gap-2">
+                  <span>⚡ CÔNG NGHỆ BẮN LỆNH ĐÁM MÂY (ZERO-EA DIRECT EXECUTION)</span>
                 </span>
-              ) : (
+                {disclaimerAccepted ? (
+                  <span className="text-[11px] text-emerald-400 bg-emerald-950/80 border border-emerald-500/50 rounded-md px-2.5 py-1">
+                    ✓ Chứng chỉ ToS: {disclaimerDetails?.signature_text || 'Đã ký'}
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setShowDisclaimerModal(true)}
+                    className="rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1 text-xs transition-colors"
+                  >
+                    📜 Ký Cam Kết & Mở Khóa Cloud
+                  </button>
+                )}
+              </div>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                Tín hiệu từ Quant Engine được bắn đồng loạt trực tiếp vào tài khoản MT5 của bạn qua API Cloud với độ trễ siêu thấp (&lt;50ms).
+                <b className="text-emerald-300"> 100% không cần tải file EA, không cần cài máy tính, không cần thuê VPS.</b>
+              </p>
+            </div>
+
+            {cloudMsg && (
+              <div
+                className={`p-3.5 rounded-xl text-xs font-mono border ${
+                  cloudMsg.startsWith('✓')
+                    ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
+                    : 'bg-rose-950/70 border-rose-500/50 text-rose-300'
+                }`}
+              >
+                {cloudMsg}
+              </div>
+            )}
+
+            {/* Cloud MT5 Connection Form */}
+            <form onSubmit={handleConnectCloudMT5} className="space-y-4 bg-slate-950/60 p-5 rounded-xl border border-slate-800">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                <span className="text-xs font-bold font-mono text-slate-200">
+                  + Thêm Tài Khoản MT5 Kết Nối Cloud Tự Động
+                </span>
+                <span className="text-[11px] font-mono text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-2 py-0.5 rounded">
+                  🔒 Mật khẩu được mã hóa AES-256-GCM an toàn
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Số Login MT5 *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={cloudLogin}
+                    onChange={(e) => setCloudLogin(e.target.value)}
+                    placeholder="Ví dụ: 10928371"
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Mật khẩu giao dịch MT5 *
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={cloudPassword}
+                    onChange={(e) => setCloudPassword(e.target.value)}
+                    placeholder="Mật khẩu giao dịch để bắn lệnh"
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Máy chủ sàn (Server) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={cloudServer}
+                    onChange={(e) => setCloudServer(e.target.value)}
+                    placeholder="Ví dụ: Exness-MT5Real, ICMarkets-Live..."
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Tên gợi nhớ tài khoản
+                  </label>
+                  <input
+                    type="text"
+                    value={cloudAccountName}
+                    onChange={(e) => setCloudAccountName(e.target.value)}
+                    placeholder="Ví dụ: Quỹ Vàng Alpha"
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Mức rủi ro (% Vốn / Lệnh)
+                  </label>
+                  <select
+                    value={cloudRiskPercent}
+                    onChange={(e) => setCloudRiskPercent(e.target.value)}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                  >
+                    <option value="0.5">0.5% / lệnh (Cực kỳ an toàn)</option>
+                    <option value="1.0">1.0% / lệnh (Kỷ luật chuẩn)</option>
+                    <option value="2.0">2.0% / lệnh (Tăng trưởng nhanh)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Khối lượng Lot tối đa
+                  </label>
+                  <select
+                    value={cloudMaxLot}
+                    onChange={(e) => setCloudMaxLot(e.target.value)}
+                    className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                  >
+                    <option value="0.5">Tối đa 0.50 Lot</option>
+                    <option value="1.0">Tối đa 1.00 Lot</option>
+                    <option value="2.0">Tối đa 2.00 Lot</option>
+                    <option value="5.0">Tối đa 5.00 Lot</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
                 <button
-                  onClick={() => setShowDisclaimerModal(true)}
-                  className="rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1 text-xs"
+                  type="submit"
+                  disabled={cloudSubmitting}
+                  className="rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold px-6 py-2.5 text-xs font-mono transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50"
                 >
-                  📜 Ký Miễn Trừ Trách Nhiệm Ngay
+                  {cloudSubmitting ? 'Đang kết nối Cloud…' : '🚀 Kết Nối & Bật Tự Động Bắn Lệnh MT5 ↗'}
                 </button>
+              </div>
+            </form>
+
+            {/* List of Direct Cloud Accounts */}
+            <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] overflow-hidden">
+              <div className="border-b border-slate-800 px-5 py-3.5 flex items-center justify-between">
+                <span className="font-bold text-sm text-slate-200 font-mono flex items-center gap-2">
+                  <span>Tài Khoản Cloud MT5 Đang Vận Hành</span>
+                  <span className="text-xs text-slate-400 font-normal">({cloudAccounts.length} tài khoản)</span>
+                </span>
+                <button
+                  onClick={fetchCloudAccounts}
+                  className="text-xs font-mono text-cyan-400 hover:text-cyan-300"
+                >
+                  ↻ Làm mới
+                </button>
+              </div>
+
+              {cloudAccounts.length === 0 ? (
+                <div className="p-8 text-center text-slate-500 font-mono text-xs">
+                  {cloudLoading ? 'Đang tải danh sách tài khoản cloud...' : 'Chưa có tài khoản Cloud MT5 nào được kết nối. Hãy kết nối ở form trên.'}
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-800">
+                  {cloudAccounts.map((a: any) => {
+                    const isAuto = a.auto_trade === 1;
+                    return (
+                      <div key={a.id} className="p-5 space-y-3 hover:bg-slate-900/40 transition-colors">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className={`h-2.5 w-2.5 rounded-full ${isAuto ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                            <span className="font-bold font-mono text-sm text-slate-100">
+                              #{a.login} · {a.server}
+                            </span>
+                            {a.account_name && (
+                              <span className="text-xs text-slate-400 font-mono font-medium">
+                                ({a.account_name})
+                              </span>
+                            )}
+                            <span className="rounded border px-2 py-0.5 text-[10px] font-mono font-bold bg-cyan-950 text-cyan-300 border-cyan-700/60">
+                              CLOUD MT5
+                            </span>
+                            <span
+                              className={`rounded px-2.5 py-0.5 text-[10px] font-mono font-bold ${
+                                isAuto
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/50'
+                                  : 'bg-rose-950 text-rose-300 border border-rose-500/50'
+                              }`}
+                            >
+                              {isAuto ? '● ĐANG BẬT AUTO-TRADE' : '⏸ ĐANG TẠM DỪNG'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleToggleCloudAutoTrade(a.id)}
+                              className={`rounded-lg px-3 py-1.5 text-xs font-mono font-bold transition-all ${
+                                isAuto
+                                  ? 'bg-amber-950/80 text-amber-300 border border-amber-700/50 hover:bg-amber-900'
+                                  : 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/50 hover:bg-emerald-900'
+                              }`}
+                            >
+                              {isAuto ? 'Tạm Dừng' : 'Bật Auto-Trade'}
+                            </button>
+
+                            <button
+                              onClick={() => handleSyncCloudAccount(a.id)}
+                              className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-xs font-mono text-cyan-300 transition-colors"
+                            >
+                              Đồng Bộ Equity
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteCloudAccount(a.id)}
+                              className="rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 px-3 py-1.5 text-xs font-mono text-rose-300 transition-colors"
+                            >
+                              Ngắt Kết Nối
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Cloud Metrics */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono bg-slate-950/50 p-3.5 rounded-xl border border-slate-800/60">
+                          <div>
+                            <span className="text-slate-500 text-[10px] block">SỐ DƯ (BALANCE)</span>
+                            <span className="font-bold text-slate-200">${Number(a.balance || 0).toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 text-[10px] block">VỐN THỰC (EQUITY)</span>
+                            <span className="font-bold text-emerald-400">${Number(a.equity || 0).toLocaleString()}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 text-[10px] block">CÀI ĐẶT RỦI RO</span>
+                            <span className="font-bold text-cyan-300">{a.risk_percent}% / Max {a.max_lot} Lot</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 text-[10px] block">ĐỒNG BỘ GẦN NHẤT</span>
+                            <span className="text-slate-400">
+                              {a.last_sync ? `${Math.round(Date.now() / 1000 - a.last_sync)}s trước` : 'Mới tạo'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
-            <p className="text-slate-300 text-[11px] leading-relaxed">
-              Bạn đang liên kết tài khoản MT5 tiền thật. Hãy chắc chắn EA <code className="text-cyan-300 font-bold">Zupirus_Copy_EA</code> được cấu hình tham số rủi ro nhỏ hơn 1% vốn để phòng ngừa biến động giật giá vàng (XAU/USD).
-            </p>
           </div>
         )}
 
-        {realStatusMsg && (
-          <div className={`p-3 rounded-lg text-xs font-mono ${realStatusMsg.startsWith('✓') ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300' : 'bg-rose-950/60 border border-rose-500/40 text-rose-300'}`}>
-            {realStatusMsg}
-          </div>
-        )}
+        {/* MODE 2: LOCAL EA COPY-TRADING (Traditional) */}
+        {executionMode === 'LOCAL_EA' && (
+          <div className="space-y-4 pt-2">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-3">
+              <div>
+                <h4 className="font-bold text-xs text-slate-200 font-mono">
+                  Môi Trường EA MT5 Local
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Dành cho nhà giao dịch muốn tự cài đặt EA Zupirus_Copy_EA trên máy tính hoặc VPS riêng.
+                </p>
+              </div>
 
-        <form onSubmit={handleSubmitAccount} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-            <label htmlFor="mt5-login" className="block text-[11px] font-mono text-slate-400 mb-1">
-              Số đăng nhập MT5 ({accountMode})
-            </label>
-            <input
-              id="mt5-login"
-              type="text"
-              required
-              value={newDemoLogin}
-              onChange={(e) => setNewDemoLogin(e.target.value)}
-              placeholder="Ví dụ: 61713217"
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
-            />
-          </div>
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 p-1 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setAccountMode('DEMO')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-mono font-bold transition-all ${
+                    accountMode === 'DEMO'
+                      ? 'bg-emerald-500 text-slate-950 shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  🟢 DEMO
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccountMode('REAL');
+                    if (!disclaimerAccepted) {
+                      setShowDisclaimerModal(true);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-md text-xs font-mono font-bold transition-all flex items-center gap-1.5 ${
+                    accountMode === 'REAL'
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>🔴 REAL MT5</span>
+                  {disclaimerAccepted && <span className="text-[10px] bg-black/40 px-1 rounded">Đã ký ToS</span>}
+                </button>
+              </div>
+            </div>
 
-          <div>
-            <label htmlFor="mt5-server" className="block text-[11px] font-mono text-slate-400 mb-1">
-              Máy chủ MT5 (Broker Server)
-            </label>
-            <input
-              id="mt5-server"
-              type="text"
-              required
-              value={newDemoServer}
-              onChange={(e) => setNewDemoServer(e.target.value)}
-              placeholder="Ví dụ: Exness-Real21, ICMarkets-Live..."
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
-            />
-          </div>
+            {realStatusMsg && (
+              <div className={`p-3 rounded-lg text-xs font-mono ${realStatusMsg.startsWith('✓') ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300' : 'bg-rose-950/60 border border-rose-500/40 text-rose-300'}`}>
+                {realStatusMsg}
+              </div>
+            )}
 
-          <div className="flex items-end">
-            <button
-              type="submit"
-              disabled={realSubmitting}
-              className={`w-full rounded-lg font-bold py-2 text-xs transition-colors font-mono ${
-                accountMode === 'REAL'
-                  ? 'bg-rose-500 hover:bg-rose-400 text-white shadow-lg'
-                  : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950'
-              }`}
-            >
-              {realSubmitting ? 'Đang khởi tạo…' : accountMode === 'REAL' ? '+ Tạo & Ghép Nối Real MT5 ↗' : 'Tạo & Sinh Mã Ghép Nối ↗'}
-            </button>
-          </div>
-        </form>
+            <form onSubmit={handleSubmitLocalAccount} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Số đăng nhập MT5 ({accountMode})
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newDemoLogin}
+                  onChange={(e) => setNewDemoLogin(e.target.value)}
+                  placeholder="Ví dụ: 61713217"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                />
+              </div>
 
-        <details className="rounded-lg border border-slate-800/80 bg-slate-950/40 p-3.5 text-xs">
-          <summary className="cursor-pointer text-slate-300 font-semibold">Tùy chọn phát lại (Replay)</summary>
-          <p className="my-2 text-slate-400">Xem danh mục bằng dữ liệu XAU/USD phát lại, không cần kết nối MT5.</p>
-          <button
-            id="new-replay"
-            type="button"
-            onClick={handleCreateReplay}
-            className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-xs text-cyan-300 font-mono transition-colors whitespace-nowrap"
-            title="Theo dõi danh mục bằng dữ liệu phát lại"
-          >
-            + Tạo tài khoản phát lại
-          </button>
-        </details>
-      </div>
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Máy chủ MT5 (Broker Server)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newDemoServer}
+                  onChange={(e) => setNewDemoServer(e.target.value)}
+                  placeholder="Ví dụ: Exness-Real21, ICMarkets-Live..."
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-mono"
+                />
+              </div>
 
-      {/* Account List */}
-      <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
-        <div className="border-b border-slate-800 px-5 py-3 flex items-center justify-between">
-          <span className="font-bold text-sm text-slate-200">Danh Sách Tài Khoản Đang Liên Kết</span>
-          <span className="text-xs font-mono text-slate-400">{accounts.length} tài khoản</span>
-        </div>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  disabled={realSubmitting}
+                  className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2 text-xs transition-colors font-mono"
+                >
+                  {realSubmitting ? 'Đang khởi tạo…' : 'Tạo & Sinh Mã Ghép Nối ↗'}
+                </button>
+              </div>
+            </form>
 
-        {accounts.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 font-mono text-xs">
-            Chưa có tài khoản MT5 nào được liên kết.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-800/80">
-            {accounts.map((a: any) => {
-              const code = pairCodes[a.id];
-              const isOnline = a.seen && Date.now() / 1000 - a.seen < 30;
-              const isReal = a.mode === 'REAL';
-              return (
-                <div key={a.id} className={`p-5 space-y-3 ${isReal ? 'bg-rose-950/10 border-l-2 border-rose-500' : ''}`}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-slate-600'}`} />
-                      <span className="font-bold font-mono text-sm text-slate-100">
-                        #{a.login} · {a.server}
-                      </span>
-                      <span className={`rounded border px-2 py-0.5 text-[10px] font-mono font-bold ${
-                        isReal
-                          ? 'bg-rose-950 text-rose-300 border-rose-600 animate-pulse'
-                          : 'bg-slate-800 border-slate-700 text-cyan-300'
-                      }`}>
-                        {a.mode} {isReal ? '• VỐN THỰC' : ''}
-                      </span>
-                      <span
-                        className={`rounded px-2 py-0.5 text-[10px] font-mono ${
-                          a.enabled ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' : 'bg-rose-950 text-rose-300 border border-rose-700/50'
-                        }`}
-                      >
-                        {a.enabled ? 'ĐANG SAO CHÉP' : 'TẠM DỪNG'}
-                      </span>
-                    </div>
+            {/* Local Accounts List */}
+            <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden mt-4">
+              <div className="border-b border-slate-800 px-5 py-3 flex items-center justify-between">
+                <span className="font-bold text-xs text-slate-200 font-mono">Tài Khoản EA MT5 Local</span>
+                <span className="text-xs font-mono text-slate-400">{accounts.length} tài khoản</span>
+              </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        onClick={() => handleToggleCopy(a)}
-                        className={`rounded-lg px-3 py-1 text-xs font-mono font-medium transition-colors ${
-                          a.enabled
-                            ? 'bg-amber-950/80 text-amber-300 border border-amber-700/40 hover:bg-amber-900/80'
-                            : 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/40 hover:bg-emerald-900/80'
-                        }`}
-                      >
-                        {a.enabled ? 'Tạm Dừng Sao Chép' : 'Bật Sao Chép'}
-                      </button>
-
-                      <button
-                        hidden={a.mode === 'REPLAY'}
-                        onClick={() => handleCreatePairCode(a.id)}
-                        className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1 text-xs font-mono text-slate-300 transition-colors"
-                      >
-                        Cấp Mã Ghép Nối
-                      </button>
-
-                      <button
-                        hidden={a.mode === 'REPLAY'}
-                        onClick={() => handleRevoke(a.id)}
-                        className="rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 px-3 py-1 text-xs font-mono text-rose-300 transition-colors"
-                      >
-                        Thu Hồi
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Metrics details */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono bg-slate-950/40 p-3 rounded-lg border border-slate-800/50">
-                    <div>
-                      <span className="text-slate-500 text-[10px] block">SỐ DƯ (BALANCE)</span>
-                      <span className="font-bold text-slate-200">${Number(a.balance || 0).toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 text-[10px] block">VỐN (EQUITY)</span>
-                      <span className="font-bold text-cyan-300">${Number(a.equity || 0).toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 text-[10px] block">DRAWDOWN HIỆN TẠI</span>
-                      <span className="font-bold text-slate-300">
-                        {(((a.peak - a.equity) / Math.max(a.peak, 1)) * 100).toFixed(2)}%
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 text-[10px] block">HEARTBEAT GẦN NHẤT</span>
-                      <span className="text-slate-400">
-                        {a.seen ? `${Math.round(Date.now() / 1000 - a.seen)}s trước` : 'Chưa có'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Pairing box if generated */}
-                  {code && (
-                    <div className="rounded-lg border border-cyan-500/40 bg-cyan-950/20 p-3 text-xs font-mono space-y-1">
-                      <div className="text-cyan-300 font-bold flex items-center justify-between">
-                        <span>
-                          Mã dùng một lần: <code className="break-all">{code}</code>
-                        </span>
-                        <span className="text-[10px] text-slate-400">Hết hạn sau 5 phút</span>
-                      </div>
-                      <p className="text-slate-400 text-[11px]">
-                        Trong MT5 chart XAUUSD, mở Inputs của EA <code className="text-cyan-200">Zupirus_Copy_EA</code>:
-                      </p>
-                      <div className="bg-slate-900/80 p-2 rounded text-[11px] text-slate-300 select-all">
-                        ApiURL = <span className="text-cyan-300">{window.location.origin}</span>
-                        <br />
-                        PairingCode = <span className="text-cyan-300">{code}</span>
-                      </div>
-                    </div>
-                  )}
+              {accounts.length === 0 ? (
+                <div className="p-6 text-center text-slate-500 font-mono text-xs">
+                  Chưa có tài khoản EA MT5 local nào được ghép nối.
                 </div>
-              );
-            })}
+              ) : (
+                <div className="divide-y divide-slate-800/80">
+                  {accounts.map((a: any) => {
+                    const code = pairCodes[a.id];
+                    const isOnline = a.seen && Date.now() / 1000 - a.seen < 30;
+                    return (
+                      <div key={a.id} className="p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                            <span className="font-bold font-mono text-xs text-slate-100">
+                              #{a.login} · {a.server}
+                            </span>
+                            <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                              {a.mode}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleToggleCopy(a)}
+                              className="rounded-lg bg-slate-800 px-3 py-1 text-xs font-mono text-slate-300"
+                            >
+                              {a.enabled ? 'Tạm Dừng' : 'Bật Sao Chép'}
+                            </button>
+                            <button
+                              onClick={() => handleCreatePairCode(a.id)}
+                              className="rounded-lg bg-cyan-950 text-cyan-300 border border-cyan-700/50 px-3 py-1 text-xs font-mono"
+                            >
+                              Cấp Mã Ghép Nối
+                            </button>
+                            <button
+                              onClick={() => handleRevoke(a.id)}
+                              className="rounded-lg bg-rose-950/40 text-rose-300 border border-rose-800/40 px-3 py-1 text-xs font-mono"
+                            >
+                              Thu Hồi
+                            </button>
+                          </div>
+                        </div>
+
+                        {code && (
+                          <div className="rounded-lg border border-cyan-500/40 bg-cyan-950/20 p-3 text-xs font-mono space-y-1">
+                            <div className="text-cyan-300 font-bold flex items-center justify-between">
+                              <span>Mã dùng một lần: <code>{code}</code></span>
+                              <span className="text-[10px] text-slate-400">Hết hạn sau 5 phút</span>
+                            </div>
+                            <div className="bg-slate-900/80 p-2 rounded text-[11px] text-slate-300 select-all">
+                              ApiURL = <span className="text-cyan-300">{window.location.origin}</span>
+                              <br />
+                              PairingCode = <span className="text-cyan-300">{code}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

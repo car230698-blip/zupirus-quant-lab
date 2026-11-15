@@ -1278,6 +1278,121 @@ export function zupirusApiPlugin(): Plugin {
       });
     }
 
+    // Direct-to-User MetaApi Cloud Execution Mocks
+    if (pathname === '/api/metaapi/accounts' && method === 'GET') {
+      return sendJson(res, 200, {
+        accounts: [
+          {
+            id: 'cloud_demo_01',
+            login: '1092837',
+            server: 'Exness-MT5Real',
+            platform: 'mt5',
+            account_name: 'Quỹ Vàng Alpha',
+            metaapi_account_id: 'meta_mock_1092837',
+            metaapi_state: 'DEPLOYED',
+            risk_percent: 1.0,
+            max_lot: 1.0,
+            multiplier: 1.0,
+            auto_trade: 1,
+            balance: 12450.0,
+            equity: 12680.5,
+            currency: 'USD',
+            last_sync: nowSec() - 60,
+            created_at: nowSec() - 86400 * 3,
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/metaapi/accounts' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const aid = 'cloud_' + Math.random().toString(36).substring(2, 10);
+      return sendJson(res, 200, {
+        id: aid,
+        metaapi_account_id: 'meta_' + aid,
+        state: 'DEPLOYED',
+        message: 'Đã kết nối tài khoản MT5 Cloud thành công. Hệ thống tự động bắn lệnh trực tiếp khi có tín hiệu.',
+      });
+    }
+
+    if (pathname?.startsWith('/api/metaapi/accounts/') && pathname.endsWith('/toggle') && method === 'POST') {
+      const parts = pathname.split('/');
+      const aid = parts[4];
+      return sendJson(res, 200, { id: aid, auto_trade: 1, status: 'ACTIVE' });
+    }
+
+    if (pathname?.startsWith('/api/metaapi/accounts/') && pathname.endsWith('/sync') && method === 'POST') {
+      const parts = pathname.split('/');
+      const aid = parts[4];
+      return sendJson(res, 200, { id: aid, balance: 12450.0, equity: 12680.5, last_sync: nowSec() });
+    }
+
+    if (pathname?.startsWith('/api/metaapi/accounts/') && method === 'DELETE') {
+      const parts = pathname.split('/');
+      const aid = parts[4];
+      return sendJson(res, 200, { id: aid, deleted: true });
+    }
+
+    if (pathname === '/api/metaapi/dispatch-signal' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, {
+        signal_id: 'sig_' + Math.random().toString(36).substring(2, 8),
+        symbol: body.symbol || 'XAUUSD',
+        action: body.action || 'BUY',
+        total_accounts: 1,
+        executed: 1,
+        failed: 0,
+        skipped: 0,
+        total_fanout_elapsed_ms: 34,
+        avg_latency_ms: 34,
+        executions: [
+          {
+            account_id: 'cloud_demo_01',
+            status: 'FILLED',
+            volume: 0.25,
+            order_id: 'ORD-98213',
+            latency_ms: 34,
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/metaapi/executions' && method === 'GET') {
+      return sendJson(res, 200, {
+        executions: [
+          {
+            id: 'exec_01',
+            signal_id: 'sig_xau_882',
+            account_id: 'cloud_demo_01',
+            login: '1092837',
+            server: 'Exness-MT5Real',
+            symbol: 'XAUUSD',
+            action: 'BUY',
+            volume: 0.25,
+            entry_price: 2654.5,
+            sl: 2649.5,
+            tp: 2669.5,
+            status: 'FILLED',
+            latency_ms: 28,
+            executed_at: nowSec() - 720,
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/metaapi/telemetry' && method === 'GET') {
+      return sendJson(res, 200, {
+        cloud_engine: 'MetaApi Cloud MT5',
+        mode: 'Production MetaApi Gateway',
+        total_connected_accounts: 1,
+        active_auto_trading_accounts: 1,
+        total_orders_executed: 48,
+        average_latency_ms: 31.4,
+        fill_rate_percent: 100.0,
+        direct_to_user_enabled: true,
+      });
+    }
+
     // Admin Vision Incident Review
     if (pathname === '/api/admin/vision' && method === 'POST') {
       const body = await readJsonBody(req);

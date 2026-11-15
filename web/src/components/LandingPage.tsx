@@ -291,13 +291,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 font-mono">
             {/* Tier 1 */}
             <div className="p-6 rounded-2xl border border-slate-800 bg-[#0d1424] space-y-5">
-              <div className="text-xs font-bold text-slate-400 uppercase">Demo Explorer</div>
+              <div className="text-xs font-bold text-slate-400 uppercase">Standard Trader</div>
               <div className="text-3xl font-black text-slate-100">$0<span className="text-xs text-slate-500 font-normal"> / trọn đời</span></div>
-              <p className="text-xs text-slate-400 font-sans">Dành cho nhà giao dịch muốn kiểm chứng thuật toán nến đóng trên môi trường giả lập Replay.</p>
+              <p className="text-xs text-slate-400 font-sans">Dành cho nhà giao dịch cá nhân kết nối tài khoản MT5 sàn và trải nghiệm phân tích nến đóng thời gian thực.</p>
               <ul className="text-xs space-y-2 text-slate-300 border-t border-slate-800 pt-4">
-                <li>✓ Tài khoản Replay không rủi ro vốn</li>
-                <li>✓ Biểu đồ nến TimescaleDB M15</li>
-                <li>✓ Trợ lý AI định lượng Vercel AI SDK</li>
+                <li>✓ Kết nối 1 tài khoản MT5 sàn thực tế</li>
+                <li>✓ Biểu đồ nến TimescaleDB M15 Real-Time</li>
+                <li>✓ Trợ lý AI định lượng ZUPIRUS Copilot</li>
               </ul>
               <button onClick={onEnterApp} className="w-full py-2.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-slate-200 font-bold transition-colors">
                 Bắt Đầu Ngay
@@ -308,29 +308,29 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
             <div className="p-6 rounded-2xl border-2 border-cyan-500 bg-[#0d1829] space-y-5 shadow-[0_0_30px_rgba(6,182,212,0.15)] relative">
               <div className="absolute -top-3 right-5 px-2.5 py-0.5 rounded-full bg-cyan-500 text-slate-950 text-[10px] font-bold">PHỔ BIẾN NHẤT</div>
               <div className="text-xs font-bold text-cyan-300 uppercase">Quant Pro Trader</div>
-              <div className="text-3xl font-black text-slate-100">$199<span className="text-xs text-slate-500 font-normal"> / tháng</span></div>
-              <p className="text-xs text-slate-400 font-sans">Dành cho nhà đầu tư bán chuyên kết nối tài khoản MT5 Demo và nhận phân bổ lệnh tự động.</p>
+              <div className="text-3xl font-black text-slate-100">4.900.000₫<span className="text-xs text-slate-500 font-normal"> / tháng</span></div>
+              <p className="text-xs text-slate-400 font-sans">Dành cho nhà đầu tư kết nối tài khoản MT5 Real (vốn thật) và nhận phân bổ lệnh tự hành bảo vệ vốn.</p>
               <ul className="text-xs space-y-2 text-slate-300 border-t border-slate-800 pt-4">
-                <li>✓ Toàn bộ tính năng Demo Explorer</li>
+                <li>✓ Kết nối đa tài khoản MT5 Real không giới hạn</li>
                 <li>✓ Ghép nối EA MT5 qua mã phân tán Redis</li>
-                <li>✓ Cửa sổ bảo vệ tin tức tự động ±15m</li>
-                <li>✓ Bộ nhớ Hindsight cá nhân hóa</li>
+                <li>✓ Cửa sổ bảo vệ tin tức tự động ±15m (CPI, NFP, FED)</li>
+                <li>✓ Bộ nhớ Hindsight & Gemini API cá nhân hóa</li>
               </ul>
               <button onClick={onEnterApp} className="w-full py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-xs text-slate-950 font-bold transition-colors">
-                Trải Nghiệm Quant Pro
+                Đăng Ký Quant Pro
               </button>
             </div>
 
             {/* Tier 3 */}
             <div className="p-6 rounded-2xl border border-slate-800 bg-[#0d1424] space-y-5">
               <div className="text-xs font-bold text-purple-400 uppercase">Prop & Institutional</div>
-              <div className="text-3xl font-black text-slate-100">$899<span className="text-xs text-slate-500 font-normal"> / tháng</span></div>
-              <p className="text-xs text-slate-400 font-sans">Dành cho quỹ định lượng và nhà quản lý quỹ tư nhân cần triển khai Multi-Agent Swarm độc quyền.</p>
+              <div className="text-3xl font-black text-slate-100">22.500.000₫<span className="text-xs text-slate-500 font-normal"> / tháng</span></div>
+              <p className="text-xs text-slate-400 font-sans">Dành cho quỹ định lượng và nhà quản lý vốn tư nhân cần cụm Multi-Agent Swarm tự hành độc quyền.</p>
               <ul className="text-xs space-y-2 text-slate-300 border-t border-slate-800 pt-4">
-                <li>✓ Đầy đủ 3 Agent Swarm (Sentinel, Alpha, Risk)</li>
+                <li>✓ Đầy đủ cụm 3 Agent Swarm (Sentinel, Alpha, Risk)</li>
                 <li>✓ Cổng quản trị phân quyền Admin riêng biệt</li>
                 <li>✓ Giám sát rủi ro VaR 99% & Monte Carlo 10K</li>
-                <li>✓ Hỗ trợ kết nối FIX Protocol theo yêu cầu</li>
+                <li>✓ Hỗ trợ kỹ thuật chuyên sâu & Webhook riêng</li>
               </ul>
               <button onClick={onEnterAdmin} className="w-full py-2.5 rounded-lg border border-purple-800 bg-purple-950/40 hover:bg-purple-900/60 text-xs text-purple-200 font-bold transition-colors">
                 Liên Hệ Quản Trị
@@ -349,7 +349,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
           </div>
           <div className="flex items-center gap-6">
             <span className="text-emerald-400 font-bold">● FAIL-CLOSED SECURITY ACTIVE</span>
-            <span>Real Trading Locked</span>
+            <span className="text-cyan-400 font-bold">● MT5 PRODUCTION READY</span>
             <span>© 2026 ZUPIRUS</span>
           </div>
         </div>

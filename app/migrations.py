@@ -46,6 +46,11 @@ MIGRATIONS = [
         "version": 8,
         "name": "008_legal_disclaimers_and_real_accounts",
         "description": "High-risk trading terms of service disclaimers and gated real MT5 accounts isolation"
+    },
+    {
+        "version": 9,
+        "name": "009_metaapi_cloud_execution",
+        "description": "Direct-to-User cloud execution engine without EAs, encrypted credentials and fan-out trade logging"
     }
 ]
 
@@ -606,6 +611,110 @@ def apply_migration_008(c, is_pg: bool):
         """)
 
 
+def apply_migration_009(c, is_pg: bool):
+    """Create metaapi_cloud_accounts and metaapi_trade_executions tables for Direct-to-User cloud execution."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS metaapi_cloud_accounts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            login TEXT NOT NULL,
+            server TEXT NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'mt5',
+            account_name TEXT,
+            metaapi_account_id TEXT,
+            metaapi_state TEXT NOT NULL DEFAULT 'DEPLOYED',
+            disclaimer_id TEXT REFERENCES legal_disclaimers(id),
+            risk_percent DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            max_lot DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            multiplier DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            auto_trade INTEGER NOT NULL DEFAULT 1,
+            balance DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            equity DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            encrypted_password TEXT,
+            last_sync DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(login, server)
+        );
+        CREATE INDEX IF NOT EXISTS idx_metaapi_acc_user ON metaapi_cloud_accounts(user_id);
+
+        CREATE TABLE IF NOT EXISTS metaapi_trade_executions (
+            id TEXT PRIMARY KEY,
+            signal_id TEXT NOT NULL,
+            account_id TEXT REFERENCES metaapi_cloud_accounts(id),
+            metaapi_account_id TEXT,
+            symbol TEXT NOT NULL DEFAULT 'XAUUSD',
+            action TEXT NOT NULL,
+            volume DOUBLE PRECISION NOT NULL,
+            entry_price DOUBLE PRECISION NOT NULL,
+            sl DOUBLE PRECISION,
+            tp DOUBLE PRECISION,
+            position_id TEXT,
+            order_id TEXT,
+            status TEXT NOT NULL,
+            latency_ms INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            executed_at DOUBLE PRECISION NOT NULL,
+            closed_at DOUBLE PRECISION,
+            profit DOUBLE PRECISION,
+            UNIQUE(signal_id, account_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_sig ON metaapi_trade_executions(signal_id);
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_acc ON metaapi_trade_executions(account_id);
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS metaapi_cloud_accounts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            login TEXT NOT NULL,
+            server TEXT NOT NULL,
+            platform TEXT NOT NULL DEFAULT 'mt5',
+            account_name TEXT,
+            metaapi_account_id TEXT,
+            metaapi_state TEXT NOT NULL DEFAULT 'DEPLOYED',
+            disclaimer_id TEXT REFERENCES legal_disclaimers(id),
+            risk_percent REAL NOT NULL DEFAULT 1.0,
+            max_lot REAL NOT NULL DEFAULT 1.0,
+            multiplier REAL NOT NULL DEFAULT 1.0,
+            auto_trade INTEGER NOT NULL DEFAULT 1,
+            balance REAL NOT NULL DEFAULT 0.0,
+            equity REAL NOT NULL DEFAULT 0.0,
+            currency TEXT NOT NULL DEFAULT 'USD',
+            encrypted_password TEXT,
+            last_sync REAL NOT NULL DEFAULT 0.0,
+            created_at REAL NOT NULL,
+            UNIQUE(login, server)
+        );
+        CREATE INDEX IF NOT EXISTS idx_metaapi_acc_user ON metaapi_cloud_accounts(user_id);
+
+        CREATE TABLE IF NOT EXISTS metaapi_trade_executions (
+            id TEXT PRIMARY KEY,
+            signal_id TEXT NOT NULL,
+            account_id TEXT REFERENCES metaapi_cloud_accounts(id),
+            metaapi_account_id TEXT,
+            symbol TEXT NOT NULL DEFAULT 'XAUUSD',
+            action TEXT NOT NULL,
+            volume REAL NOT NULL,
+            entry_price REAL NOT NULL,
+            sl REAL,
+            tp REAL,
+            position_id TEXT,
+            order_id TEXT,
+            status TEXT NOT NULL,
+            latency_ms INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            executed_at REAL NOT NULL,
+            closed_at REAL,
+            profit REAL,
+            UNIQUE(signal_id, account_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_sig ON metaapi_trade_executions(signal_id);
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_acc ON metaapi_trade_executions(account_id);
+        """)
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -620,6 +729,7 @@ def run_all_migrations(c, is_pg: bool):
         6: apply_migration_006,
         7: apply_migration_007,
         8: apply_migration_008,
+        9: apply_migration_009,
     }
 
     for m in MIGRATIONS:
