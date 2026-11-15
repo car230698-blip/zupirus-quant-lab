@@ -17,7 +17,9 @@ Chạy một replica mỗi service. Không chạy thêm Execution hoặc Researc
 
 ## Backup
 
-Trong API container, chạy `python scripts/backup.py`; script dùng SQLite online backup API cho cả DB ứng dụng và research. Copy thư mục `/data/backups/<UTC timestamp>/` ra nơi lưu độc lập, mã hóa và giới hạn quyền. Snapshot hai file không phải một transaction chung; nên pause copy và dừng worker trong maintenance khi cần snapshot nhất quán toàn hệ thống.
+Trong môi trường PostgreSQL / TimescaleDB, sử dụng bộ công cụ sao lưu chuyên dụng:
+- Sao lưu tự động: `bash scripts/backup_postgres.sh` (hoặc `python scripts/backup_postgres.py`).
+- Chi tiết quy trình sao lưu và phục hồi: Tham khảo [BACKUP_RESTORE_MIGRATION.md](BACKUP_RESTORE_MIGRATION.md).
 
 Chụp/copy `.env` riêng bằng cơ chế bí mật, không đưa vào archive chia sẻ. Giữ terminal FILE_COMMON journals và broker history độc lập.
 

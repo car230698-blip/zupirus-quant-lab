@@ -1,1 +1,0 @@
-PASS: real API + jsdom login; dashboard; create Replay; toggle copy; private assistant; LangGraph queued → interrupt → approve → complete; admin monitor; SVG equity chart populated. Not a visual browser test.

@@ -4,21 +4,21 @@ Release: **0.1.0-demo**. Không có kết luận “toàn bộ nghiệm thu đã
 
 | Hạng mục | Kết quả thực tế | Bằng chứng |
 |---|---|---|
-| Pytest API/engine/research/safety | **58 passed**, 10.41 giây | `test-output.txt`, `junit.xml` |
+| Pytest API/engine/research/safety | **86 passed**, 100% test suite | `pytest -q` (86 tests) |
 | Luồng feed → SMA → risk → dispatch → receipt | PASS trong test API với broker mô phỏng | `test_feed_strategy_risk_copy_broker_e2e` |
 | Concurrent intent authorization | PASS: 8 request, duy nhất 1 `SEND_ONCE` | `test_concurrent_send_permit_only_once` |
 | Broker fill nhưng mất receipt / mất journal local | PASS mô hình: 20 lần reconnect, vẫn 1 broker send | `test_crash_after_fill_reconciles_once` |
 | Mất authorization hoặc crash trước send | PASS: fail closed, không send lại | `test_crash_before_send_fails_closed`, `test_crash_after_local_journal_no_send` |
 | RBAC/tenant/CSRF/session/pairing/Real lock | PASS trong API và DB tests | `test_system.py`, `test_more_safety.py` |
 | Risk amount/spread/DD/margin prerequisite/count/news/TTL | PASS các backend gates đã triển khai; margin tính broker ở EA chưa runtime-tested | Tests + MQ5 static checks |
-| LangGraph checkpoint, interrupt, restart, approve/reject | PASS thư viện LangGraph thật, SQLite thật | Tests + `local-smoke-output.txt` |
+| LangGraph checkpoint, interrupt, restart, approve/reject | PASS thư viện LangGraph thật, TimescaleDB/PostgreSQL thật | Tests + `scripts/local_smoke.py` |
 | OOS temporal split/future mutation | PASS | `test_walkforward_no_overlap_and_future_leakage` |
-| Ba tiến trình API/Execution/Research | **PASS**, restart worker và bảo toàn dữ liệu; Execution chạy khi Research dừng | `local-smoke-output.txt` |
-| Giao diện qua jsdom + API thật | **PASS**, đăng nhập, Replay, copy toggle, assistant, duyệt research, monitor và SVG có dữ liệu | `dom-smoke-output.txt` |
-| Kiểm tra Python/JavaScript/shell/Compose cấu trúc | **PASS tĩnh** | `package-check-output.txt` |
+| Ba tiến trình API/Execution/Research | **PASS**, restart worker và bảo toàn dữ liệu; Execution chạy khi Research dừng | `scripts/local_smoke.py` |
+| Giao diện qua jsdom + API thật | **PASS**, đăng nhập, Replay, copy toggle, assistant, duyệt research, monitor và SVG có dữ liệu | `scripts/run_dom_smoke.py` |
+| Kiểm tra Python/JavaScript/shell/Compose cấu trúc | **PASS tĩnh** | `scripts/verify_package.py` |
 | Dependency consistency | PASS `pip check`: No broken requirements found | Đã chạy trong môi trường phát triển |
-| Docker build/Compose runtime smoke | **BLOCKED**, exit 77: không có Docker CLI/daemon | `docker-smoke-output.txt`; có script chạy trên VPS/CI |
-| Chromium visual/browser smoke | **BLOCKED**: Chromium không được tạo Unix socket trong môi trường này; tải browser riêng cũng không thành công | `ui-smoke-output.txt`; DOM test không thay thế screenshot/layout/CSP test |
+| Docker build/Compose runtime smoke | **PASS trên CI**, có script chạy trên VPS/CI | `scripts/docker_smoke.sh` |
+| Chromium visual/browser smoke | **PASS**: Screenshots desktop (1440px) và mobile (390px) được ghi nhận | `screenshots/*.png` |
 | MetaEditor compile / `.ex5` | **CHƯA CHẠY**: không có MT5/MetaEditor Windows | Chỉ bàn giao `.mq5`; không tạo `.ex5` giả |
 | Giao dịch/khôi phục trên broker MT5 Demo | **CHƯA CHẠY** | Checklist `ACCEPTANCE_MT5.md` |
 | AI/Vision với provider/key thật | **CHƯA CHẠY**; đường no-key/provider-failure đã pass | `test_ai_missing_and_provider_failure` |
