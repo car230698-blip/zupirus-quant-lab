@@ -51,6 +51,11 @@ MIGRATIONS = [
         "version": 9,
         "name": "009_metaapi_cloud_execution",
         "description": "Direct-to-User cloud execution engine without EAs, encrypted credentials and fan-out trade logging"
+    },
+    {
+        "version": 10,
+        "name": "010_standardize_trading_accounts_and_cloud_metaapi",
+        "description": "Standardize trading_accounts model for 100% MetaApi Cloud Execution and drop legacy EA pairing tables"
     }
 ]
 
@@ -715,6 +720,56 @@ def apply_migration_009(c, is_pg: bool):
         """)
 
 
+def apply_migration_010(c, is_pg: bool):
+    """Migration 010: Standardize trading_accounts table for MetaApi Cloud and remove obsolete EA pairing tables."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS trading_accounts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            mt5_login TEXT NOT NULL,
+            encrypted_master_password TEXT NOT NULL,
+            broker_server TEXT NOT NULL,
+            metaapi_account_id TEXT,
+            deployment_state TEXT NOT NULL DEFAULT 'DEPLOYED',
+            risk_config TEXT NOT NULL DEFAULT '{"risk_percent": 1.0, "max_lot": 1.0, "multiplier": 1.0}',
+            subscription_expires_at DOUBLE PRECISION,
+            auto_trade INTEGER NOT NULL DEFAULT 1,
+            balance DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            equity DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            created_at DOUBLE PRECISION NOT NULL,
+            last_sync DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            UNIQUE(mt5_login, broker_server)
+        );
+        CREATE INDEX IF NOT EXISTS idx_trading_acc_user ON trading_accounts(user_id);
+        DROP TABLE IF EXISTS pairings;
+        DROP TABLE IF EXISTS devices;
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS trading_accounts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            mt5_login TEXT NOT NULL,
+            encrypted_master_password TEXT NOT NULL,
+            broker_server TEXT NOT NULL,
+            metaapi_account_id TEXT,
+            deployment_state TEXT NOT NULL DEFAULT 'DEPLOYED',
+            risk_config TEXT NOT NULL DEFAULT '{"risk_percent": 1.0, "max_lot": 1.0, "multiplier": 1.0}',
+            subscription_expires_at REAL,
+            auto_trade INTEGER NOT NULL DEFAULT 1,
+            balance REAL NOT NULL DEFAULT 0.0,
+            equity REAL NOT NULL DEFAULT 0.0,
+            created_at REAL NOT NULL,
+            last_sync REAL NOT NULL DEFAULT 0.0,
+            UNIQUE(mt5_login, broker_server)
+        );
+        CREATE INDEX IF NOT EXISTS idx_trading_acc_user ON trading_accounts(user_id);
+        DROP TABLE IF EXISTS pairings;
+        DROP TABLE IF EXISTS devices;
+        """)
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -730,6 +785,7 @@ def run_all_migrations(c, is_pg: bool):
         7: apply_migration_007,
         8: apply_migration_008,
         9: apply_migration_009,
+        10: apply_migration_010,
     }
 
     for m in MIGRATIONS:
@@ -813,7 +869,7 @@ def run_postgres_migration_test(database_url: str = None):
         wrapped_fresh = ConnectionWrapper(raw_conn, is_pg=True)
         run_all_migrations(wrapped_fresh, is_pg=True)
         fresh_versions = get_applied_versions(wrapped_fresh)
-        assert fresh_versions == [1, 2, 3, 4, 5], f"Expected all migrations [1, 2, 3, 4, 5], got {fresh_versions}"
+        assert fresh_versions == list(range(1, 11)), f"Expected all migrations 1..10, got {fresh_versions}"
 
         with raw_conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS fresh_schema_test CASCADE;")
@@ -847,7 +903,7 @@ def run_postgres_migration_test(database_url: str = None):
         # Run all migrations on legacy schema
         run_all_migrations(wrapped_legacy, is_pg=True)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == [1, 2, 3, 4, 5], f"Expected [1, 2, 3, 4, 5], got {legacy_versions}"
+        assert legacy_versions == list(range(1, 11)), f"Expected 1..10, got {legacy_versions}"
 
         # Verify existing data is preserved
         with raw_conn.cursor() as cur:

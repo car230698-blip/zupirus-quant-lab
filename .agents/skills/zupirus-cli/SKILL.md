@@ -1,13 +1,13 @@
 ---
 name: zupirus-cli
-description: Agent-Native internal operations, signal tracing, MT5 EA management, and research approval CLI for ZUPIRUS Quant Lab.
+description: Agent-Native internal operations, signal tracing, MetaApi Cloud MT5 terminal management, and research approval CLI for ZUPIRUS Quant Lab.
 ---
 
 # `zupirus-cli` — Agent-Native Operations & Verification Manual
 
 `zupirus-cli` transforms **ZUPIRUS Quant Lab** into an **Agent-Native** system adhering to the principles of **CLI-Anything** (`HKUDS/CLI-Anything` — *"Making Software Agent-Native"*).
 
-It provides AI Agents with deterministic, 100% terminal-driven command surfaces with pure `--json` outputs (zero extraneous banner or log noise on stdout) to inspect, operate, inject signals, trace dispatches, and approve walk-forward research models without requiring browser/GUI interactions.
+It provides AI Agents with deterministic, 100% terminal-driven command surfaces with pure `--json` outputs (zero extraneous banner or log noise on stdout) to inspect, operate, inject signals, trace dispatches, sync MetaApi Cloud MT5 terminals, and approve walk-forward research models without requiring browser/GUI interactions.
 
 ---
 
@@ -44,31 +44,36 @@ Inspects PostgreSQL/TimescaleDB connectivity, Redis stream status, Real-Executio
 
 #### 1.2 `zupirus-cli system kill-switch (--on | --off) [--reason "..."] --json`
 Instantly triggers or disengages the system-wide emergency halt:
-- `--on`: Sets `kv.halted = 1`, disables all client copy accounts (`enabled = 0`), cancels all queued dispatches, and logs an audit record.
+- `--on`: Sets `kv.halted = 1`, pauses all auto trading, cancels all queued dispatches, and logs an audit record.
 - `--off`: Sets `kv.halted = 0` and logs an audit record.
 
 ---
 
-### Domain 2: `ea` — MT5 Copy EA Management & Pairing
+### Domain 2: `cloud` — MetaApi Cloud MT5 Management (Direct-to-User)
 
-#### 2.1 `zupirus-cli ea list --json`
-Lists all registered MT5 EA accounts, equity, peak, drawdown, open positions, online heartbeat state, and whether a device is currently paired.
+#### 2.1 `zupirus-cli cloud list --json`
+Lists all connected MetaApi Cloud MT5 terminals, account login, broker server, equity, balance, deployment state (`DEPLOYED` / `UNDEPLOYED` / `ERROR`), and auto-trade status.
 
-#### 2.2 `zupirus-cli ea pair-code --user <email> [--account <login>] --json`
-Generates a secure, single-use pairing code valid for 10 minutes to link a new MT5 terminal.
+#### 2.2 `zupirus-cli cloud sync [--account <login>] --json`
+Syncs real-time balance & equity directly from the MetaApi Cloud terminal into the database.
 
-#### 2.3 `zupirus-cli ea revoke --account <login> [--reason "..."] --json`
-Revokes an EA's paired device token, terminates pairing codes, cancels queued dispatches, and disables copy trading for that account.
+#### 2.3 `zupirus-cli cloud undeploy-expired --json`
+Scans for expired subscriptions and automatically unprovisions / undeploys their MetaApi cloud terminals to eliminate hosting costs.
+
+#### 2.4 `zupirus-cli cloud dispatch-test [--symbol XAUUSD] [--action BUY|SELL] [--price 2650.0] --json`
+Executes an ultra-fast Fan-Out test order across all active Cloud MT5 accounts with Redis idempotency locking (`exec:{signal_id}:{account_id}`).
+
+*(Note: `ea` is retained as a deprecated alias pointing to `cloud`)*
 
 ---
 
 ### Domain 3: `signal` — Signal Injection & Lifecycle Tracing
 
 #### 3.1 `zupirus-cli signal send-test --account <login> --side BUY|SELL [--lot 0.01] [--price 2725.50] [--force] --json`
-Dispatches a test signal to a target Demo account through the production execution pipeline.
+Dispatches a test signal to a target account through the execution pipeline.
 
 #### 3.2 `zupirus-cli signal trace <signal_id> --json`
-Provides end-to-end observability from signal creation -> outbox -> Redis stream -> EA poll -> MT5 deal ticket, verifying anti-duplicate constraints.
+Provides end-to-end observability from signal creation -> outbox -> Redis stream -> Cloud Execution -> Deal Ticket, verifying anti-duplicate constraints.
 
 ---
 
@@ -90,24 +95,22 @@ Rejects the proposal, marking it `rejected` and permanently recording the audit 
 
 ## 3. Autonomous Verification Protocol for AI Agents
 
-When tasked with verifying or accepting **ZUPIRUS Quant Lab**, an AI Agent should execute this deterministic 5-step sequence:
+When tasked with verifying or accepting **ZUPIRUS Quant Lab**, an AI Agent should execute this deterministic sequence:
 
 ```bash
 # Step 1: Verify system health and database readiness
 zupirus-cli system status --json
 
-# Step 2: Query EA client registry and generate demo pairing code
-zupirus-cli ea pair-code --user test-agent@zupirus.com --json
-zupirus-cli ea list --json
+# Step 2: Query Cloud MT5 terminals registry
+zupirus-cli cloud list --json
 
-# Step 3: Dispatch test signal and verify anti-duplicate lock
-zupirus-cli signal send-test --account <LOGIN> --side BUY --lot 0.01 --json
+# Step 3: Test Fan-Out direct dispatch across active cloud terminals
+zupirus-cli cloud dispatch-test --symbol XAUUSD --action BUY --json
 
-# Step 4: Trace full signal lifecycle (Database -> Outbox -> Redis Stream)
-zupirus-cli signal trace <SIGNAL_ID> --json
-
-# Step 5: Verify LangGraph research workflow (Walk-Forward -> Interrupt -> Approve)
+# Step 4: Run Walk-Forward Out-of-Sample validation
 zupirus-cli research run-validation --cutoff 180 --json
-zupirus-cli research pending --json
-zupirus-cli research approve <PROPOSAL_ID> --reason "Agent verification acceptance" --json
+
+# Step 5: Verify Emergency Kill Switch cycle
+zupirus-cli system kill-switch --on --reason "Automated acceptance test" --json
+zupirus-cli system kill-switch --off --reason "Acceptance test completed" --json
 ```

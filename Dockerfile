@@ -20,7 +20,6 @@ COPY --chown=lab:lab cli cli
 COPY --chown=lab:lab web web
 COPY --chown=lab:lab data data
 COPY --chown=lab:lab tests tests
-COPY --chown=lab:lab ea ea
 COPY --chown=lab:lab scripts scripts
 COPY --chown=lab:lab pyproject.toml .
 COPY --chown=lab:lab zupirus-cli .

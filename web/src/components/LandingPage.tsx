@@ -309,10 +309,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
               <div className="absolute -top-3 right-5 px-2.5 py-0.5 rounded-full bg-cyan-500 text-slate-950 text-[10px] font-bold">PHỔ BIẾN NHẤT</div>
               <div className="text-xs font-bold text-cyan-300 uppercase">Quant Pro Trader</div>
               <div className="text-3xl font-black text-slate-100">4.900.000₫<span className="text-xs text-slate-500 font-normal"> / tháng</span></div>
-              <p className="text-xs text-slate-400 font-sans">Dành cho nhà đầu tư kết nối tài khoản MT5 Real (vốn thật) và nhận phân bổ lệnh tự hành bảo vệ vốn.</p>
+              <p className="text-xs text-slate-400 font-sans">Dành cho nhà đầu tư kết nối tài khoản MT5 nhận lệnh tự động trực tiếp từ Quant Engine qua Cloud API.</p>
               <ul className="text-xs space-y-2 text-slate-300 border-t border-slate-800 pt-4">
-                <li>✓ Kết nối đa tài khoản MT5 Real không giới hạn</li>
-                <li>✓ Ghép nối EA MT5 qua mã phân tán Redis</li>
+                <li>✓ 100% Cloud MT5 Direct Execution (Zero EA, Zero VPS)</li>
+                <li>✓ Phân bổ lệnh song song qua MetaApi microsecond</li>
                 <li>✓ Cửa sổ bảo vệ tin tức tự động ±15m (CPI, NFP, FED)</li>
                 <li>✓ Bộ nhớ Hindsight & Gemini API cá nhân hóa</li>
               </ul>

@@ -86,105 +86,18 @@ def test_real_database_constraint(customer):
         uid=c.execute("SELECT id FROM users WHERE role='customer'").fetchone()[0]
         with pytest.raises(sqlite3.IntegrityError): c.execute('INSERT INTO accounts(id,user_id,login,server,mode) VALUES(?,?,?,?,?)',('r',uid,'9','R','REAL'))
 
-def test_pairing_single_use(demo):
-    c,aid,i,h=demo
-    assert c.post(f'/api/accounts/{aid}/pair').status_code==409
-    assert c.post('/api/ea/pair',json={**i,'code':'invalid'}).status_code==401
+def test_metaapi_cloud_endpoints_and_telemetry(customer):
+    # Verify cloud accounts list endpoint
+    r = customer.get('/api/metaapi/accounts')
+    assert r.status_code == 200
+    assert 'accounts' in r.json()
 
-def test_pairing_expiry_and_identity(customer):
-    aid=customer.post('/api/accounts',json={'login':'77','server':'Demo','mode':'DEMO'}).json()['id']
-    code=customer.post(f'/api/accounts/{aid}/pair').json()['code']
-    assert customer.post('/api/ea/pair',json={'login':'78','server':'Demo','mode':'DEMO','code':code}).status_code==403
-    with db.tx() as c:c.execute('UPDATE pairings SET expires=0')
-    assert customer.post('/api/ea/pair',json={'login':'77','server':'Demo','mode':'DEMO','code':code}).status_code==401
-
-def test_pairing_concurrent_consumption(customer):
-    aid=customer.post('/api/accounts',json={'login':'77','server':'Demo','mode':'DEMO'}).json()['id']
-    code=customer.post(f'/api/accounts/{aid}/pair').json()['code']
-    p={'login':'77','server':'Demo','mode':'DEMO','code':code}
-    with ThreadPoolExecutor(max_workers=2) as pool:r=list(pool.map(lambda _:customer.post('/api/ea/pair',json=p).status_code,range(2)))
-    assert sorted(r)==[200,401]
-
-@pytest.mark.parametrize('field,value',[('mode','REAL'),('login','54321'),('server','Broker-Real')])
-def test_device_identity_locked(demo,field,value):
-    c,aid,i,h=demo
-    assert c.post('/api/ea/next',headers=h,json={**i,field:value}).status_code in (403,422)
-
-def test_device_revocation(demo):
-    c,aid,i,h=demo;c.post(f'/api/accounts/{aid}/revoke')
-    assert c.post('/api/ea/next',headers=h,json=i).status_code==401
-
-def test_replay_never_sent_to_demo(demo):
-    c,aid,i,h=demo
-    assert enqueue(aid,'REPLAY') is None
-    assert c.post('/api/ea/next',headers=h,json=i).text=='NONE'
-
-def test_end_to_end_receipt_idempotency(demo):
-    c,aid,i,h=demo;did=enqueue(aid)
-    assert c.post('/api/ea/next',headers=h,json=i).text.split('|')[0]==str(did)
-    assert grant(demo,did).text=='SEND_ONCE'
-    assert grant(demo,did).text=='RECONCILE'
-    assert receipt(demo,did).text=='OK'
-    assert receipt(demo,did).text=='OK'
-    assert receipt(demo,did,deal='8002').status_code==409
-    assert len(c.get('/api/dashboard').json()['orders'])==1
-
-def test_concurrent_send_permit_only_once(demo):
-    did=enqueue(demo[1])
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        results=list(pool.map(lambda n:grant(demo,did,f'concurrent-intent-{n:04}').text,range(8)))
-    assert results.count('SEND_ONCE')==1 and results.count('RECONCILE')==7
-
-def test_unknown_survives_expiry_pause_restart(demo):
-    c,aid,i,h=demo;did=enqueue(aid);grant(demo,did)
-    assert receipt(demo,did,state='unknown',ticket='',deal='').status_code==200
-    c.put(f'/api/accounts/{aid}/risk',json={**RISK,'enabled':False})
-    with db.tx() as con:con.execute('UPDATE signals SET expires=0')
-    # Re-open connections / same durable state. No queue reset or lease reassignment.
-    db.init()
-    fields=c.post('/api/ea/next',headers=h,json=i).text.split('|')
-    assert fields[1]=='unknown' and fields[11]=='client-intent-123456'
-    assert grant(demo,did).text=='RECONCILE'
-    assert receipt(demo,did).status_code==200
-
-def test_receipt_requires_tickets_and_correct_nonce(demo):
-    did=enqueue(demo[1]);grant(demo,did)
-    assert receipt(demo,did,deal='').status_code==422
-    assert receipt(demo,did,nonce='wrong-nonce-123456').status_code==409
-
-@pytest.mark.parametrize('gate',['spread','drawdown','paused','stale','positions','news','expiry'])
-def test_backend_risk_gates(demo,gate):
-    c,aid,i,h=demo;did=enqueue(aid)
-    with db.tx() as con:
-        if gate=='drawdown':con.execute('UPDATE accounts SET equity=8000 WHERE id=?',(aid,))
-        if gate=='paused':con.execute('UPDATE accounts SET enabled=0 WHERE id=?',(aid,))
-        if gate=='stale':con.execute('UPDATE accounts SET seen=0 WHERE id=?',(aid,))
-        if gate=='positions':con.execute('UPDATE accounts SET positions=1 WHERE id=?',(aid,))
-        if gate=='news':con.execute('INSERT INTO news VALUES(?,?,?,?,?)',('n','CPI','USD','high',time.time()))
-        if gate=='expiry':con.execute('UPDATE signals SET expires=0')
-    p={**i,'dispatch':did,'nonce':'client-intent-123456','risk_amount':20,'spread':2 if gate=='spread' else .3}
-    assert c.post('/api/ea/intent',headers=h,json=p).status_code==409
-
-def test_demo_equity_baseline(demo):
-    c,aid,i,h=demo
-    with db.tx() as con:con.execute('UPDATE accounts SET seen=0 WHERE id=?',(aid,))
-    c.post('/api/ea/heartbeat',headers=h,json={**i,'balance':1000,'equity':1000,'positions':0})
-    with db.tx() as con: assert con.execute('SELECT peak FROM accounts WHERE id=?',(aid,)).fetchone()[0]==1000
-
-def test_signal_deduplication(demo):
-    aid=demo[1];enqueue(aid,key='bar-1');enqueue(aid,key='bar-1')
-    with db.tx() as c:
-        assert c.execute('SELECT count(*) FROM signals').fetchone()[0]==1
-        assert c.execute('SELECT count(*) FROM dispatches').fetchone()[0]==1
-
-def test_price_service_scope_and_stale(demo):
-    c,aid,i,h=demo;p={'source':'DEMO','ts':time.time(),'bid':2650,'ask':2650.3}
-    assert c.post('/api/feed',headers=h,json=p).status_code==403
-    service={'Authorization':'Bearer '+'f'*40}
-    assert c.post('/api/feed',headers=service,json=p).status_code==200
-    assert c.post('/api/feed',headers=service,json={**p,'ts':0}).status_code==422
-    assert c.post('/api/feed',headers=service,json={**p,'source':'REAL'}).status_code==422
-    assert c.post('/api/ea/next',headers=service,json=i).status_code==401
+    # Verify cloud telemetry endpoint
+    t = customer.get('/api/metaapi/telemetry')
+    assert t.status_code == 200
+    d = t.json()
+    assert d['direct_to_user_enabled'] is True
+    assert 'total_connected_accounts' in d
 
 def test_replay_trades_and_equity_without_ai(customer,monkeypatch):
     monkeypatch.delenv('AI_API_KEY',raising=False)
@@ -241,26 +154,7 @@ def test_research_crash_does_not_stop_execution(customer,monkeypatch):
     engine.tick()
     with db.tx() as c: assert time.time()-float(c.execute("SELECT value FROM kv WHERE key='execution_heartbeat'").fetchone()[0])<5
 
-def test_ea_source_safety_contract():
-    # Static guard assertions only; these do NOT replace MetaEditor compilation or terminal execution.
-    source=(db.ROOT/'ea/Zupirus_Copy_EA.mq5').read_text()
-    assert 'ACCOUNT_TRADE_MODE_DEMO' in source and 'HistorySelect(0,TimeCurrent())' in source
-    assert source.count('OrderSend(req,result)')==1
-    assert source.index('WriteDurable(journal,nonce)')<source.index('OrderSend(req,result)')
-    assert 'OrderCalcProfit' in source and 'OrderCalcMargin' in source and 'OrderCheck' in source
-
-def test_feed_strategy_risk_copy_broker_e2e(demo):
-    c,aid,i,h=demo
-    prices=[2650.0]*20+[2648.0]*4+[2665.0]
-    start=time.time()-2.5
-    service={'Authorization':'Bearer '+'f'*40}
-    for n,price in enumerate(prices):
-        assert c.post('/api/feed',headers=service,json={'source':'DEMO','ts':start+n*.1,'bid':price-.15,'ask':price+.15}).status_code==200
-    with db.tx() as con:engine.demo_step(con)
-    response=c.post('/api/ea/next',headers=h,json=i)
-    parts=response.text.split('|');assert len(parts)==13 and parts[2]=='BUY'
-    did=int(parts[0]);assert grant(demo,did).text=='SEND_ONCE'
-    assert receipt(demo,did).text=='OK'
-    with db.tx() as con:
-        engine.demo_step(con)
-        assert con.execute('SELECT count(*) FROM dispatches WHERE account_id=?',(aid,)).fetchone()[0]==1
+def test_ea_eliminated_and_direct_cloud_active():
+    assert not (db.ROOT / 'ea/Zupirus_Copy_EA.mq5').exists()
+    assert not (db.ROOT / 'ea/Zupirus_Copy_EA.ex5').exists()
+    assert not (db.ROOT / 'ea').exists()

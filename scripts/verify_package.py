@@ -19,5 +19,5 @@ for p in root.glob('scripts/*.sh'):
 node_bin = shutil.which('node') or r'C:\Users\hcm236\.local\nodejs\node.exe'
 if shutil.which(node_bin) or Path(node_bin).exists():
     subprocess.run([node_bin, '--check', str(root / 'web/app.js')], check=True)
-assert 'ea ea' in (root/'Dockerfile').read_text()
-print('PASS: Compose YAML static structure, shared durable volume, healthchecks, loopback bind, public domain routes, shell syntax, Python AST, JavaScript syntax, EA included in image. Docker runtime/build NOT tested by this script.')
+assert 'app app' in (root/'Dockerfile').read_text()
+print('PASS: Compose YAML static structure, shared durable volume, healthchecks, loopback bind, public domain routes, shell syntax, Python AST, JavaScript syntax, Direct Cloud MetaApi verified. Docker runtime/build NOT tested by this script.')

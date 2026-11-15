@@ -337,7 +337,7 @@ def test_migration_fresh_and_legacy_database_upgrade():
         wrapped_fresh = ConnectionWrapper(fresh_conn, is_pg=False)
         run_all_migrations(wrapped_fresh, is_pg=False)
         versions = get_applied_versions(wrapped_fresh)
-        assert versions == [1, 2, 3, 4, 5]
+        assert versions == list(range(1, 11))
     finally:
         if fresh_conn is not None:
             fresh_conn.close()
@@ -378,7 +378,7 @@ def test_migration_fresh_and_legacy_database_upgrade():
         # Run migrations on legacy
         run_all_migrations(wrapped_legacy, is_pg=False)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == [1, 2, 3, 4, 5]
+        assert legacy_versions == list(range(1, 11))
 
         # Verify existing data is preserved
         row = legacy_conn.execute("SELECT count(*), bid, ask FROM quotes WHERE source='DEMO'").fetchone()

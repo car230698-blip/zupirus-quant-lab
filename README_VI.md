@@ -2,8 +2,8 @@
 
 Bản nâng cấp kiến trúc toàn diện cho **ZUPIRUS Quant Lab**, tích hợp đồng bộ 4 công nghệ lõi:
 
-1. **PostgreSQL + TimescaleDB:** Cơ sở dữ liệu chính thay thế SQLite (lưu tài khoản, cấu hình rủi ro, đối soát EA và checkpoint phê duyệt), kết hợp hypertable của TimescaleDB để lưu trữ và truy vấn chuỗi thời gian nến/tick XAUUSD tốc độ cao với hàm `time_bucket`.
-2. **Redis:** Hàng đợi phân phối tín hiệu thời gian thực (Pub/Sub & Streams `stream:signals`) từ Quant Engine tới EA Copy, cache trạng thái heartbeat (`cache:heartbeat:{account_id}`) và khóa phân tán (Distributed Lock `lock:dispatch:{account_id}:{signal_id}`) chống mở trùng lệnh.
+1. **PostgreSQL + TimescaleDB:** Cơ sở dữ liệu chính (lưu tài khoản Cloud MT5, cấu hình rủi ro, đối soát giao dịch và checkpoint phê duyệt), kết hợp hypertable của TimescaleDB để lưu trữ và truy vấn chuỗi thời gian nến/tick XAUUSD tốc độ cao với hàm `time_bucket`.
+2. **MetaApi Direct Cloud Execution + Redis:** Động cơ phát lệnh trực tiếp từ Quant Engine tới toàn bộ tài khoản MT5 của khách hàng qua API đám mây MetaApi song song (<50ms, Zero EA, Zero VPS), bảo vệ bằng khóa phân tán Redis (`lock:dispatch:{account_id}:{signal_id}`) chống mở trùng lệnh.
 3. **Vercel AI SDK 6:** Tầng giao diện và tương tác AI (`web/`) sử dụng **Vercel AI SDK 6** (`ToolLoopAgent`, `useChat`, Generative UI và cơ chế `needsApproval: true`) cho bảng hàng đợi phê duyệt chiến lược của Admin và trợ lý tra cứu danh mục của khách hàng.
 4. **LangSmith:** Tracing và giám sát toàn diện (bật tự động khi có `LANGSMITH_API_KEY` trong `.env`, có cơ chế fallback an toàn khi chạy offline) để ghi vết toàn bộ luồng suy luận, gọi công cụ, độ trễ và lượng token của cả LangGraph lẫn Vercel AI SDK 6.
 

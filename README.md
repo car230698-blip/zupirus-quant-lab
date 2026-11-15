@@ -44,8 +44,8 @@ Hệ thống phục vụ cùng origin cho giao diện và backend trên từng t
 
 | Tên Miền | Vai Trò | Tuyến Đường |
 |---|---|---|
-| **`zupirus.com`** / **`www.zupirus.com`** | Cổng Người Dùng (User Portal) | Đăng ký, đăng nhập, ghép nối EA MT5, bật/tắt copy, theo dõi số dư/equity, nhật ký lệnh và lý do bị từ chối/bỏ lỡ |
-| **`adm.zupirus.com`** | Cổng Quản Trị (Admin Portal) | Giám sát 2 đội Agent (Execution & Research), Kill-Switch, Hàng đợi duyệt chiến lược AI SDK 6, Nhật ký hoạt động toàn hệ thống, LangSmith Tracing |
+| **`zupirus.com`** / **`www.zupirus.com`** | Cổng Người Dùng (User Portal) | Đăng ký, đăng nhập, kết nối Cloud MT5 1-bước (không cần EA/VPS), bật/tắt auto-trade, theo dõi số dư/equity, nhật ký lệnh và phân bổ tín hiệu trực tiếp |
+| **`adm.zupirus.com`** | Cổng Quản Trị (Admin Portal) | Giám sát 2 đội Agent (Execution & Research), MetaApi Cloud Terminals, Fan-Out direct dispatch, Kill-Switch, Hàng đợi duyệt chiến lược AI SDK 6, Nhật ký hoạt động toàn hệ thống, LangSmith Tracing |
 
 ---
 
@@ -151,5 +151,5 @@ docker compose -p zupirus-test -f compose.yaml -f compose.staging.yaml up -d --b
 | **Redis Streams & Distributed Lock** | **ĐẠT** | Transactional Outbox + Redis Streams `stream:signals`, khóa `lock:dispatch:{aid}:{sid}` chống mở lệnh đúp (`test_redis_distributed_locking` PASSED) |
 | **Fail-Closed Docker Smoke** | **ĐẠT** | Tách riêng ngắt Redis và PostgreSQL: `/readyz` trả đúng HTTP 503 và báo lỗi chính xác phụ thuộc, tự động hồi phục khi unpause |
 | **Multi-Strategy Coordinator** | **ĐẠT** | Trend Following, Mean Reversion, Breakout, và Stand Aside; ghi nhận lý do vào lệnh/đứng ngoài vào metadata và outbox |
-| **Giao diện Người dùng & Quản trị** | **ĐẠT** | Nghiệm thu cả desktop (1440px) và mobile (390px), đầy đủ luồng đăng ký/đăng nhập, ghép EA, toggle copy, deal reconciliation |
+| **Giao diện Người dùng & Quản trị** | **ĐẠT** | Nghiệm thu cả desktop (1440px) và mobile (390px), kết nối Cloud MT5 1-bước không cần file EA/VPS, toggle auto-trade, deal reconciliation |
 | **Bộ kiểm thử tự động toàn diện** | **ĐẠT** | **81/81 test cases PASSED (100%)** |

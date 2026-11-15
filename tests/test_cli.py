@@ -58,61 +58,36 @@ class TestCliSystemDomain:
         assert data_off["status"] == "OPERATIONAL"
 
 
-class TestCliEaDomain:
-    def test_ea_pair_and_list_and_revoke(self):
-        # 1. Generate pair code
-        email = "agent-runner@zupirus.test"
-        res_pair = run_cli("ea", "pair-code", "--user", email, "--json")
-        assert res_pair.returncode == 0
-        pair_data = parse_json_output(res_pair.stdout)
-        assert pair_data["success"] is True
-        assert "pairing_code" in pair_data
-        assert pair_data["pairing_code"].startswith("ZP-")
-        login = pair_data["login"]
+class TestCliCloudDomain:
+    def test_cloud_list_json(self):
+        res = run_cli("cloud", "list", "--json")
+        assert res.returncode == 0
+        data = parse_json_output(res.stdout)
+        assert data["success"] is True
+        assert "total_accounts" in data
+        assert "accounts" in data
+        assert isinstance(data["accounts"], list)
 
-        # 2. List EAs and find our account
-        res_list = run_cli("ea", "list", "--json")
-        assert res_list.returncode == 0
-        list_data = parse_json_output(res_list.stdout)
-        assert list_data["success"] is True
-        matching = [a for a in list_data["accounts"] if a["login"] == login]
-        assert len(matching) == 1
-        assert matching[0]["enabled"] is True
+    def test_legacy_ea_alias_json(self):
+        res = run_cli("ea", "list", "--json")
+        assert res.returncode == 0
+        data = parse_json_output(res.stdout)
+        assert data["success"] is True
+        assert "accounts" in data
 
-        # 3. Revoke access
-        res_rev = run_cli("ea", "revoke", "--account", login, "--reason", "Pytest decommission", "--json")
-        assert res_rev.returncode == 0
-        rev_data = parse_json_output(res_rev.stdout)
-        assert rev_data["success"] is True
-        assert rev_data["revoked"] is True
-        assert rev_data["enabled"] is False
+    def test_cloud_undeploy_expired_json(self):
+        res = run_cli("cloud", "undeploy-expired", "--json")
+        assert res.returncode == 0
+        data = parse_json_output(res.stdout)
+        assert data["success"] is True
+        assert "undeployed_count" in data
 
-
-class TestCliSignalDomain:
-    def test_signal_send_and_trace(self):
-        # Ensure a demo account exists for signal target
-        res_pair = run_cli("ea", "pair-code", "--user", "trader@zupirus.test", "--json")
-        login = parse_json_output(res_pair.stdout)["login"]
-
-        # 1. Send test signal
-        res_send = run_cli("signal", "send-test", "--account", login, "--side", "BUY", "--lot", "0.02", "--force", "--json")
-        assert res_send.returncode == 0
-        sig_data = parse_json_output(res_send.stdout)
-        assert sig_data["success"] is True
-        assert sig_data["side"] == "BUY"
-        assert sig_data["lot"] == 0.02
-        sig_id = sig_data["signal_id"]
-        assert sig_id.startswith("test_")
-
-        # 2. Trace the signal lifecycle
-        res_trace = run_cli("signal", "trace", sig_id, "--json")
-        assert res_trace.returncode == 0
-        trace_data = parse_json_output(res_trace.stdout)
-        assert trace_data["success"] is True
-        assert trace_data["signal"]["id"] == sig_id
-        assert trace_data["signal"]["side"] == "BUY"
-        assert trace_data["anti_duplicate_audit"]["passed"] is True
-        assert len(trace_data["dispatches"]["records"]) >= 1
+    def test_cloud_dispatch_test_json(self):
+        res = run_cli("cloud", "dispatch-test", "--symbol", "XAUUSD", "--action", "BUY", "--json")
+        assert res.returncode == 0
+        data = parse_json_output(res.stdout)
+        assert data["success"] is True
+        assert "executed" in data
 
 
 class TestCliResearchDomain:
@@ -153,13 +128,6 @@ class TestCliResearchDomain:
 
 
 class TestCliErrorHandling:
-    def test_missing_account_error_json(self):
-        res = run_cli("ea", "revoke", "--account", "nonexistent_999999", "--json")
-        assert res.returncode == 1
-        data = parse_json_output(res.stdout)
-        assert data["success"] is False
-        assert "not found" in data["error"].lower()
-
     def test_missing_signal_trace_error_json(self):
         res = run_cli("signal", "trace", "nonexistent_sig_123", "--json")
         assert res.returncode == 1

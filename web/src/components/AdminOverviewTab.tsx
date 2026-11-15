@@ -34,10 +34,71 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
   const [metaTelemetry, setMetaTelemetry] = useState<any>(null);
   const [fanoutLoading, setFanoutLoading] = useState(false);
   const [fanoutReport, setFanoutReport] = useState<any>(null);
+  const [cloudAccounts, setCloudAccounts] = useState<any[]>([]);
 
   useEffect(() => {
     fetchTelemetry();
+    fetchCloudAccounts();
   }, []);
+
+  async function fetchCloudAccounts() {
+    try {
+      const res = await fetch('/api/metaapi/accounts', {
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCloudAccounts(data.accounts || []);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleToggleAccount(id: string) {
+    try {
+      const res = await fetch(`/api/metaapi/accounts/${id}/toggle`, {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        await fetchCloudAccounts();
+        await fetchTelemetry();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleSyncAccount(id: string) {
+    try {
+      const res = await fetch(`/api/metaapi/accounts/${id}/sync`, {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        await fetchCloudAccounts();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleDeleteAccount(id: string) {
+    if (!window.confirm('Admin: Bạn có chắc chắn muốn ngắt kết nối và undeploy tài khoản Cloud này?')) return;
+    try {
+      const res = await fetch(`/api/metaapi/accounts/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        await fetchCloudAccounts();
+        await fetchTelemetry();
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   async function fetchTelemetry() {
     try {
@@ -171,6 +232,99 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
             )}
           </div>
         )}
+
+        {/* Cloud MT5 Terminals Table & Cost Monitor */}
+        <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-4 space-y-3 font-mono text-xs">
+          <div className="flex flex-wrap items-center justify-between border-b border-slate-800 pb-2.5 gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-slate-100">QUẢN LÝ CLOUD MT5 TERMINALS (METAAPI)</span>
+              <span className="text-[11px] text-slate-400">({cloudAccounts.length} terminals)</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-amber-300 bg-amber-950/40 border border-amber-800/40 px-2.5 py-0.5 rounded">
+                Ước tính chi phí Cloud: ~${(cloudAccounts.length * 0.01 * 24 * 30).toFixed(1)}/tháng ($0.01/terminal/giờ)
+              </span>
+              <button
+                onClick={fetchCloudAccounts}
+                className="text-[11px] text-cyan-400 hover:text-cyan-300"
+              >
+                ↻ Làm mới
+              </button>
+            </div>
+          </div>
+
+          {cloudAccounts.length === 0 ? (
+            <div className="p-4 text-center text-slate-500 text-[11px]">
+              Chưa có tài khoản Cloud MT5 nào được liên kết trên hệ thống.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-[11px]">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400">
+                    <th className="py-2 px-3">LOGIN / SÀN</th>
+                    <th className="py-2 px-3">TRẠNG THÁI CLOUD</th>
+                    <th className="py-2 px-3">VỐN THỰC (EQUITY)</th>
+                    <th className="py-2 px-3">RỦI RO</th>
+                    <th className="py-2 px-3">TỰ ĐỘNG LỆNH</th>
+                    <th className="py-2 px-3 text-right">THAO TÁC ADMIN</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {cloudAccounts.map((a: any) => {
+                    const isAuto = a.auto_trade === 1;
+                    return (
+                      <tr key={a.id} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="py-2 px-3">
+                          <span className="font-bold text-slate-200">#{a.login}</span>
+                          <span className="text-slate-400 block text-[10px]">{a.server} {a.account_name ? `(${a.account_name})` : ''}</span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            DEPLOYED
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <span className="font-bold text-emerald-400">${Number(a.equity || 0).toLocaleString()}</span>
+                          <span className="text-slate-500 block text-[10px]">Bal: ${Number(a.balance || 0).toLocaleString()}</span>
+                        </td>
+                        <td className="py-2 px-3 text-slate-300">
+                          {a.risk_percent}% / Max {a.max_lot} Lot
+                        </td>
+                        <td className="py-2 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isAuto ? 'text-emerald-300 bg-emerald-950/60 border border-emerald-800' : 'text-slate-400 bg-slate-900 border border-slate-700'}`}>
+                            {isAuto ? 'ACTIVE' : 'PAUSED'}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-right space-x-1.5">
+                          <button
+                            onClick={() => handleToggleAccount(a.id)}
+                            className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${isAuto ? 'bg-amber-950/70 text-amber-300 border border-amber-700/50 hover:bg-amber-900' : 'bg-emerald-950/70 text-emerald-300 border border-emerald-700/50 hover:bg-emerald-900'}`}
+                          >
+                            {isAuto ? 'Tạm Dừng' : 'Kích Hoạt'}
+                          </button>
+                          <button
+                            onClick={() => handleSyncAccount(a.id)}
+                            className="px-2 py-1 rounded text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700"
+                          >
+                            Sync
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAccount(a.id)}
+                            className="px-2 py-1 rounded text-[10px] font-bold bg-rose-950/50 hover:bg-rose-900 text-rose-300 border border-rose-800/50"
+                          >
+                            Undeploy
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Kill Switch Banner */}
