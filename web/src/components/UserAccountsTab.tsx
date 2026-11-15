@@ -905,22 +905,32 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                 </div>
 
                 {(() => {
-                  const displayBank = (activeOrder.bank_name && activeOrder.bank_name !== 'MBBank') ? activeOrder.bank_name : 'VietinBank';
-                  const displayAcc = (activeOrder.account_number && activeOrder.account_number !== '0336230698') ? activeOrder.account_number : '105887054819';
-                  const displayHolder = activeOrder.account_holder || 'LE NGUYEN NHU THUY';
-                  const encodedContent = encodeURIComponent(activeOrder.payment_content);
-                  const qrSrc = activeOrder.qr_code_url
-                    ? activeOrder.qr_code_url.replace(/ /g, '%20')
-                    : `https://qr.sepay.vn/img?acc=${displayAcc}&bank=${displayBank}&amount=${activeOrder.amount_vnd}&des=${encodedContent}`;
-                  const fallbackQr = `https://img.vietqr.io/image/VietinBank-105887054819-compact2.png?amount=${activeOrder.amount_vnd}&addInfo=${encodedContent}&accountName=LE%20NGUYEN%20NHU%20THUY`;
+                  const isOldAccount = activeOrder.account_number === '0336230698' || 
+                    activeOrder.bank_name === 'MBBank' || 
+                    activeOrder.bank_name === 'MB' || 
+                    (activeOrder.qr_code_url && activeOrder.qr_code_url.includes('0336230698'));
+
+                  const displayBank = (!isOldAccount && activeOrder.bank_name) ? activeOrder.bank_name : 'VietinBank';
+                  const displayAcc = (!isOldAccount && activeOrder.account_number) ? activeOrder.account_number : '105887054819';
+                  const displayHolder = (activeOrder.account_holder && activeOrder.account_holder !== 'ZUPIRUS') 
+                    ? activeOrder.account_holder 
+                    : 'LE NGUYEN NHU THUY';
+                  const paymentMemo = (activeOrder.payment_content || `ZP ${String(activeOrder.id || '').slice(-6)}`).trim();
+                  const encodedContent = encodeURIComponent(paymentMemo);
+                  const encodedHolder = encodeURIComponent(displayHolder);
+
+                  const sepayQr = `https://qr.sepay.vn/img?acc=${displayAcc}&bank=${displayBank}&amount=${activeOrder.amount_vnd}&des=${encodedContent}`;
+                  const fallbackQr = `https://img.vietqr.io/image/ICB-${displayAcc}-compact2.png?amount=${activeOrder.amount_vnd}&addInfo=${encodedContent}&accountName=${encodedHolder}`;
 
                   return (
                     <>
-                      <div className="flex justify-center p-3 rounded-2xl bg-white max-w-[220px] mx-auto shadow-xl relative min-h-[200px]">
+                      <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white max-w-[260px] mx-auto shadow-2xl relative min-h-[260px] border border-cyan-500/20">
                         <img
-                          src={qrSrc}
+                          src={sepayQr}
                           alt="SePay VietQR"
-                          className="w-full h-auto object-contain"
+                          width={220}
+                          height={220}
+                          className="w-[220px] h-[220px] object-contain rounded-lg"
                           loading="eager"
                           onError={(e) => {
                             const target = e.currentTarget;
@@ -929,6 +939,21 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                             }
                           }}
                         />
+                        <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-sans font-medium text-slate-700">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>Quét mã trên App Ngân hàng bất kỳ</span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-center gap-3">
+                        <a
+                          href={sepayQr}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 underline inline-flex items-center gap-1"
+                        >
+                          <span>🖼️ Mở ảnh mã QR tab mới ↗</span>
+                        </a>
                       </div>
 
                       <div className="space-y-2 text-left bg-slate-950/70 p-3.5 rounded-xl border border-slate-800">

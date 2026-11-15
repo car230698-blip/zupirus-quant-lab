@@ -59,12 +59,17 @@ _SWARM_STATE = {
 
 
 def get_swarm_status() -> Dict[str, Any]:
-    """Returns current swarm telemetry, agent statuses, and recent message board."""
+    """Returns current swarm telemetry, agent statuses, dynamic skills index, and recent message board."""
+    from app.skills.registry import get_skill_index
+    skills_index = get_skill_index(enabled_only=True)
+
     return {
         **_SWARM_STATE,
         "active_agents_count": 3,
         "coordination_mode": "autonomous_fail_closed",
         "real_trading_locked": True,
+        "available_skills_count": len(skills_index),
+        "skills_index": skills_index,
     }
 
 

@@ -1544,6 +1544,7 @@ from app.routers import (
     sources_router,
     admin_billing_router,
     telemetry_router,
+    skills_router,
 )
 app.include_router(billing_router)
 app.include_router(webhooks_router)
@@ -1552,6 +1553,7 @@ app.include_router(accounts_router)
 app.include_router(sources_router)
 app.include_router(admin_billing_router)
 app.include_router(telemetry_router)
+app.include_router(skills_router)
 
 @app.post('/api/metaapi/dispatch-signal')
 async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(user)):

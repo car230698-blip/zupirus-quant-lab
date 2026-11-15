@@ -150,7 +150,7 @@ def record_shadow_signal(
     return sig_id
 
 
-def evaluate_shadow_signals_eod() -> Dict[str, Any]:
+def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, Any]:
     """End-of-Day (EOD) or periodic M1 candle grader:
     Matches all PENDING shadow signals against historical M1 candles.
     Conservative Rule: If a candle's [Low, High] range hits both Stop Loss and Take Profit,
@@ -162,9 +162,15 @@ def evaluate_shadow_signals_eod() -> Dict[str, Any]:
     updated_sources = set()
 
     with tx() as c:
-        pending = c.execute(
-            "SELECT * FROM shadow_signals WHERE eval_status = 'PENDING' ORDER BY signal_time ASC LIMIT 500"
-        ).fetchall()
+        if source_id:
+            pending = c.execute(
+                "SELECT * FROM shadow_signals WHERE source_id = ? AND eval_status = 'PENDING' ORDER BY signal_time ASC LIMIT 500",
+                (source_id,)
+            ).fetchall()
+        else:
+            pending = c.execute(
+                "SELECT * FROM shadow_signals WHERE eval_status = 'PENDING' ORDER BY signal_time ASC LIMIT 500"
+            ).fetchall()
         if not pending:
             return {"evaluated": 0, "status": "no_pending_signals"}
 

@@ -97,3 +97,4 @@ def get_topbar_telemetry():
         "system_status": "OPERATIONAL",
         "server_time": now_ts,
     }
+

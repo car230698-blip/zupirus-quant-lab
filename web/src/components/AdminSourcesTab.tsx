@@ -3,17 +3,24 @@ import { useState, useEffect } from 'react';
 export function AdminSourcesTab() {
   const [sources, setSources] = useState<any[]>([]);
   const [shadowSignals, setShadowSignals] = useState<any[]>([]);
+  const [skills, setSkills] = useState<any[]>([]);
   const [, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [replayingId, setReplayingId] = useState<string | null>(null);
   const [signalMode, setSignalMode] = useState<'EXTERNAL_FEED' | 'HYBRID' | 'ZUPIRUS_AGENT'>('EXTERNAL_FEED');
 
+  // Skill inspection & testing modal state
+  const [selectedSkillSpec, setSelectedSkillSpec] = useState<{ skill_id: string; skill_md: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ skill_id: string; result: any } | null>(null);
+  const [testingSkillId, setTestingSkillId] = useState<string | null>(null);
+
   async function fetchSourcesData() {
     setLoading(true);
     try {
-      const [resSrc, resShd] = await Promise.all([
+      const [resSrc, resShd, resSkills] = await Promise.all([
         fetch('/api/admin/sources', { headers: { 'X-Zupirus': '1' } }),
         fetch('/api/admin/sources/shadow-signals?limit=30', { headers: { 'X-Zupirus': '1' } }),
+        fetch('/api/admin/skills', { headers: { 'X-Zupirus': '1' } }),
       ]);
       if (resSrc.ok) {
         const dataSrc = await resSrc.json();
@@ -23,10 +30,70 @@ export function AdminSourcesTab() {
         const dataShd = await resShd.json();
         setShadowSignals(dataShd.signals || []);
       }
+      if (resSkills.ok) {
+        const dataSkills = await resSkills.json();
+        setSkills(dataSkills.skills || []);
+      }
     } catch (e: any) {
-      setActionMsg({ text: 'Lỗi tải dữ liệu nguồn: ' + e.message, type: 'error' });
+      setActionMsg({ text: 'Lỗi tải dữ liệu: ' + e.message, type: 'error' });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleToggleSkill(skillId: string, currentEnabled: boolean) {
+    try {
+      const res = await fetch(`/api/admin/skills/${skillId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ enabled: !currentEnabled }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActionMsg({ text: data.message || 'Cập nhật trạng thái skill thành công.', type: 'success' });
+        await fetchSourcesData();
+      } else {
+        setActionMsg({ text: data.detail || 'Lỗi cập nhật skill.', type: 'error' });
+      }
+    } catch (e: any) {
+      setActionMsg({ text: e.message, type: 'error' });
+    }
+  }
+
+  async function handleViewSkillSpec(skillId: string) {
+    try {
+      const res = await fetch(`/api/admin/skills/${skillId}/spec`, {
+        headers: { 'X-Zupirus': '1' },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSelectedSkillSpec(data);
+      } else {
+        setActionMsg({ text: data.detail || 'Không thể tải tài liệu đặc tả.', type: 'error' });
+      }
+    } catch (e: any) {
+      setActionMsg({ text: e.message, type: 'error' });
+    }
+  }
+
+  async function handleTestSkill(skillId: string) {
+    setTestingSkillId(skillId);
+    try {
+      const res = await fetch(`/api/admin/skills/${skillId}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ parameters: {} }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTestResult({ skill_id: skillId, result: data.result });
+      } else {
+        setActionMsg({ text: data.detail || 'Lỗi chạy thử nghiệm skill.', type: 'error' });
+      }
+    } catch (e: any) {
+      setActionMsg({ text: e.message, type: 'error' });
+    } finally {
+      setTestingSkillId(null);
     }
   }
 
@@ -389,6 +456,176 @@ export function AdminSourcesTab() {
           )}
         </div>
       </div>
+
+      {/* Kho Lưu Trữ Kỹ Năng Động (Dynamic Agent Skill Registry) */}
+      <div className="quant-panel rounded-2xl border border-indigo-500/30 bg-[#0c1222] overflow-hidden shadow-xl">
+        <div className="border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3 bg-slate-900/40">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="font-bold text-sm text-slate-100">
+              KHO LƯU TRỮ KỸ NĂNG ĐỘNG CHO AI AGENT (DYNAMIC AGENT SKILL REGISTRY)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-700/60">
+              {skills.filter((s) => s.is_builtin === 1).length} Nền Tảng (Built-in)
+            </span>
+            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-700/60">
+              {skills.filter((s) => s.is_builtin === 0).length} Tự Học (Self-Learned)
+            </span>
+            <span className="text-slate-400 text-[11px] hidden sm:inline">
+              Nạp On-Demand (Progressive Disclosure)
+            </span>
+          </div>
+        </div>
+
+        <div className="p-4 bg-slate-950/40 border-b border-slate-800/80 text-[11px] text-slate-400 leading-relaxed font-sans">
+          Toàn bộ công cụ phân tích độc lập (ATR Scanner, Kiểm toán giãn Spread, Thông dịch tin tức vĩ mô, Chấm điểm nguồn, và Tổng hợp chiến lược). Agent duy trì trạng thái <strong>Tabula Rasa</strong> (không gán cứng thuật toán vào lệnh) và chỉ nạp tài liệu hướng dẫn khi phát sinh tác vụ tương ứng.
+        </div>
+
+        <div className="overflow-x-auto">
+          {skills.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 text-xs">
+              Đang tải danh mục kỹ năng của Agent...
+            </div>
+          ) : (
+            <table className="w-full text-left">
+              <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px]">
+                <tr>
+                  <th className="py-2.5 px-4">TÊN KỸ NĂNG / MÃ (SKILL ID)</th>
+                  <th className="py-2.5 px-4">PHÂN LOẠI</th>
+                  <th className="py-2.5 px-4">ĐIỀU KIỆN KÍCH HOẠT (TRIGGER)</th>
+                  <th className="py-2.5 px-4">SỐ LẦN DÙNG</th>
+                  <th className="py-2.5 px-4">TRẠNG THÁI</th>
+                  <th className="py-2.5 px-4 text-right">THAO TÁC</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/80">
+                {skills.map((sk) => {
+                  const isBuiltin = sk.is_builtin === 1;
+                  const isEnabled = sk.enabled === 1;
+                  const isTesting = testingSkillId === sk.skill_id;
+
+                  return (
+                    <tr key={sk.skill_id} className="hover:bg-slate-900/40">
+                      <td className="py-3 px-4 font-bold text-slate-200">
+                        {sk.name}
+                        <span className="block text-[10px] text-cyan-400 font-mono font-normal">
+                          {sk.skill_id}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {isBuiltin ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
+                            NỀN TẢNG
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950/80 text-purple-300 border border-purple-700/50">
+                            TỰ HỌC (REFLECTIVE)
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-slate-300 text-[11px] max-w-xs font-sans">
+                        {sk.trigger_condition || sk.description}
+                      </td>
+                      <td className="py-3 px-4 text-slate-300 font-bold">
+                        {sk.usage_count || 0} <span className="text-[10px] text-slate-500 font-normal">lượt</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={() => handleToggleSkill(sk.skill_id, isEnabled)}
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-all border ${
+                            isEnabled
+                              ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60 hover:bg-emerald-900'
+                              : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-750'
+                          }`}
+                        >
+                          {isEnabled ? '● ĐANG BẬT' : '○ TẠM TẮT'}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 text-right space-x-1.5">
+                        <button
+                          onClick={() => handleViewSkillSpec(sk.skill_id)}
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] border border-slate-700"
+                        >
+                          Xem SKILL.md
+                        </button>
+                        <button
+                          onClick={() => handleTestSkill(sk.skill_id)}
+                          disabled={isTesting}
+                          className="px-2 py-1 rounded bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 text-[11px] disabled:opacity-50"
+                        >
+                          {isTesting ? 'Đang chạy…' : 'Chạy Thử'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* Modal: View SKILL.md Specification */}
+      {selectedSkillSpec && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b101c] border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+              <span className="font-bold text-sm text-cyan-300 font-mono">
+                ĐẶC TẢ KỸ NĂNG: {selectedSkillSpec.skill_id}
+              </span>
+              <button
+                onClick={() => setSelectedSkillSpec(null)}
+                className="text-slate-400 hover:text-slate-100 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-3 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed bg-[#080d18]">
+              {selectedSkillSpec.skill_md}
+            </div>
+            <div className="px-5 py-3 border-t border-slate-800 flex justify-end bg-slate-900/40">
+              <button
+                onClick={() => setSelectedSkillSpec(null)}
+                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Test Run Execution Result */}
+      {testResult && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b101c] border border-cyan-500/40 rounded-2xl max-w-xl w-full max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+              <span className="font-bold text-sm text-emerald-400 font-mono">
+                KẾT QUẢ THỰC THI TOOL: {testResult.skill_id}
+              </span>
+              <button
+                onClick={() => setTestResult(null)}
+                className="text-slate-400 hover:text-slate-100 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-2 font-mono text-xs text-emerald-300 bg-[#070b14]">
+              <pre className="whitespace-pre-wrap">{JSON.stringify(testResult.result, null, 2)}</pre>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-800 flex justify-end bg-slate-900/40">
+              <button
+                onClick={() => setTestResult(null)}
+                className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 text-xs font-bold"
+              >
+                Xác Nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

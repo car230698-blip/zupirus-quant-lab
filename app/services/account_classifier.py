@@ -113,3 +113,4 @@ def update_account_classification(account_id: str, metaapi_info: Dict[str, Any])
             (acc_type, curr.upper(), contract_size, tick_value, latency, account_id)
         )
     logger.info(f"Account {account_id} classified as {acc_type} (Currency={curr}, Contract={contract_size})")
+

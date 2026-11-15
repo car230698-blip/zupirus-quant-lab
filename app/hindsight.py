@@ -301,12 +301,44 @@ def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
                     tags=["discovered_rule", sess.lower(), side.lower(), "inductive"],
                     metadata={"session": sess, "side": side, "win_rate": win_rate, "sample_size": len(pnls)}
                 )
+
+                # Persist self-learned skill into Agent Skill Registry
+                learned_skill_id = f"learned_{sess.lower()}_{side.lower()}_filter"
+                learned_name = f"Learned Filter: {sess} {side} Edge"
+                learned_desc = f"Bộ lọc tự học: Tín hiệu {side} trong phiên {sess} đạt WinRate {win_rate*100:.0f}% ({len(pnls)} lệnh thực tế)."
+                learned_trigger = f"Khi có tín hiệu {side} phát sinh trong phiên {sess}."
+                learned_md = f"""# Kỹ Năng Tự Học: {learned_name}
+
+## Nguồn Gốc & Dữ Liệu Thực Chiến
+Được đúc kết tự động qua vòng lặp phản tư (Reflective Memory) của AI Agent từ {len(pnls)} lệnh thực tế.
+- Phiên giao dịch: {sess}
+- Hướng lệnh: {side}
+- Tỷ lệ thắng thực nghiệm: {win_rate*100:.0f}%
+- Tổng PnL tích lũy: {total_pnl:+.2f} USD
+
+## Hướng Dẫn Kích Hoạt
+Khi có tín hiệu {side} được gửi đến trong phiên {sess}, AI Agent đối chiếu với quy tắc này để ưu tiên giữ lệnh hoặc cộng thêm điểm số tin cậy cho nguồn phát tín hiệu.
+"""
+                try:
+                    from app.skills.registry import register_learned_skill
+                    register_learned_skill(
+                        skill_id=learned_skill_id,
+                        name=learned_name,
+                        description=learned_desc,
+                        trigger_condition=learned_trigger,
+                        skill_md=learned_md,
+                        db_cursor=c
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not register learned skill {learned_skill_id}: {e}")
+
                 discovered_rules.append({
                     "session": sess,
                     "side": side,
                     "win_rate": win_rate,
                     "samples": len(pnls),
                     "rule": rule_desc,
+                    "skill_id": learned_skill_id,
                 })
 
     return discovered_rules

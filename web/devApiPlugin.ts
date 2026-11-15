@@ -1224,7 +1224,7 @@ export function zupirusApiPlugin(): Plugin {
             user_id: 'usr_001',
             amount: 4900000.0,
             currency: 'VND',
-            gateway: 'MBBank',
+            gateway: 'VietinBank',
             content: 'ZP car230698@gmail.com PRO',
             reference_code: 'FT2611158912',
             status: 'completed',

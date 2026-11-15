@@ -71,6 +71,11 @@ MIGRATIONS = [
         "version": 13,
         "name": "013_multi_source_curator_and_broker_mapping",
         "description": "Signal sources curator funnel, shadow signals ledger, broker symbol auto-discovery, and cent/ecn account classification"
+    },
+    {
+        "version": 14,
+        "name": "014_dynamic_agent_skill_registry",
+        "description": "Dynamic agent skill registry, core analytical skills, and self-learned skills persistence"
     }
 ]
 
@@ -1142,6 +1147,111 @@ def apply_migration_013(c, is_pg: bool):
                 pass
 
 
+def apply_migration_014(c, is_pg: bool):
+    """Dynamic Agent Skill Registry: creates agent_skills table and seeds 5 core analytical skills."""
+    now_ts = time.time()
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS agent_skills (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            trigger_condition TEXT NOT NULL,
+            skill_md TEXT NOT NULL,
+            is_builtin INTEGER NOT NULL DEFAULT 1,
+            usage_count INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_skills_enabled ON agent_skills(enabled);
+        CREATE INDEX IF NOT EXISTS idx_agent_skills_builtin ON agent_skills(is_builtin);
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS agent_skills (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            trigger_condition TEXT NOT NULL,
+            skill_md TEXT NOT NULL,
+            is_builtin INTEGER NOT NULL DEFAULT 1,
+            usage_count INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_skills_enabled ON agent_skills(enabled);
+        CREATE INDEX IF NOT EXISTS idx_agent_skills_builtin ON agent_skills(is_builtin);
+        """)
+
+    # Seed 5 core analytical skills
+    core_skills = [
+        (
+            "sk_market_regime_scanner",
+            "market_regime_scanner",
+            "Market Regime Scanner (ATR & Session)",
+            "Đo lường biên độ ATR(14), cấu trúc biến động và xác định phiên giao dịch (Á/Âu/Mỹ) từ nến M1/M15/H1.",
+            "Khi tiếp nhận tín hiệu mới hoặc cần xác định trạng thái biến động thị trường.",
+            "# Market Regime Scanner\nĐo lường ATR(14) và xác định phiên giao dịch thực tế."
+        ),
+        (
+            "sk_liquidity_spread_auditor",
+            "liquidity_spread_auditor",
+            "Liquidity & Spread Auditor",
+            "Đối chiếu dữ liệu tick/nến M1 và nhật ký spread để phân biệt lệnh chạm SL do sai xu hướng vs giãn spread giao phiên hoặc quét thanh khoản.",
+            "Khi có lệnh chạm Stop Loss hoặc kiểm toán hiệu suất sau đóng vị thế.",
+            "# Liquidity & Spread Auditor\nKiểm toán nguyên nhân lệnh chạm Stop Loss (SL): TREND_FAIL, SPREAD_SPIKE_ROLLOVER, LIQUIDITY_SWEEP."
+        ),
+        (
+            "sk_macro_news_interpreter",
+            "macro_news_interpreter",
+            "Macro News Interpreter",
+            "Đối chiếu lịch kinh tế USD (CPI, NFP, FOMC) quanh thời điểm mở/đóng lệnh, gắn nhãn bối cảnh vĩ mô và độ nhạy tin tức.",
+            "Trước khi mở vị thế hoặc phân tích độ nhạy tin tức của nguồn tín hiệu.",
+            "# Macro News Interpreter\nPhân tích khoảng cách tới sự kiện kinh tế vĩ mô USD và kích hoạt News Shield khi <=30m."
+        ),
+        (
+            "sk_source_grading_analyst",
+            "source_grading_analyst",
+            "Source Grading & Trust Analyst",
+            "Chấm điểm EOD M1 Candle Grader cho kho SHADOW_ONLY (quy tắc bảo thủ SL ưu tiên), tính Profit Factor, Max Drawdown, MAE/MFE và Trust Score (0-100).",
+            "Cuối ngày giao dịch (EOD) hoặc khi Admin yêu cầu xếp hạng lại các nguồn tín hiệu.",
+            "# Source Grading Analyst\nChấm điểm nến M1 và cập nhật bảng xếp hạng tín nhiệm Trust Score."
+        ),
+        (
+            "sk_strategy_synthesizer",
+            "strategy_synthesizer",
+            "Strategy Synthesizer & Walk-Forward Validator",
+            "Truy xuất các quy tắc lặp lại từ Hindsight Semantic Memory, tổng hợp Ứng viên Chiến lược và chạy kiểm định Out-of-Sample trên TimescaleDB trước khi gửi Admin phê duyệt.",
+            "Khi tích lũy đủ cụm lệnh thắng/thua hoặc định kỳ tổng hợp chiến lược mới.",
+            "# Strategy Synthesizer\nĐóng gói cụm quy tắc từ Hindsight Memory thành Ứng viên Chiến lược mới."
+        ),
+    ]
+
+    for sid, skid, sname, sdesc, strig, smd in core_skills:
+        try:
+            c.execute("""
+            INSERT INTO agent_skills (
+                id, skill_id, name, description, trigger_condition,
+                skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)
+            ON CONFLICT (skill_id) DO NOTHING
+            """, (sid, skid, sname, sdesc, strig, smd, now_ts, now_ts))
+        except Exception:
+            try:
+                c.execute("""
+                INSERT OR IGNORE INTO agent_skills (
+                    id, skill_id, name, description, trigger_condition,
+                    skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)
+                """, (sid, skid, sname, sdesc, strig, smd, now_ts, now_ts))
+            except Exception:
+                pass
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -1161,6 +1271,7 @@ def run_all_migrations(c, is_pg: bool):
         11: apply_migration_011,
         12: apply_migration_012,
         13: apply_migration_013,
+        14: apply_migration_014,
     }
 
     for m in MIGRATIONS:

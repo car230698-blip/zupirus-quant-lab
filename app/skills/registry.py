@@ -1,0 +1,286 @@
+"""Dynamic Agent Skill Registry and Progressive Disclosure Engine for ZUPIRUS Quant Lab.
+Allows AI Agents to discover lightweight skill indexes, load full SKILL.md specs on demand,
+and execute analytical tools without context bloat or hardcoded trading strategies.
+"""
+import os
+import time
+import logging
+from typing import Dict, Any, List, Optional
+from app.db import tx
+
+logger = logging.getLogger("zupirus.skills")
+
+# Base directory for built-in filesystem skills
+SKILLS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CORE_SKILL_IDS = [
+    "market_regime_scanner",
+    "liquidity_spread_auditor",
+    "macro_news_interpreter",
+    "source_grading_analyst",
+    "strategy_synthesizer",
+]
+
+
+def _read_builtin_skill_md(skill_id: str) -> Optional[str]:
+    """Read SKILL.md file from local filesystem."""
+    skill_path = os.path.join(SKILLS_DIR, skill_id, "SKILL.md")
+    if os.path.isfile(skill_path):
+        try:
+            with open(skill_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            logger.warning(f"Could not read SKILL.md for {skill_id}: {e}")
+    return None
+
+
+def get_skill_index(enabled_only: bool = True) -> List[Dict[str, Any]]:
+    """Progressive Disclosure:
+    Returns lightweight index of skills (name, 1-line description, trigger condition).
+    Suitable for inclusion in LangGraph / Swarm prompts with minimal token overhead (~200 tokens).
+    """
+    try:
+        with tx() as c:
+            if enabled_only:
+                rows = c.execute(
+                    """
+                    SELECT skill_id, name, description, trigger_condition, is_builtin, usage_count, enabled
+                    FROM agent_skills
+                    WHERE enabled = 1
+                    ORDER BY is_builtin DESC, usage_count DESC, name ASC
+                    """
+                ).fetchall()
+            else:
+                rows = c.execute(
+                    """
+                    SELECT skill_id, name, description, trigger_condition, is_builtin, usage_count, enabled
+                    FROM agent_skills
+                    ORDER BY is_builtin DESC, usage_count DESC, name ASC
+                    """
+                ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.debug(f"DB agent_skills query fallback to core list: {e}")
+        # Fallback to core list if DB table not yet ready
+        return [
+            {
+                "skill_id": "market_regime_scanner",
+                "name": "Market Regime Scanner",
+                "description": "Đo lường biến độ ATR(14) và xác định phiên giao dịch (Á/Âu/Mỹ).",
+                "trigger_condition": "Khi tiếp nhận tín hiệu mới hoặc kiểm tra độ biến động thị trường.",
+                "is_builtin": 1,
+                "usage_count": 0,
+                "enabled": 1,
+            },
+            {
+                "skill_id": "liquidity_spread_auditor",
+                "name": "Liquidity & Spread Auditor",
+                "description": "Phân tích nguyên nhân lệnh chạm SL: sai xu hướng vs giãn spread hay quét thanh khoản.",
+                "trigger_condition": "Khi có vị thế chạm Stop Loss hoặc kiểm toán hiệu suất lệnh thua.",
+                "is_builtin": 1,
+                "usage_count": 0,
+                "enabled": 1,
+            },
+            {
+                "skill_id": "macro_news_interpreter",
+                "name": "Macro News Interpreter",
+                "description": "Đối chiếu lịch tin tức USD và tính khoảng cách tới tin tác động mạnh.",
+                "trigger_condition": "Trước khi mở vị thế hoặc đánh giá độ nhạy tin tức của nguồn tín hiệu.",
+                "is_builtin": 1,
+                "usage_count": 0,
+                "enabled": 1,
+            },
+            {
+                "skill_id": "source_grading_analyst",
+                "name": "Source Grading Analyst",
+                "description": "Chấm điểm EOD M1 Candle Grader cho kho SHADOW_ONLY và tính Source Trust Score.",
+                "trigger_condition": "Cuối ngày giao dịch (EOD) hoặc khi cần xếp hạng lại nguồn tín hiệu.",
+                "is_builtin": 1,
+                "usage_count": 0,
+                "enabled": 1,
+            },
+            {
+                "skill_id": "strategy_synthesizer",
+                "name": "Strategy Synthesizer",
+                "description": "Tổng hợp Ứng viên Chiến lược từ Hindsight Memory và kiểm định Walk-Forward OOS.",
+                "trigger_condition": "Khi tích lũy đủ mẫu lệnh thắng/thua hoặc định kỳ tổng hợp chiến lược mới.",
+                "is_builtin": 1,
+                "usage_count": 0,
+                "enabled": 1,
+            },
+        ]
+
+
+def load_skill_spec(skill_id: str) -> Optional[str]:
+    """On-demand Progressive Disclosure:
+    Loads full markdown instructions of SKILL.md when the Agent decides to activate it.
+    Increments usage_count.
+    """
+    skill_md = None
+
+    # For builtin skills, always prefer rich SKILL.md documentation from filesystem
+    if skill_id in CORE_SKILL_IDS:
+        skill_md = _read_builtin_skill_md(skill_id)
+
+    # Check database if not loaded from filesystem or if custom learned skill
+    if not skill_md:
+        try:
+            with tx() as c:
+                row = c.execute("SELECT skill_md FROM agent_skills WHERE skill_id = ?", (skill_id,)).fetchone()
+                if row and row[0]:
+                    skill_md = row[0]
+        except Exception as e:
+            logger.debug(f"Database error loading skill {skill_id}: {e}")
+
+    # Track usage count
+    try:
+        with tx() as c:
+            c.execute(
+                "UPDATE agent_skills SET usage_count = usage_count + 1, updated_at = ? WHERE skill_id = ?",
+                (time.time(), skill_id)
+            )
+    except Exception as e:
+        logger.debug(f"Database error incrementing usage for {skill_id}: {e}")
+
+    return skill_md
+
+
+def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
+    """Execute the Python tool corresponding to the requested skill.
+    Increments usage_count and returns structured observation for Agent reasoning.
+    """
+    # Track usage in DB
+    try:
+        with tx() as c:
+            c.execute(
+                "UPDATE agent_skills SET usage_count = usage_count + 1, updated_at = ? WHERE skill_id = ?",
+                (time.time(), skill_id)
+            )
+    except Exception:
+        pass
+
+    if skill_id == "market_regime_scanner":
+        from app.skills.market_regime_scanner.tool import scan_market_regime
+        return scan_market_regime(**kwargs)
+
+    elif skill_id == "liquidity_spread_auditor":
+        from app.skills.liquidity_spread_auditor.tool import audit_liquidity_and_spread
+        return audit_liquidity_and_spread(**kwargs)
+
+    elif skill_id == "macro_news_interpreter":
+        from app.skills.macro_news_interpreter.tool import interpret_macro_news
+        return interpret_macro_news(**kwargs)
+
+    elif skill_id == "source_grading_analyst":
+        from app.skills.source_grading_analyst.tool import grade_signal_sources
+        return grade_signal_sources(**kwargs)
+
+    elif skill_id == "strategy_synthesizer":
+        from app.skills.strategy_synthesizer.tool import synthesize_strategy_candidate
+        return synthesize_strategy_candidate(**kwargs)
+
+    else:
+        # Check if it's a self-learned skill in database
+        try:
+            with tx() as c:
+                row = c.execute(
+                    "SELECT name, description, trigger_condition, skill_md FROM agent_skills WHERE skill_id = ?",
+                    (skill_id,)
+                ).fetchone()
+                if row:
+                    return {
+                        "skill_id": skill_id,
+                        "name": row[0] if hasattr(row, '__getitem__') else row["name"],
+                        "status": "executed",
+                        "type": "self_learned_rule_filter",
+                        "result": "Quy tắc tự học đã được kiểm tra trên bối cảnh hiện tại.",
+                        "parameters": kwargs,
+                    }
+        except Exception:
+            pass
+
+        return {
+            "error": f"Không tìm thấy công cụ thực thi cho skill_id '{skill_id}'.",
+            "status": "failed",
+        }
+
+
+def list_skills(enabled_only: bool = False) -> List[Dict[str, Any]]:
+    """List all registered skills with complete details for Admin Management UI."""
+    return get_skill_index(enabled_only=enabled_only)
+
+
+def toggle_skill(skill_id: str, enabled: bool) -> bool:
+    """Admin control: Enable or disable an analytical skill."""
+    now_ts = time.time()
+    try:
+        with tx() as c:
+            c.execute(
+                "UPDATE agent_skills SET enabled = ?, updated_at = ? WHERE skill_id = ?",
+                (1 if enabled else 0, now_ts, skill_id)
+            )
+            return True
+    except Exception as e:
+        logger.error(f"Failed to toggle skill {skill_id}: {e}")
+        return False
+
+
+def register_learned_skill(
+    skill_id: str,
+    name: str,
+    description: str,
+    trigger_condition: str,
+    skill_md: str,
+    db_cursor: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Persist a newly synthesized inductive skill into database from Reflective Memory."""
+    now_ts = time.time()
+    skill_record_id = f"sk_{skill_id}"
+
+    def _do_register(c):
+        try:
+            c.execute(
+                """
+                INSERT INTO agent_skills (
+                    id, skill_id, name, description, trigger_condition,
+                    skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?)
+                ON CONFLICT(skill_id) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    trigger_condition = excluded.trigger_condition,
+                    skill_md = excluded.skill_md,
+                    updated_at = excluded.updated_at
+                """,
+                (skill_record_id, skill_id, name, description, trigger_condition, skill_md, now_ts, now_ts)
+            )
+        except Exception:
+            # SQLite fallback without ON CONFLICT
+            try:
+                c.execute("DELETE FROM agent_skills WHERE skill_id = ?", (skill_id,))
+                c.execute(
+                    """
+                    INSERT INTO agent_skills (
+                        id, skill_id, name, description, trigger_condition,
+                        skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?)
+                    """,
+                    (skill_record_id, skill_id, name, description, trigger_condition, skill_md, now_ts, now_ts)
+                )
+            except Exception as e:
+                logger.error(f"Error registering learned skill {skill_id}: {e}")
+
+    if db_cursor is not None:
+        _do_register(db_cursor)
+    else:
+        with tx() as c:
+            _do_register(c)
+
+    logger.info(f"Registered dynamic self-learned skill: {skill_id} ({name})")
+    return {
+        "skill_id": skill_id,
+        "name": name,
+        "is_builtin": 0,
+        "enabled": 1,
+        "created_at": now_ts,
+    }

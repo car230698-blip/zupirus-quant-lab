@@ -107,3 +107,4 @@ def trigger_eod_evaluation(
     """Trigger End-of-Day dual-touch M1 candle grading."""
     res = evaluate_shadow_signals_eod(source_id=source_id)
     return {"message": "Chấm điểm EOD hoàn tất.", "evaluated_count": res.get("evaluated_count", 0), "details": res}
+
