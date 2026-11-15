@@ -1060,6 +1060,7 @@ def mailer_status(u=Depends(admin)):
 @app.post('/api/admin/mailer/test')
 def mailer_test_send(p: MailerTestPayload, u=Depends(admin)):
     """Sends a verified test email to the requested recipient."""
+    from datetime import datetime, timezone
     from .mailer import send_resend_email
     now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
     html = f"""
