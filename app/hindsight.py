@@ -181,3 +181,133 @@ def reflect_on_policy_approval(c, job_id: str, approved: bool, report: Dict[str,
         metadata={"job_id": job_id, "approved": approved, "oos_net": oos_net, "dd": dd},
     )
 
+
+def reflect_on_signal_outcome(
+    c,
+    signal_id: str,
+    pnl: float,
+    mae: float = 0.0,
+    mfe: float = 0.0,
+    exit_price: float = 0.0,
+    exit_reason: str = "TP"
+) -> str:
+    """Post-trade reflection: Updates signal audit record with real trade metrics
+    and generates reflective memory to learn why the external signal succeeded or failed."""
+    # 1. Update signal_audit_logs with real trade outcome
+    context_data: Dict[str, Any] = {}
+    side = "UNKNOWN"
+    entry_price = 0.0
+    try:
+        row = c.execute(
+            "SELECT side, entry_price, context_snapshot FROM signal_audit_logs WHERE signal_id = ?",
+            (signal_id,)
+        ).fetchone()
+        if row:
+            side = row["side"] if hasattr(row, 'keys') else row[0]
+            entry_price = float(row["entry_price"] if hasattr(row, 'keys') else row[1])
+            ctx_str = row["context_snapshot"] if hasattr(row, 'keys') else row[2]
+            if ctx_str:
+                context_data = json.loads(ctx_str)
+
+        c.execute(
+            """
+            UPDATE signal_audit_logs
+            SET pnl = ?, mae = ?, mfe = ?
+            WHERE signal_id = ?
+            """,
+            (pnl, mae, mfe, signal_id)
+        )
+    except Exception as e:
+        logger.warning(f"Could not update signal audit log outcome: {e}")
+
+    # 2. Synthesize reflective post-mortem
+    outcome = "WIN" if pnl > 0 else ("LOSS" if pnl < 0 else "BE")
+    session = context_data.get("session", "Unknown")
+    atr_val = context_data.get("atr_14", 3.50)
+    news_dist = context_data.get("news_distance_mins", 999.0)
+
+    title = f"Post-Trade Reflection: Signal #{signal_id[:8]} [{outcome} | PnL={pnl:+.2f}]"
+    content = (
+        f"Lệnh {side} tín hiệu #{signal_id[:8]} (Vào: ${entry_price:.2f}, Thoát: ${exit_price:.2f}, Lý do: {exit_reason}) "
+        f"đạt kết quả {outcome} với PnL={pnl:+.2f} USD, Gồng lỗ tối đa (MAE)={mae:.2f} pts, "
+        f"Lợi nhuận đỉnh (MFE)={mfe:.2f} pts. Bối cảnh vào lệnh: Phiên {session}, ATR={atr_val}, Cách tin={news_dist}m. "
+        f"Bài học đúc kết: {'Điều kiện thị trường ủng hộ đà di chuyển.' if pnl > 0 else 'Thị trường có thể chịu cản lớn hoặc quét thanh khoản ngược hướng.'}"
+    )
+
+    return store_memory(
+        c,
+        category=CATEGORY_REFLECTIVE,
+        title=title,
+        content=content,
+        entity_id=signal_id,
+        tags=["signal_post_mortem", outcome.lower(), session.lower(), side.lower()],
+        metadata={
+            "signal_id": signal_id,
+            "pnl": pnl,
+            "mae": mae,
+            "mfe": mfe,
+            "exit_reason": exit_reason,
+            "context": context_data,
+        }
+    )
+
+
+def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
+    """Tabula Rasa induction: Synthesizes high-probability semantic rules from observed
+    winning signal clusters vs losing signal clusters."""
+    try:
+        rows = c.execute(
+            """
+            SELECT side, entry_price, pnl, context_snapshot
+            FROM signal_audit_logs
+            WHERE pnl IS NOT NULL AND context_snapshot IS NOT NULL
+            ORDER BY created_at DESC LIMIT 200
+            """
+        ).fetchall()
+    except Exception:
+        return []
+
+    if not rows or len(rows) < min_samples:
+        return []
+
+    # Cluster by session and side
+    clusters: Dict[Tuple[str, str], List[float]] = {}
+    for r in rows:
+        side = r["side"] if hasattr(r, 'keys') else r[0]
+        pnl = float(r["pnl"] if hasattr(r, 'keys') else r[2])
+        ctx_str = r["context_snapshot"] if hasattr(r, 'keys') else r[3]
+        session = "London"
+        if ctx_str:
+            try:
+                session = json.loads(ctx_str).get("session", "London")
+            except Exception:
+                pass
+        key = (session, side)
+        clusters.setdefault(key, []).append(pnl)
+
+    discovered_rules = []
+    for (sess, side), pnls in clusters.items():
+        if len(pnls) >= min_samples:
+            wins = sum(1 for p in pnls if p > 0)
+            win_rate = round(wins / len(pnls), 2)
+            total_pnl = round(sum(pnls), 2)
+            if win_rate >= 0.60:
+                rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}% (Mẫu: {len(pnls)} lệnh, Tổng PnL: {total_pnl:+.2f})."
+                store_memory(
+                    c,
+                    category=CATEGORY_SEMANTIC,
+                    title=f"Discovered Rule: {sess} {side} Edge",
+                    content=rule_desc,
+                    tags=["discovered_rule", sess.lower(), side.lower(), "inductive"],
+                    metadata={"session": sess, "side": side, "win_rate": win_rate, "sample_size": len(pnls)}
+                )
+                discovered_rules.append({
+                    "session": sess,
+                    "side": side,
+                    "win_rate": win_rate,
+                    "samples": len(pnls),
+                    "rule": rule_desc,
+                })
+
+    return discovered_rules
+

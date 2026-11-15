@@ -13,148 +13,109 @@ STRATEGY_VERSION = "2.1.0"
 
 
 # ---------------------------------------------------------------------------
-# Individual Technical Strategies & Multi-Strategy Coordinator
+# Tabula Rasa Autonomous Coordinator (No Hardcoded Technical Strategies)
 # ---------------------------------------------------------------------------
-
-def trend_following_signal(prices, fast_n=5, slow_n=20) -> Tuple[Optional[Literal['BUY', 'SELL']], str]:
-    """Trend Following: Fast/Slow SMA crossover with momentum confirmation."""
-    if len(prices) < slow_n + 1:
-        return None, "Dữ liệu chưa đủ chu kỳ slow_n=20"
-    fast = sum(prices[-fast_n:]) / fast_n
-    slow = sum(prices[-slow_n:]) / slow_n
-    prevfast = sum(prices[-fast_n-1:-1]) / fast_n
-    prevslow = sum(prices[-slow_n-1:-1]) / slow_n
-    if prevfast <= prevslow and fast > slow:
-        return 'BUY', f"TREND_BUY: Fast SMA({fast_n})={fast:.2f} cắt lên Slow SMA({slow_n})={slow:.2f}"
-    if prevfast >= prevslow and fast < slow:
-        return 'SELL', f"TREND_SELL: Fast SMA({fast_n})={fast:.2f} cắt xuống Slow SMA({slow_n})={slow:.2f}"
-    return None, f"TREND_NEUTRAL: Fast SMA({fast:.2f}) song song Slow SMA({slow:.2f})"
-
-
-def mean_reversion_signal(prices, period=20, num_std=2.0) -> Tuple[Optional[Literal['BUY', 'SELL']], str]:
-    """Mean Reversion: Bollinger Band 2-sigma deviation against mean."""
-    if len(prices) < period:
-        return None, "Dữ liệu chưa đủ chu kỳ period=20"
-    window = prices[-period:]
-    mean = sum(window) / period
-    variance = sum((p - mean) ** 2 for p in window) / period
-    std_dev = math.sqrt(variance)
-    last_price = prices[-1]
-    upper = mean + num_std * std_dev
-    lower = mean - num_std * std_dev
-
-    if std_dev < 0.5:
-        return None, "MEAN_REV_LOW_VOL: Độ lệch chuẩn biến động quá thấp (<0.5)"
-
-    if last_price <= lower:
-        return 'BUY', f"MEAN_REV_BUY: Giá={last_price:.2f} chạm cận dưới Bollinger Band({lower:.2f}) [mean={mean:.2f}]"
-    if last_price >= upper:
-        return 'SELL', f"MEAN_REV_SELL: Giá={last_price:.2f} chạm cận trên Bollinger Band({upper:.2f}) [mean={mean:.2f}]"
-    return None, f"MEAN_REV_NEUTRAL: Giá={last_price:.2f} nằm trong dải Bollinger [{lower:.2f} - {upper:.2f}]"
-
-
-def breakout_signal(prices, period=20) -> Tuple[Optional[Literal['BUY', 'SELL']], str]:
-    """Breakout: 20-bar Donchian channel breakout with volatility expansion."""
-    if len(prices) < period + 1:
-        return None, "Dữ liệu chưa đủ chu kỳ period=20"
-    prior = prices[-period-1:-1]
-    high = max(prior)
-    low = min(prior)
-    last_price = prices[-1]
-    spread = high - low
-    if spread < 1.0:
-        return None, "BREAKOUT_COMPRESSED: Biên độ Donchian quá hẹp (<1.0)"
-
-    if last_price > high:
-        return 'BUY', f"BREAKOUT_BUY: Giá={last_price:.2f} phá vỡ đỉnh 20 nến ({high:.2f})"
-    if last_price < low:
-        return 'SELL', f"BREAKOUT_SELL: Giá={last_price:.2f} phá vỡ đáy 20 nến ({low:.2f})"
-    return None, f"BREAKOUT_NEUTRAL: Giá={last_price:.2f} nằm trong hộp Donchian [{low:.2f} - {high:.2f}]"
+STRATEGY_VERSION = "tabula_rasa_2.2.0"
 
 
 def coordinate_strategies(prices, timeframe: str = "M15") -> Dict[str, Any]:
-    """Multi-Strategy Coordinator:
-    Evaluates market regime across Trend Following, Mean Reversion, and Breakout.
-    Selects the optimal strategy and records full audit rationale."""
-    if len(prices) < 25:
+    """Tabula Rasa Policy Coordinator:
+    - Giai đoạn 1 (EXTERNAL_FEED): Đội Agent ở trạng thái trang giấy trắng, quan sát và ghi nhận
+      dữ liệu thực chiến từ nguồn ngoài. Tuyệt đối không tự phát lệnh.
+    - Giai đoạn 2 (ZUPIRUS_AGENT): Chỉ thực thi các chiến lược do Agent tự đúc kết đã vượt qua
+      kiểm định Out-of-Sample và được Admin phê duyệt trên adm.zupirus.com.
+    """
+    from app.config import SIGNAL_SOURCE
+
+    # Check active signal source from database or environment
+    active_source = SIGNAL_SOURCE
+    try:
+        with tx() as c:
+            row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
+            if row:
+                active_source = row["value"] if hasattr(row, 'keys') else row[0]
+    except Exception:
+        pass
+
+    if active_source != "ZUPIRUS_AGENT":
         return {
             "side": None,
-            "strategy": "none",
+            "strategy": "tabula_rasa_observing",
             "timeframe": timeframe,
             "parameters": {},
             "version": STRATEGY_VERSION,
-            "reason": "Dữ liệu lịch sử chưa đủ 25 nến để đánh giá đa chiến lược"
+            "reason": (
+                "TABULA_RASA_OBSERVING: Giai đoạn 1 (EXTERNAL_FEED) - Đội AI Agent bắt đầu từ trang giấy trắng, "
+                "quan sát tín hiệu ngoài và dữ liệu thực tế. Không tự phát lệnh."
+            ),
         }
 
-    recent = prices[-20:]
-    mean = sum(recent) / 20
-    std_dev = math.sqrt(sum((p - mean) ** 2 for p in recent) / 20)
-    slope = (prices[-1] - prices[-10]) / 10.0
+    # Giai đoạn 2: ZUPIRUS_AGENT Autonomous Execution
+    # Query approved strategy candidate
+    try:
+        with tx() as c:
+            cand = c.execute(
+                """
+                SELECT id, name, rules_json, win_rate, profit_factor
+                FROM strategy_candidates
+                WHERE status = 'APPROVED_FOR_PROD'
+                ORDER BY updated_at DESC LIMIT 1
+                """
+            ).fetchone()
+            if not cand:
+                return {
+                    "side": None,
+                    "strategy": "none",
+                    "timeframe": timeframe,
+                    "parameters": {},
+                    "version": STRATEGY_VERSION,
+                    "reason": "STAND_ASIDE: Chưa có Strategy Candidate nào được Admin duyệt sang APPROVED_FOR_PROD.",
+                }
 
-    # 1. High Trend Momentum: prefer Trend Following
-    if abs(slope) >= 0.35:
-        side, reason = trend_following_signal(prices, fast_n=5, slow_n=20)
-        if side:
-            return {
-                "side": side,
-                "strategy": "trend_following",
-                "timeframe": timeframe,
-                "parameters": {"fast_n": 5, "slow_n": 20, "sl": SL_DISTANCE, "tp": TP_DISTANCE},
-                "version": STRATEGY_VERSION,
-                "reason": reason
-            }
+            rules = json.loads(cand["rules_json"] if hasattr(cand, 'keys') else cand[2])
+            cand_name = cand["name"] if hasattr(cand, 'keys') else cand[1]
 
-    # 2. Volatility Compression / Squeeze Breakout
-    b_side, b_reason = breakout_signal(prices, period=20)
-    if b_side:
-        return {
-            "side": b_side,
-            "strategy": "breakout",
-            "timeframe": timeframe,
-            "parameters": {"period": 20, "sl": SL_DISTANCE, "tp": TP_DISTANCE},
-            "version": STRATEGY_VERSION,
-            "reason": b_reason
-        }
+            # Evaluate learned rule criteria against recent price action
+            if len(prices) >= 15:
+                recent_slope = (prices[-1] - prices[-10]) / 10.0
+                target_action = rules.get("action", "BUY")
+                slope_threshold = float(rules.get("min_slope", 0.20))
 
-    # 3. Range-Bound / Ranging: Mean Reversion
-    if std_dev >= 1.2:
-        mr_side, mr_reason = mean_reversion_signal(prices, period=20, num_std=2.0)
-        if mr_side:
-            return {
-                "side": mr_side,
-                "strategy": "mean_reversion",
-                "timeframe": timeframe,
-                "parameters": {"period": 20, "num_std": 2.0, "sl": SL_DISTANCE, "tp": TP_DISTANCE},
-                "version": STRATEGY_VERSION,
-                "reason": mr_reason
-            }
-
-    # 4. Fallback to basic Trend Following or Stand Aside
-    t_side, t_reason = trend_following_signal(prices, fast_n=5, slow_n=20)
-    if t_side:
-        return {
-            "side": t_side,
-            "strategy": "trend_following",
-            "timeframe": timeframe,
-            "parameters": {"fast_n": 5, "slow_n": 20, "sl": SL_DISTANCE, "tp": TP_DISTANCE},
-            "version": STRATEGY_VERSION,
-            "reason": t_reason
-        }
+                if target_action == "BUY" and recent_slope >= slope_threshold:
+                    return {
+                        "side": "BUY",
+                        "strategy": cand_name,
+                        "timeframe": timeframe,
+                        "parameters": rules,
+                        "version": STRATEGY_VERSION,
+                        "reason": f"AUTONOMOUS_BUY: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
+                    }
+                elif target_action == "SELL" and recent_slope <= -slope_threshold:
+                    return {
+                        "side": "SELL",
+                        "strategy": cand_name,
+                        "timeframe": timeframe,
+                        "parameters": rules,
+                        "version": STRATEGY_VERSION,
+                        "reason": f"AUTONOMOUS_SELL: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
+                    }
+    except Exception as e:
+        logger.warning(f"Error evaluating learned autonomous strategy: {e}")
 
     return {
         "side": None,
         "strategy": "none",
         "timeframe": timeframe,
-        "parameters": {"fast_n": 5, "slow_n": 20},
+        "parameters": {},
         "version": STRATEGY_VERSION,
-        "reason": f"STAND_ASIDE: Thị trường dao động trong vùng nhiễu (std={std_dev:.2f}, slope={slope:.2f})"
+        "reason": "STAND_ASIDE: Điều kiện thị trường chưa thỏa bộ quy tắc tự học đã phê duyệt.",
     }
 
 
 def strategy(prices, fast_n=5, slow_n=20):
-    """Legacy backward-compatible entry point calling trend_following."""
-    side, _ = trend_following_signal(prices, fast_n, slow_n)
-    return side
+    """Tabula Rasa backward-compatible wrapper."""
+    dec = coordinate_strategies(prices)
+    return dec.get("side")
 
 def news_blocked(c, now):
     return c.execute("SELECT 1 FROM news WHERE currency IN ('USD','ALL') AND impact='high' AND abs(ts-?)<900", (now,)).fetchone() is not None

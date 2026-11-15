@@ -337,7 +337,7 @@ def test_migration_fresh_and_legacy_database_upgrade():
         wrapped_fresh = ConnectionWrapper(fresh_conn, is_pg=False)
         run_all_migrations(wrapped_fresh, is_pg=False)
         versions = get_applied_versions(wrapped_fresh)
-        assert versions == list(range(1, 12))
+        assert versions == list(range(1, 13))
     finally:
         if fresh_conn is not None:
             fresh_conn.close()
@@ -378,7 +378,7 @@ def test_migration_fresh_and_legacy_database_upgrade():
         # Run migrations on legacy
         run_all_migrations(wrapped_legacy, is_pg=False)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == list(range(1, 12))
+        assert legacy_versions == list(range(1, 13))
 
         # Verify existing data is preserved
         row = legacy_conn.execute("SELECT count(*), bid, ask FROM quotes WHERE source='DEMO'").fetchone()
@@ -401,55 +401,62 @@ def test_migration_fresh_and_legacy_database_upgrade():
 
 
 def test_multi_strategy_coordinator():
-    """Verify Multi-Strategy Coordinator handles Trend Following, Mean Reversion, Breakout, and Stand Aside."""
+    """Verify Tabula Rasa Policy Coordinator in Phase 1 (observing) and Phase 2 (autonomous execution)."""
+    from app.db import init, tx
+    init()
     from app.engine import (
-        trend_following_signal,
-        mean_reversion_signal,
-        breakout_signal,
         coordinate_strategies,
         STRATEGY_VERSION,
     )
+    from app.research import (
+        discover_candidate_from_observations,
+        walk_forward,
+    )
 
-    # 1. Trend Following test series: rising slope with upward crossover
-    rising = [2650.0] * 20 + [2650.0, 2650.0, 2650.5]
-    t_side, t_reason = trend_following_signal(rising, fast_n=5, slow_n=20)
-    assert t_side == 'BUY'
-    assert 'TREND_BUY' in t_reason
-
-    falling = [2650.0] * 20 + [2650.0, 2650.0, 2649.5]
-    t_side_fall, t_reason_fall = trend_following_signal(falling, fast_n=5, slow_n=20)
-    assert t_side_fall == 'SELL'
-    assert 'TREND_SELL' in t_reason_fall
-
-    # 2. Mean Reversion test series: oscillating range where last price drops below 2-sigma lower band
-    import math
-    base = [2650.0 + math.sin(i / 2.0) * 3.0 for i in range(25)]
-    # Dip sharply below lower band
-    base[-1] = 2640.0
-    mr_side, mr_reason = mean_reversion_signal(base, period=20, num_std=2.0)
-    assert mr_side == 'BUY'
-    assert 'MEAN_REV_BUY' in mr_reason
-
-    # 3. Breakout test series: range with spread >= 1.0 followed by strong breakout
     box = [2650.0 + (i % 3) * 1.5 for i in range(25)]
-    box[-1] = 2660.0  # Breaks out above 2653.0
-    b_side, b_reason = breakout_signal(box, period=20)
-    assert b_side == 'BUY'
-    assert 'BREAKOUT_BUY' in b_reason
 
-    # 4. Multi-Strategy Coordinator evaluation
-    decision = coordinate_strategies(box, timeframe="M15")
-    assert decision["side"] in ('BUY', 'SELL')
-    assert decision["strategy"] in ("trend_following", "breakout", "mean_reversion")
-    assert decision["version"] == STRATEGY_VERSION
-    assert "parameters" in decision
-    assert len(decision["reason"]) > 0
+    # 1. Phase 1 (EXTERNAL_FEED): Must observe, never self-issue orders
+    with tx() as c:
+        c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'EXTERNAL_FEED') ON CONFLICT(key) DO UPDATE SET value = 'EXTERNAL_FEED'")
 
-    # 5. Stand aside regime
-    flat = [2650.0] * 30
-    flat_decision = coordinate_strategies(flat, timeframe="M15")
-    assert flat_decision["side"] is None
-    assert "STAND_ASIDE" in flat_decision["reason"]
+    p1_decision = coordinate_strategies(box, timeframe="M15")
+    assert p1_decision["side"] is None
+    assert p1_decision["strategy"] == "tabula_rasa_observing"
+    assert "TABULA_RASA_OBSERVING" in p1_decision["reason"]
+    assert p1_decision["version"] == STRATEGY_VERSION
+
+    # 2. Tabula Rasa Inductive Learning: Discover candidates from observations
+    cand = discover_candidate_from_observations()
+    assert "rules" in cand
+    assert cand["name"].startswith("TabulaRasa-Alpha")
+
+    # 3. Walk-Forward Optimization of discovered candidate
+    wfo_report = walk_forward(box, candidate=cand)
+    assert wfo_report["candidate_name"] == cand["name"]
+    assert "folds" in wfo_report
+    assert "oos_net_price_units" in wfo_report
+
+    # 4. Phase 2 (ZUPIRUS_AGENT): Autonomous execution with approved policy
+    with tx() as c:
+        c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'ZUPIRUS_AGENT') ON CONFLICT(key) DO UPDATE SET value = 'ZUPIRUS_AGENT'")
+        c.execute(
+            """
+            INSERT INTO strategy_candidates (
+                id, name, status, rules_json, sample_size, win_rate, profit_factor, created_at, updated_at
+            ) VALUES ('cand_test_approved', 'TabulaRasa-Prod-Alpha', 'APPROVED_FOR_PROD', '{"action":"BUY","min_slope":0.10}', 50, 0.68, 1.85, 1.0, 1.0)
+            ON CONFLICT(id) DO UPDATE SET status = 'APPROVED_FOR_PROD'
+            """
+        )
+
+    # Rising slope series triggers AUTONOMOUS_BUY
+    rising = [2650.0] * 10 + [2651.0, 2652.0, 2653.0, 2654.0, 2655.0]
+    p2_decision = coordinate_strategies(rising, timeframe="M15")
+    assert p2_decision["side"] == "BUY"
+    assert "AUTONOMOUS_BUY" in p2_decision["reason"]
+
+    # Reset back to EXTERNAL_FEED
+    with tx() as c:
+        c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'EXTERNAL_FEED') ON CONFLICT(key) DO UPDATE SET value = 'EXTERNAL_FEED'")
 
 
 def test_spa_fallback_and_api_pure_json(client):

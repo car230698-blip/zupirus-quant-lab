@@ -61,6 +61,11 @@ MIGRATIONS = [
         "version": 11,
         "name": "011_subscriptions_orders_and_signal_audit_logs",
         "description": "Subscriptions, SePay orders with locked FX rate, signal audit logs, and cloud slots management"
+    },
+    {
+        "version": 12,
+        "name": "012_tabula_rasa_learning_snapshots",
+        "description": "Add market context snapshot and MAE/MFE to signal_audit_logs, create strategy_candidates table"
     }
 ]
 
@@ -910,6 +915,64 @@ def apply_migration_011(c, is_pg: bool):
                 pass
 
 
+def apply_migration_012(c, is_pg: bool):
+    """Add context_snapshot and MAE/MFE to signal_audit_logs, create strategy_candidates table."""
+    if is_pg:
+        c.execute("""
+        ALTER TABLE signal_audit_logs ADD COLUMN IF NOT EXISTS context_snapshot TEXT;
+        ALTER TABLE signal_audit_logs ADD COLUMN IF NOT EXISTS mae DOUBLE PRECISION;
+        ALTER TABLE signal_audit_logs ADD COLUMN IF NOT EXISTS mfe DOUBLE PRECISION;
+
+        CREATE TABLE IF NOT EXISTS strategy_candidates (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'DISCOVERED',
+            rules_json TEXT NOT NULL,
+            sample_size INTEGER NOT NULL DEFAULT 0,
+            win_rate DOUBLE PRECISION,
+            profit_factor DOUBLE PRECISION,
+            sharpe_ratio DOUBLE PRECISION,
+            max_drawdown_pct DOUBLE PRECISION,
+            oos_net_units DOUBLE PRECISION,
+            shadow_trades_count INTEGER NOT NULL DEFAULT 0,
+            shadow_pnl DOUBLE PRECISION DEFAULT 0.0,
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION
+        );
+        CREATE INDEX IF NOT EXISTS idx_strat_candidates_status ON strategy_candidates(status);
+        """)
+    else:
+        for col, col_def in [
+            ("context_snapshot", "TEXT"),
+            ("mae", "REAL"),
+            ("mfe", "REAL")
+        ]:
+            try:
+                c.execute(f"ALTER TABLE signal_audit_logs ADD COLUMN {col} {col_def}")
+            except Exception:
+                pass
+
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS strategy_candidates (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'DISCOVERED',
+            rules_json TEXT NOT NULL,
+            sample_size INTEGER NOT NULL DEFAULT 0,
+            win_rate REAL,
+            profit_factor REAL,
+            sharpe_ratio REAL,
+            max_drawdown_pct REAL,
+            oos_net_units REAL,
+            shadow_trades_count INTEGER NOT NULL DEFAULT 0,
+            shadow_pnl REAL DEFAULT 0.0,
+            created_at REAL NOT NULL,
+            updated_at REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_strat_candidates_status ON strategy_candidates(status);
+        """)
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -927,6 +990,7 @@ def run_all_migrations(c, is_pg: bool):
         9: apply_migration_009,
         10: apply_migration_010,
         11: apply_migration_011,
+        12: apply_migration_012,
     }
 
     for m in MIGRATIONS:

@@ -70,20 +70,65 @@ The pricing structure cleanly separates physical cloud computing infrastructure 
 
 ## 4. The 4 Mandatory Safety Guards
 
-Every signal passing through the ingestion pipeline must strictly pass all 4 guards before fan-out dispatch:
+Every signal passing through the ingestion pipeline must strictly pass all 4 guards in prioritized sequence before fan-out dispatch:
 
-1. **Mandatory Stop Loss & Anti-Martingale:**
-   - Evaluates signal SL. If missing, auto-attaches ATR(14) stop loss ($3.50 / 35 pips on XAUUSD).
-   - Limits maximum concurrent open trades to 2.
-2. **News Shield (±15 min USD High-Impact Window):**
-   - Queries `news` table for high-impact USD events (CPI, NFP, FOMC interest rate announcements).
-   - Blocks new order entries during `[event_time - 15m, event_time + 15m]`.
-3. **Entry Slippage Guard:**
-   - Verifies market price drift at ingestion time.
-   - Rejects the signal if `abs(market_price - entry_price) > 20 pips` ($2.00 on XAUUSD).
-4. **Redis Idempotency Deduplication:**
+1. **Lớp 1 — Redis Deduplication (60s Idempotency):**
    - Computes SHA-256 fingerprint of `source:symbol:action:entry_price`.
-   - Uses `SET NX` with 60s TTL to guarantee exactly-once processing.
+   - Uses `SET NX` with 60s TTL (`signal_ingest:{source}:{hash}`) to immediately block duplicate webhook deliveries at the gateway.
+2. **Lớp 2 — Mandatory Stop Loss & Anti-Martingale:**
+   - Evaluates signal SL. If missing and `AUTO_ATTACH_ATR_SL=true`, dynamically attaches SL derived from live `ATR(14)` M15 (default ~$3.50 / 35 pips on XAUUSD).
+   - Strictly enforces anti-martingale risk by clamping `MAX_CONCURRENT_TRADES_PER_ACCOUNT=2`.
+3. **Lớp 3 — News Shield (±15 min USD High-Impact Window):**
+   - Queries `news` table for high-impact USD events (CPI, NFP, FOMC interest rate announcements).
+   - Blocks 100% of new order entries during `[event_time - 15m, event_time + 15m]`.
+4. **Lớp 4 — Entry Slippage Guard (<= 20 pips):**
+   - Verifies real-time price drift against live tick quotes.
+   - Cancels the order if `abs(market_price - entry_price) > 20 pips` ($2.00 on XAUUSD).
 
-All evaluations are recorded to `signal_audit_logs` table for institutional traceability.
+All evaluations and real-time market snapshots are recorded to `signal_audit_logs` table for institutional traceability.
+
+---
+
+## 5. Tabula Rasa Agent Learning & Autonomous Transition Model
+
+ZUPIRUS Quant Lab operates on an inductive, zero-prejudice learning lifecycle ("Tabula Rasa"):
+
+| Trạng thái | Nguồn phát lệnh khách (`app.zupirus.com`) | Vai trò Đội AI Agent (`research.py`, `hindsight.py`, `swarm.py`) |
+|---|---|---|
+| **Giai đoạn 1 (Hiện tại)**<br>`SIGNAL_SOURCE=EXTERNAL_FEED` | **100% từ nguồn ngoài:**<br>• TradingView Webhook<br>• MetaApi Demo Signal Feed | **Trang giấy trắng (Quan sát & Học quy nạp):**<br>• Không cài sẵn bất kỳ chiến lược kỹ thuật cứng nào.<br>• Tuyệt đối không tự phát lệnh cho khách.<br>• Chụp snapshot bối cảnh thị trường (phiên, ATR, tin tức) + kết quả PnL/MAE/MFE để tự đúc kết chiến lược. |
+| **Giai đoạn 2 (Tương lai)**<br>`SIGNAL_SOURCE=ZUPIRUS_AGENT` | **100% từ Chiến lược tự học của ZUPIRUS**<br>(Ngắt hoàn toàn phụ thuộc copy lệnh ngoài) | **Tự hành hoàn toàn:**<br>• Chỉ kích hoạt sau khi Strategy Candidate vượt qua Walk-Forward Out-of-Sample, Shadow Forward-Test, và được Admin phê duyệt trên `adm.zupirus.com`. |
+
+### Chu Trình Học Quy Nạp Thực Chiến (Inductive Lifecycle)
+
+```
+[ External Signal Received ] ──► [ 4 Mandatory Guards ] ──► [ Fan-Out MT5 Dispatch ]
+            │                                                      │
+            ▼                                                      ▼
+  [ Market Context Snapshot ]                               [ Order Fill & Exit ]
+  • Trading Session (Á/Âu/Mỹ)                               • Realized Net PnL
+  • Live M15 ATR(14)                                        • Max Adverse Excursion (MAE)
+  • Live Spread & Price Drift                               • Max Favorable Excursion (MFE)
+  • News Proximity (Minutes)                                • Execution Latency
+            │                                                      │
+            └─────────────────────────┬────────────────────────────┘
+                                      ▼
+                        [ Hindsight Long-term Memory ]
+                        • Episodic: Vết khớp lệnh & bối cảnh
+                        • Reflective: Tự phân tích thắng / thua
+                        • Semantic: Đúc kết quy tắc mẫu hình
+                                      │
+                                      ▼
+                      [ Tabula Rasa Research Engine ]
+                      • Inductive Strategy Candidate Discovery
+                      • Rolling 120/60 Walk-Forward Verification
+                      • Shadow Forward-Testing Mode
+                                      │
+                                      ▼
+                        [ Admin Approval Gate ]
+                     (adm.zupirus.com Approval Queue)
+                                      │
+                                      ▼ (Admin Confirmed)
+                  [ SIGNAL_SOURCE = ZUPIRUS_AGENT ]
+```
+
 

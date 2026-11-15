@@ -228,7 +228,7 @@ def test_strategy_closed_candle_evaluation_and_rationale(client):
         row = c.execute("SELECT value FROM kv WHERE key='strategy_last_decision'").fetchone()
         assert row is not None
         last_decision = json.loads(row[0])
-        assert last_decision['version'] == '2.1.0'
+        assert last_decision['version'] in ('2.1.0', 'tabula_rasa_2.2.0')
         assert 'reason' in last_decision
         assert 'candle_time' in last_decision
         assert last_decision['timeframe'] == 'M15'

@@ -110,29 +110,54 @@ def run_sentinel_cycle(c) -> Dict[str, Any]:
 
 
 def run_alpha_cycle(c) -> Dict[str, Any]:
-    """Alpha Agent scans multi-asset universe and verifies parameter candidates."""
-    scan = scan_universe()
-    best_candidate = None
-    best_ratio = 0.0
+    """Alpha Agent: Tabula Rasa mode in Phase 1 (observing external feed),
+    Autonomous strategy execution in Phase 2."""
+    from app.config import SIGNAL_SOURCE
 
-    for item in scan:
-        score = item["volatility_pct"] * 1.5
-        if score > best_ratio:
-            best_ratio = score
-            best_candidate = item
+    active_source = SIGNAL_SOURCE
+    try:
+        row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
+        if row:
+            active_source = row["value"] if hasattr(row, 'keys') else row[0]
+    except Exception:
+        pass
 
-    symbol = best_candidate["symbol"] if best_candidate else "XAUUSD"
-    bias = best_candidate["strategy_bias"] if best_candidate else "trend_following"
-    action_text = f"Đã quét 5 tài sản. Ưu tiên cấu hình [{bias.upper()}] trên cặp {symbol} (Vol: {best_candidate.get('volatility_pct')}%)"
+    if active_source == "EXTERNAL_FEED":
+        # Check count of observed signals in signal_audit_logs
+        obs_count = 0
+        try:
+            obs_count = c.execute("SELECT count(*) FROM signal_audit_logs").fetchone()[0]
+        except Exception:
+            pass
 
+        action_text = f"Tabula Rasa Observer: Đang quan sát & ghi nhận {obs_count} mẫu hình từ nguồn ngoài XAUUSD. Tuyệt đối không tự phát lệnh."
+        bias = "tabula_rasa_observing"
+        _SWARM_STATE["agents"]["alpha"].update({
+            "state": "working",
+            "last_action": action_text,
+            "top_asset": "XAUUSD",
+            "strategy_bias": bias,
+        })
+        return {"top_asset": "XAUUSD", "bias": bias, "observed_count": obs_count}
+
+    # Autonomous Mode (ZUPIRUS_AGENT)
+    cand_name = "TabulaRasa-Alpha-Production"
+    try:
+        row = c.execute("SELECT name FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC LIMIT 1").fetchone()
+        if row:
+            cand_name = row["name"] if hasattr(row, 'keys') else row[0]
+    except Exception:
+        pass
+
+    action_text = f"Autonomous Mode: Vận hành tự động theo Chiến lược tự học [{cand_name}] đã được Admin phê duyệt."
+    bias = "autonomous_learned"
     _SWARM_STATE["agents"]["alpha"].update({
         "state": "working",
         "last_action": action_text,
-        "top_asset": symbol,
+        "top_asset": "XAUUSD",
         "strategy_bias": bias,
     })
-
-    return {"top_asset": symbol, "bias": bias, "scanned_assets": len(scan)}
+    return {"top_asset": "XAUUSD", "bias": bias, "candidate": cand_name}
 
 
 def run_risk_guardian_cycle(c) -> Dict[str, Any]:
