@@ -31,6 +31,11 @@ MIGRATIONS = [
         "version": 5,
         "name": "005_hindsight_memory_and_gemini_keys",
         "description": "Hindsight agent memory tables (vectorize-io/hindsight) and Gemini API key management pool"
+    },
+    {
+        "version": 6,
+        "name": "006_otp_codes_table",
+        "description": "OTP codes storage for Resend email verification and password resets"
     }
 ]
 
@@ -459,6 +464,28 @@ def apply_migration_005(c, is_pg: bool):
     )
 
 
+def apply_migration_006(c, is_pg: bool):
+    """Create otp_codes table for Resend email verification."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS otp_codes (
+            email TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            expires_at DOUBLE PRECISION NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0
+        );
+        """)
+    else:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS otp_codes (
+            email TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0
+        );
+        """)
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -470,6 +497,7 @@ def run_all_migrations(c, is_pg: bool):
         3: apply_migration_003,
         4: apply_migration_004,
         5: apply_migration_005,
+        6: apply_migration_006,
     }
 
     for m in MIGRATIONS:
