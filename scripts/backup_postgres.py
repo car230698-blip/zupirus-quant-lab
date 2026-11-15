@@ -29,7 +29,10 @@ def backup(database_url: str, output_dir: Path):
     print(f"[*] Target backup file: {backup_file}")
 
     # Use pg_dump if available, or python table exporter fallback
-    has_pg_dump = subprocess.run(["pg_dump", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    try:
+        has_pg_dump = subprocess.run(["pg_dump", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    except (FileNotFoundError, Exception):
+        has_pg_dump = False
 
     table_counts = {}
     if has_pg_dump:
