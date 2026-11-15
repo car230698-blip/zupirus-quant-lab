@@ -30,7 +30,8 @@ When an investor clicks **"Tạo Mã Thanh Toán VietQR"**:
 1. An order record is created in the `orders` table with status `PENDING`.
 2. The current exchange rate and exact VND amount are locked for 20 minutes (`ORDER_LOCK_MINUTES`).
 3. A standardized SePay VietQR image URL is generated:
-   `https://qr.sepay.vn/img?acc=0336230698&bank=MBBank&amount={amount_vnd}&des=ZP%20{order_suffix}`
+   `https://qr.sepay.vn/img?acc=105887054819&bank=VietinBank&amount={amount_vnd}&des=ZP%20{order_suffix}`
+   (Account Holder: `LE NGUYEN NHU THUY`, Account Number: `105887054819`, Bank: `VietinBank`)
 4. When SePay posts transaction confirmation to `/api/sepay/webhook`:
    - Matches memo pattern `ZP <order_suffix>`.
    - Transitions order status to `PAID`.

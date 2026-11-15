@@ -13,6 +13,9 @@ from app.config import (
     TIER_GROWTH_MONTHLY_USD,
     TIER_ALPHA_MONTHLY_USD,
     ORDER_LOCK_MINUTES,
+    SEPAY_BANK_NAME,
+    SEPAY_ACCOUNT_NUMBER,
+    SEPAY_ACCOUNT_HOLDER,
 )
 from app.services.fx_rate import get_usd_vnd_rate, convert_usd_to_vnd
 from app.metaapi import MetaApiClient
@@ -92,9 +95,10 @@ def create_checkout_order(
             (order_id, user_id, total_usd, locked_rate, amount_vnd, plan_tier.lower(), cloud_slots, now_ts, expires_at)
         )
 
-    # Sepay VietQR generation (MBBank or configured account)
-    bank_acc = "0336230698"
-    bank_name = "MBBank"
+    # Sepay VietQR generation (Configured account: VietinBank)
+    bank_acc = SEPAY_ACCOUNT_NUMBER
+    bank_name = SEPAY_BANK_NAME
+    bank_holder = SEPAY_ACCOUNT_HOLDER
     qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={amount_vnd}&des={content_memo}"
 
     return {
@@ -110,6 +114,7 @@ def create_checkout_order(
         "qr_url": qr_url,
         "account_number": bank_acc,
         "bank_name": bank_name,
+        "account_holder": bank_holder,
         "payment_content": content_memo,
         "expires_at": expires_at,
         "created_at": now_ts,

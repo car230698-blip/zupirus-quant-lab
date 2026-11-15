@@ -61,7 +61,7 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [showManualPayModal, setShowManualPayModal] = useState(false);
   const [manualEmail, setManualEmail] = useState('');
   const [manualAmount, setManualAmount] = useState('500000');
-  const [manualGateway, setManualGateway] = useState('MBBank');
+  const [manualGateway, setManualGateway] = useState('VietinBank');
   const [manualRef, setManualRef] = useState('');
   const [manualNote, setManualNote] = useState('Duyệt nạp tiền trực tiếp bởi Admin');
   const [manualSubmitting, setManualSubmitting] = useState(false);
@@ -505,6 +505,7 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     onChange={(e) => setManualGateway(e.target.value)}
                     className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100"
                   >
+                    <option value="VietinBank">VietinBank (Công Thương)</option>
                     <option value="MBBank">MBBank (Quân Đội)</option>
                     <option value="Vietcombank">Vietcombank</option>
                     <option value="Techcombank">Techcombank</option>

@@ -16,7 +16,12 @@ from app.services.billing_service import (
     process_successful_payment,
     TIER_PRICES,
 )
-from app.config import CLOUD_SLOT_MONTHLY_USD
+from app.config import (
+    CLOUD_SLOT_MONTHLY_USD,
+    SEPAY_BANK_NAME,
+    SEPAY_ACCOUNT_NUMBER,
+    SEPAY_ACCOUNT_HOLDER,
+)
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
 
@@ -79,10 +84,11 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
             fail(403, "Không có quyền xem đơn hàng này.")
 
         content_memo = f"ZP {d['id'][-6:].upper()}"
-        qr_url = f"https://qr.sepay.vn/img?acc=0336230698&bank=MBBank&amount={d['amount_vnd']}&des={content_memo}"
+        qr_url = f"https://qr.sepay.vn/img?acc={SEPAY_ACCOUNT_NUMBER}&bank={SEPAY_BANK_NAME}&amount={d['amount_vnd']}&des={content_memo}"
         d["qr_code_url"] = qr_url
-        d["account_number"] = "0336230698"
-        d["bank_name"] = "MBBank"
+        d["account_number"] = SEPAY_ACCOUNT_NUMBER
+        d["bank_name"] = SEPAY_BANK_NAME
+        d["account_holder"] = SEPAY_ACCOUNT_HOLDER
         d["payment_content"] = content_memo
         return OrderResponse(**d)
 

@@ -30,6 +30,7 @@ class OrderResponse(BaseModel):
     qr_code_url: Optional[str] = None
     account_number: Optional[str] = None
     bank_name: Optional[str] = None
+    account_holder: Optional[str] = None
     payment_content: str
     expires_at: float
     created_at: float

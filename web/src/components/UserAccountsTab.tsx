@@ -837,22 +837,33 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                   </span>
                 </div>
 
-                <div className="flex justify-center p-3 rounded-2xl bg-white max-w-[220px] mx-auto shadow-xl">
+                <div className="flex justify-center p-3 rounded-2xl bg-white max-w-[220px] mx-auto shadow-xl relative min-h-[200px]">
                   <img
-                    src={activeOrder.qr_code_url}
+                    src={activeOrder.qr_code_url || `https://qr.sepay.vn/img?acc=${activeOrder.account_number || '105887054819'}&bank=${activeOrder.bank_name || 'VietinBank'}&amount=${activeOrder.amount_vnd}&des=${encodeURIComponent(activeOrder.payment_content)}`}
                     alt="SePay VietQR"
                     className="w-full h-auto object-contain"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      const fallback = `https://img.vietqr.io/image/VietinBank-105887054819-compact2.png?amount=${activeOrder.amount_vnd}&addInfo=${encodeURIComponent(activeOrder.payment_content)}&accountName=LE%20NGUYEN%20NHU%20THUY`;
+                      if (target.src !== fallback) {
+                        target.src = fallback;
+                      }
+                    }}
                   />
                 </div>
 
                 <div className="space-y-2 text-left bg-slate-950/70 p-3.5 rounded-xl border border-slate-800">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Ngân hàng:</span>
-                    <span className="font-bold text-slate-200">{activeOrder.bank_name || 'MBBank'}</span>
+                    <span className="font-bold text-slate-200">{activeOrder.bank_name || 'VietinBank'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Chủ tài khoản:</span>
+                    <span className="font-bold text-slate-200 uppercase">{activeOrder.account_holder || 'LE NGUYEN NHU THUY'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Số tài khoản:</span>
-                    <span className="font-bold text-cyan-300 select-all">{activeOrder.account_number || '0336230698'}</span>
+                    <span className="font-bold text-cyan-300 select-all">{activeOrder.account_number || '105887054819'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Số tiền:</span>

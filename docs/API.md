@@ -48,7 +48,10 @@ Create a payment order with locked exchange rate and VietQR payment details.
     "locked_exchange_rate": 25729.33,
     "amount_vnd": 1158000,
     "status": "PENDING",
-    "qr_code_url": "https://qr.sepay.vn/img?acc=0336230698&bank=MBBank&amount=1158000&des=ZP%208F293B",
+    "qr_code_url": "https://qr.sepay.vn/img?acc=105887054819&bank=VietinBank&amount=1158000&des=ZP%208F293B",
+    "account_number": "105887054819",
+    "bank_name": "VietinBank",
+    "account_holder": "LE NGUYEN NHU THUY",
     "payment_content": "ZP 8F293B",
     "expires_at": 1794759726.0
   }
