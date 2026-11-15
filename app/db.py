@@ -123,6 +123,10 @@ class CursorWrapper:
             self._cur.execute(script)
         return self
 
+    @property
+    def rowcount(self) -> int:
+        return getattr(self._cur, "rowcount", -1)
+
     def fetchone(self) -> Optional[Any]:
         row = self._cur.fetchone()
         if row is None:

@@ -6,5 +6,6 @@ __pycache__/
 *.pyc
 node_modules/
 dist/
+*.egg-info/
 data/*.sqlite3*
 data/snapshots/
