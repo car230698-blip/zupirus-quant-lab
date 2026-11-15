@@ -1,0 +1,6 @@
+{
+  "name": "ZUPIRUS Quant Lab",
+  "description": "Phòng thí nghiệm định lượng XAUUSD M15 và nền tảng copy MT5 Demo với PostgreSQL, TimescaleDB, Redis và Vercel AI SDK 6.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

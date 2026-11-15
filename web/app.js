@@ -1,5 +1,6 @@
 'use strict';
-const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const $ = s => typeof document !== 'undefined' && document ? document.querySelector(s) : null;
+const $$ = s => typeof document !== 'undefined' && document ? [...document.querySelectorAll(s)] : [];
 let currentUser = null, data = null, selectedAccount = '', currentPage = 'overview';
 const escapeHtml = x => String(x ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = x => Number(x || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -17,8 +18,11 @@ async function api(url, method = 'GET', body) {
 }
 
 function notice(text) {
-  $('#notice').hidden = false;
-  $('#notice').textContent = text;
+  const el = $('#notice');
+  if (el) {
+    el.hidden = false;
+    el.textContent = text;
+  }
 }
 
 async function action(fn) {
