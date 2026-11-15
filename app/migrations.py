@@ -186,14 +186,14 @@ def apply_migration_001(c, is_pg: bool):
 def apply_migration_002(c, is_pg: bool):
     """Migration 002: Partition-compatible quotes and candles schemas with TimescaleDB hypertables."""
     if is_pg:
-        # Check if quotes table exists with old UNIQUE(source, ts) constraint and migrate it safely
-        try:
-            c.execute("""
-                ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_source_ts_key;
-                ALTER TABLE quotes DROP CONSTRAINT IF EXISTS uq_quotes_old;
-            """)
-        except Exception:
-            pass
+        # Check if quotes table exists before attempting to alter constraints
+        reg = c.execute("SELECT to_regclass('public.quotes')").fetchone()
+        if reg and reg[0] is not None:
+            try:
+                c.execute("ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_source_ts_key;")
+                c.execute("ALTER TABLE quotes DROP CONSTRAINT IF EXISTS uq_quotes_old;")
+            except Exception:
+                pass
 
         c.execute("""
         CREATE TABLE IF NOT EXISTS quotes (
@@ -309,8 +309,10 @@ def run_all_migrations(c, is_pg: bool):
             handler(c, is_pg)
             if is_pg:
                 c.execute("INSERT INTO schema_migrations(version, name) VALUES (%s, %s)", (v, m["name"]))
+                c.commit()
             else:
                 c.execute("INSERT INTO schema_migrations(version, name, applied_at) VALUES (?, ?, ?)", (v, m["name"], time.time()))
+                c.commit()
             logger.info(f"Migration {v} ({m['name']}) applied successfully.")
 
 
