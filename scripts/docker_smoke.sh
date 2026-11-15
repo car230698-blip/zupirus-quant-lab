@@ -64,15 +64,16 @@ print('PASS: Worker heartbeats active and verified')
 "
 
 echo "=== 6. Verifying Quote Ingestion & Candle Queries ==="
-docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
+smoke_ts=$(docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
 import time
 from app.db import insert_timescale_quote, query_timescale_candles
-test_ts = 1700000888.0
+test_ts = round(time.time() - 120.0, 2)
 insert_timescale_quote('DEMO', test_ts, 2655.10, 2655.40, symbol='XAUUSD')
 candles = query_timescale_candles(symbol='XAUUSD', timeframe='M15', source='DEMO', limit=10)
 assert isinstance(candles, list), 'Candles query must return a list'
-print('PASS: Quote ingestion and candle query verified')
-"
+print(test_ts)
+")
+echo "PASS: Quote ingestion and candle query verified at ts=$smoke_ts"
 
 echo "=== 7. Verifying Persistence Across Service Restart ==="
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml restart research execution api
@@ -83,10 +84,10 @@ from app.db import get_db_connection
 ready = json.loads(urllib.request.urlopen('http://localhost:8000/readyz').read().decode())
 assert ready.get('status') == 'ready', 'System must recover to ready status after restart'
 
-# Read back previously inserted test quote record to verify data persisted across restart
+test_ts = float('$smoke_ts')
 with get_db_connection() as conn:
-    row = conn.execute(\"SELECT bid, ask FROM quotes WHERE source = 'DEMO' AND ts = 1700000888.0\").fetchone()
-    assert row is not None, 'Persisted quote record was lost after service restart!'
+    row = conn.execute('SELECT bid, ask FROM quotes WHERE source = ? AND ts = ?', ('DEMO', test_ts)).fetchone()
+    assert row is not None, f'Persisted quote record at {test_ts} was lost after service restart!'
     assert float(row[0]) == 2655.10 and float(row[1]) == 2655.40, f'Persisted quote corrupted: {row}'
 print('PASS: Services and persisted database records verified intact across restart')
 "
