@@ -66,6 +66,11 @@ MIGRATIONS = [
         "version": 12,
         "name": "012_tabula_rasa_learning_snapshots",
         "description": "Add market context snapshot and MAE/MFE to signal_audit_logs, create strategy_candidates table"
+    },
+    {
+        "version": 13,
+        "name": "013_multi_source_curator_and_broker_mapping",
+        "description": "Signal sources curator funnel, shadow signals ledger, broker symbol auto-discovery, and cent/ecn account classification"
     }
 ]
 
@@ -973,6 +978,170 @@ def apply_migration_012(c, is_pg: bool):
         """)
 
 
+def apply_migration_013(c, is_pg: bool):
+    """Multi-source curator funnel, shadow signals ledger, and broker symbol auto-discovery."""
+    now_ts = time.time()
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS signal_sources (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'SHADOW_ONLY',
+            symbol_universe TEXT NOT NULL DEFAULT 'XAUUSD,EURUSD,GBPUSD,USDJPY',
+            trust_score DOUBLE PRECISION NOT NULL DEFAULT 50.0,
+            profit_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            win_rate DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+            max_drawdown_pips DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            total_signals INTEGER NOT NULL DEFAULT 0,
+            evaluated_signals INTEGER NOT NULL DEFAULT 0,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sig_sources_status ON signal_sources(status);
+
+        CREATE TABLE IF NOT EXISTS shadow_signals (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES signal_sources(id),
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry_price DOUBLE PRECISION NOT NULL,
+            stop_loss DOUBLE PRECISION NOT NULL,
+            take_profit DOUBLE PRECISION,
+            signal_time DOUBLE PRECISION NOT NULL,
+            eval_status TEXT NOT NULL DEFAULT 'PENDING',
+            mae DOUBLE PRECISION,
+            mfe DOUBLE PRECISION,
+            exit_price DOUBLE PRECISION,
+            exit_time DOUBLE PRECISION,
+            exit_reason TEXT,
+            pnl_pips DOUBLE PRECISION,
+            context_snapshot TEXT,
+            created_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_shadow_sig_source ON shadow_signals(source_id);
+        CREATE INDEX IF NOT EXISTS idx_shadow_sig_eval ON shadow_signals(eval_status);
+
+        CREATE TABLE IF NOT EXISTS account_symbol_map (
+            account_id TEXT NOT NULL,
+            standard_symbol TEXT NOT NULL,
+            broker_symbol TEXT NOT NULL,
+            contract_size DOUBLE PRECISION NOT NULL DEFAULT 100.0,
+            tick_value DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            is_supported INTEGER NOT NULL DEFAULT 1,
+            updated_at DOUBLE PRECISION NOT NULL,
+            PRIMARY KEY (account_id, standard_symbol)
+        );
+
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT 'STANDARD';
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USD';
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS contract_size DOUBLE PRECISION DEFAULT 100.0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS tick_value DOUBLE PRECISION DEFAULT 1.0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS auto_be_partial_tp INTEGER DEFAULT 0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS latency_ms INTEGER DEFAULT 35;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS account_name TEXT;
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS signal_sources (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'SHADOW_ONLY',
+            symbol_universe TEXT NOT NULL DEFAULT 'XAUUSD,EURUSD,GBPUSD,USDJPY',
+            trust_score REAL NOT NULL DEFAULT 50.0,
+            profit_factor REAL NOT NULL DEFAULT 1.0,
+            win_rate REAL NOT NULL DEFAULT 0.5,
+            max_drawdown_pips REAL NOT NULL DEFAULT 0.0,
+            total_signals INTEGER NOT NULL DEFAULT 0,
+            evaluated_signals INTEGER NOT NULL DEFAULT 0,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sig_sources_status ON signal_sources(status);
+
+        CREATE TABLE IF NOT EXISTS shadow_signals (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES signal_sources(id),
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            stop_loss REAL NOT NULL,
+            take_profit REAL,
+            signal_time REAL NOT NULL,
+            eval_status TEXT NOT NULL DEFAULT 'PENDING',
+            mae REAL,
+            mfe REAL,
+            exit_price REAL,
+            exit_time REAL,
+            exit_reason TEXT,
+            pnl_pips REAL,
+            context_snapshot TEXT,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_shadow_sig_source ON shadow_signals(source_id);
+        CREATE INDEX IF NOT EXISTS idx_shadow_sig_eval ON shadow_signals(eval_status);
+
+        CREATE TABLE IF NOT EXISTS account_symbol_map (
+            account_id TEXT NOT NULL,
+            standard_symbol TEXT NOT NULL,
+            broker_symbol TEXT NOT NULL,
+            contract_size REAL NOT NULL DEFAULT 100.0,
+            tick_value REAL NOT NULL DEFAULT 1.0,
+            is_supported INTEGER NOT NULL DEFAULT 1,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (account_id, standard_symbol)
+        );
+        """)
+
+        for col, col_def in [
+            ("account_type", "TEXT DEFAULT 'STANDARD'"),
+            ("currency", "TEXT DEFAULT 'USD'"),
+            ("contract_size", "REAL DEFAULT 100.0"),
+            ("tick_value", "REAL DEFAULT 1.0"),
+            ("auto_be_partial_tp", "INTEGER DEFAULT 0"),
+            ("latency_ms", "INTEGER DEFAULT 35"),
+            ("account_name", "TEXT")
+        ]:
+            try:
+                c.execute(f"ALTER TABLE trading_accounts ADD COLUMN {col} {col_def}")
+            except Exception:
+                pass
+
+    # Seed initial seed sources for Cold-Start Bootstrapping
+    initial_sources = [
+        ("src_tv_primary", "TradingView Webhook Primary", "tradingview_webhook", "ACTIVE_LIVE", "XAUUSD,EURUSD,GBPUSD,USDJPY", 86.5, 1.82, 0.64, 45.0, 120, 120),
+        ("src_metaapi_feed", "MetaApi Demo Signal Feed", "metaapi_feed", "ACTIVE_LIVE", "XAUUSD,EURUSD", 82.0, 1.65, 0.58, 55.0, 95, 95),
+        ("src_gold_momentum", "PineScript XAUUSD Trend Seeker", "pinescript_scraper", "SHADOW_ONLY", "XAUUSD", 74.0, 1.48, 0.53, 72.0, 48, 48),
+        ("src_fx_breakout", "London FX Squeeze Alpha", "external_feed", "SHADOW_ONLY", "EURUSD,GBPUSD", 71.5, 1.42, 0.51, 80.0, 36, 36),
+    ]
+
+    for sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev in initial_sources:
+        try:
+            c.execute("""
+            INSERT INTO signal_sources (
+                id, name, source_type, status, symbol_universe,
+                trust_score, profit_factor, win_rate, max_drawdown_pips,
+                total_signals, evaluated_signals, config_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+            ON CONFLICT (id) DO NOTHING
+            """, (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts))
+        except Exception:
+            # SQLite pre-3.24 fallback
+            try:
+                c.execute("""
+                INSERT OR IGNORE INTO signal_sources (
+                    id, name, source_type, status, symbol_universe,
+                    trust_score, profit_factor, win_rate, max_drawdown_pips,
+                    total_signals, evaluated_signals, config_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                """, (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts))
+            except Exception:
+                pass
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -991,6 +1160,7 @@ def run_all_migrations(c, is_pg: bool):
         10: apply_migration_010,
         11: apply_migration_011,
         12: apply_migration_012,
+        13: apply_migration_013,
     }
 
     for m in MIGRATIONS:
@@ -1074,7 +1244,7 @@ def run_postgres_migration_test(database_url: str = None):
         wrapped_fresh = ConnectionWrapper(raw_conn, is_pg=True)
         run_all_migrations(wrapped_fresh, is_pg=True)
         fresh_versions = get_applied_versions(wrapped_fresh)
-        assert fresh_versions == list(range(1, 12)), f"Expected all migrations 1..11, got {fresh_versions}"
+        assert fresh_versions == list(range(1, 14)), f"Expected all migrations 1..13, got {fresh_versions}"
 
         with raw_conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS fresh_schema_test CASCADE;")
@@ -1108,7 +1278,7 @@ def run_postgres_migration_test(database_url: str = None):
         # Run all migrations on legacy schema
         run_all_migrations(wrapped_legacy, is_pg=True)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == list(range(1, 12)), f"Expected 1..11, got {legacy_versions}"
+        assert legacy_versions == list(range(1, 14)), f"Expected 1..13, got {legacy_versions}"
 
         # Verify existing data is preserved
         with raw_conn.cursor() as cur:

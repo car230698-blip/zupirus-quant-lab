@@ -20,6 +20,7 @@ class TradingAccountUpdate(BaseModel):
     risk_multiplier: Optional[float] = Field(default=None, ge=0.1, le=5.0)
     is_compounding: Optional[bool] = None
     is_prop_firm_mode: Optional[bool] = None
+    auto_be_partial_tp: Optional[bool] = None
     prop_daily_dd_limit_pct: Optional[float] = Field(default=None, ge=1.0, le=10.0)
     prop_profit_target_pct: Optional[float] = Field(default=None, ge=2.0, le=20.0)
     auto_trade: Optional[bool] = None
@@ -36,9 +37,14 @@ class TradingAccountResponse(BaseModel):
     risk_multiplier: float = 1.0
     is_compounding: bool = False
     is_prop_firm_mode: bool = False
+    auto_be_partial_tp: bool = False
     prop_daily_dd_limit_pct: float = 4.5
     prop_profit_target_pct: float = 8.0
     auto_trade: bool = True
+    account_type: str = "STANDARD"
+    currency: str = "USD"
+    contract_size: float = 100.0
+    latency_ms: int = 35
     balance: float = 0.0
     equity: float = 0.0
     last_sync: Optional[float] = None

@@ -104,6 +104,20 @@ def check_entry_slippage(signal: NormalizedSignalSchema, live_price: float) -> T
     return True, None
 
 
+def check_live_spread_guard(symbol: str, spread_pips: float) -> Tuple[bool, Optional[str]]:
+    """Live Spread Guard (Lớp 2 tại broker): Chặn lệnh nếu broker bị giãn Spread quá mức an toàn."""
+    sym_upper = symbol.upper()
+    is_gold = "XAU" in sym_upper or "GOLD" in sym_upper
+    max_allowed = 4.5 if is_gold else 2.5
+
+    if spread_pips > max_allowed:
+        reason = f"REJECTED_HIGH_SPREAD: Live broker spread {spread_pips:.1f}p exceeds max {max_allowed:.1f}p for {sym_upper}"
+        logger.warning(reason)
+        return False, reason
+
+    return True, None
+
+
 def sanitize_and_audit_signal(
     signal: NormalizedSignalSchema,
     live_price: Optional[float] = None,

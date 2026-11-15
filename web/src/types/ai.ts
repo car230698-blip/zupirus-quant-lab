@@ -42,7 +42,8 @@ export interface StrategyApprovalCardProps {
     folds?: Array<{
       train: number[];
       test: number[];
-      period: number;
+      period?: number;
+      rule?: string;
       oos_net_price_units: number;
       trades: number;
     }>;

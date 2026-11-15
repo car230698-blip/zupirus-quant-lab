@@ -240,11 +240,28 @@ async def execute_fan_out_for_signal(
     tasks = []
     account_metas = []
 
+    from app.services.symbol_mapper import resolve_broker_symbol
+    from app.services.account_classifier import calculate_normalized_lot_size
+    from app.services.signal_ingestion.sanitizer import check_live_spread_guard
+
     for acc in accounts:
         acc_id = acc["id"]
         meta_id = acc.get("metaapi_account_id") or acc_id
 
-        # 1. Check Redis Idempotency Lock
+        # 1. Broker Symbol Auto-Discovery & Mapping check
+        broker_sym = resolve_broker_symbol(acc_id, symbol)
+        if not broker_sym:
+            logger.info(f"Account {acc_id} does not support {symbol} (SKIPPED_UNSUPPORTED_SYMBOL).")
+            continue
+
+        # 2. Broker Live Spread Guard (Lớp 2: Kiểm tra riêng theo sàn của khách)
+        broker_spread = float(acc.get("live_spread_pips") or 1.5)
+        ok_spread, spread_err = check_live_spread_guard(symbol, broker_spread)
+        if not ok_spread:
+            logger.warning(f"Account {acc_id} rejected due to high spread: {spread_err}")
+            continue
+
+        # 3. Check Redis Idempotency Lock
         if redis_client:
             lock_key = f"zupirus:lock:signal:{signal_id}:{acc_id}"
             try:
@@ -255,7 +272,7 @@ async def execute_fan_out_for_signal(
             except Exception as e:
                 logger.error(f"Redis idempotency lock error: {e}")
 
-        # 2. Calculate dynamic lot with compounding & risk multiplier
+        # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
         is_comp = bool(acc.get("is_compounding", False))
         balance = float(acc.get("balance") or 10000.0)
         equity = float(acc.get("equity") or balance)
@@ -264,7 +281,20 @@ async def execute_fan_out_for_signal(
         risk_pct = float(acc.get("risk_percent", 1.0))
         max_lot = float(acc.get("max_lot", 5.0))
         mult = float(acc.get("risk_multiplier") or acc.get("multiplier") or 1.0)
-        volume = calculate_lot_size(base_capital, risk_pct, sl_points, symbol=symbol, max_lot=max_lot, multiplier=mult)
+        c_size = float(acc.get("contract_size") or 100.0)
+        t_val = float(acc.get("tick_value") or 1.0)
+        is_cent_acc = acc.get("account_type") == "CENT" or acc.get("currency") in ("USC", "EUC")
+
+        volume = calculate_normalized_lot_size(
+            equity=base_capital,
+            risk_pct=risk_pct,
+            sl_distance_points=sl_points,
+            contract_size=c_size,
+            tick_value=t_val,
+            risk_multiplier=mult,
+            max_lot=max_lot,
+            is_cent=is_cent_acc
+        )
 
         account_metas.append({
             "account_id": acc_id,
@@ -274,13 +304,14 @@ async def execute_fan_out_for_signal(
             "equity": equity,
             "is_compounding": is_comp,
             "multiplier": mult,
+            "broker_symbol": broker_sym,
         })
 
-        # 3. Schedule concurrent execution task
+        # 5. Schedule concurrent execution task
         tasks.append(
             metaapi_client.execute_order(
                 metaapi_account_id=meta_id,
-                symbol=symbol,
+                symbol=broker_sym,
                 action=action,
                 volume=volume,
                 stop_loss=sl,

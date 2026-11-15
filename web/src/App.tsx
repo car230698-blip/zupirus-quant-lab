@@ -8,6 +8,8 @@ import { UserOverviewTab } from './components/UserOverviewTab.tsx';
 import { UserAccountsTab } from './components/UserAccountsTab.tsx';
 import { UserOrdersTab } from './components/UserOrdersTab.tsx';
 import { AdminOverviewTab } from './components/AdminOverviewTab.tsx';
+import { AdminSourcesTab } from './components/AdminSourcesTab.tsx';
+import { AdminBillingSettingsTab } from './components/AdminBillingSettingsTab.tsx';
 import { AdminActivityTab } from './components/AdminActivityTab.tsx';
 import { AdminTracingTab } from './components/AdminTracingTab.tsx';
 import { AdminRiskCalendarTab } from './components/AdminRiskCalendarTab.tsx';
@@ -23,7 +25,7 @@ const AdminApprovalQueue = lazy(() =>
 );
 
 type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
-type AdminTabKey = 'overview' | 'approvals' | 'activity' | 'tracing' | 'news' | 'users' | 'ai';
+type AdminTabKey = 'overview' | 'sources' | 'billing' | 'approvals' | 'activity' | 'tracing' | 'news' | 'users' | 'ai';
 export type PortalType = 'landing' | 'user' | 'admin';
 
 interface UserInfo {
@@ -843,6 +845,10 @@ const AppContent: React.FC = () => {
               onNavigateApprovals={() => setAdminTab('approvals')}
             />
           )}
+
+          {adminTab === 'sources' && <AdminSourcesTab />}
+
+          {adminTab === 'billing' && <AdminBillingSettingsTab />}
 
           {adminTab === 'approvals' && (
             <div className="space-y-6">

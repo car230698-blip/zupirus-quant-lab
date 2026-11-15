@@ -22,7 +22,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
   const { data: fxData } = useExchangeRate();
   const fxRate = fxData?.rate || 25730.0;
 
-  const { data: accountsData, isLoading: cloudLoading } = useCloudAccounts();
+  const { data: accountsData } = useCloudAccounts();
   const cloudAccounts = accountsData?.accounts || [];
 
   const { data: subData } = useUserSubscription();
@@ -64,6 +64,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
   const [editPropMode, setEditPropMode] = useState<boolean>(false);
   const [editDailyDD, setEditDailyDD] = useState<number>(4.5);
   const [editProfitTarget, setEditProfitTarget] = useState<number>(8.0);
+  const [editAutoBePartialTp, setEditAutoBePartialTp] = useState<boolean>(true);
   const [savingRisk, setSavingRisk] = useState(false);
 
   useEffect(() => {
@@ -262,6 +263,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
     setEditPropMode(Boolean(acc.is_prop_firm_mode));
     setEditDailyDD(acc.prop_daily_dd_limit_pct || 4.5);
     setEditProfitTarget(acc.prop_profit_target_pct || 8.0);
+    setEditAutoBePartialTp(acc.auto_be_partial_tp !== undefined ? Boolean(acc.auto_be_partial_tp) : true);
   }
 
   async function saveAccountRisk(accountId: string) {
@@ -276,6 +278,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
           is_prop_firm_mode: editPropMode,
           prop_daily_dd_limit_pct: editDailyDD,
           prop_profit_target_pct: editProfitTarget,
+          auto_be_partial_tp: editAutoBePartialTp,
         }),
       });
       const data = await res.json();
@@ -417,14 +420,22 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
           </div>
         )}
 
+        {/* Hidden inputs to absorb browser autofill heuristics */}
+        <input type="text" style={{ display: 'none' }} tabIndex={-1} autoComplete="username" />
+        <input type="password" style={{ display: 'none' }} tabIndex={-1} autoComplete="current-password" />
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-mono">
           <div>
             <label className="block text-slate-400 mb-1.5 font-bold">MT5 LOGIN (SỐ TÀI KHOẢN) *</label>
             <input
               type="text"
+              name="mt5_login_number"
+              autoComplete="off"
+              inputMode="numeric"
+              pattern="[0-9]*"
               required
               value={cloudLogin}
-              onChange={(e) => setCloudLogin(e.target.value)}
+              onChange={(e) => setCloudLogin(e.target.value.replace(/\D/g, ''))}
               placeholder="VD: 10928374"
               className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3.5 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-400"
             />
@@ -521,8 +532,33 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
         </div>
 
         {cloudAccounts.length === 0 ? (
-          <div className="p-10 text-center text-slate-500 font-mono text-xs space-y-2">
-            <p>{cloudLoading ? 'Đang tải dữ liệu...' : 'Chưa có tài khoản Cloud MT5 nào được kết nối.'}</p>
+          <div className="p-8 text-center text-slate-400 font-mono text-xs space-y-6">
+            <p className="text-slate-300 text-sm font-semibold">Chưa có tài khoản Cloud MT5 nào được kết nối.</p>
+            <div className="max-w-2xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                <div className="w-6 h-6 rounded-full bg-cyan-950 border border-cyan-500/50 text-cyan-300 flex items-center justify-center font-bold text-xs">1</div>
+                <div className="font-bold text-slate-200 text-xs">Mở Tài Khoản MT5</div>
+                <div className="text-[11px] text-slate-400 leading-relaxed">
+                  Đăng ký tài khoản MT5 tại sàn uy tín: Exness (Standard / Raw), IC Markets, hoặc FTMO.
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                <div className="w-6 h-6 rounded-full bg-cyan-950 border border-cyan-500/50 text-cyan-300 flex items-center justify-center font-bold text-xs">2</div>
+                <div className="font-bold text-slate-200 text-xs">Kích Hoạt Cloud Bridge</div>
+                <div className="text-[11px] text-slate-400 leading-relaxed">
+                  Nhập số Login, Mật khẩu giao dịch & Máy chủ vào form bên trên để kết nối trực tiếp London G2.
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                <div className="w-6 h-6 rounded-full bg-cyan-950 border border-cyan-500/50 text-cyan-300 flex items-center justify-center font-bold text-xs">3</div>
+                <div className="font-bold text-slate-200 text-xs">Bật Auto-Trade & Thảnh Thơi</div>
+                <div className="text-[11px] text-slate-400 leading-relaxed">
+                  Bật công tắc Auto-Trade và thiết lập hệ số rủi ro. Hệ thống tự động sao chép lệnh định lượng 24/5.
+                </div>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="divide-y divide-slate-800">
@@ -540,6 +576,23 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                       </span>
                       {a.account_name && (
                         <span className="text-xs text-slate-400 font-mono">({a.account_name})</span>
+                      )}
+                      {a.account_type === 'CENT' ? (
+                        <span className="rounded border px-2 py-0.5 text-[10px] font-mono font-bold bg-amber-950 text-amber-300 border-amber-700/60">
+                          Cent · USC (1:100)
+                        </span>
+                      ) : a.account_type === 'PROP_FIRM' ? (
+                        <span className="rounded border px-2 py-0.5 text-[10px] font-mono font-bold bg-purple-950 text-purple-300 border-purple-700/60">
+                          Prop Firm · FTMO
+                        </span>
+                      ) : a.account_type === 'RAW_ECN' ? (
+                        <span className="rounded border px-2 py-0.5 text-[10px] font-mono font-bold bg-blue-950 text-blue-300 border-blue-700/60">
+                          Raw ECN · Zero Spread
+                        </span>
+                      ) : (
+                        <span className="rounded border px-2 py-0.5 text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border-slate-700">
+                          Standard · USD
+                        </span>
                       )}
                       <span className="rounded border px-2 py-0.5 text-[10px] font-mono font-bold bg-cyan-950 text-cyan-300 border-cyan-700/60">
                         METAAPI CLOUD
@@ -619,7 +672,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                         Tùy Biến Rủi Ro & Chế Độ Gói Thuê Bao (#{a.login || a.mt5_login})
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {/* Control 1: Risk Multiplier */}
                         <div className="space-y-1.5">
                           <div className="flex justify-between">
@@ -659,7 +712,21 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                           )}
                         </div>
 
-                        {/* Control 3: Prop Firm Mode */}
+                        {/* Control 3: Auto Break-Even & Partial TP */}
+                        <div className="space-y-1.5">
+                          <span className="text-slate-300 font-bold block">Auto BE & Chốt 50%:</span>
+                          <label className="flex items-center gap-2 cursor-pointer pt-1">
+                            <input
+                              type="checkbox"
+                              checked={editAutoBePartialTp}
+                              onChange={(e) => setEditAutoBePartialTp(e.target.checked)}
+                              className="rounded border-slate-700 bg-slate-900 text-emerald-500"
+                            />
+                            <span className="text-emerald-300 font-bold">Dời SL về hòa vốn khi đạt 1R</span>
+                          </label>
+                        </div>
+
+                        {/* Control 4: Prop Firm Mode */}
                         <div className="space-y-1.5">
                           <span className="text-slate-300 font-bold block">Chế Độ Thi Quỹ Pass Guard:</span>
                           <label className="flex items-center gap-2 cursor-pointer pt-1">
@@ -670,7 +737,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                               onChange={(e) => setEditPropMode(e.target.checked)}
                               className="rounded border-slate-700 bg-slate-900 text-purple-500"
                             />
-                            <span className="text-purple-300 font-bold">Khóa lệnh khi chạm Daily Drawdown</span>
+                            <span className="text-purple-300 font-bold">Khóa lệnh khi chạm Daily DD</span>
                           </label>
                           {!subscription?.allow_prop_firm_mode && (
                             <span className="text-[10px] text-amber-400 block">🔒 Dành riêng cho gói Prop Firm Alpha</span>

@@ -47,9 +47,15 @@ def _row_to_account_response(row: dict) -> dict:
         "risk_multiplier": float(row.get("risk_multiplier") or row.get("multiplier") or 1.0),
         "is_compounding": bool(row.get("is_compounding", 0)),
         "is_prop_firm_mode": bool(row.get("is_prop_firm_mode", 0)),
+        "auto_be_partial_tp": bool(row.get("auto_be_partial_tp", 0)),
         "prop_daily_dd_limit_pct": float(row.get("prop_daily_dd_limit_pct") or 4.5),
         "prop_profit_target_pct": float(row.get("prop_profit_target_pct") or 8.0),
         "auto_trade": int(row.get("auto_trade", 1)),
+        "account_type": row.get("account_type") or "STANDARD",
+        "currency": row.get("currency") or "USD",
+        "contract_size": float(row.get("contract_size") or 100.0),
+        "tick_value": float(row.get("tick_value") or 1.0),
+        "latency_ms": int(row.get("latency_ms") or 35),
         "balance": float(row.get("balance") or 0.0),
         "equity": float(row.get("equity") or 0.0),
         "last_sync": float(row.get("last_sync")) if row.get("last_sync") else None,
@@ -189,6 +195,12 @@ async def create_account(
             logger.error(f"Failed to save account {p.login} to database: {e}")
             fail(409, "Tài khoản MT5 trên Server này đã được liên kết hoặc xảy ra xung đột dữ liệu.")
 
+        from app.services.account_classifier import detect_account_type
+        from app.services.symbol_mapper import discover_and_map_account_symbols
+        acc_type = detect_account_type(currency="USD", server=p.server, name=p.account_name)
+        c.execute("UPDATE trading_accounts SET account_type=?, latency_ms=28 WHERE id=?", (acc_type, account_id))
+        discover_and_map_account_symbols(account_id, ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"], db_cursor=c)
+
         audit(c, user_id, "trading_account_cloud_connected", {
             "account_id": account_id,
             "login": p.login,
@@ -242,6 +254,10 @@ def update_account_risk(
                 fail(403, "Cần nâng cấp lên gói Prop Firm Alpha để kích hoạt Chế Độ Thi Quỹ (Prop Firm Guard).")
             updates.append("is_prop_firm_mode=?")
             params.append(1 if p.is_prop_firm_mode else 0)
+
+        if p.auto_be_partial_tp is not None:
+            updates.append("auto_be_partial_tp=?")
+            params.append(1 if p.auto_be_partial_tp else 0)
 
         if p.prop_daily_dd_limit_pct is not None:
             updates.append("prop_daily_dd_limit_pct=?")

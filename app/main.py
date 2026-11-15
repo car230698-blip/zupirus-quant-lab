@@ -1535,12 +1535,23 @@ class DispatchSignalPayload(BaseModel):
     tp: Optional[float] = None
     rationale: Optional[str] = None
 
-# Modular domain routers: Billing, Webhooks, Signals, Accounts
-from app.routers import billing_router, webhooks_router, signals_router, accounts_router
+# Modular domain routers: Billing, Webhooks, Signals, Accounts, Sources, Admin Billing, Telemetry
+from app.routers import (
+    billing_router,
+    webhooks_router,
+    signals_router,
+    accounts_router,
+    sources_router,
+    admin_billing_router,
+    telemetry_router,
+)
 app.include_router(billing_router)
 app.include_router(webhooks_router)
 app.include_router(signals_router)
 app.include_router(accounts_router)
+app.include_router(sources_router)
+app.include_router(admin_billing_router)
+app.include_router(telemetry_router)
 
 @app.post('/api/metaapi/dispatch-signal')
 async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(user)):
