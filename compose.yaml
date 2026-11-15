@@ -55,7 +55,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
       REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zupirus.local}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Run bash scripts/start.sh first}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin_secure_change_me_2026}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,https://zupirus.com,https://adm.zupirus.com}
       FEED_TOKEN: ${FEED_TOKEN:-}
