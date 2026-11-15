@@ -60,7 +60,7 @@ def publish(c, source, side, price, key, now=None):
     # Publish to Redis Streams & Pub/Sub immediately if connection available
     try:
         publish_signal_event(signal_payload)
-        c.execute("UPDATE outbox SET status='published', published_at=? WHERE event_type='signal_created' AND status='pending' AND payload LIKE ?", (now, f'%{sid}%'))
+        c.execute("UPDATE outbox SET status='published', published_at=? WHERE event_type='signal_created' AND status='pending' AND CAST(payload AS TEXT) LIKE ?", (now, f'%{sid}%'))
     except Exception:
         pass
 
