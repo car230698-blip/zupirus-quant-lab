@@ -88,6 +88,16 @@ class CursorWrapper:
         self._cur = raw_cursor
         self._is_pg = is_pg
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if hasattr(self._cur, "close"):
+            try:
+                self._cur.close()
+            except Exception:
+                pass
+
     def _adapt_sql(self, sql: str) -> str:
         if not self._is_pg:
             return sql

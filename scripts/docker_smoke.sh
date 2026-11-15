@@ -85,11 +85,9 @@ assert ready.get('status') == 'ready', 'System must recover to ready status afte
 
 # Read back previously inserted test quote record to verify data persisted across restart
 with get_db_connection() as conn:
-    with conn.cursor() as cur:
-        cur.execute(\"SELECT bid, ask FROM quotes WHERE source = 'DEMO' AND ts = 1700000888.0\")
-        row = cur.fetchone()
-        assert row is not None, 'Persisted quote record was lost after service restart!'
-        assert float(row[0]) == 2655.10 and float(row[1]) == 2655.40, f'Persisted quote corrupted: {row}'
+    row = conn.execute("SELECT bid, ask FROM quotes WHERE source = 'DEMO' AND ts = 1700000888.0").fetchone()
+    assert row is not None, 'Persisted quote record was lost after service restart!'
+    assert float(row[0]) == 2655.10 and float(row[1]) == 2655.40, f'Persisted quote corrupted: {row}'
 print('PASS: Services and persisted database records verified intact across restart')
 "
 
