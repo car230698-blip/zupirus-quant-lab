@@ -350,3 +350,4 @@ async def execute_fan_out_for_signal(
         "avg_latency_ms": avg_lat,
         "executions": executions
     }
+
