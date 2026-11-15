@@ -23,12 +23,26 @@ export interface PortfolioCardProps {
     id: string;
     login: string;
     server: string;
+    mode?: string;
     balance: number;
     equity: number;
     positions: number;
   }>;
   totalBalance: number;
   totalEquity: number;
+}
+
+export interface RecentOrdersCardProps {
+  orders: Array<{
+    id: number | string;
+    source: string;
+    side: string;
+    price: number;
+    state: string;
+    ticket?: string;
+    deal?: string;
+    created: number;
+  }>;
 }
 
 export interface StrategyApprovalCardProps {
@@ -39,6 +53,7 @@ export interface StrategyApprovalCardProps {
     strategy?: string;
     oos_net_price_units?: number;
     max_drawdown_price_units?: number;
+    trades?: number;
     folds?: Array<{
       train: number[];
       test: number[];
@@ -59,4 +74,3 @@ export interface ToolLoopAgentState {
   activeCandidateJobId: string | null;
   history: Message[];
 }
-

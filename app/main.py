@@ -141,7 +141,7 @@ class Risk(Model):
 def risk(aid: str, p: Risk, u=Depends(user)):
     with tx() as c:
         a = owned(c, aid, u)
-        c.execute('UPDATE accounts SET enabled=?,risk=?,max_spread=?,max_positions=?,max_dd=? WHERE id=?', (p.enabled, p.risk, p.max_spread, p.max_positions, p.max_dd, aid))
+        c.execute('UPDATE accounts SET enabled=?,risk=?,max_spread=?,max_positions=?,max_dd=? WHERE id=?', (int(p.enabled), p.risk, p.max_spread, p.max_positions, p.max_dd, aid))
         if not p.enabled:
             c.execute("UPDATE dispatches SET state='cancelled',updated=? WHERE account_id=? AND state='queued'", (time.time(), aid))
         audit(c, u['id'], 'risk_changed', {'account': aid, **p.model_dump()})
@@ -378,7 +378,7 @@ def decision(jid: str, p: Decision, u=Depends(admin)):
     with tx() as c:
         row = c.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
         if not row or row['state'] != 'waiting_approval': fail(409, 'Job not waiting for approval')
-        c.execute("UPDATE jobs SET state='resume',decision=? WHERE id=?", (p.approved, jid))
+        c.execute("UPDATE jobs SET state='resume',decision=? WHERE id=?", (int(p.approved), jid))
         audit(c, u['id'], 'research_decision', {'job': jid, 'approved': p.approved})
     return {'ok': True}
 
@@ -453,7 +453,7 @@ async def chat_assistant(payload: ChatPayload, u=Depends(user)):
 
     from .research import ai_text
     ans = ai_text("Giải thích dữ liệu demo tài chính: " + json.dumps(snapshot, ensure_ascii=False)[:8000] + "\nCâu hỏi khách hàng: " + user_msg)
-    response_text = ans['text'] if ans['available'] else f"Hệ thống demo ghi nhận {len(snapshot['accounts'])} tài khoản đang hoạt động. Vốn thả nổi và số dư được cập nhật liên tục từ broker."
+    response_text = ans['text'] if ans['available'] else f"Trợ lý quy tắc · Hệ thống demo ghi nhận {len(snapshot['accounts'])} tài khoản đang hoạt động ({len(snapshot['orders'])} lệnh gần nhất). Vốn thả nổi và số dư được cập nhật liên tục từ broker."
 
     # Generator emitting Vercel AI SDK Data Stream protocol
     async def event_generator():

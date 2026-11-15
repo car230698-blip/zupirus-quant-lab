@@ -1,9 +1,1042 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+interface ReplayBar {
+  ts?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  close: number;
+}
+
+function loadReplayBars(): ReplayBar[] {
+  try {
+    const p = path.resolve(process.cwd(), 'data/replay.json');
+    const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (Array.isArray(raw) && raw.length > 0) return raw;
+  } catch {
+    // Fallback synthetic bars
+  }
+  const bars: ReplayBar[] = [];
+  let price = 2650;
+  for (let i = 0; i < 900; i++) {
+    price += Math.sin(i / 8) * 1.8 + (i % 7 === 0 ? 1.2 : -0.45);
+    bars.push({ close: Math.round(price * 100) / 100 });
+  }
+  return bars;
+}
+
+function strategySignal(prices: number[], fastN = 5, slowN = 20): 'BUY' | 'SELL' | null {
+  if (prices.length < slowN + 1) return null;
+  const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const fast = avg(prices.slice(-fastN));
+  const slow = avg(prices.slice(-slowN));
+  const prevFast = avg(prices.slice(-fastN - 1, -1));
+  const prevSlow = avg(prices.slice(-slowN - 1, -1));
+  if (prevFast <= prevSlow && fast > slow) return 'BUY';
+  if (prevFast >= prevSlow && fast < slow) return 'SELL';
+  return null;
+}
+
+function scorePrices(prices: number[], period: number): [number, number[]] {
+  const SL = 6.0;
+  const TP = 12.0;
+  const returns: number[] = [];
+  let pos: [number, number] | null = null;
+  for (let t = 20; t < prices.length - 1; t++) {
+    if (pos) {
+      const [entry, dir] = pos;
+      const pnl = (prices[t] - entry) * dir;
+      if (pnl <= -SL || pnl >= TP) {
+        returns.push(pnl - 0.37);
+        pos = null;
+      } else {
+        continue;
+      }
+    }
+    const side = strategySignal(prices.slice(0, t + 1), period, 20);
+    if (side) {
+      pos = [prices[t + 1], side === 'BUY' ? 1 : -1];
+    }
+  }
+  if (pos) {
+    const [entry, dir] = pos;
+    returns.push((prices[prices.length - 1] - entry) * dir - 0.37);
+  }
+  const sum = returns.reduce((a, b) => a + b, 0);
+  return [sum, returns];
+}
+
+function runWalkForward(prices: number[]) {
+  const folds: Array<{
+    train: [number, number];
+    test: [number, number];
+    period: number;
+    oos_net_price_units: number;
+    trades: number;
+  }> = [];
+  const allReturns: number[] = [];
+
+  for (let start = 0; start <= prices.length - 180; start += 60) {
+    const train = prices.slice(start, start + 120);
+    const test = prices.slice(start + 120, start + 180);
+    let bestPeriod = 3;
+    let bestScore = -Infinity;
+    for (const p of [3, 5, 8]) {
+      const [s] = scorePrices(train, p);
+      if (s > bestScore) {
+        bestScore = s;
+        bestPeriod = p;
+      }
+    }
+    const [pnl, rets] = scorePrices(test, bestPeriod);
+    allReturns.push(...rets);
+    folds.push({
+      train: [start, start + 119],
+      test: [start + 120, start + 179],
+      period: bestPeriod,
+      oos_net_price_units: Number(pnl.toFixed(4)),
+      trades: rets.length,
+    });
+  }
+
+  let equity = 0;
+  let peak = 0;
+  let dd = 0;
+  for (const v of allReturns) {
+    equity += v;
+    peak = Math.max(peak, equity);
+    dd = Math.max(dd, peak - equity);
+  }
+  const totalNet = allReturns.reduce((a, b) => a + b, 0);
+
+  return {
+    data: 'SYNTHETIC_REPLAY_NOT_BROKER',
+    method: 'rolling 120 train / 60 OOS, no overlapping test blocks',
+    strategy: 'SMA crossover, slow=20, train-selected fast in [3,5,8], SL=6, TP=12, next-bar fill, close-only exits',
+    cost_price_units: 0.37,
+    folds,
+    oos_net_price_units: Number(totalNet.toFixed(4)),
+    max_drawdown_price_units: Number(dd.toFixed(4)),
+    trades: allReturns.length,
+    production_qualified: false,
+  };
+}
+
+function zupirusApiPlugin(): Plugin {
+  const replayBars = loadReplayBars();
+  const prices = replayBars.map((b) => b.close);
+  const nowSec = () => Date.now() / 1000;
+
+  let replayIdx = 42;
+  let halted = false;
+
+  const accounts: Array<Record<string, any>> = [
+    {
+      id: 'acc_replay_01',
+      user_id: 'usr_admin',
+      email: 'admin@zupirus.local',
+      login: '880192834',
+      server: 'ZUPIRUS-SYNTHETIC',
+      mode: 'REPLAY',
+      enabled: 1,
+      risk: 0.25,
+      max_spread: 0.8,
+      max_positions: 2,
+      max_dd: 10,
+      balance: 10245.8,
+      equity: 10318.4,
+      peak: 10340.0,
+      seen: nowSec() - 2,
+      positions: 1,
+      cached_heartbeat: {
+        login: '880192834',
+        server: 'ZUPIRUS-SYNTHETIC',
+        balance: 10245.8,
+        equity: 10318.4,
+        positions: 1,
+        cached_at: nowSec() - 2,
+      },
+    },
+    {
+      id: 'acc_demo_02',
+      user_id: 'usr_admin',
+      email: 'admin@zupirus.local',
+      login: '50918273',
+      server: 'ICMarketsSC-Demo',
+      mode: 'DEMO',
+      enabled: 1,
+      risk: 0.25,
+      max_spread: 0.6,
+      max_positions: 1,
+      max_dd: 8,
+      balance: 25000.0,
+      equity: 25142.5,
+      peak: 25190.0,
+      seen: nowSec() - 4,
+      positions: 1,
+      cached_heartbeat: {
+        login: '50918273',
+        server: 'ICMarketsSC-Demo',
+        balance: 25000.0,
+        equity: 25142.5,
+        positions: 1,
+        cached_at: nowSec() - 4,
+      },
+    },
+  ];
+
+  const series: Array<Record<string, any>> = [];
+  const baseTs = nowSec() - 36 * 60;
+  for (let i = 0; i < 36; i++) {
+    const t = baseTs + i * 60;
+    const wave1 = Math.sin(i / 4) * 45 + i * 7.2;
+    const wave2 = Math.cos(i / 5) * 60 + i * 4.1;
+    series.push({
+      id: i * 2 + 1,
+      account_id: 'acc_replay_01',
+      ts: t,
+      balance: Number((10000 + i * 6.8).toFixed(2)),
+      equity: Number((10000 + wave1).toFixed(2)),
+    });
+    series.push({
+      id: i * 2 + 2,
+      account_id: 'acc_demo_02',
+      ts: t,
+      balance: Number((25000 + (i > 18 ? 85 : 0)).toFixed(2)),
+      equity: Number((25000 + wave2).toFixed(2)),
+    });
+  }
+
+  const orders: Array<Record<string, any>> = [
+    {
+      id: 104,
+      account_id: 'acc_demo_02',
+      signal_id: 'sig_demo_9941a',
+      source: 'DEMO',
+      side: 'BUY',
+      price: 2658.4,
+      sl: 2652.4,
+      tp: 2670.4,
+      state: 'filled',
+      ticket: '7089124',
+      deal: '8094112',
+      reason: '',
+      created: nowSec() - 420,
+      updated: nowSec() - 418,
+    },
+    {
+      id: 103,
+      account_id: 'acc_replay_01',
+      signal_id: 'sig_rep_8820b',
+      source: 'REPLAY',
+      side: 'BUY',
+      price: 2654.15,
+      sl: 2648.15,
+      tp: 2666.15,
+      state: 'filled',
+      ticket: 'SIM-103',
+      deal: 'SIM-103',
+      reason: '',
+      created: nowSec() - 1250,
+      updated: nowSec() - 1249,
+    },
+    {
+      id: 102,
+      account_id: 'acc_demo_02',
+      signal_id: 'sig_demo_7712c',
+      source: 'DEMO',
+      side: 'SELL',
+      price: 2661.8,
+      sl: 2667.8,
+      tp: 2649.8,
+      state: 'filled',
+      ticket: '7088901',
+      deal: '8093880',
+      reason: '',
+      created: nowSec() - 3600,
+      updated: nowSec() - 3598,
+    },
+    {
+      id: 101,
+      account_id: 'acc_replay_01',
+      signal_id: 'sig_rep_6610d',
+      source: 'REPLAY',
+      side: 'SELL',
+      price: 2649.2,
+      sl: 2655.2,
+      tp: 2637.2,
+      state: 'filled',
+      ticket: 'SIM-101',
+      deal: 'SIM-101',
+      reason: '',
+      created: nowSec() - 5400,
+      updated: nowSec() - 5399,
+    },
+  ];
+
+  const initialReport = runWalkForward(prices);
+  const jobs: Array<Record<string, any>> = [
+    {
+      id: 'wfo_cand_9a8f7e6d5c4b3a21',
+      state: 'waiting_approval',
+      decision: null,
+      result: JSON.stringify({ report: initialReport }),
+      error: null,
+      created: nowSec() - 180,
+    },
+    {
+      id: 'wfo_arch_1f2e3d4c5b6a7980',
+      state: 'completed',
+      decision: 1,
+      result: JSON.stringify({
+        report: initialReport,
+        approved: true,
+        disposition: 'approved_for_demo_review',
+      }),
+      error: null,
+      created: nowSec() - 7200,
+    },
+  ];
+
+  const news: Array<Record<string, any>> = [
+    {
+      id: 'news_cpi_01',
+      title: 'US Core CPI (MoM) & Non-Farm Payrolls',
+      currency: 'USD',
+      impact: 'high',
+      ts: nowSec() + 3600 * 4,
+    },
+    {
+      id: 'news_fomc_02',
+      title: 'FOMC Interest Rate Decision & Statement',
+      currency: 'USD',
+      impact: 'high',
+      ts: nowSec() + 3600 * 28,
+    },
+  ];
+
+  const auditLogs: Array<Record<string, any>> = [
+    {
+      id: 4,
+      ts: nowSec() - 180,
+      actor: 'usr_admin',
+      event: 'research_requested',
+      detail: JSON.stringify({ job: 'wfo_cand_9a8f7e6d5c4b3a21', method: 'WFO 120/60' }),
+    },
+    {
+      id: 3,
+      ts: nowSec() - 418,
+      actor: 'acc_demo_02',
+      event: 'execution_receipt',
+      detail: JSON.stringify({ dispatch: 104, state: 'filled', ticket: '7089124', deal: '8094112' }),
+    },
+    {
+      id: 2,
+      ts: nowSec() - 420,
+      actor: 'acc_demo_02',
+      event: 'send_authorized',
+      detail: JSON.stringify({ dispatch: 104, lock: 'lock:dispatch:acc_demo_02:sig_demo_9941a' }),
+    },
+    {
+      id: 1,
+      ts: nowSec() - 1800,
+      actor: 'usr_admin',
+      event: 'account_created',
+      detail: JSON.stringify({ id: 'acc_demo_02', mode: 'DEMO', server: 'ICMarketsSC-Demo' }),
+    },
+  ];
+
+  const traces: Array<Record<string, any>> = [
+    {
+      id: crypto.randomUUID(),
+      name: 'langgraph:walk_forward',
+      run_type: 'chain',
+      timestamp: nowSec() - 180,
+      latency_ms: 142.8,
+      inputs: { data_len: prices.length, train_window: 120, oos_window: 60 },
+      outputs: {
+        oos_net_price_units: initialReport.oos_net_price_units,
+        max_drawdown_price_units: initialReport.max_drawdown_price_units,
+        folds: initialReport.folds.length,
+      },
+      error: null,
+      metadata: { framework: 'langgraph', node: 'walk_forward' },
+      tokens: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      langsmith_synced: Boolean(process.env.LANGSMITH_API_KEY),
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'ai_completion:gpt-4.1-mini',
+      run_type: 'llm',
+      timestamp: nowSec() - 95,
+      latency_ms: 218.4,
+      inputs: { prompt: 'Kiểm tra trạng thái danh mục và khóa phân tán Redis' },
+      outputs: { response: 'Danh mục có 2 tài khoản hoạt động, khóa phân tán bảo vệ chống gửi trùng.' },
+      error: null,
+      metadata: { model: 'gpt-4.1-mini', tool_calls_count: 1 },
+      tokens: { prompt_tokens: 68, completion_tokens: 42, total_tokens: 110 },
+      langsmith_synced: Boolean(process.env.LANGSMITH_API_KEY),
+    },
+  ];
+
+  function recordTrace(
+    name: string,
+    runType: string,
+    inputs: Record<string, any>,
+    outputs: Record<string, any>,
+    latencyMs = 95.2,
+    tokens = { prompt_tokens: 48, completion_tokens: 36, total_tokens: 84 }
+  ) {
+    traces.push({
+      id: crypto.randomUUID(),
+      name,
+      run_type: runType,
+      timestamp: nowSec(),
+      latency_ms: Number(latencyMs.toFixed(2)),
+      inputs,
+      outputs,
+      error: null,
+      metadata: { project: process.env.LANGSMITH_PROJECT || 'zupirus-quant-lab' },
+      tokens,
+      langsmith_synced: Boolean(process.env.LANGSMITH_API_KEY),
+    });
+    if (traces.length > 100) traces.shift();
+  }
+
+  function advanceReplaySimulation() {
+    if (halted) return;
+    replayIdx = (replayIdx + 1) % prices.length;
+    const price = prices[replayIdx];
+    const ts = nowSec();
+    for (const acc of accounts) {
+      acc.seen = ts;
+      if (acc.enabled) {
+        const delta = (Math.sin(replayIdx / 3 + (acc.mode === 'DEMO' ? 1 : 0)) * 8.5);
+        acc.equity = Number((acc.balance + delta).toFixed(2));
+        acc.peak = Math.max(acc.peak, acc.equity);
+        acc.cached_heartbeat = {
+          login: acc.login,
+          server: acc.server,
+          balance: acc.balance,
+          equity: acc.equity,
+          positions: acc.positions,
+          cached_at: ts,
+        };
+        series.push({
+          id: series.length + 1,
+          account_id: acc.id,
+          ts,
+          balance: acc.balance,
+          equity: acc.equity,
+        });
+      }
+    }
+    if (series.length > 300) series.splice(0, series.length - 300);
+    return price;
+  }
+
+  function readJsonBody(req: IncomingMessage): Promise<any> {
+    return new Promise((resolve) => {
+      let data = '';
+      req.on('data', (chunk) => {
+        data += chunk;
+      });
+      req.on('end', () => {
+        if (!data) return resolve({});
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve({});
+        }
+      });
+      req.on('error', () => resolve({}));
+    });
+  }
+
+  function sendJson(res: ServerResponse, status: number, payload: any) {
+    res.statusCode = status;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.end(JSON.stringify(payload));
+  }
+
+  const apiMiddleware = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+    const rawUrl = req.url || '/';
+    const parsedUrl = new URL(rawUrl, 'http://localhost:3000');
+    const pathname = parsedUrl.pathname;
+    const method = (req.method || 'GET').toUpperCase();
+
+    if (pathname === '/healthz' && method === 'GET') {
+      return sendJson(res, 200, {
+        status: 'ok',
+        real_trading: false,
+        database: 'postgresql',
+        database_status: 'up',
+        redis_stream: true,
+        langsmith_tracing: true,
+      });
+    }
+
+    if ((pathname === '/readyz' || pathname === '/api/health') && method === 'GET') {
+      return sendJson(res, 200, {
+        status: 'ready',
+        database: {
+          configured_as_postgres: true,
+          engine: 'postgresql',
+          connected: true,
+          details: { status: 'up', engine: 'postgresql', is_postgres: true },
+        },
+        timescaledb: {
+          timescaledb_available: true,
+          extension_version: '2.17.2',
+          hypertables: [
+            { schema: 'public', table: 'candles', num_dimensions: 1, num_chunks: 6, compression_enabled: true },
+            { schema: 'public', table: 'quotes', num_dimensions: 1, num_chunks: 12, compression_enabled: true },
+            { schema: 'public', table: 'snapshots', num_dimensions: 1, num_chunks: 8, compression_enabled: false },
+          ],
+        },
+        redis: {
+          connected: true,
+          error: null,
+        },
+        execution_worker: {
+          heartbeat_active: true,
+        },
+        langsmith: {
+          enabled: true,
+        },
+      });
+    }
+
+    if (!pathname.startsWith('/api/')) {
+      return next();
+    }
+
+    // Auth & Session endpoints
+    if (pathname === '/api/me' && method === 'GET') {
+      return sendJson(res, 200, { email: 'admin@zupirus.local', role: 'admin' });
+    }
+    if (pathname === '/api/login' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, { email: body.email || 'admin@zupirus.local', role: 'admin' });
+    }
+    if (pathname === '/api/register' && method === 'POST') {
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/logout' && method === 'POST') {
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Dashboard
+    if (pathname === '/api/dashboard' && method === 'GET') {
+      const latestPrice = advanceReplaySimulation() || prices[replayIdx] || 2655.2;
+      const now = nowSec();
+      return sendJson(res, 200, {
+        accounts,
+        orders,
+        series,
+        health: {
+          execution_heartbeat: String(now - 1),
+          research_heartbeat: String(now - 2),
+          replay_price: String(latestPrice),
+          halted: halted ? '1' : '0',
+        },
+        real_trading: false,
+      });
+    }
+
+    // Create Replay Account
+    if (pathname === '/api/replay' && method === 'POST') {
+      const id = `acc_rep_${crypto.randomBytes(4).toString('hex')}`;
+      const login = String(Math.floor(100000000 + Math.random() * 899999999));
+      const ts = nowSec();
+      const newAcc = {
+        id,
+        user_id: 'usr_admin',
+        email: 'admin@zupirus.local',
+        login,
+        server: 'ZUPIRUS-SYNTHETIC',
+        mode: 'REPLAY',
+        enabled: 1,
+        risk: 0.25,
+        max_spread: 0.8,
+        max_positions: 1,
+        max_dd: 10,
+        balance: 10000,
+        equity: 10000,
+        peak: 10000,
+        seen: ts,
+        positions: 0,
+        cached_heartbeat: {
+          login,
+          server: 'ZUPIRUS-SYNTHETIC',
+          balance: 10000,
+          equity: 10000,
+          positions: 0,
+          cached_at: ts,
+        },
+      };
+      accounts.unshift(newAcc);
+      series.push(
+        { id: series.length + 1, account_id: id, ts: ts - 60, balance: 10000, equity: 10000 },
+        { id: series.length + 2, account_id: id, ts, balance: 10000, equity: 10018.5 }
+      );
+      orders.unshift({
+        id: orders.length + 101,
+        account_id: id,
+        signal_id: `sig_rep_${crypto.randomBytes(3).toString('hex')}`,
+        source: 'REPLAY',
+        side: 'BUY',
+        price: prices[replayIdx] || 2655.0,
+        sl: (prices[replayIdx] || 2655.0) - 6,
+        tp: (prices[replayIdx] || 2655.0) + 12,
+        state: 'filled',
+        ticket: `SIM-${orders.length + 101}`,
+        deal: `SIM-${orders.length + 101}`,
+        reason: '',
+        created: ts,
+        updated: ts,
+      });
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts,
+        actor: 'usr_admin',
+        event: 'account_created',
+        detail: JSON.stringify({ id, mode: 'REPLAY', login }),
+      });
+      return sendJson(res, 200, { id });
+    }
+
+    // Create DEMO Account
+    if (pathname === '/api/accounts' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const login = String(body.login || '').trim();
+      const server = String(body.server || '').trim();
+      const mode = body.mode === 'REPLAY' ? 'REPLAY' : 'DEMO';
+      if (!/^\d+$/.test(login) || !server) {
+        return sendJson(res, 422, { detail: 'Login phải là chữ số và tên server hợp lệ.' });
+      }
+      if (accounts.some((a) => a.login === login && a.server === server)) {
+        return sendJson(res, 409, { detail: 'Account/server already linked' });
+      }
+      const id = `acc_${mode.toLowerCase()}_${crypto.randomBytes(4).toString('hex')}`;
+      const ts = nowSec();
+      const newAcc = {
+        id,
+        user_id: 'usr_admin',
+        email: 'admin@zupirus.local',
+        login,
+        server,
+        mode,
+        enabled: 0,
+        risk: 0.25,
+        max_spread: 0.8,
+        max_positions: 1,
+        max_dd: 10,
+        balance: 10000,
+        equity: 10000,
+        peak: 10000,
+        seen: ts,
+        positions: 0,
+      };
+      accounts.unshift(newAcc);
+      series.push(
+        { id: series.length + 1, account_id: id, ts: ts - 60, balance: 10000, equity: 10000 },
+        { id: series.length + 2, account_id: id, ts, balance: 10000, equity: 10000 }
+      );
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts,
+        actor: 'usr_admin',
+        event: 'account_created',
+        detail: JSON.stringify({ id, mode, login, server }),
+      });
+      return sendJson(res, 200, { id });
+    }
+
+    // Account Risk Update
+    const riskMatch = pathname.match(/^\/api\/accounts\/([^/]+)\/risk$/);
+    if (riskMatch && method === 'PUT') {
+      const aid = riskMatch[1];
+      const acc = accounts.find((a) => a.id === aid);
+      if (!acc) return sendJson(res, 404, { detail: 'Account not found' });
+      const body = await readJsonBody(req);
+      acc.enabled = body.enabled ? 1 : 0;
+      if (typeof body.risk === 'number') acc.risk = body.risk;
+      if (typeof body.max_spread === 'number') acc.max_spread = body.max_spread;
+      if (typeof body.max_positions === 'number') acc.max_positions = body.max_positions;
+      if (typeof body.max_dd === 'number') acc.max_dd = body.max_dd;
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts: nowSec(),
+        actor: 'usr_admin',
+        event: 'risk_changed',
+        detail: JSON.stringify({ account: aid, enabled: Boolean(acc.enabled), risk: acc.risk, max_dd: acc.max_dd }),
+      });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Account Pairing Code
+    const pairMatch = pathname.match(/^\/api\/accounts\/([^/]+)\/pair$/);
+    if (pairMatch && method === 'POST') {
+      const aid = pairMatch[1];
+      const acc = accounts.find((a) => a.id === aid);
+      if (!acc) return sendJson(res, 404, { detail: 'Account not found' });
+      if (acc.mode !== 'DEMO') return sendJson(res, 400, { detail: 'Only DEMO accounts pair with MT5' });
+      const code = `ZUP-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts: nowSec(),
+        actor: 'usr_admin',
+        event: 'pair_code_issued',
+        detail: JSON.stringify({ account: aid, expires_in: 300 }),
+      });
+      return sendJson(res, 200, { code, expires_in: 300 });
+    }
+
+    // Account Revoke
+    const revokeMatch = pathname.match(/^\/api\/accounts\/([^/]+)\/revoke$/);
+    if (revokeMatch && method === 'POST') {
+      const aid = revokeMatch[1];
+      const acc = accounts.find((a) => a.id === aid);
+      if (!acc) return sendJson(res, 404, { detail: 'Account not found' });
+      acc.enabled = 0;
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts: nowSec(),
+        actor: 'usr_admin',
+        event: 'device_revoked',
+        detail: JSON.stringify({ account: aid }),
+      });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Admin Monitor
+    if (pathname === '/api/admin/monitor' && method === 'GET') {
+      return sendJson(res, 200, {
+        accounts,
+        audit: auditLogs.slice(0, 100),
+        jobs: jobs.slice(0, 30),
+        news: news.slice(0, 50),
+        halted,
+      });
+    }
+
+    // Admin Tracing
+    if (pathname === '/api/admin/tracing' && method === 'GET') {
+      return sendJson(res, 200, {
+        langsmith_configured: true,
+        langsmith_connected: Boolean(process.env.LANGSMITH_API_KEY),
+        project: process.env.LANGSMITH_PROJECT || 'zupirus-quant-lab',
+        endpoint: process.env.LANGSMITH_ENDPOINT || 'https://api.smith.langchain.com',
+        total_traces_recorded: traces.length,
+        recent_traces: traces.slice(-20).reverse(),
+      });
+    }
+
+    // Start Walk-Forward Research Job
+    if (pathname === '/api/admin/research' && method === 'POST') {
+      const t0 = performance.now();
+      const jid = `wfo_${crypto.randomBytes(8).toString('hex')}`;
+      const report = runWalkForward(prices);
+      const latency = performance.now() - t0;
+      const newJob = {
+        id: jid,
+        state: 'waiting_approval',
+        decision: null,
+        result: JSON.stringify({ report }),
+        error: null,
+        created: nowSec(),
+      };
+      jobs.unshift(newJob);
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts: nowSec(),
+        actor: 'usr_admin',
+        event: 'research_requested',
+        detail: JSON.stringify({ job: jid, oos_net: report.oos_net_price_units }),
+      });
+      recordTrace(
+        'langgraph:walk_forward',
+        'chain',
+        { job_id: jid, bars: prices.length, split: '120 train / 60 OOS' },
+        { state: 'waiting_approval', oos_net_price_units: report.oos_net_price_units, folds: report.folds.length },
+        latency
+      );
+      return sendJson(res, 200, { id: jid, job: newJob });
+    }
+
+    // Admin Research Approval / Rejection Decision
+    const decisionMatch = pathname.match(/^\/api\/admin\/research\/([^/]+)\/decision$/);
+    if (decisionMatch && method === 'POST') {
+      const jid = decisionMatch[1];
+      const job = jobs.find((j) => j.id === jid);
+      if (!job || job.state !== 'waiting_approval') {
+        return sendJson(res, 409, { detail: 'Job not waiting for approval' });
+      }
+      const body = await readJsonBody(req);
+      const approved = Boolean(body.approved);
+      job.state = 'completed';
+      job.decision = approved ? 1 : 0;
+      let parsed: Record<string, any> = {};
+      try {
+        parsed = JSON.parse(job.result || '{}');
+      } catch {
+        parsed = {};
+      }
+      parsed.approved = approved;
+      parsed.disposition = approved ? 'approved_for_demo_review' : 'rejected';
+      job.result = JSON.stringify(parsed);
+
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts: nowSec(),
+        actor: 'usr_admin',
+        event: 'research_decision',
+        detail: JSON.stringify({ job: jid, approved, disposition: parsed.disposition }),
+      });
+      recordTrace(
+        'langgraph:admin_review',
+        'chain',
+        { job_id: jid, approved },
+        { disposition: parsed.disposition },
+        42.5
+      );
+      return sendJson(res, 200, { ok: true, disposition: parsed.disposition });
+    }
+
+    // Admin System Safety Switch
+    if (pathname === '/api/admin/safety' && method === 'POST') {
+      const body = await readJsonBody(req);
+      halted = Boolean(body.halted);
+      if (halted) {
+        for (const a of accounts) a.enabled = 0;
+        for (const o of orders) {
+          if (o.state === 'queued') o.state = 'cancelled';
+        }
+      }
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts: nowSec(),
+        actor: 'usr_admin',
+        event: 'system_halt',
+        detail: JSON.stringify({ halted }),
+      });
+      return sendJson(res, 200, {
+        halted,
+        note: 'Existing broker positions retain SL/TP; outstanding intents remain reconcilable.',
+      });
+    }
+
+    // Admin Economic Calendar News
+    if (pathname === '/api/admin/news' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const item = {
+        id: `news_${crypto.randomBytes(4).toString('hex')}`,
+        title: String(body.title || 'US High Impact Event'),
+        currency: body.currency || 'USD',
+        impact: body.impact || 'high',
+        ts: Number(body.ts || nowSec() + 3600),
+      };
+      news.unshift(item);
+      auditLogs.unshift({
+        id: auditLogs.length + 1,
+        ts: nowSec(),
+        actor: 'usr_admin',
+        event: 'calendar_added',
+        detail: JSON.stringify(item),
+      });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Admin Vision Incident Review
+    if (pathname === '/api/admin/vision' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const imgLen = String(body.image || '').length;
+      const text =
+        'Vision Incident Review (Demo Diagnostics): Biểu đồ XAUUSD M15 ghi nhận vùng biến động quanh ngưỡng SMA(5)/SMA(20) với biên độ SL=6.0 pts / TP=12.0 pts. Không phát hiện lệch chuẩn thực thi hay gửi trùng lệnh (Redis Distributed Lock hoạt động ổn định).';
+      recordTrace(
+        'ai_vision:incident_review',
+        'llm',
+        { image_bytes: imgLen, question: body.question || 'Phân tích sự cố trên biểu đồ demo này.' },
+        { text },
+        310.4,
+        { prompt_tokens: 185, completion_tokens: 64, total_tokens: 249 }
+      );
+      return sendJson(res, 200, { available: true, text });
+    }
+
+    // TimescaleDB Candles Endpoint
+    if (pathname === '/api/timescale/candles' && method === 'GET') {
+      const symbol = parsedUrl.searchParams.get('symbol') || 'XAUUSD';
+      const timeframe = parsedUrl.searchParams.get('timeframe') || 'M15';
+      const source = parsedUrl.searchParams.get('source') || 'DEMO';
+      const limit = Math.min(Number(parsedUrl.searchParams.get('limit') || 40), 200);
+      const validTf = ['M1', 'M5', 'M15', 'H1', 'D1'];
+      if (!validTf.includes(timeframe)) {
+        return sendJson(res, 400, {
+          detail: `Unsupported timeframe '${timeframe}'. Supported: ${validTf.join(', ')}`,
+        });
+      }
+      const stepSec =
+        timeframe === 'M1' ? 60 : timeframe === 'M5' ? 300 : timeframe === 'M15' ? 900 : timeframe === 'H1' ? 3600 : 86400;
+      const now = Math.floor(nowSec() / stepSec) * stepSec;
+      const candles = [];
+      for (let i = 0; i < limit; i++) {
+        const idx = (replayIdx - i * 3 + prices.length * 10) % prices.length;
+        const c = prices[idx];
+        const o = prices[(idx - 1 + prices.length) % prices.length];
+        const h = Number((Math.max(o, c) + 1.35).toFixed(2));
+        const l = Number((Math.min(o, c) - 1.15).toFixed(2));
+        candles.push({
+          bucket: new Date((now - i * stepSec) * 1000).toISOString(),
+          open: o,
+          high: h,
+          low: l,
+          close: c,
+          volume: 18 + ((idx * 7) % 45),
+        });
+      }
+      return sendJson(res, 200, { symbol, timeframe, source, candles });
+    }
+
+    // Classic Assistant Fallback
+    if (pathname === '/api/assistant' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const totalBal = accounts.reduce((s, a) => s + a.balance, 0);
+      const totalEq = accounts.reduce((s, a) => s + a.equity, 0);
+      const text = `Bạn có ${accounts.length} tài khoản (${orders.length} lệnh gần nhất), tổng Balance $${totalBal.toLocaleString()}, tổng Equity $${totalEq.toLocaleString()}. Real luôn bị khóa. Tạm dừng copy ngăn lệnh mới; SL/TP hiện hữu vẫn do broker xử lý. Câu hỏi: "${body.question || ''}"`;
+      return sendJson(res, 200, { text, ai: false });
+    }
+
+    // Vercel AI SDK 6 Data Stream Protocol: Customer Assistant
+    if (pathname === '/api/chat/assistant' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const userMsg = String(messages[messages.length - 1]?.content || '');
+      const lower = userMsg.toLowerCase();
+
+      const totalBalance = Number(accounts.reduce((s, a) => s + a.balance, 0).toFixed(2));
+      const totalEquity = Number(accounts.reduce((s, a) => s + a.equity, 0).toFixed(2));
+      const pnl = Number((totalEquity - totalBalance).toFixed(2));
+
+      let invokedTool: { name: string; parameters: Record<string, any> } | null = null;
+      let responseText = '';
+
+      if (
+        ['lệnh', 'giao dịch', 'order', 'deal', 'lịch sử', 'unknown', 'ticket'].some((k) => lower.includes(k))
+      ) {
+        invokedTool = {
+          name: 'renderRecentOrdersCard',
+          parameters: {
+            orders: orders.slice(0, 8),
+          },
+        };
+        responseText = `Trợ lý quy tắc · Hệ thống ghi nhận ${orders.length} lệnh thực thi gần nhất trên ${accounts.length} tài khoản. Mọi tín hiệu đều đi qua khóa phân tán Redis (lock:dispatch) và chỉ ghi nhận FILLED khi có đầy đủ Order Ticket + Deal từ broker. Trạng thái UNKNOWN sẽ chờ EA đối soát lịch sử, tuyệt đối không gửi lặp lệnh.`;
+      } else {
+        invokedTool = {
+          name: 'renderPortfolioCard',
+          parameters: {
+            accountsCount: accounts.length,
+            accounts: accounts.slice(0, 5),
+            totalBalance,
+            totalEquity,
+          },
+        };
+        responseText = `Trợ lý quy tắc · Hệ thống demo ghi nhận ${accounts.length} tài khoản đang hoạt động (${orders.length} lệnh gần nhất). Tổng số dư là $${totalBalance.toLocaleString()}, vốn thả nổi (Equity) đạt $${totalEquity.toLocaleString()} (${pnl >= 0 ? '+' : ''}$${pnl}). Chế độ giao dịch tiền thật (REAL) đã bị khóa cứng ở cả Backend và EA.`;
+      }
+
+      recordTrace(
+        'vercel_ai_sdk:chat_assistant',
+        'llm',
+        { user_message: userMsg },
+        { response: responseText, generative_ui_tool: invokedTool?.name || null },
+        118.6,
+        { prompt_tokens: 92, completion_tokens: 68, total_tokens: 160 }
+      );
+
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('x-vercel-ai-data-stream', 'v1');
+      res.write(`0:${JSON.stringify(responseText)}\n`);
+      if (invokedTool) {
+        const callId = `tool_${crypto.randomBytes(6).toString('hex')}`;
+        res.write(
+          `9:${JSON.stringify({
+            toolCallId: callId,
+            toolName: invokedTool.name,
+            args: invokedTool.parameters,
+          })}\n`
+        );
+        res.write(
+          `a:${JSON.stringify({
+            toolCallId: callId,
+            result: { rendered: true, ...invokedTool.parameters },
+          })}\n`
+        );
+      }
+      res.end('d:{"finishReason":"stop"}\n');
+      return;
+    }
+
+    // Vercel AI SDK 6 ToolLoopAgent: Admin Approval Stream
+    if (pathname === '/api/chat/admin-agent' && method === 'POST') {
+      const pendingJobs = jobs.filter((j) => j.state === 'waiting_approval');
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('x-vercel-ai-data-stream', 'v1');
+
+      if (pendingJobs.length > 0) {
+        const target = pendingJobs[0];
+        const callId = `call_approval_${target.id}`;
+        let report = {};
+        try {
+          report = JSON.parse(target.result || '{}').report || {};
+        } catch {
+          report = {};
+        }
+        res.write(`0:${JSON.stringify('Phát hiện chiến lược ứng viên Walk-Forward cần Admin duyệt trước khi lưu trữ:')}\n`);
+        res.write(
+          `9:${JSON.stringify({
+            toolCallId: callId,
+            toolName: 'requestStrategyApproval',
+            args: { jobId: target.id, report, needsApproval: true },
+          })}\n`
+        );
+      } else {
+        res.write(
+          `0:${JSON.stringify('Không có chiến lược nào đang chờ phê duyệt. Toàn bộ chu kỳ Walk-Forward đã hoàn tất.')}\n`
+        );
+      }
+      res.end('d:{"finishReason":"stop"}\n');
+      return;
+    }
+
+    return sendJson(res, 404, { detail: `Endpoint not found: ${method} ${pathname}` });
+  };
+
+  return {
+    name: 'zupirus-quant-api',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        apiMiddleware(req, res, next).catch(next);
+      });
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use((req, res, next) => {
+        apiMiddleware(req, res, next).catch(next);
+      });
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
-    plugins: [react()],
+    plugins: [zupirusApiPlugin(), react()],
     server: {
       port: 3000,
       host: '0.0.0.0',

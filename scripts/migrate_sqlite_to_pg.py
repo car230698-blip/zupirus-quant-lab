@@ -97,10 +97,17 @@ def migrate(sqlite_path: Path, pg_url: str):
                 # Insert into PostgreSQL with ON CONFLICT DO NOTHING to ensure idempotence
                 insert_sql = f"INSERT INTO {table} ({col_names}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
 
+                from datetime import datetime, timezone
                 migrated = 0
                 for r in rows:
-                    row_vals = tuple(r)
-                    pg_cur.execute(insert_sql, row_vals)
+                    row_list = list(r)
+                    if "time" in cols:
+                        t_idx = cols.index("time")
+                        t_val = row_list[t_idx]
+                        if isinstance(t_val, (int, float)):
+                            ts_fallback = row_list[cols.index("ts")] if "ts" in cols and row_list[cols.index("ts")] else t_val
+                            row_list[t_idx] = datetime.fromtimestamp(float(t_val if t_val > 0 else ts_fallback), tz=timezone.utc)
+                    pg_cur.execute(insert_sql, tuple(row_list))
                     migrated += 1
 
                 # Verify count in PostgreSQL

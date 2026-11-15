@@ -270,6 +270,7 @@ async function loadAdmin() {
 
 async function askVercelAssistant(question) {
   const answerEl = $('#answer');
+  if (!answerEl) return;
   answerEl.innerHTML = '<span class="muted">Đang kết nối luồng Vercel AI SDK 6...</span>';
 
   try {
@@ -280,36 +281,54 @@ async function askVercelAssistant(question) {
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
     let text = '';
     let toolWidgetHtml = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-      for (const line of lines) {
-        if (line.startsWith('0:')) {
-          text += JSON.parse(line.slice(2));
-        } else if (line.startsWith('9:')) {
-          const toolCall = JSON.parse(line.slice(2));
-          if (toolCall.toolName === 'renderPortfolioCard') {
-            const p = toolCall.args;
-            toolWidgetHtml = `
-              <div style="margin-top:10px;padding:10px;background:#080d1a;border:1px solid #06b6d4;border-radius:8px;font-family:monospace;font-size:11px;">
-                <div style="color:#06b6d4;font-weight:bold;margin-bottom:6px;">📊 Generative UI · Thẻ Danh Mục Tài Khoản</div>
-                <div>Tổng Balance: <b>$${p.totalBalance?.toLocaleString()}</b></div>
-                <div>Tổng Equity: <b>$${p.totalEquity?.toLocaleString()}</b></div>
-                <div class="muted">Số tài khoản: ${p.accountsCount}</div>
-              </div>
-            `;
-          }
+    const processLine = (line) => {
+      if (line.startsWith('0:')) {
+        text += JSON.parse(line.slice(2));
+      } else if (line.startsWith('9:')) {
+        const toolCall = JSON.parse(line.slice(2));
+        if (toolCall.toolName === 'renderPortfolioCard') {
+          const p = toolCall.args;
+          toolWidgetHtml = `
+            <div style="margin-top:10px;padding:10px;background:#080d1a;border:1px solid #06b6d4;border-radius:8px;font-family:monospace;font-size:11px;">
+              <div style="color:#06b6d4;font-weight:bold;margin-bottom:6px;">📊 Generative UI · Thẻ Danh Mục Tài Khoản</div>
+              <div>Tổng Balance: <b>$${p.totalBalance?.toLocaleString()}</b></div>
+              <div>Tổng Equity: <b>$${p.totalEquity?.toLocaleString()}</b></div>
+              <div class="muted">Số tài khoản: ${p.accountsCount}</div>
+            </div>
+          `;
         }
+      }
+    };
+
+    if (res.body && typeof res.body.getReader === 'function') {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.trim()) processLine(line);
+        }
+        answerEl.innerHTML = `<div>${escapeHtml(text)}</div>${toolWidgetHtml}`;
+      }
+      if (buffer.trim()) {
+        processLine(buffer);
+        answerEl.innerHTML = `<div>${escapeHtml(text)}</div>${toolWidgetHtml}`;
+      }
+    } else {
+      const raw = await res.text();
+      for (const line of raw.split('\n')) {
+        if (line.trim()) processLine(line);
       }
       answerEl.innerHTML = `<div>${escapeHtml(text)}</div>${toolWidgetHtml}`;
     }
+    if (!text) throw new Error('Empty stream');
   } catch (err) {
     // Graceful fallback to standard assistant
     const r = await api('/assistant', 'POST', { question });

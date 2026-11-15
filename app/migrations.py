@@ -190,6 +190,7 @@ def apply_migration_002(c, is_pg: bool):
         # 1. Create tables with partition-compatible constraints FIRST
         c.execute("""
         CREATE TABLE IF NOT EXISTS quotes (
+            id BIGSERIAL,
             time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             source TEXT NOT NULL,
             symbol TEXT NOT NULL DEFAULT 'XAUUSD',
@@ -199,6 +200,7 @@ def apply_migration_002(c, is_pg: bool):
             CONSTRAINT uq_quotes UNIQUE (time, source, ts)
         );
         CREATE TABLE IF NOT EXISTS candles (
+            id BIGSERIAL,
             time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             source TEXT NOT NULL DEFAULT 'DEMO',
             symbol TEXT NOT NULL DEFAULT 'XAUUSD',
@@ -211,12 +213,16 @@ def apply_migration_002(c, is_pg: bool):
             CONSTRAINT uq_candles UNIQUE (time, source, symbol, timeframe)
         );
         CREATE TABLE IF NOT EXISTS snapshots (
+            id BIGSERIAL,
             time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             account_id TEXT REFERENCES accounts(id),
             ts DOUBLE PRECISION NOT NULL,
             balance DOUBLE PRECISION NOT NULL,
             equity DOUBLE PRECISION NOT NULL
         );
+        ALTER TABLE quotes ADD COLUMN IF NOT EXISTS id BIGSERIAL;
+        ALTER TABLE candles ADD COLUMN IF NOT EXISTS id BIGSERIAL;
+        ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS id BIGSERIAL;
         """)
 
         # 2. Schema upgrade for legacy databases: if old constraints exist, update them safely
