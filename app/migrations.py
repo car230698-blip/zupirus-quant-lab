@@ -251,11 +251,29 @@ def apply_migration_003(c, is_pg: bool):
             status TEXT NOT NULL DEFAULT 'pending',
             retry_count INTEGER NOT NULL DEFAULT 0,
             error TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            published_at TIMESTAMPTZ
+            created_at DOUBLE PRECISION NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW()),
+            published_at DOUBLE PRECISION
         );
         CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox(id) WHERE status = 'pending';
         """)
+        # If created_at was TIMESTAMPTZ from older migration run, safely alter to DOUBLE PRECISION
+        try:
+            c.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'outbox' AND column_name = 'created_at' AND data_type LIKE '%timestamp%'
+                ) THEN
+                    ALTER TABLE outbox ALTER COLUMN created_at DROP DEFAULT;
+                    ALTER TABLE outbox ALTER COLUMN created_at TYPE DOUBLE PRECISION USING EXTRACT(EPOCH FROM created_at);
+                    ALTER TABLE outbox ALTER COLUMN created_at SET DEFAULT EXTRACT(EPOCH FROM NOW());
+                    ALTER TABLE outbox ALTER COLUMN published_at TYPE DOUBLE PRECISION USING EXTRACT(EPOCH FROM published_at);
+                END IF;
+            END $$;
+            """)
+        except Exception:
+            pass
     else:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS outbox (
