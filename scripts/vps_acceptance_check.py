@@ -23,20 +23,32 @@ def run_acceptance_check(base_url: str = BASE_URL):
 
     # 2. Login as Admin
     login_data = json.dumps({"email": "admin@zupirus.local", "password": "test-only-admin-password-123"}).encode()
-    req = urllib.request.Request(f"{base_url}/api/login", data=login_data, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        f"{base_url}/api/login",
+        data=login_data,
+        headers={"Content-Type": "application/json", "x-zupirus": "1"}
+    )
     resp = opener.open(req)
     print("[+] Admin login status:", resp.status)
     assert resp.status == 200
 
     # 3. Create DEMO account
     acc_payload = json.dumps({"login": "889900", "server": "ICMarketsSC-Demo", "mode": "DEMO"}).encode()
-    req = urllib.request.Request(f"{base_url}/api/accounts", data=acc_payload, headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        f"{base_url}/api/accounts",
+        data=acc_payload,
+        headers={"Content-Type": "application/json", "x-zupirus": "1"}
+    )
     resp = opener.open(req)
     acc = json.loads(resp.read().decode())
     print(f"[+] DEMO Account created: id={acc['id']}")
 
     # 4. Generate Pairing Code
-    req = urllib.request.Request(f"{base_url}/api/accounts/{acc['id']}/pair", data=b"", headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        f"{base_url}/api/accounts/{acc['id']}/pair",
+        data=b"",
+        headers={"Content-Type": "application/json", "x-zupirus": "1"}
+    )
     resp = opener.open(req)
     pair_data = json.loads(resp.read().decode())
     code = pair_data["code"]
