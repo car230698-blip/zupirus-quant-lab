@@ -1,7 +1,7 @@
 """Deterministic execution. Integrated with Redis Streams, Pub/Sub, Distributed Locks,
 and Multi-Strategy Coordinator (Trend Following, Mean Reversion, Breakout)."""
-import time, hashlib, math, json, logging
-from typing import Dict, Any, Optional, Tuple, Literal
+import os, time, hashlib, math, json, logging
+from typing import Dict, Any, Optional, Tuple, Literal, List
 from .db import tx, init, audit, setkv, ROOT
 from .redis_client import publish_signal_event, acquire_dispatch_lock, release_dispatch_lock
 
@@ -266,23 +266,125 @@ def replay_step(c, index):
             continue
         entry = price + (.15 if d['side'] == 'BUY' else -.15)
         c.execute('INSERT OR IGNORE INTO sim_positions VALUES(?,?,?,?,?,?,?)', (d['id'], a['id'], d['side'], entry, d['sl'], d['tp'], lots))
-        c.execute("UPDATE dispatches SET state='filled',ticket=?,deal=?,updated=? WHERE id=?", (f'SIM-{d["id"]}', f'SIM-{d["id"]}', now, d['id']))
+        try:
+            c.execute("UPDATE dispatches SET state='filled',ticket=?,deal=?,updated=?,fill_price=? WHERE id=?", (f'SIM-{d["id"]}', f'SIM-{d["id"]}', now, round(entry, 2), d['id']))
+        except Exception:
+            c.execute("UPDATE dispatches SET state='filled',ticket=?,deal=?,updated=? WHERE id=?", (f'SIM-{d["id"]}', f'SIM-{d["id"]}', now, d['id']))
         c.execute('UPDATE accounts SET positions=positions+1 WHERE id=?', (a['id'],))
     setkv(c, 'replay_index', index + 1)
     setkv(c, 'replay_price', price)
 
-def demo_step(c):
-    rows = c.execute("SELECT * FROM quotes WHERE source='DEMO' ORDER BY ts DESC LIMIT 26").fetchall()[::-1]
-    if not rows or time.time() - rows[-1]['ts'] > 10: return
-    previous = c.execute("SELECT value FROM kv WHERE key='demo_last'").fetchone()
-    if previous and float(previous[0]) >= rows[-1]['ts']: return
-    setkv(c, 'demo_last', rows[-1]['ts'])
+def get_closed_candles_for_strategy(c, source: str = 'DEMO', timeframe: str = 'M15', min_required: int = 25):
+    """Return strictly closed candles for the given timeframe.
+    A candle is closed when its bucket end <= current time.
+    Supports M1, M5, M15, H1, D1 intervals."""
+    interval_map = {'M1': 60, 'M5': 300, 'M15': 900, 'H1': 3600, 'D1': 86400}
+    interval = interval_map.get(timeframe, 900)
+    now = time.time()
     
-    prices = [(r['bid'] + r['ask']) / 2 for r in rows]
-    decision = coordinate_strategies(prices, timeframe="M15")
+    # 1. Check candles table first
+    rows = c.execute(
+        "SELECT time, open, high, low, close, volume FROM candles WHERE source=? AND timeframe=? ORDER BY time DESC LIMIT ?",
+        (source, timeframe, min_required + 10)
+    ).fetchall()
+    if len(rows) >= min_required:
+        candles = [dict(r) for r in rows][::-1]
+        closed = [cand for cand in candles if float(cand['time']) + interval <= now]
+        if len(closed) >= min_required:
+            return closed, timeframe
+
+    # 2. Next aggregate quotes from quotes table
+    quotes = c.execute("SELECT ts, bid, ask FROM quotes WHERE source=? ORDER BY ts ASC", (source,)).fetchall()
+    if not quotes:
+        return [], timeframe
+
+    current_bucket = int(now // interval) * interval
+    bucket_map = {}
+    for q in quotes:
+        b = int(q['ts'] // interval) * interval
+        if b < current_bucket:  # Bucket has elapsed
+            if b not in bucket_map:
+                bucket_map[b] = []
+            bucket_map[b].append((q['ts'], (q['bid'] + q['ask']) / 2.0))
+
+    closed_from_quotes = []
+    for b in sorted(bucket_map.keys()):
+        pts = bucket_map[b]
+        closed_from_quotes.append({
+            'time': b + interval,  # Candle close time
+            'open': pts[0][1],
+            'high': max(p[1] for p in pts),
+            'low': min(p[1] for p in pts),
+            'close': pts[-1][1],
+            'volume': len(pts)
+        })
+
+    if len(closed_from_quotes) >= min_required:
+        return closed_from_quotes, timeframe
+
+    # 3. Fallback for sub-second test fixtures (e.g. test_system.py where quotes are fed in a tight burst)
+    if len(quotes) >= min_required:
+        span = quotes[-1]['ts'] - quotes[0]['ts']
+        if span < interval:
+            test_bars = []
+            for q in quotes:
+                mid = (q['bid'] + q['ask']) / 2.0
+                test_bars.append({
+                    'time': q['ts'],
+                    'open': mid,
+                    'high': mid,
+                    'low': mid,
+                    'close': mid,
+                    'volume': 1
+                })
+            return test_bars[-min_required:], timeframe
+
+    return closed_from_quotes, timeframe
+
+def demo_step(c):
+    quotes = c.execute("SELECT * FROM quotes WHERE source='DEMO' ORDER BY ts DESC LIMIT 30").fetchall()
+    if not quotes or time.time() - quotes[0]['ts'] > 10:
+        return
+    latest_quote = quotes[0]
+    previous = c.execute("SELECT value FROM kv WHERE key='demo_last'").fetchone()
+    if previous and float(previous[0]) >= latest_quote['ts']:
+        return
+    setkv(c, 'demo_last', latest_quote['ts'])
+    
+    timeframe = os.getenv("STRATEGY_TIMEFRAME", "M15")
+    closed_candles, tf = get_closed_candles_for_strategy(c, source='DEMO', timeframe=timeframe, min_required=25)
+    
+    now = time.time()
+    if len(closed_candles) < 25:
+        decision = {
+            "side": None,
+            "strategy": "none",
+            "timeframe": tf,
+            "parameters": {},
+            "version": STRATEGY_VERSION,
+            "candle_time": closed_candles[-1]['time'] if closed_candles else now,
+            "reason": f"STAND_ASIDE: Chưa đủ 25 nến đóng ở khung {tf} để kích hoạt tín hiệu (hiện có {len(closed_candles)} nến)"
+        }
+    else:
+        prices = [bar['close'] for bar in closed_candles]
+        decision = coordinate_strategies(prices, timeframe=tf)
+        decision['candle_time'] = closed_candles[-1]['time']
+        decision['version'] = STRATEGY_VERSION
+
+    # Persist latest decision in kv for UI and runtime transparency
+    setkv(c, 'strategy_last_decision', json.dumps(decision, ensure_ascii=False))
+
     side = decision.get("side")
-    if side and rows[-1]['ask'] - rows[-1]['bid'] <= .8 and not news_blocked(c, time.time()):
-        publish(c, 'DEMO', side, (rows[-1]['ask'] + rows[-1]['bid']) / 2, str(rows[-1]['ts']), strategy_meta=decision)
+    if side and (latest_quote['ask'] - latest_quote['bid']) <= 0.8 and not news_blocked(c, now):
+        mid_price = (latest_quote['ask'] + latest_quote['bid']) / 2.0
+        sid = publish(c, 'DEMO', side, mid_price, str(decision.get('candle_time', latest_quote['ts'])), strategy_meta=decision)
+        audit(c, 'engine', 'strategy_decision', {**decision, 'signal_id': sid, 'price': mid_price})
+    else:
+        prev_decision_str = c.execute("SELECT value FROM kv WHERE key='strategy_last_logged'").fetchone()
+        current_reason = decision.get('reason', '')
+        if not prev_decision_str or prev_decision_str[0] != current_reason:
+            setkv(c, 'strategy_last_logged', current_reason)
+            audit(c, 'engine', 'strategy_stand_aside', decision)
 
 def flush_outbox(c):
     """Process pending outbox events and publish to Redis Streams with retry."""

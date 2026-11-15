@@ -210,11 +210,12 @@ export const AdminApprovalQueue: React.FC = () => {
   };
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-5">
+      {/* Header with Run WFO button */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div>
           <h2 className="text-base font-bold text-slate-100 tracking-tight">
-            Hàng đợi kiểm định
+            Phê duyệt chiến lược & Kiểm định
           </h2>
           <p className="text-xs text-slate-400">
             Cơ chế human-in-the-loop: Chiến lược mới từ Walk-Forward OOS bắt buộc phải có sự chấp thuận trực tiếp của Admin.
@@ -235,23 +236,39 @@ export const AdminApprovalQueue: React.FC = () => {
         </div>
       </div>
 
-      <section className="quant-panel p-4 space-y-3" aria-label="Trợ lý kiểm định">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">Trợ lý kiểm định</h3>
-          <button className="quant-quiet" type="button" disabled={reviewing} onClick={() => {
-            setMessages([]);
-            void sendMessage({ text: 'Kiểm tra ứng viên gần nhất đang chờ duyệt.' });
-          }}>{reviewing ? 'Đang kiểm tra…' : 'Kiểm tra ứng viên'}</button>
+      {/* Runtime Policy vs Approved Candidates distinction banner */}
+      <div className="rounded-xl border border-cyan-500/30 bg-[#0a1120] p-4 font-mono text-xs space-y-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-bold text-sm text-slate-100">Chính Sách Thực Thi Đang Chạy (Runtime Policy)</span>
+          </div>
+          <span className="rounded bg-emerald-950 border border-emerald-700/60 px-2.5 py-0.5 text-[10px] text-emerald-300 font-bold">
+            ĐANG CHẠY TRONG RUNTIME
+          </span>
         </div>
-        <div aria-live="polite">
-          {review?.parts.map((part, index) => {
-            if (part.type === 'text') return <p className="text-sm text-slate-300" key={index}>{part.text}</p>;
-            if (part.type === 'data-approval') return <p className="mt-2 text-xs text-slate-400" key={index}>Mã ứng viên {part.data.jobId.slice(0, 12)} · Xem báo cáo và quyết định trong hàng đợi bên dưới.</p>;
-            return null;
-          })}
-          {reviewError && <div className="quant-alert" role="alert">Không thể tải tóm tắt kiểm định.</div>}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px] text-slate-300">
+          <div>
+            <span className="text-slate-500 text-[10px] block">PHIÊN BẢN CHÍNH SÁCH</span>
+            <span className="font-bold text-cyan-300">v2.1.0 Multi-Coordinator</span>
+          </div>
+          <div>
+            <span className="text-slate-500 text-[10px] block">KHUNG THỜI GIAN NẾN</span>
+            <span className="font-bold text-slate-200">M15 (Nến đã đóng)</span>
+          </div>
+          <div>
+            <span className="text-slate-500 text-[10px] block">MÔ HÌNH QUYẾT ĐỊNH</span>
+            <span className="text-slate-300">Trend + MeanRev + Breakout</span>
+          </div>
+          <div>
+            <span className="text-slate-500 text-[10px] block">CƠ CHẾ KÍCH HOẠT</span>
+            <span className="text-amber-300 font-semibold">Chưa có luồng kích hoạt tự động</span>
+          </div>
         </div>
-      </section>
+        <p className="text-[11px] text-slate-400 border-t border-slate-800/70 pt-2 leading-relaxed">
+          ℹ <b className="text-slate-300">Phân định rõ ràng:</b> &ldquo;Đã duyệt ứng viên&rdquo; là ghi nhận lưu trữ kết quả kiểm định nghiên cứu vào hệ thống. Việc này <span className="text-amber-300 underline">không tự động thay đổi</span> chính sách &ldquo;Đang chạy&rdquo; của Quant Engine. Hiện tại hệ thống chưa có luồng tự động ghi đè mã nguồn thực thi, mọi thăng cấp chính sách vào runtime cần quy trình đánh giá và bàn giao có kiểm soát.
+        </p>
+      </div>
 
       {banner && (
         <div className="rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-4 py-2.5 text-xs text-cyan-200 font-mono flex items-center justify-between">
@@ -266,86 +283,158 @@ export const AdminApprovalQueue: React.FC = () => {
         </div>
       )}
 
-      {loading ? (
-        <div className="text-xs text-slate-500 font-mono italic">Đang kiểm tra hàng đợi...</div>
-      ) : candidates.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-800 bg-[#0c1322]/60 p-8 text-center text-xs text-slate-400 font-mono space-y-2">
-          <div>Không có ứng viên đang chờ phê duyệt.</div>
-          <div className="text-[11px] text-slate-500">
-            Nhấn &ldquo;+ Chạy Walk-Forward OOS ↗&rdquo; ở góc phải để khởi chạy kiểm định 120 bar Train / 60 bar OOS mới.
+      {/* Side-by-side Layout: Left = Candidate Profiles, Right = Assistant with Context */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* LEFT COLUMN: Candidate Queue & History */}
+        <div className="lg:col-span-7 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold font-mono text-slate-300 uppercase tracking-wider">
+              Danh Sách Hồ Sơ Ứng Viên ({candidates.length} đang chờ)
+            </h3>
           </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {candidates.map((job) => {
-            let resultData: Record<string, any> = {};
-            try {
-              resultData = job.result ? JSON.parse(job.result) : {};
-            } catch {
-              resultData = {};
-            }
-            return (
-              <StrategyApprovalCardUI
-                key={job.id}
-                jobId={job.id}
-                report={resultData.report || {}}
-                onApprove={handleApprove}
-                onReject={handleReject}
-              />
-            );
-          })}
-        </div>
-      )}
 
-      {historyJobs.length > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4 space-y-2.5">
-          <div className="text-xs font-semibold text-slate-300 font-mono">
-            Lịch Sử Phê Duyệt Walk-Forward Gần Đây ({historyJobs.length})
-          </div>
-          <div className="space-y-2">
-            {historyJobs.map((j) => {
-              let resObj: Record<string, any> = {};
-              try {
-                resObj = j.result ? JSON.parse(j.result) : {};
-              } catch {
-                resObj = {};
-              }
-              const disp = resObj.disposition || (j.decision === 1 ? 'approved_for_demo_review' : 'rejected');
-              const oos = resObj.report?.oos_net_price_units;
-              return (
-                <div
-                  key={j.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-900/70 border border-slate-800/80 px-3 py-2 text-xs font-mono"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-300 font-semibold">#{j.id.slice(0, 12)}</span>
-                    <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300 uppercase">
-                      {j.state}
-                    </span>
-                    {oos !== undefined && (
-                      <span className="text-emerald-400">OOS: {oos >= 0 ? `+${oos}` : oos} pts</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`rounded px-2 py-0.5 text-[10px] font-bold ${
-                        disp === 'approved_for_demo_review'
-                          ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-600/40'
-                          : 'bg-rose-950/80 text-rose-300 border border-rose-600/40'
-                      }`}
+          {loading ? (
+            <div className="text-xs text-slate-500 font-mono italic">Đang kiểm tra hàng đợi...</div>
+          ) : candidates.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-800 bg-[#0c1322]/60 p-8 text-center text-xs text-slate-400 font-mono space-y-2">
+              <div>Không có ứng viên đang chờ phê duyệt.</div>
+              <div className="text-[11px] text-slate-500">
+                Nhấn &ldquo;+ Chạy Walk-Forward OOS ↗&rdquo; ở góc trên để khởi chạy kiểm định 120 bar Train / 60 bar OOS mới.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {candidates.map((job) => {
+                let resultData: Record<string, any> = {};
+                try {
+                  resultData = job.result ? JSON.parse(job.result) : {};
+                } catch {
+                  resultData = {};
+                }
+                return (
+                  <StrategyApprovalCardUI
+                    key={job.id}
+                    jobId={job.id}
+                    report={resultData.report || {}}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* History */}
+          {historyJobs.length > 0 && (
+            <div className="rounded-xl border border-slate-800 bg-[#0c1322] p-4 space-y-2.5">
+              <div className="text-xs font-semibold text-slate-300 font-mono">
+                Lịch Sử Quyết Định Walk-Forward ({historyJobs.length} ứng viên đã xử lý)
+              </div>
+              <div className="space-y-2">
+                {historyJobs.map((j) => {
+                  let resObj: Record<string, any> = {};
+                  try {
+                    resObj = j.result ? JSON.parse(j.result) : {};
+                  } catch {
+                    resObj = {};
+                  }
+                  const isApproved = j.decision === 1 || resObj.disposition === 'approved_for_demo_review';
+                  const dispLabel = isApproved ? 'ĐÃ DUYỆT ỨNG VIÊN' : 'ĐÃ TỪ CHỐI';
+                  const oos = resObj.report?.oos_net_price_units;
+                  return (
+                    <div
+                      key={j.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-900/70 border border-slate-800/80 px-3 py-2 text-xs font-mono"
                     >
-                      {disp}
-                    </span>
-                    <span className="text-slate-500 text-[11px]">
-                      {j.created ? new Date(j.created * 1000).toLocaleTimeString('vi-VN') : ''}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-300 font-semibold">#{j.id.slice(0, 12)}</span>
+                        <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400 uppercase">
+                          {j.state === 'resume' ? 'Chờ tiếp tục' : j.state}
+                        </span>
+                        {oos !== undefined && (
+                          <span className="text-emerald-400">OOS: {oos >= 0 ? `+${oos}` : oos} pts</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`rounded px-2 py-0.5 text-[10px] font-bold ${
+                            isApproved
+                              ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-600/40'
+                              : 'bg-rose-950/80 text-rose-300 border border-rose-600/40'
+                          }`}
+                        >
+                          {dispLabel}
+                        </span>
+                        <span className="text-slate-500 text-[11px]">
+                          {j.created ? new Date(j.created * 1000).toLocaleTimeString('vi-VN') : ''}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* RIGHT COLUMN: Trợ lý kiểm định cạnh hồ sơ ứng viên */}
+        <div className="lg:col-span-5 space-y-4">
+          <section className="quant-panel p-4 space-y-3 sticky top-4" aria-label="Trợ lý kiểm định">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-100">Trợ lý kiểm định định lượng</h3>
+                <span className="text-[10px] font-mono text-cyan-400">AI Contextual Review</span>
+              </div>
+              <button
+                className="quant-quiet text-xs"
+                type="button"
+                disabled={reviewing}
+                onClick={() => {
+                  setMessages([]);
+                  void sendMessage({ text: 'Kiểm tra ứng viên gần nhất đang chờ duyệt và tóm tắt rủi ro.' });
+                }}
+              >
+                {reviewing ? 'Đang phân tích…' : 'Phân tích ứng viên ↗'}
+              </button>
+            </div>
+
+            <div aria-live="polite" className="space-y-2 text-xs font-mono">
+              {review?.parts ? (
+                review.parts.map((part, index) => {
+                  if (part.type === 'text') {
+                    return (
+                      <p className="text-slate-300 leading-relaxed bg-slate-950/40 p-2.5 rounded border border-slate-800/60" key={index}>
+                        {part.text}
+                      </p>
+                    );
+                  }
+                  if (part.type === 'data-approval') {
+                    return (
+                      <div className="rounded-lg bg-amber-950/30 border border-amber-500/40 p-2.5 text-[11px] text-amber-200" key={index}>
+                        <div className="font-bold">Ứng viên: #{part.data.jobId.slice(0, 12)}</div>
+                        <div className="text-slate-400 mt-1">
+                          Hồ sơ Walk-Forward Out-Of-Sample đang hiển thị ở cột bên cạnh. Đánh giá kỹ Max Drawdown trước khi ra quyết định.
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })
+              ) : (
+                <div className="text-slate-400 text-xs py-4 text-center leading-relaxed">
+                  Nhấn &ldquo;Phân tích ứng viên ↗&rdquo; để trợ lý AI tóm tắt các chỉ số OOS Net PnL, Max Drawdown và kiểm tra quá khớp (overfitting) cho hồ sơ đang chờ duyệt.
+                </div>
+              )}
+              {reviewError && <div className="quant-alert" role="alert">Không thể tải tóm tắt kiểm định.</div>}
+            </div>
+
+            <div className="border-t border-slate-800/80 pt-3 text-[11px] font-mono text-slate-500 space-y-1">
+              <div>• Tiêu chuẩn chấp thuận: OOS PnL &gt; 0, Max DD &lt; 50 pts</div>
+              <div>• Trợ lý sử dụng Vercel AI SDK 6 ToolLoop Stream</div>
+            </div>
+          </section>
+        </div>
+      </div>
     </section>
   );
 };

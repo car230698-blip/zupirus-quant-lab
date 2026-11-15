@@ -68,6 +68,24 @@ export const App: React.FC = () => {
   const [activityStatusFilter, setActivityStatusFilter] = useState<'all' | 'running' | 'waiting' | 'completed' | 'error' | 'stale'>('all');
   const [activitySearchQuery, setActivitySearchQuery] = useState<string>('');
 
+  // User Order Filters
+  const [orderAccountFilter, setOrderAccountFilter] = useState<string>('all');
+  const [orderStateFilter, setOrderStateFilter] = useState<string>('all');
+
+  // Admin Orders state (from /api/admin/orders)
+  const [adminOrders, setAdminOrders] = useState<any[]>([]);
+  const [adminOrdersTotal, setAdminOrdersTotal] = useState<number>(0);
+  const [adminOrderPage, setAdminOrderPage] = useState<number>(0);
+  const [adminAccountFilter, setAdminAccountFilter] = useState<string>('all');
+  const [adminViewMode, setAdminViewMode] = useState<'orders' | 'activity'>('orders');
+
+  // Risk Calendar state
+  const [editingNews, setEditingNews] = useState<any | null>(null);
+  const [editNewsTitle, setEditNewsTitle] = useState<string>('');
+  const [editNewsWhen, setEditNewsWhen] = useState<string>('');
+  const [editNewsImpact, setEditNewsImpact] = useState<'high' | 'medium' | 'low'>('high');
+  const [editNewsCurrency, setEditNewsCurrency] = useState<'USD' | 'ALL' | 'EUR' | 'OTHER'>('USD');
+
   // Forms & notices
   const [notice, setNotice] = useState<string | null>(null);
   const [newDemoLogin, setNewDemoLogin] = useState('');
@@ -144,6 +162,31 @@ export const App: React.FC = () => {
     }
   }, []);
 
+  const loadAdminOrders = useCallback(async () => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    try {
+      const params = new URLSearchParams();
+      if (adminAccountFilter !== 'all') params.set('account_id', adminAccountFilter);
+      if (activityStatusFilter !== 'all') {
+        if (activityStatusFilter === 'waiting') params.set('state', 'queued');
+        else if (activityStatusFilter === 'completed') params.set('state', 'filled');
+        else if (activityStatusFilter === 'error') params.set('state', 'rejected');
+      }
+      if (activityTeamFilter !== 'all') params.set('team', activityTeamFilter);
+      if (activitySearchQuery.trim()) params.set('search', activitySearchQuery.trim());
+      params.set('limit', '50');
+      params.set('offset', String(adminOrderPage * 50));
+      const res = await fetch(`/api/admin/orders?${params.toString()}`);
+      if (res.ok) {
+        const d = await res.json();
+        setAdminOrders(d.orders || []);
+        setAdminOrdersTotal(d.total || 0);
+      }
+    } catch {
+      // ignore
+    }
+  }, [currentUser, adminAccountFilter, activityStatusFilter, activityTeamFilter, activitySearchQuery, adminOrderPage]);
+
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
@@ -154,17 +197,19 @@ export const App: React.FC = () => {
       loadCandles(timeframe);
       if (currentUser.role === 'admin') {
         loadAdminMonitor();
+        loadAdminOrders();
       }
       const timer = setInterval(() => {
         loadDashboard();
         if (chartMode === 'candles') loadCandles(timeframe);
         if (currentUser.role === 'admin') {
           loadAdminMonitor();
+          loadAdminOrders();
         }
       }, 5000);
       return () => clearInterval(timer);
     }
-  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe, chartMode]);
+  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, loadAdminOrders, timeframe, chartMode]);
 
   const showNotice = (msg: string) => {
     setNotice(msg);
@@ -346,6 +391,63 @@ export const App: React.FC = () => {
       setNewsWhen('');
       showNotice('Đã thêm sự kiện tin tức USD High Impact (bảo vệ tài khoản: chặn lệnh mới ±15 phút).');
       await loadAdminMonitor();
+    } else {
+      showNotice('Không thể thêm sự kiện. Vui lòng kiểm tra thời điểm sự kiện.');
+    }
+  };
+
+  const handleUpdateNews = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingNews || !editNewsTitle.trim()) return;
+    const ts = editNewsWhen ? new Date(editNewsWhen).getTime() / 1000 : editingNews.ts;
+    const res = await fetch(`/api/admin/news/${editingNews.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+      body: JSON.stringify({
+        title: editNewsTitle.trim(),
+        currency: editNewsCurrency,
+        impact: editNewsImpact,
+        ts,
+      }),
+    });
+    if (res.ok) {
+      setEditingNews(null);
+      showNotice('Đã cập nhật sự kiện lịch rủi ro và ghi nhật ký audit.');
+      await loadAdminMonitor();
+    } else {
+      showNotice('Không thể cập nhật sự kiện.');
+    }
+  };
+
+  const handleDeleteNews = async (nid: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa sự kiện rủi ro này? Thao tác sẽ được ghi vào nhật ký audit.')) return;
+    const res = await fetch(`/api/admin/news/${nid}`, {
+      method: 'DELETE',
+      headers: { 'X-Zupirus': '1' },
+    });
+    if (res.ok) {
+      showNotice('Đã xóa sự kiện lịch rủi ro và ghi nhật ký audit.');
+      await loadAdminMonitor();
+    } else {
+      showNotice('Không thể xóa sự kiện.');
+    }
+  };
+
+  const mapBackendState = (state: string) => {
+    switch (state) {
+      case 'queued': return { label: 'Đang chờ', badge: 'bg-amber-950 text-amber-300 border border-amber-700/50' };
+      case 'resume': return { label: 'Chờ tiếp tục', badge: 'bg-blue-950 text-blue-300 border border-blue-700/50' };
+      case 'waiting_approval': return { label: 'Chờ duyệt', badge: 'bg-amber-950 text-amber-300 border border-amber-700/50' };
+      case 'filled': return { label: 'Đã khớp', badge: 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' };
+      case 'completed': return { label: 'Hoàn tất', badge: 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' };
+      case 'cancelled': return { label: 'Đã hủy', badge: 'bg-slate-800 text-slate-300 border border-slate-700' };
+      case 'expired': return { label: 'Hết hạn', badge: 'bg-slate-800 text-slate-400 border border-slate-700' };
+      case 'rejected': return { label: 'Bị từ chối', badge: 'bg-rose-950 text-rose-300 border border-rose-700/50' };
+      case 'intent':
+      case 'unknown': return { label: 'Chưa đối soát', badge: 'bg-purple-950 text-purple-300 border border-purple-700/50' };
+      case 'running': return { label: 'Đang chạy', badge: 'bg-cyan-950 text-cyan-300 border border-cyan-700/50' };
+      case 'error': return { label: 'Lỗi', badge: 'bg-rose-950 text-rose-300 border border-rose-700/50' };
+      default: return { label: state, badge: 'bg-slate-800 text-slate-300 border border-slate-700' };
     }
   };
 
@@ -428,6 +530,14 @@ export const App: React.FC = () => {
   const totalEquity = accounts.reduce((acc: number, a: any) => acc + (a.equity || 0), 0);
   const totalPositions = accounts.reduce((acc: number, a: any) => acc + (a.positions || 0), 0);
   const totalPnl = totalEquity - totalBalance;
+
+  const filteredUserOrders = useMemo(() => {
+    return orders.filter((o: any) => {
+      if (orderAccountFilter !== 'all' && o.account_id !== orderAccountFilter) return false;
+      if (orderStateFilter !== 'all' && o.state !== orderStateFilter) return false;
+      return true;
+    });
+  }, [orders, orderAccountFilter, orderStateFilter]);
 
   // Render SVG Candlestick Chart
   const renderCandlestickSvg = () => {
@@ -562,7 +672,14 @@ export const App: React.FC = () => {
                 <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-slate-200">{chartMode === 'candles' ? 'Biểu đồ XAU/USD' : 'Lịch sử vốn'}</span>
+                      <span className="font-bold text-sm text-slate-200">
+                        {chartMode === 'candles' ? `Biểu đồ nến XAU/USD · Khung ${timeframe} (${timeframe === 'M15' ? '15 phút' : timeframe === 'M1' ? '1 phút' : timeframe === 'M5' ? '5 phút' : timeframe === 'H1' ? '1 giờ' : '1 ngày'})` : 'Lịch sử vốn'}
+                      </span>
+                      {chartMode === 'candles' && (
+                        <span className="rounded bg-slate-800/90 border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
+                          Nguồn dữ liệu: PostgreSQL / TimescaleDB hypertable (DEMO)
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -611,7 +728,37 @@ export const App: React.FC = () => {
                   </div>
 
                   {chartMode === 'candles' ? (
-                    renderCandlestickSvg()
+                    <div className="space-y-3">
+                      {renderCandlestickSvg()}
+                      {dashboard.health?.strategy_last_decision && (() => {
+                        let strat: any = {};
+                        try {
+                          strat = typeof dashboard.health.strategy_last_decision === 'string'
+                            ? JSON.parse(dashboard.health.strategy_last_decision)
+                            : dashboard.health.strategy_last_decision;
+                        } catch {
+                          strat = {};
+                        }
+                        const candleTimeStr = strat.candle_time
+                          ? new Date(strat.candle_time * 1000).toLocaleTimeString('vi-VN')
+                          : 'Vừa xong';
+                        return (
+                          <div className="rounded-lg bg-slate-950/60 border border-slate-800/80 p-3 font-mono text-xs flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <span className="text-cyan-400 font-bold">Chiến lược: {strat.version || 'v2.1.0'}</span>
+                              <span className="text-slate-400">Khung nến đã đóng: <b className="text-slate-200">{strat.timeframe || timeframe}</b></span>
+                              <span className="text-slate-400">Thời điểm nến đóng: <b className="text-slate-200">{candleTimeStr}</b></span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400">Lý do:</span>
+                              <span className="text-amber-300 font-semibold max-w-md truncate" title={strat.reason}>
+                                {strat.reason || 'Đang theo dõi nến đã đóng'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   ) : (
                     <EquityHistory samples={dashboard.series.filter((point: {account_id: string}) => point.account_id === selectedAccount)} />
                   )}
@@ -654,23 +801,34 @@ export const App: React.FC = () => {
                       />
                     </div>
 
-                    <div className="flex items-end gap-2">
+                    <div className="flex items-end">
                       <button
                         type="submit"
-                        className="flex-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2 text-xs transition-colors"
+                        className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2 text-xs transition-colors"
                       >
                         Tạo & Sinh Mã Ghép Nối ↗
                       </button>
-                      <button
-                        type="button"
-                        onClick={handleCreateReplay}
-                        className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-2 text-xs text-slate-300 transition-colors whitespace-nowrap"
-                        title="Theo dõi danh mục bằng dữ liệu phát lại"
-                      >
-                        + Tạo tài khoản phát lại
-                      </button>
                     </div>
                   </form>
+
+                  {/* Secondary Option: Replay Account */}
+                  <div className="rounded-lg border border-slate-800/80 bg-slate-950/40 p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+                    <div>
+                      <span className="text-slate-300 font-semibold">Tùy chọn phụ: Tài khoản phát lại (Replay Mode)</span>
+                      <p className="text-slate-500 text-[11px] mt-0.5">
+                        Mô phỏng khớp nến XAUUSD tự động mà không cần kết nối phần mềm MT5 bên ngoài.
+                      </p>
+                    </div>
+                    <button
+                      id="new-replay"
+                      type="button"
+                      onClick={handleCreateReplay}
+                      className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-xs text-cyan-300 font-mono transition-colors whitespace-nowrap"
+                      title="Theo dõi danh mục bằng dữ liệu phát lại"
+                    >
+                      + Tạo tài khoản phát lại
+                    </button>
+                  </div>
                 </div>
 
                 {/* Account List */}
@@ -793,83 +951,189 @@ export const App: React.FC = () => {
             {userTab === 'orders' && (
               <div className="space-y-6">
                 <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
-                  <div className="border-b border-slate-800 px-5 py-3 flex items-center justify-between">
+                  <div className="border-b border-slate-800 px-5 py-3 flex flex-wrap items-center justify-between gap-3">
                     <span className="font-bold text-sm text-slate-200">Nhật Ký Tín Hiệu & Đối Soát Lệnh Thực Thi</span>
-                    <span className="text-xs font-mono text-slate-400">{orders.length} lệnh</span>
+                    
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Filter by account */}
+                      <select
+                        aria-label="Lọc theo tài khoản"
+                        value={orderAccountFilter}
+                        onChange={(e) => setOrderAccountFilter(e.target.value)}
+                        className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                      >
+                        <option value="all">Tất cả tài khoản</option>
+                        {accounts.map((a: any) => (
+                          <option key={a.id} value={a.id}>#{a.login} · {a.server}</option>
+                        ))}
+                      </select>
+
+                      {/* Filter by state */}
+                      <select
+                        aria-label="Lọc theo trạng thái"
+                        value={orderStateFilter}
+                        onChange={(e) => setOrderStateFilter(e.target.value)}
+                        className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                      >
+                        <option value="all">Tất cả trạng thái</option>
+                        <option value="queued">Đang chờ (queued)</option>
+                        <option value="filled">Đã khớp (filled)</option>
+                        <option value="rejected">Bị từ chối (rejected)</option>
+                        <option value="cancelled">Đã hủy (cancelled)</option>
+                        <option value="expired">Hết hạn (expired)</option>
+                        <option value="intent">Chưa đối soát (intent)</option>
+                      </select>
+
+                      <span className="text-xs font-mono text-slate-400 ml-1">
+                        {filteredUserOrders.length} lệnh
+                      </span>
+                    </div>
                   </div>
 
-                  {orders.length === 0 ? (
+                  {filteredUserOrders.length === 0 ? (
                     <div className="p-8 text-center text-slate-500 font-mono text-xs">
-                      Chưa có lệnh nào được tạo. Khi Quant Engine phát tín hiệu hoặc EA khớp lệnh, bản ghi sẽ xuất hiện tại đây.
+                      {orders.length === 0
+                        ? 'Chưa có lệnh nào được tạo. Khi Quant Engine phát tín hiệu hoặc EA khớp lệnh, bản ghi sẽ xuất hiện tại đây.'
+                        : 'Không có lệnh nào khớp với bộ lọc hiện tại.'}
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs font-mono">
-                        <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
-                          <tr>
-                            <th className="p-3">ID / TÍN HIỆU</th>
-                            <th className="p-3">NGUỒN</th>
-                            <th className="p-3">CHIỀU</th>
-                            <th className="p-3">GIÁ VÀO</th>
-                            <th className="p-3">SL / TP</th>
-                            <th className="p-3">TICKET / DEAL</th>
-                            <th className="p-3">TRẠNG THÁI</th>
-                            <th className="p-3">LÝ DO THỰC TẾ (NẾU BỎ LỠ/TỪ CHỐI)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/60">
-                          {orders.map((o: any) => {
-                            let reasonText = o.reason || '—';
-                            if (o.state === 'rejected' && o.reason === 'below_min_lot') {
-                              reasonText = 'Vốn hoặc tỷ lệ rủi ro không đủ mở khối lượng tối thiểu (0.01 lot)';
-                            } else if (o.state === 'expired') {
-                              reasonText = 'Hết hạn nhận lệnh (quá 45s EA không phản hồi)';
-                            } else if (o.state === 'cancelled') {
-                              reasonText = 'Tài khoản tạm dừng sao chép hoặc vượt ngưỡng Max DD > 5%';
-                            }
+                    <>
+                      {/* Desktop Table View */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-left text-xs font-mono">
+                          <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
+                            <tr>
+                              <th className="p-3">ID / TÍN HIỆU</th>
+                              <th className="p-3">TÀI KHOẢN</th>
+                              <th className="p-3">CHIỀU</th>
+                              <th className="p-3">GIÁ TÍN HIỆU</th>
+                              <th className="p-3">GIÁ KHỚP</th>
+                              <th className="p-3">SL / TP</th>
+                              <th className="p-3">TICKET / DEAL</th>
+                              <th className="p-3">TRẠNG THÁI</th>
+                              <th className="p-3">LÝ DO TỪ BACKEND</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60">
+                            {filteredUserOrders.map((o: any) => {
+                              const stateInfo = mapBackendState(o.state);
+                              const signalPriceStr = o.price != null ? `$${Number(o.price).toFixed(2)}` : '—';
+                              const fillPriceStr = o.fill_price != null ? `$${Number(o.fill_price).toFixed(2)}` : '—';
+                              const slStr = o.sl != null ? `$${Number(o.sl).toFixed(1)}` : '—';
+                              const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(1)}` : '—';
+                              const reasonStr = o.reason || 'Chưa ghi nhận';
 
-                            return (
-                              <tr key={o.id} className="hover:bg-slate-900/40">
-                                <td className="p-3 font-bold text-slate-300">#{o.id}</td>
-                                <td className="p-3">
-                                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-cyan-300">
-                                    {o.source}
-                                  </span>
-                                </td>
-                                <td className="p-3">
-                                  <span className={o.side === 'BUY' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                              return (
+                                <tr key={o.id} className="hover:bg-slate-900/40">
+                                  <td className="p-3 font-bold text-slate-300">
+                                    #{o.id}
+                                    <span className="block text-[10px] font-normal text-slate-500">
+                                      Sig: {o.signal_id || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-slate-300">
+                                    #{o.login || o.account_id?.slice(0, 8)}
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={o.side === 'BUY' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                                      {o.side}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-slate-200">{signalPriceStr}</td>
+                                  <td className="p-3 text-cyan-300 font-semibold">{fillPriceStr}</td>
+                                  <td className="p-3 text-slate-400">
+                                    {slStr} / {tpStr}
+                                  </td>
+                                  <td className="p-3 text-slate-300">
+                                    {o.ticket ? `${o.ticket}${o.deal ? ` / ${o.deal}` : ''}` : '—'}
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${stateInfo.badge}`}>
+                                      {stateInfo.label}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-slate-400 max-w-xs truncate" title={reasonStr}>
+                                    {reasonStr}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile Card View with Expandable Details */}
+                      <div className="md:hidden divide-y divide-slate-800/80">
+                        {filteredUserOrders.map((o: any) => {
+                          const stateInfo = mapBackendState(o.state);
+                          const signalPriceStr = o.price != null ? `$${Number(o.price).toFixed(2)}` : '—';
+                          const fillPriceStr = o.fill_price != null ? `$${Number(o.fill_price).toFixed(2)}` : '—';
+                          const slStr = o.sl != null ? `$${Number(o.sl).toFixed(1)}` : '—';
+                          const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(1)}` : '—';
+                          const reasonStr = o.reason || 'Chưa ghi nhận';
+
+                          return (
+                            <div key={o.id} className="p-4 space-y-2 font-mono text-xs">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-slate-200">#{o.id}</span>
+                                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${o.side === 'BUY' ? 'text-emerald-400 bg-emerald-950/60' : 'text-amber-400 bg-amber-950/60'}`}>
                                     {o.side}
                                   </span>
-                                </td>
-                                <td className="p-3 text-slate-200">${Number(o.price).toFixed(2)}</td>
-                                <td className="p-3 text-slate-400">
-                                  ${Number(o.sl).toFixed(1)} / ${Number(o.tp).toFixed(1)}
-                                </td>
-                                <td className="p-3 text-slate-300">
-                                  {o.ticket || '—'} {o.deal ? `/ Deal: ${o.deal}` : ''}
-                                </td>
-                                <td className="p-3">
-                                  <span
-                                    className={`rounded px-2 py-0.5 text-[10px] uppercase font-bold ${
-                                      o.state === 'filled'
-                                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
-                                        : o.state === 'queued'
-                                        ? 'bg-amber-950 text-amber-300 border border-amber-700/50 animate-pulse'
-                                        : 'bg-rose-950 text-rose-300 border border-rose-700/50'
-                                    }`}
-                                  >
-                                    {o.state}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-slate-400 max-w-xs truncate" title={reasonText}>
-                                  {reasonText}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                                </div>
+                                <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${stateInfo.badge}`}>
+                                  {stateInfo.label}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 text-slate-300">
+                                <div>
+                                  <span className="text-[10px] text-slate-500 block">GIÁ TÍN HIỆU</span>
+                                  <span>{signalPriceStr}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-slate-500 block">GIÁ KHỚP</span>
+                                  <span className="text-cyan-300 font-semibold">{fillPriceStr}</span>
+                                </div>
+                              </div>
+
+                              {/* Expandable Technical Details */}
+                              <details className="mt-2 text-[11px] text-slate-400 bg-slate-950/40 rounded-lg p-2 border border-slate-800/60">
+                                <summary className="cursor-pointer text-cyan-400 hover:text-cyan-300 font-medium select-none">
+                                  Thông số kỹ thuật lệnh ▾
+                                </summary>
+                                <div className="mt-2 space-y-1.5 pt-2 border-t border-slate-800/80">
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Tài khoản:</span>
+                                    <span className="text-slate-200">#{o.login || o.account_id?.slice(0, 8)} ({o.server || 'DEMO'})</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Tín hiệu ID:</span>
+                                    <span className="text-slate-300">{o.signal_id || '—'}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Cắt lỗ (SL) / Chốt lời (TP):</span>
+                                    <span className="text-slate-300">{slStr} / {tpStr}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">MT5 Ticket / Deal:</span>
+                                    <span className="text-slate-300">{o.ticket ? `${o.ticket}${o.deal ? ` / ${o.deal}` : ''}` : '—'}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-slate-500">Nguồn phát:</span>
+                                    <span className="text-cyan-300">{o.source || 'Engine'}</span>
+                                  </div>
+                                  <div className="flex flex-col gap-0.5 pt-1">
+                                    <span className="text-slate-500">Lý do từ Backend:</span>
+                                    <span className="text-amber-200/90 break-words">{reasonStr}</span>
+                                  </div>
+                                </div>
+                              </details>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -878,7 +1142,9 @@ export const App: React.FC = () => {
             {/* USER TAB: ASSISTANT */}
             {userTab === 'assistant' && (
               <div className="space-y-4">
-                <Suspense fallback={<div className="quant-status" role="status">Đang tải trợ lý…</div>}><CustomerAssistant /></Suspense>
+                <Suspense fallback={<div className="quant-status" role="status">Đang tải trợ lý…</div>}>
+                  <CustomerAssistant onNavigate={(tab) => setUserTab(tab)} />
+                </Suspense>
               </div>
             )}
           </>
@@ -917,13 +1183,22 @@ export const App: React.FC = () => {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2 font-bold text-sm">
                         <span className={`h-3 w-3 rounded-full ${monitorData.halted ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
-                        <span>Ngắt cấp lệnh khẩn cấp</span>
+                        <span>Ngắt cấp lệnh khẩn cấp (Toàn Hệ Thống)</span>
                       </div>
                       <p className="text-xs text-slate-300">
-                        {monitorData.halted == null ? 'Chưa xác định trạng thái cấp lệnh.' : monitorData.halted
-                          ? 'Cấp lệnh sao chép đang được khóa. Các vị thế đã mở vẫn được theo dõi.'
-                          : 'Đang cho phép cấp lệnh sao chép theo giới hạn rủi ro.'}
+                        {monitorData.halted == null
+                          ? 'Chưa xác định trạng thái cấp lệnh.'
+                          : monitorData.halted
+                          ? 'Toàn bộ việc cấp lệnh sao chép đang bị ngắt an toàn. Các vị thế hiện tại vẫn được theo dõi.'
+                          : 'Hệ thống đang cho phép cấp lệnh sao chép bình thường theo quy chuẩn rủi ro.'}
                       </p>
+                      <div className="text-[11px] font-mono text-slate-400 pt-1">
+                        ■ Tài khoản đang bật sao chép:{' '}
+                        <b className="text-slate-200">
+                          {monitorData.accounts.filter((a: any) => a.enabled).length}/{monitorData.accounts.length}
+                        </b>{' '}
+                        · Cờ ngắt cấp lệnh hệ thống hoạt động độc lập với cờ bật/tắt riêng của từng tài khoản.
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -961,7 +1236,7 @@ export const App: React.FC = () => {
                     </div>
 
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Theo dõi báo giá XAU/USD, đánh giá chiến lược và kiểm tra rủi ro trước khi cấp tín hiệu.
+                      Theo dõi báo giá XAU/USD, đánh giá chiến lược theo nến đã đóng và kiểm tra rủi ro trước khi cấp tín hiệu.
                     </p>
 
                     <div className="space-y-2 text-xs font-mono bg-slate-950/40 p-3 rounded-lg border border-slate-800/60">
@@ -1021,12 +1296,18 @@ export const App: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="pt-2">
+                    <div className="pt-2 flex flex-col sm:flex-row gap-2">
                       <button
                         onClick={handleStartResearch}
-                        className="w-full rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold py-2 text-xs font-mono transition-colors"
+                        className="flex-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold py-2 text-xs font-mono transition-colors"
                       >
-                        + Chạy kiểm định
+                        + Chạy kiểm định ngay
+                      </button>
+                      <button
+                        onClick={() => setAdminTab('approvals')}
+                        className="flex-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold py-2 text-xs font-mono transition-colors"
+                      >
+                        Đi đến Phê duyệt & Kiểm định →
                       </button>
                     </div>
                   </div>
@@ -1041,125 +1322,296 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            {/* ADMIN TAB: CONSOLIDATED ACTIVITY LOGS */}
+            {/* ADMIN TAB: CONSOLIDATED ACTIVITY & ORDERS LOGS */}
             {adminTab === 'activity' && (
               <div className="space-y-4">
                 <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                    <h3 className="font-bold text-sm text-slate-200">
-                      Nhật Ký Hoạt Động Toàn Hệ Thống & Truy Vết
-                    </h3>
+                    <div className="flex items-center gap-3">
+                      <h3 className="font-bold text-sm text-slate-200">
+                        Nhật Ký & Quản Trị Hệ Thống
+                      </h3>
+                      <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-mono">
+                        <button
+                          onClick={() => setAdminViewMode('orders')}
+                          className={`px-2.5 py-1 rounded ${
+                            adminViewMode === 'orders' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Lệnh toàn hệ thống ({adminOrdersTotal})
+                        </button>
+                        <button
+                          onClick={() => setAdminViewMode('activity')}
+                          className={`px-2.5 py-1 rounded ${
+                            adminViewMode === 'activity' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          Nhật ký sự kiện & Audit ({filteredActivities.length})
+                        </button>
+                      </div>
+                    </div>
 
                     {/* Filter controls */}
                     <div className="flex flex-wrap items-center gap-2">
-                      <select
-                        value={activityTeamFilter}
-                        onChange={(e: any) => setActivityTeamFilter(e.target.value)}
-                        className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
-                      >
-                        <option value="all">Tất cả đội</option>
-                        <option value="execution">Đội Thực Thi (Execution)</option>
-                        <option value="research">Đội Nghiên Cứu (Research)</option>
-                        <option value="security">Bảo Mật & Rủi Ro (Security)</option>
-                      </select>
+                      {adminViewMode === 'orders' ? (
+                        <>
+                          <select
+                            aria-label="Lọc theo tài khoản admin"
+                            value={adminAccountFilter}
+                            onChange={(e) => {
+                              setAdminAccountFilter(e.target.value);
+                              setAdminOrderPage(0);
+                            }}
+                            className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                          >
+                            <option value="all">Tất cả tài khoản</option>
+                            {monitorData.accounts.map((a: any) => (
+                              <option key={a.id} value={a.id}>#{a.login} · {a.server}</option>
+                            ))}
+                          </select>
 
-                      <select
-                        value={activityStatusFilter}
-                        onChange={(e: any) => setActivityStatusFilter(e.target.value)}
-                        className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
-                      >
-                        <option value="all">Tất cả trạng thái</option>
-                        <option value="running">Đang chạy</option>
-                        <option value="waiting">Đang chờ</option>
-                        <option value="completed">Hoàn tất</option>
-                        <option value="error">Lỗi</option>
-                      </select>
+                          <select
+                            aria-label="Lọc theo trạng thái admin"
+                            value={activityStatusFilter}
+                            onChange={(e: any) => {
+                              setActivityStatusFilter(e.target.value);
+                              setAdminOrderPage(0);
+                            }}
+                            className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                          >
+                            <option value="all">Tất cả trạng thái</option>
+                            <option value="queued">Đang chờ (queued)</option>
+                            <option value="resume">Chờ tiếp tục (resume)</option>
+                            <option value="waiting_approval">Chờ duyệt (waiting_approval)</option>
+                            <option value="completed">Đã khớp (filled)</option>
+                            <option value="error">Bị từ chối (rejected)</option>
+                            <option value="cancelled">Đã hủy (cancelled)</option>
+                            <option value="expired">Hết hạn (expired)</option>
+                          </select>
+                        </>
+                      ) : (
+                        <>
+                          <select
+                            aria-label="Lọc theo đội phụ trách"
+                            value={activityTeamFilter}
+                            onChange={(e: any) => setActivityTeamFilter(e.target.value)}
+                            className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                          >
+                            <option value="all">Tất cả đội</option>
+                            <option value="execution">Đội Thực Thi (Execution)</option>
+                            <option value="research">Đội Nghiên Cứu (Research)</option>
+                            <option value="security">Bảo Mật & Rủi Ro (Security)</option>
+                          </select>
+
+                          <select
+                            aria-label="Lọc trạng thái hoạt động"
+                            value={activityStatusFilter}
+                            onChange={(e: any) => setActivityStatusFilter(e.target.value)}
+                            className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                          >
+                            <option value="all">Tất cả trạng thái</option>
+                            <option value="running">Đang chạy</option>
+                            <option value="waiting">Đang chờ</option>
+                            <option value="completed">Hoàn tất</option>
+                            <option value="error">Lỗi</option>
+                          </select>
+                        </>
+                      )}
 
                       <input
                         type="text"
                         value={activitySearchQuery}
-                        onChange={(e) => setActivitySearchQuery(e.target.value)}
-                        placeholder="Tìm ID tín hiệu / job / cycle..."
+                        onChange={(e) => {
+                          setActivitySearchQuery(e.target.value);
+                          setAdminOrderPage(0);
+                        }}
+                        placeholder="Tìm ID tín hiệu / job / ticket..."
                         className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1 text-xs text-slate-200 font-mono placeholder-slate-500"
                       />
                     </div>
                   </div>
 
-                  {filteredActivities.length === 0 ? (
-                    <div className="p-8 text-center text-slate-500 font-mono text-xs">
-                      Không tìm thấy bản ghi hoạt động nào phù hợp với bộ lọc.
-                    </div>
+                  {/* VIEW 1: All System Orders (/api/admin/orders) */}
+                  {adminViewMode === 'orders' ? (
+                    adminOrders.length === 0 ? (
+                      <div className="p-8 text-center text-slate-500 font-mono text-xs">
+                        Không tìm thấy lệnh nào phù hợp với bộ lọc quản trị.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs font-mono">
+                            <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
+                              <tr>
+                                <th className="p-3">ID / TÍN HIỆU</th>
+                                <th className="p-3">TÀI KHOẢN</th>
+                                <th className="p-3">NGƯỜI DÙNG</th>
+                                <th className="p-3">CHIỀU</th>
+                                <th className="p-3">GIÁ TÍN HIỆU</th>
+                                <th className="p-3">GIÁ KHỚP</th>
+                                <th className="p-3">SL / TP</th>
+                                <th className="p-3">TICKET / DEAL</th>
+                                <th className="p-3">TRẠNG THÁI</th>
+                                <th className="p-3">LÝ DO BACKEND</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/60">
+                              {adminOrders.map((o: any) => {
+                                const stateInfo = mapBackendState(o.state);
+                                const signalPriceStr = o.price != null ? `$${Number(o.price).toFixed(2)}` : '—';
+                                const fillPriceStr = o.fill_price != null ? `$${Number(o.fill_price).toFixed(2)}` : '—';
+                                const slStr = o.sl != null ? `$${Number(o.sl).toFixed(1)}` : '—';
+                                const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(1)}` : '—';
+                                const reasonStr = o.reason || 'Chưa ghi nhận';
+
+                                return (
+                                  <tr key={o.id} className="hover:bg-slate-900/40">
+                                    <td className="p-3 font-bold text-slate-300">
+                                      #{o.id}
+                                      <span className="block text-[10px] font-normal text-slate-500">
+                                        Sig: {o.signal_id || '—'}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-slate-300">
+                                      #{o.login || o.account_id?.slice(0, 8)}
+                                      <span className="block text-[10px] text-slate-500">{o.server || 'DEMO'}</span>
+                                    </td>
+                                    <td className="p-3 text-slate-400 text-[11px]">{o.user_email || '—'}</td>
+                                    <td className="p-3">
+                                      <span className={o.side === 'BUY' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
+                                        {o.side}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-slate-200">{signalPriceStr}</td>
+                                    <td className="p-3 text-cyan-300 font-semibold">{fillPriceStr}</td>
+                                    <td className="p-3 text-slate-400">
+                                      {slStr} / {tpStr}
+                                    </td>
+                                    <td className="p-3 text-slate-300">
+                                      {o.ticket ? `${o.ticket}${o.deal ? ` / ${o.deal}` : ''}` : '—'}
+                                    </td>
+                                    <td className="p-3">
+                                      <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${stateInfo.badge}`}>
+                                        {stateInfo.label}
+                                      </span>
+                                    </td>
+                                    <td className="p-3 text-slate-400 max-w-xs truncate" title={reasonStr}>
+                                      {reasonStr}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Pagination Bar */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs font-mono text-slate-400 border-t border-slate-800/80">
+                          <div>
+                            Hiển thị từ {adminOrderPage * 50 + 1} đến {Math.min((adminOrderPage + 1) * 50, adminOrdersTotal)} trong tổng số {adminOrdersTotal} lệnh
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              disabled={adminOrderPage === 0}
+                              onClick={() => setAdminOrderPage((p) => Math.max(0, p - 1))}
+                              className="rounded px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 transition-colors"
+                            >
+                              ← Trang trước
+                            </button>
+                            <span className="px-2 text-slate-300 font-bold">
+                              Trang {adminOrderPage + 1} / {Math.max(1, Math.ceil(adminOrdersTotal / 50))}
+                            </span>
+                            <button
+                              disabled={(adminOrderPage + 1) * 50 >= adminOrdersTotal}
+                              onClick={() => setAdminOrderPage((p) => p + 1)}
+                              className="rounded px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 transition-colors"
+                            >
+                              Trang sau →
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs font-mono">
-                        <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
-                          <tr>
-                            <th className="p-3">THỜI ĐIỂM</th>
-                            <th className="p-3">ĐỘI PHỤ TRÁCH</th>
-                            <th className="p-3">SỰ KIỆN</th>
-                            <th className="p-3">TÁC NHÂN</th>
-                            <th className="p-3">TRẠNG THÁI</th>
-                            <th className="p-3">CHI TIẾT & TRUY VẾT ID</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/60">
-                          {filteredActivities.slice(0, 100).map((item) => (
-                            <tr key={item.id} className="hover:bg-slate-900/40">
-                              <td className="p-3 text-slate-400 whitespace-nowrap">
-                                {new Date(item.ts * 1000).toLocaleTimeString()}
-                              </td>
-                              <td className="p-3">
-                                <span
-                                  className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                                    item.team === 'execution'
-                                      ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/40'
-                                      : item.team === 'research'
-                                      ? 'bg-amber-950 text-amber-300 border border-amber-800/40'
-                                      : 'bg-purple-950 text-purple-300 border border-purple-800/40'
-                                  }`}
-                                >
-                                  {item.team.toUpperCase()}
-                                </span>
-                              </td>
-                              <td className="p-3 font-semibold text-slate-200">{item.event}</td>
-                              <td className="p-3 text-slate-400">{item.actor}</td>
-                              <td className="p-3">
-                                <span
-                                  className={`rounded px-1.5 py-0.5 text-[10px] uppercase font-bold ${
-                                    item.status === 'completed'
-                                      ? 'bg-emerald-950 text-emerald-300'
-                                      : item.status === 'waiting'
-                                      ? 'bg-amber-950 text-amber-300'
-                                      : item.status === 'running'
-                                      ? 'bg-cyan-950 text-cyan-300 animate-pulse'
-                                      : 'bg-rose-950 text-rose-300'
-                                  }`}
-                                >
-                                  {item.status}
-                                </span>
-                              </td>
-                              <td className="p-3 text-slate-300 max-w-sm truncate" title={item.detail}>
-                                {item.detail}
-                              </td>
+                    /* VIEW 2: Consolidated System Events & Audit Logs */
+                    filteredActivities.length === 0 ? (
+                      <div className="p-8 text-center text-slate-500 font-mono text-xs">
+                        Không tìm thấy bản ghi hoạt động nào phù hợp với bộ lọc.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs font-mono">
+                          <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
+                            <tr>
+                              <th className="p-3">THỜI ĐIỂM</th>
+                              <th className="p-3">ĐỘI PHỤ TRÁCH</th>
+                              <th className="p-3">SỰ KIỆN</th>
+                              <th className="p-3">TÁC NHÂN</th>
+                              <th className="p-3">TRẠNG THÁI</th>
+                              <th className="p-3">CHI TIẾT & TRUY VẾT ID</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60">
+                            {filteredActivities.slice(0, 100).map((item) => (
+                              <tr key={item.id} className="hover:bg-slate-900/40">
+                                <td className="p-3 text-slate-400 whitespace-nowrap">
+                                  {new Date(item.ts * 1000).toLocaleTimeString()}
+                                </td>
+                                <td className="p-3">
+                                  <span
+                                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                                      item.team === 'execution'
+                                        ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/40'
+                                        : item.team === 'research'
+                                        ? 'bg-amber-950 text-amber-300 border border-amber-800/40'
+                                        : 'bg-purple-950 text-purple-300 border border-purple-800/40'
+                                    }`}
+                                  >
+                                    {item.team.toUpperCase()}
+                                  </span>
+                                </td>
+                                <td className="p-3 font-semibold text-slate-200">{item.event}</td>
+                                <td className="p-3 text-slate-400">{item.actor}</td>
+                                <td className="p-3">
+                                  <span
+                                    className={`rounded px-1.5 py-0.5 text-[10px] uppercase font-bold ${
+                                      item.status === 'completed'
+                                        ? 'bg-emerald-950 text-emerald-300'
+                                        : item.status === 'waiting'
+                                        ? 'bg-amber-950 text-amber-300'
+                                        : item.status === 'running'
+                                        ? 'bg-cyan-950 text-cyan-300 animate-pulse'
+                                        : 'bg-rose-950 text-rose-300'
+                                    }`}
+                                  >
+                                    {item.status}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-slate-300 max-w-sm truncate" title={item.detail}>
+                                  {item.detail}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
                   )}
                 </div>
               </div>
             )}
 
-            {/* ADMIN TAB: LANGSMITH TRACING */}
+            {/* ADMIN TAB: TRACING TELEMETRY */}
             {adminTab === 'tracing' && (
               <div className="space-y-6">
                 <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-slate-200">LangSmith Tracing Telemetry</span>
+                      <span className="font-bold text-sm text-slate-200">
+                        {tracingData.tracing_tool || 'LangSmith Tracing Telemetry'}
+                      </span>
                       <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-cyan-300">
-                        {tracingData.project}
+                        Dự án: {tracingData.project}
                       </span>
                     </div>
 
@@ -1167,38 +1619,44 @@ export const App: React.FC = () => {
                       className={`rounded px-2 py-0.5 text-[10px] font-mono ${
                         tracingData.langsmith_connected
                           ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/50'
-                          : 'bg-slate-800 text-slate-300'
+                          : 'bg-slate-800 text-slate-300 border border-slate-700'
                       }`}
                     >
-                      {tracingData.langsmith_connected ? 'CONNECTED TO CLOUD' : 'OFFLINE BUFFER MODE'}
+                      {tracingData.langsmith_connected ? 'ĐÃ KẾT NỐI CLOUD' : 'BẬT (BUFFER CỤC BỘ)'}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-mono">
                     <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
+                      <span className="text-slate-500 block text-[10px]">CÔNG CỤ TRUY VẾT</span>
+                      <span className="text-sm font-bold text-slate-100 mt-1 truncate block">
+                        {tracingData.tracing_tool || 'Local Buffer'}
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
                       <span className="text-slate-500 block text-[10px]">TỔNG TRACES ĐÃ GHI</span>
-                      <span className="text-lg font-bold text-slate-100 mt-1">{tracingData.total_traces_recorded}</span>
+                      <span className="text-lg font-bold text-cyan-300 mt-1">{tracingData.total_traces_recorded}</span>
                     </div>
                     <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
-                      <span className="text-slate-500 block text-[10px]">TRUY VẾT LANGGRAPH</span>
-                      <span className="text-lg font-bold text-cyan-300 mt-1">Bật (StateGraph)</span>
+                      <span className="text-slate-500 block text-[10px]">LẦN CẬP NHẬT</span>
+                      <span className="text-xs font-bold text-amber-300 mt-1">
+                        {tracingData.last_updated ? new Date(tracingData.last_updated * 1000).toLocaleTimeString('vi-VN') : 'Vừa xong'}
+                      </span>
                     </div>
                     <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
-                      <span className="text-slate-500 block text-[10px]">VERCEL AI SDK 6</span>
-                      <span className="text-lg font-bold text-amber-300 mt-1">Traced (ToolLoop)</span>
-                    </div>
-                    <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
-                      <span className="text-slate-500 block text-[10px]">BẢO MẬT BÍ MẬT</span>
-                      <span className="text-lg font-bold text-emerald-400 mt-1">Sanitized [REDACTED]</span>
+                      <span className="text-slate-500 block text-[10px]">TÌNH TRẠNG KHẢ DỤNG</span>
+                      <span className="text-xs font-bold text-emerald-400 mt-1 truncate block">
+                        {tracingData.availability_info || 'Sẵn sàng'}
+                      </span>
                     </div>
                   </div>
 
                   {/* Recent trace events */}
                   <div className="space-y-2">
-                    <h4 className="text-xs font-bold text-slate-300">Các vết suy luận gần nhất:</h4>
+                    <h4 className="text-xs font-bold text-slate-300">Các vết suy luận thực tế gần nhất:</h4>
                     {tracingData.recent_traces?.length === 0 ? (
                       <div className="p-4 text-center text-slate-500 font-mono text-xs">
-                        Chưa có trace event nào được ghi. Khi AI hoặc LangGraph chạy, vết sự kiện sẽ hiển thị ở đây.
+                        Chưa có trace event nào được ghi. Khi AI Assistant hoặc LangGraph chạy, vết sự kiện sẽ hiển thị ở đây.
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -1227,39 +1685,214 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            {/* ADMIN TAB: NEWS BLACKOUT */}
+            {/* ADMIN TAB: NEWS BLACKOUT & RISK CALENDAR */}
             {adminTab === 'news' && (
               <div className="space-y-6">
+                {/* Form Add Event */}
                 <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
-                  <h3 className="font-bold text-sm text-slate-200">Thêm Sự Kiện Lịch Kinh Tế USD High Impact</h3>
+                  <h3 className="font-bold text-sm text-slate-200 flex items-center justify-between">
+                    <span>Thêm Sự Kiện Lịch Kinh Tế (Bảo Vệ Rủi Ro Ra Tin)</span>
+                    <span className="text-xs font-normal text-cyan-300 font-mono">Cửa sổ chặn: ±15 phút quanh giờ tin</span>
+                  </h3>
                   <p className="text-xs text-slate-400">
-                    Cơ chế bảo vệ tài khoản: Tự động chặn mở lệnh mới trong khoảng ±15 phút trước và sau thời điểm ra tin.
+                    Cơ chế bảo vệ tài khoản khách: Tự động chặn mở lệnh mới trong khoảng ±15 phút trước và sau thời điểm ra tin để tránh trượt giá dãn spread.
                   </p>
 
-                  <form onSubmit={handleAddNews} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <input
-                      type="text"
-                      required
-                      value={newsTitle}
-                      onChange={(e) => setNewsTitle(e.target.value)}
-                      placeholder="Tên tin (ví dụ: US Non-Farm Payrolls)"
-                      className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 font-mono"
-                    />
+                  <form onSubmit={handleAddNews} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-mono text-slate-400 mb-1">Tên sự kiện *</label>
+                      <input
+                        type="text"
+                        required
+                        value={newsTitle}
+                        onChange={(e) => setNewsTitle(e.target.value)}
+                        placeholder="Ví dụ: US Non-Farm Payrolls / CPI"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 font-mono"
+                      />
+                    </div>
 
-                    <input
-                      type="datetime-local"
-                      value={newsWhen}
-                      onChange={(e) => setNewsWhen(e.target.value)}
-                      className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 font-mono"
-                    />
+                    <div>
+                      <label className="block text-[11px] font-mono text-slate-400 mb-1">Thời điểm ra tin *</label>
+                      <input
+                        type="datetime-local"
+                        required
+                        value={newsWhen}
+                        onChange={(e) => setNewsWhen(e.target.value)}
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 font-mono"
+                      />
+                    </div>
 
-                    <button
-                      type="submit"
-                      className="rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2 text-xs font-mono transition-colors"
-                    >
-                      + Thêm Khung Giờ Chặn Lệnh
-                    </button>
+                    <div className="flex items-end">
+                      <button
+                        type="submit"
+                        className="w-full rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-2 text-xs font-mono transition-colors"
+                      >
+                        + Thêm Khung Giờ Chặn
+                      </button>
+                    </div>
                   </form>
+                </div>
+
+                {/* Edit News Modal / Form */}
+                {editingNews && (
+                  <div className="quant-panel rounded-xl border border-cyan-500/50 bg-[#0d1829] p-5 space-y-4 shadow-xl">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <h4 className="font-bold text-sm text-cyan-300">
+                        Chỉnh sửa sự kiện #{editingNews.id}
+                      </h4>
+                      <button
+                        onClick={() => setEditingNews(null)}
+                        className="text-slate-400 hover:text-slate-200 text-xs font-mono"
+                      >
+                        ✕ Đóng
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleUpdateNews} className="grid grid-cols-1 sm:grid-cols-4 gap-3 font-mono text-xs">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] text-slate-400 mb-1">Tên sự kiện</label>
+                        <input
+                          type="text"
+                          required
+                          value={editNewsTitle}
+                          onChange={(e) => setEditNewsTitle(e.target.value)}
+                          className="w-full rounded bg-slate-900 border border-slate-700 px-3 py-1.5 text-slate-100"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-slate-400 mb-1">Thời điểm mới</label>
+                        <input
+                          type="datetime-local"
+                          value={editNewsWhen}
+                          onChange={(e) => setEditNewsWhen(e.target.value)}
+                          className="w-full rounded bg-slate-900 border border-slate-700 px-3 py-1.5 text-slate-100"
+                        />
+                      </div>
+
+                      <div className="flex items-end gap-2">
+                        <button
+                          type="submit"
+                          className="flex-1 rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold py-1.5 text-xs transition-colors"
+                        >
+                          Lưu thay đổi
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingNews(null)}
+                          className="rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 text-slate-300 transition-colors"
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* Risk Calendar Table */}
+                <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
+                  <div className="border-b border-slate-800 px-5 py-3 flex items-center justify-between">
+                    <span className="font-bold text-sm text-slate-200">
+                      Danh Sách Sự Kiện Lịch Rủi Ro Đã Nhập
+                    </span>
+                    <span className="text-xs font-mono text-slate-400">
+                      {(monitorData.news || []).length} sự kiện
+                    </span>
+                  </div>
+
+                  {(monitorData.news || []).length === 0 ? (
+                    <div className="p-8 text-center text-slate-500 font-mono text-xs">
+                      Chưa có sự kiện lịch rủi ro nào được cấu hình.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs font-mono">
+                        <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
+                          <tr>
+                            <th className="p-3">SỰ KIỆN</th>
+                            <th className="p-3">TIỀN TỆ</th>
+                            <th className="p-3">TÁC ĐỘNG</th>
+                            <th className="p-3">THỜI ĐIỂM (GIỜ ĐỊA PHƯƠNG)</th>
+                            <th className="p-3">CỬA SỔ CHẶN (±15 PHÚT)</th>
+                            <th className="p-3">TRẠNG THÁI HIỆN TẠI</th>
+                            <th className="p-3">THAO TÁC</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {(monitorData.news || []).map((item: any) => {
+                            const nowTs = Date.now() / 1000;
+                            const isBlocking = Math.abs(nowTs - item.ts) <= 900;
+                            const isUpcoming = nowTs < item.ts - 900;
+
+                            const windowStartStr = new Date((item.ts - 900) * 1000).toLocaleTimeString('vi-VN');
+                            const windowEndStr = new Date((item.ts + 900) * 1000).toLocaleTimeString('vi-VN');
+                            const eventTimeStr = new Date(item.ts * 1000).toLocaleString('vi-VN');
+
+                            return (
+                              <tr key={item.id} className="hover:bg-slate-900/40">
+                                <td className="p-3 font-bold text-slate-200">{item.title}</td>
+                                <td className="p-3">
+                                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-cyan-300">
+                                    {item.currency || 'USD'}
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  <span className="rounded bg-rose-950 text-rose-300 border border-rose-800/40 px-1.5 py-0.5 text-[10px] font-bold uppercase">
+                                    {item.impact || 'high'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-slate-300">
+                                  {eventTimeStr}
+                                </td>
+                                <td className="p-3 text-slate-400">
+                                  {windowStartStr} – {windowEndStr}
+                                </td>
+                                <td className="p-3">
+                                  {isBlocking ? (
+                                    <span className="rounded px-2 py-0.5 text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-700/50 animate-pulse">
+                                      ĐANG CHẶN LỆNH (±15m)
+                                    </span>
+                                  ) : isUpcoming ? (
+                                    <span className="rounded px-2 py-0.5 text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-700/50">
+                                      SẮP DIỄN RA
+                                    </span>
+                                  ) : (
+                                    <span className="rounded px-2 py-0.5 text-[10px] font-bold bg-slate-800 text-slate-400">
+                                      ĐÃ QUA
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => {
+                                        setEditingNews(item);
+                                        setEditNewsTitle(item.title);
+                                        setEditNewsCurrency(item.currency || 'USD');
+                                        setEditNewsImpact(item.impact || 'high');
+                                        const dateObj = new Date(item.ts * 1000);
+                                        const localIso = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                                        setEditNewsWhen(localIso);
+                                      }}
+                                      className="rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300 transition-colors"
+                                    >
+                                      Sửa
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteNews(item.id)}
+                                      className="rounded bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 px-2 py-0.5 text-[11px] text-rose-300 transition-colors"
+                                    >
+                                      Xóa
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

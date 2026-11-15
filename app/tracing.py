@@ -234,12 +234,20 @@ def trace_langgraph_step(
 def get_trace_summary() -> Dict[str, Any]:
     """Return summary of tracing activity for admin telemetry."""
     client = get_langsmith_client()
+    configured = is_langsmith_enabled()
+    connected = client is not None
+    tool_name = "LangSmith Cloud Tracing" if (configured and connected) else "Local Buffer (Offline Trace Logger)"
+    last_trace = _trace_history[-1] if _trace_history else None
+    last_updated = last_trace["timestamp"] if last_trace else time.time()
     return {
-        "langsmith_configured": is_langsmith_enabled(),
-        "langsmith_connected": client is not None,
+        "tracing_tool": tool_name,
+        "langsmith_configured": configured,
+        "langsmith_connected": connected,
         "project": LANGSMITH_PROJECT,
         "endpoint": LANGSMITH_ENDPOINT,
         "total_traces_recorded": len(_trace_history),
+        "last_updated": last_updated,
+        "availability_info": f"Active: {tool_name} · Buffer size: {len(_trace_history)}/{MAX_TRACE_HISTORY} traces",
         "recent_traces": _trace_history[-20:],
     }
 

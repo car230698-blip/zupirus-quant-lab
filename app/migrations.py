@@ -118,10 +118,12 @@ def apply_migration_001(c, is_pg: bool):
             ticket TEXT,
             deal TEXT,
             reason TEXT,
+            fill_price DOUBLE PRECISION,
             created DOUBLE PRECISION NOT NULL,
             updated DOUBLE PRECISION NOT NULL,
             UNIQUE(account_id, signal_id)
         );
+        ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS fill_price DOUBLE PRECISION;
         CREATE UNIQUE INDEX IF NOT EXISTS unique_deal ON dispatches(account_id, deal) WHERE deal IS NOT NULL AND deal != '';
         CREATE TABLE IF NOT EXISTS audit (
             id BIGSERIAL PRIMARY KEY,
@@ -172,7 +174,7 @@ def apply_migration_001(c, is_pg: bool):
         CREATE TABLE IF NOT EXISTS pairings(code TEXT PRIMARY KEY,account_id TEXT REFERENCES accounts(id),expires REAL NOT NULL,used INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS devices(token TEXT PRIMARY KEY,account_id TEXT UNIQUE REFERENCES accounts(id));
         CREATE TABLE IF NOT EXISTS signals(id TEXT PRIMARY KEY,source TEXT NOT NULL CHECK(source IN ('DEMO','REPLAY')),side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),price REAL NOT NULL,sl REAL NOT NULL,tp REAL NOT NULL,created REAL NOT NULL,expires REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS dispatches(id INTEGER PRIMARY KEY AUTOINCREMENT,account_id TEXT REFERENCES accounts(id),signal_id TEXT REFERENCES signals(id),state TEXT NOT NULL DEFAULT 'queued',nonce TEXT,ticket TEXT,deal TEXT,reason TEXT,created REAL NOT NULL,updated REAL NOT NULL,UNIQUE(account_id,signal_id));
+        CREATE TABLE IF NOT EXISTS dispatches(id INTEGER PRIMARY KEY AUTOINCREMENT,account_id TEXT REFERENCES accounts(id),signal_id TEXT REFERENCES signals(id),state TEXT NOT NULL DEFAULT 'queued',nonce TEXT,ticket TEXT,deal TEXT,reason TEXT,fill_price REAL,created REAL NOT NULL,updated REAL NOT NULL,UNIQUE(account_id,signal_id));
         CREATE UNIQUE INDEX IF NOT EXISTS unique_deal ON dispatches(account_id,deal) WHERE deal IS NOT NULL AND deal != '';
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,ts REAL NOT NULL,actor TEXT NOT NULL,event TEXT NOT NULL,detail TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,state TEXT NOT NULL,decision INTEGER,result TEXT,error TEXT,created REAL NOT NULL);
@@ -181,6 +183,10 @@ def apply_migration_001(c, is_pg: bool):
         CREATE TABLE IF NOT EXISTS sim_positions(dispatch_id INTEGER PRIMARY KEY REFERENCES dispatches(id),account_id TEXT REFERENCES accounts(id),side TEXT NOT NULL,entry REAL NOT NULL,sl REAL NOT NULL,tp REAL NOT NULL,lots REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS login_limits(key TEXT PRIMARY KEY,attempts INTEGER NOT NULL,until REAL NOT NULL);
         """)
+        try:
+            c.execute("ALTER TABLE dispatches ADD COLUMN fill_price REAL;")
+        except Exception:
+            pass
 
 
 def apply_migration_002(c, is_pg: bool):

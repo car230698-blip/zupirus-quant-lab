@@ -7,6 +7,7 @@ export const PortfolioGenerativeUI: React.FC<PortfolioCardProps> = ({
   accounts,
   totalBalance,
   totalEquity,
+  onNavigate,
 }) => {
   const pnl = totalEquity - totalBalance;
   return (
@@ -44,11 +45,23 @@ export const PortfolioGenerativeUI: React.FC<PortfolioCardProps> = ({
           </div>
         ))}
       </div>
+      {onNavigate && (
+        <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => onNavigate('overview')}
+            className="text-cyan-400 hover:text-cyan-300 font-mono text-[11px] flex items-center gap-1 transition-colors"
+          >
+            <span>Xem chi tiết danh mục</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
-export const RecentOrdersGenerativeUI: React.FC<RecentOrdersCardProps> = ({ orders }) => {
+export const RecentOrdersGenerativeUI: React.FC<RecentOrdersCardProps> = ({ orders, onNavigate }) => {
   return (
     <div className="rounded-xl border border-emerald-500/30 bg-[#080d1a] p-4 text-xs shadow-md">
       <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
@@ -75,10 +88,12 @@ export const RecentOrdersGenerativeUI: React.FC<RecentOrdersCardProps> = ({ orde
               <div className="flex items-center gap-2">
                 <span className="text-slate-400">Ticket: {o.ticket || '—'}</span>
                 <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${
+                  className={`rounded px-1.5 py-0.5 text-[10px] uppercase font-bold ${
                     o.state === 'filled'
                       ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/40'
-                      : 'bg-amber-950/80 text-amber-300 border border-amber-700/40'
+                      : o.state === 'queued'
+                      ? 'bg-amber-950/80 text-amber-300 border border-amber-700/40'
+                      : 'bg-rose-950/80 text-rose-300 border border-rose-700/40'
                   }`}
                 >
                   {o.state}
@@ -88,11 +103,23 @@ export const RecentOrdersGenerativeUI: React.FC<RecentOrdersCardProps> = ({ orde
           ))}
         </div>
       )}
+      {onNavigate && (
+        <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => onNavigate('orders')}
+            className="text-emerald-400 hover:text-emerald-300 font-mono text-[11px] flex items-center gap-1 transition-colors"
+          >
+            <span>Xem toàn bộ lịch sử lệnh</span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
-export function CustomerAssistant() {
+export function CustomerAssistant({ onNavigate }: { onNavigate?: (tab: 'overview' | 'accounts' | 'orders') => void } = {}) {
   const [input, setInput] = useState('');
   const { messages, sendMessage, status, stop, error, regenerate } = useQuantChat('customer');
   const busy = status === 'submitted' || status === 'streaming';
@@ -118,8 +145,8 @@ export function CustomerAssistant() {
           <div className="quant-chat-message" data-role={message.role} key={message.id}>
             {message.parts.map((part, index) => {
               if (part.type === 'text') return <p key={index}>{part.text}</p>;
-              if (part.type === 'data-portfolio') return <PortfolioGenerativeUI key={index} {...part.data} />;
-              if (part.type === 'data-orders') return <RecentOrdersGenerativeUI key={index} {...part.data} />;
+              if (part.type === 'data-portfolio') return <PortfolioGenerativeUI key={index} {...part.data} onNavigate={onNavigate} />;
+              if (part.type === 'data-orders') return <RecentOrdersGenerativeUI key={index} {...part.data} onNavigate={onNavigate} />;
               return null;
             })}
           </div>

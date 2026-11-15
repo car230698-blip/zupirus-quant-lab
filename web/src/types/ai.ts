@@ -13,6 +13,7 @@ export interface PortfolioCardProps {
   }>;
   totalBalance: number;
   totalEquity: number;
+  onNavigate?: (tab: 'overview' | 'accounts' | 'orders') => void;
 }
 
 export interface RecentOrdersCardProps {
@@ -26,6 +27,7 @@ export interface RecentOrdersCardProps {
     deal?: string;
     created: number;
   }>;
+  onNavigate?: (tab: 'overview' | 'accounts' | 'orders') => void;
 }
 
 export interface StrategyApprovalCardProps {

@@ -292,6 +292,7 @@ class Receipt(Identity):
     ticket: str = Field(default='', max_length=30, pattern=r'^\d*$')
     deal: str = Field(default='', max_length=30, pattern=r'^\d*$')
     reason: str = Field(default='', max_length=200)
+    price: Optional[float] = None
 
 @app.post('/api/ea/report', response_class=PlainTextResponse)
 def report(p: Receipt, request: Request):
@@ -306,7 +307,10 @@ def report(p: Receipt, request: Request):
             fail(409, 'Final receipt immutable')
         if d['state'] not in ('intent', 'unknown'): fail(409, 'Invalid transition')
         try:
-            c.execute('UPDATE dispatches SET state=?,ticket=?,deal=?,reason=?,updated=? WHERE id=?', (p.state, p.ticket or None, p.deal or None, p.reason, time.time(), p.dispatch))
+            if p.price is not None:
+                c.execute('UPDATE dispatches SET state=?,ticket=?,deal=?,reason=?,updated=?,fill_price=? WHERE id=?', (p.state, p.ticket or None, p.deal or None, p.reason, time.time(), p.price, p.dispatch))
+            else:
+                c.execute('UPDATE dispatches SET state=?,ticket=?,deal=?,reason=?,updated=? WHERE id=?', (p.state, p.ticket or None, p.deal or None, p.reason, time.time(), p.dispatch))
         except (sqlite3.IntegrityError, Exception):
             fail(409, 'Deal already assigned')
         audit(c, a['id'], 'execution_receipt', p.model_dump(exclude={'nonce'}))
@@ -330,7 +334,7 @@ def feed(p: Quote, request: Request):
     return {'ok': True}
 
 @app.get('/api/dashboard')
-def dashboard(u=Depends(user)):
+def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional[str] = None):
     with tx() as c:
         accounts = [dict(r) for r in c.execute('SELECT * FROM accounts WHERE user_id=?', (u['id'],))]
         # Enrich accounts with cached heartbeat from Redis if available
@@ -338,11 +342,95 @@ def dashboard(u=Depends(user)):
             hb = get_cached_heartbeat(a['id'])
             if hb:
                 a['cached_heartbeat'] = hb
-        orders = [dict(r) for r in c.execute('SELECT d.*,s.side,s.price,s.source FROM dispatches d JOIN signals s ON s.id=d.signal_id JOIN accounts a ON a.id=d.account_id WHERE a.user_id=? ORDER BY d.id DESC LIMIT 100', (u['id'],))]
+        
+        query = '''
+            SELECT d.*, s.side, s.price, s.sl, s.tp, s.source,
+                   a.login AS account_login, a.server AS account_server
+            FROM dispatches d
+            JOIN signals s ON s.id=d.signal_id
+            JOIN accounts a ON a.id=d.account_id
+            WHERE a.user_id=?
+        '''
+        params: List[Any] = [u['id']]
+        if account_id:
+            if not any(a['id'] == account_id for a in accounts):
+                fail(404, 'Account not found')
+            query += ' AND d.account_id=?'
+            params.append(account_id)
+        if state:
+            query += ' AND d.state=?'
+            params.append(state)
+
+        query += ' ORDER BY d.id DESC LIMIT 100'
+        orders = [dict(r) for r in c.execute(query, tuple(params))]
         for d in orders: d.pop('nonce', None)
         series = [dict(r) for r in c.execute('SELECT s.* FROM snapshots s JOIN accounts a ON a.id=s.account_id WHERE a.user_id=? ORDER BY s.id DESC LIMIT 400', (u['id'],))][::-1]
-        health = dict(c.execute("SELECT key,value FROM kv WHERE key IN ('execution_heartbeat','research_heartbeat','replay_price')").fetchall())
+        health = dict(c.execute("SELECT key,value FROM kv WHERE key IN ('execution_heartbeat','research_heartbeat','replay_price','strategy_last_decision','halted')").fetchall())
         return {'accounts': accounts, 'orders': orders, 'series': series, 'health': health, 'real_trading': False}
+
+@app.get('/api/admin/orders')
+def admin_orders(
+    u=Depends(admin),
+    account_id: Optional[str] = None,
+    team: Optional[str] = None,
+    state: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """System-wide order queries with role authorization, multi-parameter filtering, and controlled pagination."""
+    limit = min(max(limit, 1), 200)
+    offset = max(offset, 0)
+    with tx() as c:
+        query = '''
+            SELECT d.*, s.side, s.price, s.sl, s.tp, s.source,
+                   a.login AS account_login, a.server AS account_server,
+                   u.email AS user_email
+            FROM dispatches d
+            JOIN signals s ON s.id=d.signal_id
+            JOIN accounts a ON a.id=d.account_id
+            JOIN users u ON u.id=a.user_id
+            WHERE 1=1
+        '''
+        count_query = '''
+            SELECT count(*)
+            FROM dispatches d
+            JOIN signals s ON s.id=d.signal_id
+            JOIN accounts a ON a.id=d.account_id
+            JOIN users u ON u.id=a.user_id
+            WHERE 1=1
+        '''
+        params: List[Any] = []
+        if account_id:
+            query += ' AND d.account_id=?'
+            count_query += ' AND d.account_id=?'
+            params.append(account_id)
+        if state:
+            query += ' AND d.state=?'
+            count_query += ' AND d.state=?'
+            params.append(state)
+        if team and team != 'all':
+            if team == 'execution':
+                query += " AND s.source='DEMO'"
+                count_query += " AND s.source='DEMO'"
+            elif team == 'replay':
+                query += " AND s.source='REPLAY'"
+                count_query += " AND s.source='REPLAY'"
+        if search and search.strip():
+            s_val = f"%{search.strip()}%"
+            clause = " AND (d.signal_id LIKE ? OR d.ticket LIKE ? OR d.deal LIKE ? OR CAST(d.id AS TEXT) LIKE ? OR a.login LIKE ? OR u.email LIKE ?)"
+            query += clause
+            count_query += clause
+            params.extend([s_val, s_val, s_val, s_val, s_val, s_val])
+
+        total = c.execute(count_query, tuple(params)).fetchone()[0]
+
+        query += ' ORDER BY d.id DESC LIMIT ? OFFSET ?'
+        params.extend([limit, offset])
+        rows = [dict(r) for r in c.execute(query, tuple(params))]
+        for r in rows:
+            r.pop('nonce', None)
+        return {'total': total, 'orders': rows, 'limit': limit, 'offset': offset}
 
 @app.get('/api/admin/monitor')
 def monitor(u=Depends(admin)):
@@ -388,13 +476,32 @@ class News(Model):
     title: str = Field(min_length=1, max_length=300)
     currency: Literal['USD', 'ALL', 'EUR', 'OTHER'] = 'USD'
     impact: Literal['high', 'medium', 'low'] = 'high'
-    ts: float
+    ts: float = Field(gt=0)
 
 @app.post('/api/admin/news')
 def add_news(p: News, u=Depends(admin)):
     with tx() as c:
-        c.execute('INSERT INTO news VALUES(?,?,?,?,?)', (secrets.token_hex(12), p.title, p.currency, p.impact, p.ts))
-        audit(c, u['id'], 'calendar_added', p.model_dump())
+        nid = secrets.token_hex(12)
+        c.execute('INSERT INTO news VALUES(?,?,?,?,?)', (nid, p.title, p.currency, p.impact, p.ts))
+        audit(c, u['id'], 'calendar_added', {'id': nid, **p.model_dump()})
+    return {'ok': True, 'id': nid}
+
+@app.put('/api/admin/news/{nid}')
+def update_news(nid: str, p: News, u=Depends(admin)):
+    with tx() as c:
+        row = c.execute('SELECT * FROM news WHERE id=?', (nid,)).fetchone()
+        if not row: fail(404, 'News event not found')
+        c.execute('UPDATE news SET title=?, currency=?, impact=?, ts=? WHERE id=?', (p.title, p.currency, p.impact, p.ts, nid))
+        audit(c, u['id'], 'calendar_updated', {'id': nid, **p.model_dump()})
+    return {'ok': True}
+
+@app.delete('/api/admin/news/{nid}')
+def delete_news(nid: str, u=Depends(admin)):
+    with tx() as c:
+        row = c.execute('SELECT * FROM news WHERE id=?', (nid,)).fetchone()
+        if not row: fail(404, 'News event not found')
+        c.execute('DELETE FROM news WHERE id=?', (nid,))
+        audit(c, u['id'], 'calendar_deleted', {'id': nid, 'title': row['title'], 'ts': row['ts']})
     return {'ok': True}
 
 class Ask(Model): question: str = Field(min_length=1, max_length=2000)

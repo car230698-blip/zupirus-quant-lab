@@ -391,7 +391,34 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
                 ORDER BY time DESC
                 LIMIT ?
             """, (symbol, source, timeframe, limit)).fetchall()
-            return [dict(r) for r in rows]
+            if rows:
+                return [dict(r) for r in rows]
+
+            # Aggregate from quotes if candles table is empty
+            tf_seconds = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600, "D1": 86400}.get(timeframe, 900)
+            quote_rows = c.execute("""
+                SELECT ts, bid FROM quotes WHERE source = ? ORDER BY ts ASC
+            """, (source,)).fetchall()
+            if not quote_rows:
+                return []
+            buckets: Dict[int, List[float]] = {}
+            for qr in quote_rows:
+                b = int(qr['ts'] // tf_seconds) * tf_seconds
+                if b not in buckets:
+                    buckets[b] = []
+                buckets[b].append(float(qr['bid']))
+            result = []
+            for b in sorted(buckets.keys(), reverse=True)[:limit]:
+                p_list = buckets[b]
+                result.append({
+                    "time": b,
+                    "open": p_list[0],
+                    "high": max(p_list),
+                    "low": min(p_list),
+                    "close": p_list[-1],
+                    "volume": len(p_list)
+                })
+            return result
 
 
 def run_with_timeout(fn, timeout: float = 2.0):

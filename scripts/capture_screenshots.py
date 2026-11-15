@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 SCREENSHOT_DIR = ROOT / "screenshots"
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-ARTIFACT_DIR = Path(r"C:\Users\hcm236\.gemini\antigravity\brain\e4afedc4-f94d-467e-be50-6f5e65bc6e33")
+CURRENT_CONV_ID = os.environ.get("CONVERSATION_ID", "05362ca5-e3fd-4fce-80f5-0c0b57cdc07e")
+ARTIFACT_DIR = Path(rf"C:\Users\hcm236\.gemini\antigravity\brain\{CURRENT_CONV_ID}")
 
 
 def run():
