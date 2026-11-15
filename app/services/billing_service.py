@@ -6,6 +6,7 @@ import secrets
 import logging
 import asyncio
 from typing import Dict, Any, Tuple, Optional
+from urllib.parse import quote
 from app.db import tx
 from app.config import (
     CLOUD_SLOT_MONTHLY_USD,
@@ -99,7 +100,8 @@ def create_checkout_order(
     bank_acc = SEPAY_ACCOUNT_NUMBER
     bank_name = SEPAY_BANK_NAME
     bank_holder = SEPAY_ACCOUNT_HOLDER
-    qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={amount_vnd}&des={content_memo}"
+    encoded_memo = quote(content_memo)
+    qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={amount_vnd}&des={encoded_memo}"
 
     return {
         "id": order_id,

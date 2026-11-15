@@ -47,7 +47,7 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
       </div>
 
       <p className="text-slate-300 leading-relaxed text-xs">
-        {report.strategy || 'Chiến lược SMA Crossover, huấn luyện rolling 120 bar / 60 bar OOS.'}
+        {report.strategy || 'Chiến lược quy nạp Tabula Rasa, kiểm định Walk-Forward 120 bar Train / 60 bar OOS.'}
       </p>
 
       {/* Metrics Grid */}
@@ -88,7 +88,7 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
             {report.folds.map((f, idx) => (
               <div key={idx} className="rounded bg-slate-900/90 border border-slate-800 p-1.5">
                 <div className="text-slate-400">
-                  Fold #{idx + 1} · Fast SMA({f.period})
+                  Fold #{idx + 1} · {f.rule || `Quy tắc (${f.period || 'Inductive'})`}
                 </div>
                 <div className={f.oos_net_price_units >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
                   {f.oos_net_price_units >= 0 ? '+' : ''}

@@ -226,7 +226,7 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         'win_rate': win_rate,
         'profit_factor': profit_factor,
         'trades': trades_count,
-        'production_qualified': is_qualified,
+        'production_qualified': False,
     }
 
 def get_checkpointer():

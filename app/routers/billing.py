@@ -1,5 +1,6 @@
 """Billing, real-time exchange rates, and checkout endpoints."""
 import time
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException
 from app.db import tx
 from app.routers.deps import get_current_user, get_current_admin, fail
@@ -84,7 +85,8 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
             fail(403, "Không có quyền xem đơn hàng này.")
 
         content_memo = f"ZP {d['id'][-6:].upper()}"
-        qr_url = f"https://qr.sepay.vn/img?acc={SEPAY_ACCOUNT_NUMBER}&bank={SEPAY_BANK_NAME}&amount={d['amount_vnd']}&des={content_memo}"
+        encoded_memo = quote(content_memo)
+        qr_url = f"https://qr.sepay.vn/img?acc={SEPAY_ACCOUNT_NUMBER}&bank={SEPAY_BANK_NAME}&amount={d['amount_vnd']}&des={encoded_memo}"
         d["qr_code_url"] = qr_url
         d["account_number"] = SEPAY_ACCOUNT_NUMBER
         d["bank_name"] = SEPAY_BANK_NAME

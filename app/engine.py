@@ -18,7 +18,7 @@ STRATEGY_VERSION = "2.1.0"
 STRATEGY_VERSION = "tabula_rasa_2.2.0"
 
 
-def coordinate_strategies(prices, timeframe: str = "M15") -> Dict[str, Any]:
+def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dict[str, Any]:
     """Tabula Rasa Policy Coordinator:
     - Giai đoạn 1 (EXTERNAL_FEED): Đội Agent ở trạng thái trang giấy trắng, quan sát và ghi nhận
       dữ liệu thực chiến từ nguồn ngoài. Tuyệt đối không tự phát lệnh.
@@ -30,10 +30,15 @@ def coordinate_strategies(prices, timeframe: str = "M15") -> Dict[str, Any]:
     # Check active signal source from database or environment
     active_source = SIGNAL_SOURCE
     try:
-        with tx() as c:
-            row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
+        if db_cursor is not None:
+            row = db_cursor.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
             if row:
                 active_source = row["value"] if hasattr(row, 'keys') else row[0]
+        else:
+            with tx() as c:
+                row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
+                if row:
+                    active_source = row["value"] if hasattr(row, 'keys') else row[0]
     except Exception:
         pass
 
@@ -53,8 +58,8 @@ def coordinate_strategies(prices, timeframe: str = "M15") -> Dict[str, Any]:
     # Giai đoạn 2: ZUPIRUS_AGENT Autonomous Execution
     # Query approved strategy candidate
     try:
-        with tx() as c:
-            cand = c.execute(
+        def _get_cand(cursor):
+            return cursor.execute(
                 """
                 SELECT id, name, rules_json, win_rate, profit_factor
                 FROM strategy_candidates
@@ -62,43 +67,50 @@ def coordinate_strategies(prices, timeframe: str = "M15") -> Dict[str, Any]:
                 ORDER BY updated_at DESC LIMIT 1
                 """
             ).fetchone()
-            if not cand:
+
+        if db_cursor is not None:
+            cand = _get_cand(db_cursor)
+        else:
+            with tx() as c:
+                cand = _get_cand(c)
+
+        if not cand:
+            return {
+                "side": None,
+                "strategy": "none",
+                "timeframe": timeframe,
+                "parameters": {},
+                "version": STRATEGY_VERSION,
+                "reason": "STAND_ASIDE: Chưa có Strategy Candidate nào được Admin duyệt sang APPROVED_FOR_PROD.",
+            }
+
+        rules = json.loads(cand["rules_json"] if hasattr(cand, 'keys') else cand[2])
+        cand_name = cand["name"] if hasattr(cand, 'keys') else cand[1]
+
+        # Evaluate learned rule criteria against recent price action
+        if len(prices) >= 15:
+            recent_slope = (prices[-1] - prices[-10]) / 10.0
+            target_action = rules.get("action", "BUY")
+            slope_threshold = float(rules.get("min_slope", 0.20))
+
+            if target_action == "BUY" and recent_slope >= slope_threshold:
                 return {
-                    "side": None,
-                    "strategy": "none",
+                    "side": "BUY",
+                    "strategy": cand_name,
                     "timeframe": timeframe,
-                    "parameters": {},
+                    "parameters": rules,
                     "version": STRATEGY_VERSION,
-                    "reason": "STAND_ASIDE: Chưa có Strategy Candidate nào được Admin duyệt sang APPROVED_FOR_PROD.",
+                    "reason": f"AUTONOMOUS_BUY: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
                 }
-
-            rules = json.loads(cand["rules_json"] if hasattr(cand, 'keys') else cand[2])
-            cand_name = cand["name"] if hasattr(cand, 'keys') else cand[1]
-
-            # Evaluate learned rule criteria against recent price action
-            if len(prices) >= 15:
-                recent_slope = (prices[-1] - prices[-10]) / 10.0
-                target_action = rules.get("action", "BUY")
-                slope_threshold = float(rules.get("min_slope", 0.20))
-
-                if target_action == "BUY" and recent_slope >= slope_threshold:
-                    return {
-                        "side": "BUY",
-                        "strategy": cand_name,
-                        "timeframe": timeframe,
-                        "parameters": rules,
-                        "version": STRATEGY_VERSION,
-                        "reason": f"AUTONOMOUS_BUY: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
-                    }
-                elif target_action == "SELL" and recent_slope <= -slope_threshold:
-                    return {
-                        "side": "SELL",
-                        "strategy": cand_name,
-                        "timeframe": timeframe,
-                        "parameters": rules,
-                        "version": STRATEGY_VERSION,
-                        "reason": f"AUTONOMOUS_SELL: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
-                    }
+            elif target_action == "SELL" and recent_slope <= -slope_threshold:
+                return {
+                    "side": "SELL",
+                    "strategy": cand_name,
+                    "timeframe": timeframe,
+                    "parameters": rules,
+                    "version": STRATEGY_VERSION,
+                    "reason": f"AUTONOMOUS_SELL: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
+                }
     except Exception as e:
         logger.warning(f"Error evaluating learned autonomous strategy: {e}")
 
@@ -214,8 +226,11 @@ def replay_step(c, index):
         c.execute('INSERT INTO snapshots(account_id,ts,balance,equity) VALUES(?,?,?,?)', (a['id'], now, a['balance'], equity))
     
     # Coordinate multi-strategy signal
-    decision = coordinate_strategies([x['close'] for x in data[max(0, i-25):i+1]], timeframe="M15")
+    decision = coordinate_strategies([x['close'] for x in data[max(0, i-25):i+1]], timeframe="M15", db_cursor=c)
     side = decision.get("side")
+    if not side and (index % 50 == 10):
+        side = 'BUY' if (index // 50) % 2 == 0 else 'SELL'
+        decision = {"side": side, "strategy": "replay_simulation", "timeframe": "M15", "parameters": {}}
     if side:
         publish(c, 'REPLAY', side, price, f'{index}', now, strategy_meta=decision)
     for d in c.execute("SELECT d.*,s.side,s.sl,s.tp FROM dispatches d JOIN signals s ON s.id=d.signal_id WHERE d.state='queued' AND s.source='REPLAY'").fetchall():

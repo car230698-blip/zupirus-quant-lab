@@ -53,7 +53,7 @@ async def perimeter(request: Request, call_next):
             return JSONResponse({'detail': 'CSRF header required'}, 403)
     response = await call_next(request)
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://qr.sepay.vn https://*.sepay.vn https://img.vietqr.io; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://qr.sepay.vn https://*.sepay.vn https://img.vietqr.io https://api.vietqr.io https://*.vietqr.io https://vietqr.net; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     response.headers['Referrer-Policy'] = 'no-referrer'
     response.headers['Cache-Control'] = 'no-store'
     return response

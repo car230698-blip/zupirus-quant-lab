@@ -837,43 +837,97 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                   </span>
                 </div>
 
-                <div className="flex justify-center p-3 rounded-2xl bg-white max-w-[220px] mx-auto shadow-xl relative min-h-[200px]">
-                  <img
-                    src={activeOrder.qr_code_url || `https://qr.sepay.vn/img?acc=${activeOrder.account_number || '105887054819'}&bank=${activeOrder.bank_name || 'VietinBank'}&amount=${activeOrder.amount_vnd}&des=${encodeURIComponent(activeOrder.payment_content)}`}
-                    alt="SePay VietQR"
-                    className="w-full h-auto object-contain"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      const fallback = `https://img.vietqr.io/image/VietinBank-105887054819-compact2.png?amount=${activeOrder.amount_vnd}&addInfo=${encodeURIComponent(activeOrder.payment_content)}&accountName=LE%20NGUYEN%20NHU%20THUY`;
-                      if (target.src !== fallback) {
-                        target.src = fallback;
-                      }
-                    }}
-                  />
-                </div>
+                {(() => {
+                  const displayBank = (activeOrder.bank_name && activeOrder.bank_name !== 'MBBank') ? activeOrder.bank_name : 'VietinBank';
+                  const displayAcc = (activeOrder.account_number && activeOrder.account_number !== '0336230698') ? activeOrder.account_number : '105887054819';
+                  const displayHolder = activeOrder.account_holder || 'LE NGUYEN NHU THUY';
+                  const encodedContent = encodeURIComponent(activeOrder.payment_content);
+                  const qrSrc = activeOrder.qr_code_url
+                    ? activeOrder.qr_code_url.replace(/ /g, '%20')
+                    : `https://qr.sepay.vn/img?acc=${displayAcc}&bank=${displayBank}&amount=${activeOrder.amount_vnd}&des=${encodedContent}`;
+                  const fallbackQr = `https://img.vietqr.io/image/VietinBank-105887054819-compact2.png?amount=${activeOrder.amount_vnd}&addInfo=${encodedContent}&accountName=LE%20NGUYEN%20NHU%20THUY`;
 
-                <div className="space-y-2 text-left bg-slate-950/70 p-3.5 rounded-xl border border-slate-800">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Ngân hàng:</span>
-                    <span className="font-bold text-slate-200">{activeOrder.bank_name || 'VietinBank'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Chủ tài khoản:</span>
-                    <span className="font-bold text-slate-200 uppercase">{activeOrder.account_holder || 'LE NGUYEN NHU THUY'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Số tài khoản:</span>
-                    <span className="font-bold text-cyan-300 select-all">{activeOrder.account_number || '105887054819'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Số tiền:</span>
-                    <span className="font-bold text-emerald-400 text-sm">{activeOrder.amount_vnd.toLocaleString('vi-VN')}₫</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Nội dung chuyển:</span>
-                    <span className="font-black text-amber-400 text-sm select-all">{activeOrder.payment_content}</span>
-                  </div>
-                </div>
+                  return (
+                    <>
+                      <div className="flex justify-center p-3 rounded-2xl bg-white max-w-[220px] mx-auto shadow-xl relative min-h-[200px]">
+                        <img
+                          src={qrSrc}
+                          alt="SePay VietQR"
+                          className="w-full h-auto object-contain"
+                          loading="eager"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (target.src !== fallbackQr) {
+                              target.src = fallbackQr;
+                            }
+                          }}
+                        />
+                      </div>
+
+                      <div className="space-y-2 text-left bg-slate-950/70 p-3.5 rounded-xl border border-slate-800">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Ngân hàng:</span>
+                          <span className="font-bold text-slate-200">{displayBank}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Chủ tài khoản:</span>
+                          <span className="font-bold text-slate-200 uppercase">{displayHolder}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Số tài khoản:</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-cyan-300 select-all">{displayAcc}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void navigator.clipboard.writeText(displayAcc);
+                                alert('Đã sao chép số tài khoản!');
+                              }}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400"
+                              title="Sao chép số tài khoản"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Số tiền:</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-emerald-400 text-sm">{activeOrder.amount_vnd.toLocaleString('vi-VN')}₫</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void navigator.clipboard.writeText(String(activeOrder.amount_vnd));
+                                alert('Đã sao chép số tiền!');
+                              }}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400"
+                              title="Sao chép số tiền"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Nội dung chuyển:</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-black text-amber-400 text-sm select-all">{activeOrder.payment_content}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void navigator.clipboard.writeText(activeOrder.payment_content);
+                                alert('Đã sao chép nội dung chuyển khoản!');
+                              }}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-400"
+                              title="Sao chép nội dung chuyển"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 <p className="text-[10px] text-slate-400 font-sans">
                   Vui lòng chuyển chính xác số tiền và <strong>nội dung chuyển khoản</strong> để hệ thống tự động kích hoạt ngay lập tức.
