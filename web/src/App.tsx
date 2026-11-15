@@ -11,6 +11,7 @@ import { AdminTracingTab } from './components/AdminTracingTab.tsx';
 import { AdminRiskCalendarTab } from './components/AdminRiskCalendarTab.tsx';
 import { AdminUsersTab, type AdminUser } from './components/AdminUsersTab.tsx';
 import { AdminAITab, type GeminiKeyItem, type HindsightMemoryItem } from './components/AdminAITab.tsx';
+import { LandingPage } from './components/LandingPage.tsx';
 
 const CustomerAssistant = lazy(() =>
   import('./components/CustomerAssistant.tsx').then((module) => ({ default: module.CustomerAssistant }))
@@ -23,6 +24,7 @@ type CopyAccount = { id: string; enabled: boolean; risk: number; max_spread: num
 
 type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
 type AdminTabKey = 'overview' | 'approvals' | 'activity' | 'tracing' | 'news' | 'users' | 'ai';
+export type PortalType = 'landing' | 'user' | 'admin';
 
 interface UserInfo {
   email: string;
@@ -31,12 +33,19 @@ interface UserInfo {
 
 export const App: React.FC = () => {
   // Determine initial portal based on hostname or search params
-  const [portal, setPortal] = useState<'user' | 'admin'>(() => {
+  const [portal, setPortal] = useState<PortalType>(() => {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname.toLowerCase();
       const params = new URLSearchParams(window.location.search);
-      if (params.get('portal') === 'admin' || host === 'adm.zupirus.com' || host.startsWith('adm.')) {
+      const queryPortal = params.get('portal');
+      if (queryPortal === 'admin' || host === 'adm.zupirus.com' || host.startsWith('adm.')) {
         return 'admin';
+      }
+      if (queryPortal === 'user' || host === 'app.zupirus.com' || host.startsWith('app.')) {
+        return 'user';
+      }
+      if (queryPortal === 'landing' || host === 'zupirus.com' || host === 'www.zupirus.com') {
+        return 'landing';
       }
     }
     return 'user';
@@ -645,6 +654,49 @@ export const App: React.FC = () => {
     }
   };
 
+  // Swarm state
+  const [swarmStatus, setSwarmStatus] = useState<any>(null);
+
+  const loadSwarmStatus = useCallback(async () => {
+    if (!currentUser || currentUser.role !== 'admin') return;
+    try {
+      const res = await fetch('/api/admin/swarm/status');
+      if (res.ok) setSwarmStatus(await res.json());
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
+  const handleTriggerSwarm = async () => {
+    try {
+      const res = await fetch('/api/admin/swarm/cycle', { method: 'POST', headers: { 'X-Zupirus': '1' } });
+      if (res.ok) {
+        showNotice('Đã kích hoạt chu kỳ điều phối Swarm thành công');
+        await loadSwarmStatus();
+      }
+    } catch {
+      showNotice('Lỗi khi kích hoạt chu kỳ Swarm');
+    }
+  };
+
+  const handleRunMonteCarlo = async () => {
+    try {
+      const res = await fetch('/api/quant/monte-carlo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ iterations: 10000, ruin_drawdown_pct: 20.0 }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        showNotice(`Mô phỏng Monte Carlo hoàn tất: VaR 95% = ${d.var_95_max_drawdown_pct}%, Ruin = ${d.risk_of_ruin_pct}%`);
+        return d;
+      }
+    } catch {
+      showNotice('Lỗi khi chạy mô phỏng Monte Carlo');
+    }
+    return null;
+  };
+
   useEffect(() => {
     if (currentUser?.role === 'admin') {
       if (adminTab === 'users') {
@@ -652,9 +704,10 @@ export const App: React.FC = () => {
       } else if (adminTab === 'ai') {
         loadGeminiKeys();
         loadHindsightMemories();
+        loadSwarmStatus();
       }
     }
-  }, [currentUser, adminTab, loadAdminUsers, loadGeminiKeys, loadHindsightMemories]);
+  }, [currentUser, adminTab, loadAdminUsers, loadGeminiKeys, loadHindsightMemories, loadSwarmStatus]);
 
   // Consolidated activity items
   const consolidatedActivities = useMemo(() => {
@@ -721,6 +774,28 @@ export const App: React.FC = () => {
   const totalPositions = accounts.reduce((acc: number, a: any) => acc + (a.positions || 0), 0);
   const totalPnl = totalEquity - totalBalance;
 
+  // Render Landing Page for zupirus.com / landing mode
+  if (portal === 'landing') {
+    return (
+      <LandingPage
+        onEnterApp={() => {
+          if (typeof window !== 'undefined' && ['zupirus.com', 'www.zupirus.com'].includes(window.location.hostname)) {
+            window.location.assign('https://app.zupirus.com');
+          } else {
+            setPortal('user');
+          }
+        }}
+        onEnterAdmin={() => {
+          if (typeof window !== 'undefined' && ['zupirus.com', 'www.zupirus.com'].includes(window.location.hostname)) {
+            window.location.assign('https://adm.zupirus.com');
+          } else {
+            setPortal('admin');
+          }
+        }}
+      />
+    );
+  }
+
   if (authChecking) return <div className="quant-app quant-loading" role="status">Đang kiểm tra phiên đăng nhập…</div>;
   if (!currentUser) return <PortalAuth portal={portal} loading={authLoading} error={authError} onSubmit={authenticate} />;
   const isAdmin = currentUser.role === 'admin';
@@ -745,8 +820,8 @@ export const App: React.FC = () => {
   const status = portal === 'admin' ? monitorStatus : dashboardStatus;
   const alternatePortal = portal === 'admin' ? 'user' : 'admin';
   const switchPortal = () => {
-    const targetHost = alternatePortal === 'admin' ? 'adm.zupirus.com' : 'zupirus.com';
-    if (['zupirus.com', 'www.zupirus.com', 'adm.zupirus.com'].includes(location.hostname)) {
+    const targetHost = alternatePortal === 'admin' ? 'adm.zupirus.com' : 'app.zupirus.com';
+    if (['zupirus.com', 'www.zupirus.com', 'adm.zupirus.com', 'app.zupirus.com'].includes(location.hostname)) {
       location.assign(`https://${targetHost}`);
       return;
     }
@@ -946,6 +1021,9 @@ export const App: React.FC = () => {
               onTestGemini={handleTestGemini}
               onAddMemory={handleAddMemory}
               onDeleteMemory={handleDeleteMemory}
+              swarmStatus={swarmStatus}
+              onTriggerSwarm={handleTriggerSwarm}
+              onRunMonteCarlo={handleRunMonteCarlo}
             />
           )}
         </>

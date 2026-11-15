@@ -14,6 +14,14 @@ zupirus.com {
     respond @admin "Use adm.zupirus.com" 403
     import shared
 }
+www.zupirus.com {
+    redir https://zupirus.com{uri}
+}
+app.zupirus.com {
+    @admin path /api/admin/*
+    respond @admin "Use adm.zupirus.com" 403
+    import shared
+}
 adm.zupirus.com {
     import shared
 }

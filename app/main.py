@@ -972,6 +972,75 @@ def readyz():
         return JSONResponse(status_code=503, content=payload)
     return payload
 
+# ---------------------------------------------------------------------------
+# Quant Portfolio Optimization & Autonomous Multi-Agent Swarm Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get('/api/quant/universe')
+def quant_universe(u=Depends(user)):
+    """Scans multi-asset universe (XAUUSD, EURUSD, GBPUSD, USDJPY, BTCUSD)
+    and returns volatility metrics and market regime classification."""
+    from .portfolio import scan_universe, get_universe_specs
+    return {
+        'universe': scan_universe(),
+        'specifications': get_universe_specs(),
+        'scanned_at': time.time(),
+    }
+
+class SizingRequest(BaseModel):
+    symbol: str = 'XAUUSD'
+    equity: float = 10000.0
+    risk_percent: float = 1.0
+    method: str = 'atr_volatility'
+    win_rate: float = 0.55
+    win_loss_ratio: float = 2.0
+
+@app.post('/api/quant/sizing')
+def quant_position_sizing(req: SizingRequest, u=Depends(user)):
+    """Computes dynamic volatility-adjusted position size using ATR or Half-Kelly."""
+    from .portfolio import calculate_position_size
+    return calculate_position_size(
+        equity=req.equity,
+        symbol=req.symbol,
+        risk_percent=req.risk_percent,
+        method=req.method,
+        win_rate=req.win_rate,
+        win_loss_ratio=req.win_loss_ratio,
+    )
+
+class MonteCarloRequest(BaseModel):
+    initial_equity: float = 10000.0
+    iterations: int = 10000
+    horizon_trades: int = 100
+    ruin_drawdown_pct: float = 20.0
+    trades: Optional[List[float]] = None
+
+@app.post('/api/quant/monte-carlo')
+def quant_monte_carlo(req: MonteCarloRequest, u=Depends(user)):
+    """Simulates 10,000 portfolio paths using bootstrap resampling to estimate
+    Risk of Ruin and 95%/99% Drawdown confidence intervals."""
+    from .portfolio import run_monte_carlo_simulation
+    return run_monte_carlo_simulation(
+        trades=req.trades,
+        initial_equity=req.initial_equity,
+        iterations=min(10000, max(100, req.iterations)),
+        horizon_trades=min(500, max(10, req.horizon_trades)),
+        ruin_drawdown_pct=req.ruin_drawdown_pct,
+    )
+
+@app.get('/api/admin/swarm/status')
+def swarm_status(u=Depends(admin)):
+    """Returns real-time status of the 3 Autonomous Agents (Sentinel, Alpha, Risk Guardian)
+    and their shared communication stream."""
+    from .swarm import get_swarm_status
+    return get_swarm_status()
+
+@app.post('/api/admin/swarm/cycle')
+def swarm_trigger_cycle(u=Depends(admin)):
+    """Triggers an autonomous coordination sweep across all 3 agents."""
+    from .swarm import trigger_swarm_cycle
+    return trigger_swarm_cycle()
+
 DIST_DIR = ROOT / 'dist'
 WEB_DIR = ROOT / 'web'
 

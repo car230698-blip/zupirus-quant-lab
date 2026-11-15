@@ -1074,6 +1074,100 @@ export function zupirusApiPlugin(): Plugin {
       return sendJson(res, 200, { ok: true });
     }
 
+    // Quant Portfolio Universe & Sizing
+    if (pathname === '/api/quant/universe' && method === 'GET') {
+      return sendJson(res, 200, {
+        universe: [
+          { symbol: 'XAUUSD', name: 'Gold vs US Dollar', category: 'commodities', price: 2652.4, atr_m15: 3.8, volatility_pct: 0.143, regime: 'Dynamic Trend Continuation', strategy_bias: 'trend_following', sl_points: 5.7, tp_points: 11.4 },
+          { symbol: 'EURUSD', name: 'Euro vs US Dollar', category: 'forex_major', price: 1.0845, atr_m15: 0.0018, volatility_pct: 0.166, regime: 'Low Volatility Consolidation', strategy_bias: 'mean_reversion', sl_points: 0.0027, tp_points: 0.0054 },
+          { symbol: 'GBPUSD', name: 'British Pound vs US Dollar', category: 'forex_major', price: 1.2932, atr_m15: 0.0026, volatility_pct: 0.201, regime: 'Dynamic Trend Continuation', strategy_bias: 'trend_following', sl_points: 0.0039, tp_points: 0.0078 },
+          { symbol: 'USDJPY', name: 'US Dollar vs Japanese Yen', category: 'forex_major', price: 154.25, atr_m15: 0.22, volatility_pct: 0.143, regime: 'Low Volatility Consolidation', strategy_bias: 'mean_reversion', sl_points: 0.33, tp_points: 0.66 },
+          { symbol: 'BTCUSD', name: 'Bitcoin vs US Dollar', category: 'crypto', price: 91250.0, atr_m15: 420.0, volatility_pct: 0.46, regime: 'High Volatility Breakout', strategy_bias: 'breakout', sl_points: 840.0, tp_points: 1680.0 },
+        ],
+        scanned_at: nowSec(),
+      });
+    }
+
+    if (pathname === '/api/quant/sizing' && method === 'POST') {
+      return sendJson(res, 200, {
+        symbol: 'XAUUSD',
+        equity: 10000.0,
+        risk_percent: 1.0,
+        method: 'atr_volatility',
+        recommended_lot: 0.26,
+        dollar_risk: 100.0,
+        sl_points: 5.7,
+        contract_multiplier: 100.0,
+        is_clamped: false,
+      });
+    }
+
+    if (pathname === '/api/quant/monte-carlo' && method === 'POST') {
+      return sendJson(res, 200, {
+        iterations: 10000,
+        horizon_trades: 100,
+        initial_equity: 10000.0,
+        ruin_threshold_pct: 20.0,
+        risk_of_ruin_pct: 0.08,
+        median_max_drawdown_pct: 2.15,
+        var_95_max_drawdown_pct: 3.42,
+        var_99_max_drawdown_pct: 4.65,
+        median_final_equity: 14850.0,
+        robustness_score: 92.4,
+      });
+    }
+
+    // Swarm Multi-Agent Endpoints
+    if (pathname === '/api/admin/swarm/status' && method === 'GET') {
+      return sendJson(res, 200, {
+        active_agents_count: 3,
+        cycles_count: 24,
+        agents: {
+          sentinel: {
+            name: 'Sentinel Agent',
+            role: 'Macro Surveillance & News Blackout',
+            state: 'working',
+            last_action: 'Thị trường an toàn. Không có tin tức High Impact trong 4 giờ tới.',
+            risk_score: 0.15,
+            status: 'active',
+          },
+          alpha: {
+            name: 'Alpha Agent',
+            role: 'Multi-Asset Strategy Discovery',
+            state: 'working',
+            last_action: 'Đã quét 5 tài sản. Ưu tiên cấu hình [TREND_FOLLOWING] trên cặp XAUUSD.',
+            top_asset: 'XAUUSD',
+            strategy_bias: 'trend_following',
+            status: 'active',
+          },
+          risk_guardian: {
+            name: 'Risk Guardian Agent',
+            role: 'Portfolio VaR 99% & Leverage Guardian',
+            state: 'working',
+            last_action: 'Danh mục an toàn. VaR 99% = 3.42%, Risk of Ruin = 0.08%.',
+            var_99_pct: 3.42,
+            risk_of_ruin_pct: 0.08,
+            status: 'active',
+          },
+        },
+        recent_messages: [
+          { ts: nowSec() - 45, agent: 'Swarm Coordinator', message: 'Chu kỳ tự hành #24 hoàn tất: 3 Agent phối hợp đồng bộ. Trạng thái an toàn.' },
+          { ts: nowSec() - 110, agent: 'Sentinel Agent', message: 'Quét lịch kinh tế ForexFactory: Không ghi nhận sự kiện High Impact.' },
+          { ts: nowSec() - 170, agent: 'Alpha Agent', message: 'WFO Walk-Forward kiểm định Sharpe XAUUSD đạt 1.48 (OOS Profit Factor 1.95).' },
+        ],
+      });
+    }
+
+    if (pathname === '/api/admin/swarm/cycle' && method === 'POST') {
+      return sendJson(res, 200, {
+        ok: true,
+        cycle: 25,
+        sentinel: { blackout: false, risk_score: 0.15, events_count: 0 },
+        alpha: { top_asset: 'XAUUSD', bias: 'trend_following', scanned_assets: 5 },
+        risk_guardian: { var_99: 3.42, risk_of_ruin: 0.08, status: 'normal' },
+      });
+    }
+
     // Admin Vision Incident Review
     if (pathname === '/api/admin/vision' && method === 'POST') {
       const body = await readJsonBody(req);
