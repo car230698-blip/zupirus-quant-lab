@@ -1204,6 +1204,37 @@ export function zupirusApiPlugin(): Plugin {
       });
     }
 
+    // SePay Webhook Mock
+    if (pathname === '/api/webhooks/sepay' && method === 'POST') {
+      return sendJson(res, 200, {
+        success: true,
+        transaction_id: 'pay_mock_' + Math.random().toString(36).substring(2, 10),
+        message: 'Payment verified and recorded successfully',
+      });
+    }
+
+    if (pathname === '/api/admin/payments' && method === 'GET') {
+      return sendJson(res, 200, {
+        total_revenue_vnd: 24500000.0,
+        total_transactions: 5,
+        transactions: [
+          {
+            id: 'pay_demo_01',
+            sepay_id: '109281',
+            user_id: 'usr_001',
+            amount: 4900000.0,
+            currency: 'VND',
+            gateway: 'MBBank',
+            content: 'ZP car230698@gmail.com PRO',
+            reference_code: 'FT2611158912',
+            status: 'completed',
+            created_at: nowSec() - 3600,
+            user_email: 'car230698@gmail.com',
+          },
+        ],
+      });
+    }
+
     // Admin Vision Incident Review
     if (pathname === '/api/admin/vision' && method === 'POST') {
       const body = await readJsonBody(req);

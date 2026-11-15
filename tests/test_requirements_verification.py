@@ -268,3 +268,61 @@ def test_resend_mailer_and_otp_workflow(client):
     assert good_verify.status_code == 200
     assert good_verify.json()['verified'] is True
 
+
+def test_sepay_webhook_verification_and_recording(client):
+    """Verify SePay HMAC-SHA256 webhook validation, transaction idempotency, and admin listing."""
+    import hmac, hashlib
+    from app.sepay import get_sepay_secret
+
+    secret = get_sepay_secret()
+    payload = {
+        "id": 998811,
+        "gateway": "MBBank",
+        "transactionDate": "2026-11-15 20:20:00",
+        "accountNumber": "0999888777",
+        "transferType": "in",
+        "transferAmount": 4900000.0,
+        "content": "ZP car230698@gmail.com PRO",
+        "referenceCode": "MB_REF_123456"
+    }
+    raw_bytes = json.dumps(payload).encode('utf-8')
+    valid_sig = hmac.new(secret.encode('utf-8'), raw_bytes, hashlib.sha256).hexdigest()
+
+    # 1. Invalid signature should fail
+    bad_res = client.post(
+        '/api/webhooks/sepay',
+        content=raw_bytes,
+        headers={'x-sepay-signature': 'invalid_sig_hex', 'Content-Type': 'application/json'}
+    )
+    assert bad_res.status_code == 401
+
+    # 2. Valid signature should succeed
+    good_res = client.post(
+        '/api/webhooks/sepay',
+        content=raw_bytes,
+        headers={'x-sepay-signature': valid_sig, 'Content-Type': 'application/json'}
+    )
+    assert good_res.status_code == 200
+    assert good_res.json()['success'] is True
+    assert good_res.json()['amount'] == 4900000.0
+
+    # 3. Duplicate transaction ID should be idempotent
+    dup_res = client.post(
+        '/api/webhooks/sepay',
+        content=raw_bytes,
+        headers={'x-sepay-signature': valid_sig, 'Content-Type': 'application/json'}
+    )
+    assert dup_res.status_code == 200
+    assert dup_res.json()['message'] == "Transaction already recorded"
+
+    # 4. Check admin payments endpoint
+    admin_login = {'email': 'admin@zupirus.local', 'password': 'test-only-admin-password-123'}
+    assert client.post('/api/login', json=admin_login).status_code == 200
+
+    admin_res = client.get('/api/admin/payments')
+    assert admin_res.status_code == 200
+    admin_data = admin_res.json()
+    assert admin_data['total_revenue_vnd'] >= 4900000.0
+    assert admin_data['total_transactions'] >= 1
+
+

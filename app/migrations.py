@@ -36,6 +36,11 @@ MIGRATIONS = [
         "version": 6,
         "name": "006_otp_codes_table",
         "description": "OTP codes storage for Resend email verification and password resets"
+    },
+    {
+        "version": 7,
+        "name": "007_sepay_payment_transactions",
+        "description": "SePay banking payment transactions log and subscription activation records"
     }
 ]
 
@@ -486,6 +491,44 @@ def apply_migration_006(c, is_pg: bool):
         """)
 
 
+def apply_migration_007(c, is_pg: bool):
+    """Create payment_transactions table for SePay webhook logs."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS payment_transactions (
+            id TEXT PRIMARY KEY,
+            sepay_id TEXT UNIQUE,
+            user_id TEXT,
+            amount DOUBLE PRECISION NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'VND',
+            gateway TEXT,
+            content TEXT,
+            reference_code TEXT,
+            status TEXT NOT NULL DEFAULT 'completed',
+            created_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_payment_user ON payment_transactions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_payment_created ON payment_transactions(created_at DESC);
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS payment_transactions (
+            id TEXT PRIMARY KEY,
+            sepay_id TEXT UNIQUE,
+            user_id TEXT,
+            amount REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'VND',
+            gateway TEXT,
+            content TEXT,
+            reference_code TEXT,
+            status TEXT NOT NULL DEFAULT 'completed',
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_payment_user ON payment_transactions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_payment_created ON payment_transactions(created_at DESC);
+        """)
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -498,6 +541,7 @@ def run_all_migrations(c, is_pg: bool):
         4: apply_migration_004,
         5: apply_migration_005,
         6: apply_migration_006,
+        7: apply_migration_007,
     }
 
     for m in MIGRATIONS:

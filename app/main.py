@@ -1,4 +1,5 @@
-import os, time, secrets, json, sqlite3, re
+import os, time, secrets, json, sqlite3, re, logging
+logger = logging.getLogger("zupirus.api")
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Literal, List, Dict, Any, Optional
@@ -1128,6 +1129,106 @@ def auth_verify_otp(p: VerifyOtpPayload):
             fail(400, "Mã OTP không chính xác")
         c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
     return {"ok": True, "verified": True, "message": "Xác thực email thành công"}
+
+@app.post('/api/webhooks/sepay')
+async def sepay_webhook(request: Request):
+    """
+    Receives and processes incoming bank transactions from SePay webhook.
+    Verifies HMAC-SHA256 signature in 'x-sepay-signature' header.
+    """
+    raw_body = await request.body()
+    sig_header = request.headers.get('x-sepay-signature')
+
+    from .sepay import verify_sepay_signature, extract_user_identifier, build_payment_success_email
+    from .mailer import send_resend_email
+
+    if not verify_sepay_signature(raw_body, sig_header):
+        logger.warning("Rejected SePay webhook with invalid HMAC signature")
+        fail(401, "Invalid HMAC signature")
+
+    try:
+        data = json.loads(raw_body.decode('utf-8'))
+    except Exception as e:
+        fail(400, f"Malformed JSON: {e}")
+
+    transfer_type = str(data.get('transferType', 'in')).lower()
+    if transfer_type != 'in':
+        return {"success": True, "message": "Ignored outgoing transfer"}
+
+    sepay_id = str(data.get('id', ''))
+    amount = float(data.get('transferAmount', 0.0))
+    gateway = str(data.get('gateway', 'Banking'))
+    content = str(data.get('content') or data.get('description') or '')
+    ref_code = str(data.get('referenceCode') or '')
+    now = time.time()
+    tx_id = f"pay_{secrets.token_hex(8)}"
+
+    user_identifier = extract_user_identifier(content)
+    matched_user_id = None
+    matched_email = None
+
+    with tx() as c:
+        if sepay_id:
+            existing = c.execute("SELECT id FROM payment_transactions WHERE sepay_id=?", (sepay_id,)).fetchone()
+            if existing:
+                return {"success": True, "message": "Transaction already recorded"}
+
+        if user_identifier:
+            if "@" in user_identifier:
+                u_row = c.execute("SELECT id, email FROM users WHERE email=?", (user_identifier.lower(),)).fetchone()
+            else:
+                u_row = c.execute("SELECT id, email FROM users WHERE id=?", (user_identifier,)).fetchone()
+
+            if u_row:
+                matched_user_id = u_row['id']
+                matched_email = u_row['email']
+
+        c.execute("""
+            INSERT INTO payment_transactions(id, sepay_id, user_id, amount, currency, gateway, content, reference_code, status, created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
+        """, (tx_id, sepay_id or None, matched_user_id, amount, 'VND', gateway, content, ref_code, 'completed', now))
+
+    target_email = matched_email or (user_identifier if (user_identifier and "@" in user_identifier) else None)
+    if target_email:
+        try:
+            email_html = build_payment_success_email(
+                user_email=target_email,
+                amount_vnd=amount,
+                gateway=gateway,
+                ref_code=ref_code,
+                content=content
+            )
+            send_resend_email(to=target_email, subject="🎉 Xác nhận thanh toán thành công - ZUPIRUS Quant Lab", html=email_html)
+        except Exception as e:
+            logger.error("Failed to send payment receipt email: %s", e)
+
+    return {
+        "success": True,
+        "transaction_id": tx_id,
+        "amount": amount,
+        "matched_user": matched_email or matched_user_id,
+        "message": "Payment verified and recorded successfully"
+    }
+
+@app.get('/api/admin/payments')
+def list_payments(u=Depends(admin)):
+    """Returns recent SePay banking transactions and total revenue summary."""
+    with tx() as c:
+        rows = c.execute("""
+            SELECT p.*, u.email as user_email
+            FROM payment_transactions p
+            LEFT JOIN users u ON u.id = p.user_id
+            ORDER BY p.created_at DESC LIMIT 50
+        """).fetchall()
+
+        total_row = c.execute("SELECT COALESCE(SUM(amount), 0) FROM payment_transactions WHERE status='completed'").fetchone()
+        total_vnd = total_row[0] if total_row else 0.0
+
+    return {
+        "total_revenue_vnd": float(total_vnd),
+        "total_transactions": len(rows),
+        "transactions": [dict(r) for r in rows]
+    }
 
 DIST_DIR = ROOT / 'dist'
 WEB_DIR = ROOT / 'web'
