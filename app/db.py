@@ -230,6 +230,10 @@ def tx():
             wrapped.close()
 
 
+# Convenient alias for tx()
+get_db_connection = tx
+
+
 def init():
     """Initialize database schema, tables, and TimescaleDB hypertables using versioned migrations."""
     from .migrations import run_all_migrations

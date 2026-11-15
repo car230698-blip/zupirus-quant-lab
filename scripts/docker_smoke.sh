@@ -95,7 +95,7 @@ print('PASS: Services and persisted database records verified intact across rest
 
 echo "=== 7b. Verifying Migrations on Fresh and Legacy Database Schemas ==="
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
-from tests.test_modern_architecture import run_postgres_migration_test
+from app.migrations import run_postgres_migration_test
 run_postgres_migration_test()
 print('PASS: PostgreSQL and TimescaleDB fresh and legacy migration verified')
 "
