@@ -5,10 +5,10 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
-from .db import tx, init, ROOT, audit, setkv, insert_timescale_quote, query_timescale_candles
+from .db import tx, init, ROOT, audit, setkv, insert_timescale_quote, query_timescale_candles, DatabaseUnavailableError, check_db_health, check_timescale_metadata, is_postgres
 from .security import bootstrap, digest, token, password_hash, verify
 from .engine import news_blocked
-from .redis_client import cache_heartbeat, get_cached_heartbeat, acquire_dispatch_lock, release_dispatch_lock
+from .redis_client import cache_heartbeat, get_cached_heartbeat, acquire_dispatch_lock, release_dispatch_lock, get_redis_client
 from .tracing import get_trace_summary, trace_ai_interaction
 
 @asynccontextmanager
@@ -208,8 +208,8 @@ def heartbeat(p: Heartbeat, request: Request):
         a = device(c, request, p)
         now = time.time()
         c.execute(
-            'UPDATE accounts SET balance=?,equity=?,peak=CASE WHEN seen=0 THEN ? ELSE max(peak,?) END,positions=?,seen=? WHERE id=?',
-            (p.balance, p.equity, p.equity, p.equity, p.positions, now, a['id'])
+            'UPDATE accounts SET balance=?,equity=?,peak=CASE WHEN seen=0 THEN ? WHEN peak > ? THEN peak ELSE ? END,positions=?,seen=? WHERE id=?',
+            (p.balance, p.equity, p.equity, p.equity, p.equity, p.positions, now, a['id'])
         )
         c.execute('INSERT INTO snapshots(account_id,ts,balance,equity) VALUES(?,?,?,?)', (a['id'], now, p.balance, p.equity))
         # Cache heartbeat in Redis with 60s TTL
@@ -247,39 +247,42 @@ class Intent(Identity):
 
 @app.post('/api/ea/intent', response_class=PlainTextResponse)
 def intent(p: Intent, request: Request):
-    with tx() as c:
-        a = device(c, request, p)
-        d = c.execute('SELECT d.*,s.expires,s.source,s.id AS sig_id FROM dispatches d JOIN signals s ON s.id=d.signal_id WHERE d.id=? AND d.account_id=?', (p.dispatch, a['id'])).fetchone()
-        if not d: fail(404, 'Dispatch not found')
-        if d['state'] != 'queued': return 'RECONCILE'
-        now = time.time()
-        active = c.execute("SELECT count(*) FROM dispatches WHERE account_id=? AND state IN ('intent','unknown')", (a['id'],)).fetchone()[0]
-        halted = c.execute("SELECT value FROM kv WHERE key='halted'").fetchone()
-        blocked = (
-            bool(halted and halted[0] == '1')
-            or not a['enabled']
-            or a['mode'] != 'DEMO'
-            or d['source'] != 'DEMO'
-            or d['expires'] < now
-            or now - a['seen'] > 30
-            or p.spread > a['max_spread']
-            or p.risk_amount > a['equity'] * a['risk'] / 100
-            or a['positions'] + active >= a['max_positions']
-            or a['equity'] <= 0
-            or (a['peak'] - a['equity']) / a['peak'] * 100 >= a['max_dd']
-            or news_blocked(c, now)
-        )
-        if blocked: fail(409, 'Risk gate denied')
+    try:
+        with tx() as c:
+            a = device(c, request, p)
+            d = c.execute('SELECT d.*,s.expires,s.source,s.id AS sig_id FROM dispatches d JOIN signals s ON s.id=d.signal_id WHERE d.id=? AND d.account_id=?', (p.dispatch, a['id'])).fetchone()
+            if not d: fail(404, 'Dispatch not found')
+            if d['state'] != 'queued': return 'RECONCILE'
+            now = time.time()
+            active = c.execute("SELECT count(*) FROM dispatches WHERE account_id=? AND state IN ('intent','unknown')", (a['id'],)).fetchone()[0]
+            halted = c.execute("SELECT value FROM kv WHERE key='halted'").fetchone()
+            blocked = (
+                bool(halted and halted[0] == '1')
+                or not a['enabled']
+                or a['mode'] != 'DEMO'
+                or d['source'] != 'DEMO'
+                or d['expires'] < now
+                or now - a['seen'] > 30
+                or p.spread > a['max_spread']
+                or p.risk_amount > a['equity'] * a['risk'] / 100
+                or a['positions'] + active >= a['max_positions']
+                or a['equity'] <= 0
+                or (a['peak'] - a['equity']) / a['peak'] * 100 >= a['max_dd']
+                or news_blocked(c, now)
+            )
+            if blocked: fail(409, 'Risk gate denied')
 
-        # Check and acquire Redis Distributed Lock on signal_id + account_id
-        lock_token = acquire_dispatch_lock(a['id'], d['sig_id'], ttl_seconds=15)
-        if not lock_token:
-            # Concurrent worker or intent already locked
-            fail(409, 'Concurrent dispatch locked')
+            # Check and acquire Redis Distributed Lock on signal_id + account_id
+            lock_token = acquire_dispatch_lock(a['id'], d['sig_id'], ttl_seconds=15)
+            if not lock_token:
+                # Concurrent worker or intent already locked
+                fail(409, 'Concurrent dispatch locked')
 
-        c.execute("UPDATE dispatches SET state='intent',nonce=?,updated=? WHERE id=?", (p.nonce, now, p.dispatch))
-        audit(c, a['id'], 'send_authorized', {'dispatch': p.dispatch})
-        return 'SEND_ONCE'
+            c.execute("UPDATE dispatches SET state='intent',nonce=?,updated=? WHERE id=?", (p.nonce, now, p.dispatch))
+            audit(c, a['id'], 'send_authorized', {'dispatch': p.dispatch})
+            return 'SEND_ONCE'
+    except DatabaseUnavailableError as e:
+        fail(503, f'Primary database unavailable: {e}')
 
 class Receipt(Identity):
     dispatch: int = Field(gt=0)
@@ -499,22 +502,84 @@ def tracing_telemetry(u=Depends(admin)):
     return get_trace_summary()
 
 @app.get('/api/timescale/candles')
-def get_timescale_candles(symbol: str = 'XAUUSD', timeframe: str = 'M15', limit: int = 100):
-    """Retrieve continuous M15 candles aggregated by TimescaleDB."""
-    candles = query_timescale_candles(symbol, timeframe, limit)
-    return {'symbol': symbol, 'timeframe': timeframe, 'candles': candles}
+def get_timescale_candles(symbol: str = 'XAUUSD', timeframe: str = 'M15', source: str = 'DEMO', limit: int = 100):
+    """Retrieve continuous candles aggregated by TimescaleDB.
+    Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO vs REPLAY)."""
+    try:
+        candles = query_timescale_candles(symbol=symbol, timeframe=timeframe, source=source, limit=limit)
+        return {'symbol': symbol, 'timeframe': timeframe, 'source': source, 'candles': candles}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get('/healthz')
-def health():
-    with tx() as c:
-        c.execute('SELECT 1').fetchone()
+def healthz():
+    """Liveness probe reflecting basic process health."""
+    db_check = check_db_health()
     return {
-        'status': 'ok',
+        'status': 'ok' if db_check['status'] == 'up' else 'degraded',
         'real_trading': False,
-        'database': 'postgresql_timescaledb' if os.getenv('DATABASE_URL') else 'sqlite_wal',
+        'database': db_check['engine'],
+        'database_status': db_check['status'],
         'redis_stream': True,
         'langsmith_tracing': bool(os.getenv('LANGSMITH_API_KEY'))
     }
+
+@app.get('/readyz')
+@app.get('/api/health')
+def readyz():
+    """Readiness probe strictly verifying real connections to PostgreSQL, TimescaleDB, and Redis.
+    Fails closed (HTTP 503) if primary storage is unreachable."""
+    db_info = check_db_health()
+    db_ok = db_info.get("status") == "up"
+
+    # Check Redis
+    redis_ok = False
+    redis_err = None
+    try:
+        r = get_redis_client()
+        redis_ok = bool(r.ping())
+    except Exception as e:
+        redis_err = str(e)
+
+    # Check TimescaleDB if postgres
+    timescale_info = check_timescale_metadata()
+
+    # Check Execution worker heartbeat
+    engine_ok = False
+    try:
+        with tx() as c:
+            hb = c.execute("SELECT value FROM kv WHERE key='execution_heartbeat'").fetchone()
+            if hb and time.time() - float(hb[0]) < 60:
+                engine_ok = True
+    except Exception:
+        pass
+
+    overall_ready = db_ok and redis_ok
+
+    payload = {
+        'status': 'ready' if overall_ready else 'not_ready',
+        'database': {
+            'configured_as_postgres': is_postgres(),
+            'engine': db_info.get('engine'),
+            'connected': db_ok,
+            'details': db_info
+        },
+        'timescaledb': timescale_info,
+        'redis': {
+            'connected': redis_ok,
+            'error': redis_err
+        },
+        'execution_worker': {
+            'heartbeat_active': engine_ok
+        },
+        'langsmith': {
+            'enabled': bool(os.getenv('LANGSMITH_API_KEY'))
+        }
+    }
+
+    if not overall_ready:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 app.mount('/assets', StaticFiles(directory=ROOT / 'web'), name='assets')
 

@@ -8,8 +8,8 @@
     "build:ui": "tsc -p web/tsconfig.json --noEmit"
   },
   "dependencies": {
-    "ai": "^6.0.0",
-    "@ai-sdk/react": "^6.0.0",
+    "ai": "^4.0.0",
+    "@ai-sdk/react": "^4.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

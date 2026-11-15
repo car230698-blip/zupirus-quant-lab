@@ -1,5 +1,5 @@
 #property strict
-#property version "0.10"
+#property version "1.00"
 #property description "ZUPIRUS Demo-only copy client. No master EA. Ambiguous intents never resend."
 input string ApiURL="https://zupirus.com";
 input string PairingCode="";

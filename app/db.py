@@ -22,6 +22,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 _pg_pool = None
 
 
+class DatabaseUnavailableError(RuntimeError):
+    """Raised when the primary database is configured but unavailable."""
+    pass
+
+
 def is_postgres() -> bool:
     """Return True if PostgreSQL / TimescaleDB is configured."""
     return bool(DATABASE_URL and (DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")))
@@ -40,8 +45,9 @@ def get_pg_pool():
             _pg_pool = ConnectionPool(conn_str, min_size=2, max_size=20, timeout=30.0, open=True)
             logger.info("Connected to PostgreSQL/TimescaleDB connection pool")
         except Exception as e:
-            logger.error("Failed to initialize PostgreSQL pool (%s). Reverting to SQLite.", e)
+            logger.error("Failed to initialize PostgreSQL pool (%s). System in fail-closed state.", e)
             _pg_pool = None
+            raise DatabaseUnavailableError(f"PostgreSQL connection failed: {e}")
     return _pg_pool
 
 
@@ -134,6 +140,13 @@ class CursorWrapper:
         cols = [desc[0] for desc in self._cur.description] if self._cur.description else []
         return [RowDictWrapper(dict(zip(cols, r)), cols, tuple(r)) for r in rows]
 
+    def __iter__(self):
+        while True:
+            row = self.fetchone()
+            if row is None:
+                break
+            yield row
+
     @property
     def lastrowid(self):
         return getattr(self._cur, 'lastrowid', None)
@@ -176,10 +189,16 @@ class ConnectionWrapper:
 
 @contextmanager
 def tx():
-    """Transaction context manager ensuring atomic execution with rollback on error."""
-    pool = get_pg_pool()
-    if pool is not None:
-        conn = pool.getconn()
+    """Transaction context manager ensuring atomic execution with rollback on error.
+    Strictly fail-closed when PostgreSQL is configured."""
+    if is_postgres():
+        pool = get_pg_pool()
+        if pool is None:
+            raise DatabaseUnavailableError("PostgreSQL connection failed: system is configured for PostgreSQL and cannot fail-open to SQLite.")
+        try:
+            conn = pool.getconn()
+        except Exception as e:
+            raise DatabaseUnavailableError(f"Failed to acquire PostgreSQL connection from pool: {e}")
         wrapped = ConnectionWrapper(conn, is_pg=True, pool=pool)
         try:
             yield wrapped
@@ -190,215 +209,55 @@ def tx():
         finally:
             wrapped.close()
     else:
-        # SQLite transaction
+        # SQLite transaction (test mode only)
         c = sqlite3.connect(DB, timeout=30)
         c.row_factory = sqlite3.Row
         c.execute('PRAGMA foreign_keys=ON')
         c.execute('PRAGMA busy_timeout=30000')
+        wrapped = ConnectionWrapper(c, is_pg=False)
         try:
             c.execute('BEGIN IMMEDIATE')
-            yield c
-            c.commit()
+            yield wrapped
+            wrapped.commit()
         except BaseException:
-            c.rollback()
+            wrapped.rollback()
             raise
         finally:
-            c.close()
+            wrapped.close()
 
 
 def init():
-    """Initialize database schema, tables, and TimescaleDB hypertables."""
-    pool = get_pg_pool()
-    if pool is not None:
+    """Initialize database schema, tables, and TimescaleDB hypertables using versioned migrations."""
+    from .migrations import run_all_migrations
+    if is_postgres():
+        pool = get_pg_pool()
+        if pool is None:
+            raise DatabaseUnavailableError("Cannot initialize database: PostgreSQL pool unavailable.")
         conn = pool.getconn()
         try:
-            with conn.cursor() as cur:
-                # 1. Enable TimescaleDB extension if available
-                try:
+            # 1. Enable TimescaleDB extension if available
+            try:
+                with conn.cursor() as cur:
                     cur.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;")
-                    conn.commit()
-                    logger.info("TimescaleDB extension enabled.")
-                except Exception as e:
-                    conn.rollback()
-                    logger.warning("TimescaleDB extension not active (%s); falling back to native PostgreSQL.", e)
-
-                # 2. Relational Core Tables
-                cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id TEXT PRIMARY KEY,
-                    email TEXT UNIQUE NOT NULL,
-                    password TEXT NOT NULL,
-                    role TEXT NOT NULL CHECK(role IN ('customer','admin'))
-                );
-                CREATE TABLE IF NOT EXISTS sessions (
-                    token TEXT PRIMARY KEY,
-                    user_id TEXT REFERENCES users(id),
-                    expires DOUBLE PRECISION NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS accounts (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT REFERENCES users(id),
-                    login TEXT NOT NULL,
-                    server TEXT NOT NULL,
-                    mode TEXT NOT NULL CHECK(mode IN ('DEMO','REPLAY')),
-                    enabled INT NOT NULL DEFAULT 0,
-                    risk DOUBLE PRECISION NOT NULL DEFAULT 0.25,
-                    max_spread DOUBLE PRECISION NOT NULL DEFAULT 0.8,
-                    max_positions INT NOT NULL DEFAULT 1,
-                    max_dd DOUBLE PRECISION NOT NULL DEFAULT 10,
-                    balance DOUBLE PRECISION NOT NULL DEFAULT 10000,
-                    equity DOUBLE PRECISION NOT NULL DEFAULT 10000,
-                    peak DOUBLE PRECISION NOT NULL DEFAULT 10000,
-                    seen DOUBLE PRECISION NOT NULL DEFAULT 0,
-                    positions INT NOT NULL DEFAULT 0,
-                    UNIQUE(login,server)
-                );
-                CREATE TABLE IF NOT EXISTS pairings (
-                    code TEXT PRIMARY KEY,
-                    account_id TEXT REFERENCES accounts(id),
-                    expires DOUBLE PRECISION NOT NULL,
-                    used INT NOT NULL DEFAULT 0
-                );
-                CREATE TABLE IF NOT EXISTS devices (
-                    token TEXT PRIMARY KEY,
-                    account_id TEXT UNIQUE REFERENCES accounts(id)
-                );
-                CREATE TABLE IF NOT EXISTS signals (
-                    id TEXT PRIMARY KEY,
-                    source TEXT NOT NULL CHECK(source IN ('DEMO','REPLAY')),
-                    side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),
-                    price DOUBLE PRECISION NOT NULL,
-                    sl DOUBLE PRECISION NOT NULL,
-                    tp DOUBLE PRECISION NOT NULL,
-                    created DOUBLE PRECISION NOT NULL,
-                    expires DOUBLE PRECISION NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS dispatches (
-                    id BIGSERIAL PRIMARY KEY,
-                    account_id TEXT REFERENCES accounts(id),
-                    signal_id TEXT REFERENCES signals(id),
-                    state TEXT NOT NULL DEFAULT 'queued',
-                    nonce TEXT,
-                    ticket TEXT,
-                    deal TEXT,
-                    reason TEXT,
-                    created DOUBLE PRECISION NOT NULL,
-                    updated DOUBLE PRECISION NOT NULL,
-                    UNIQUE(account_id,signal_id)
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS unique_deal ON dispatches(account_id,deal) WHERE deal IS NOT NULL AND deal != '';
-                CREATE TABLE IF NOT EXISTS audit (
-                    id BIGSERIAL PRIMARY KEY,
-                    ts DOUBLE PRECISION NOT NULL,
-                    actor TEXT NOT NULL,
-                    event TEXT NOT NULL,
-                    detail TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id TEXT PRIMARY KEY,
-                    state TEXT NOT NULL,
-                    decision INT,
-                    result TEXT,
-                    error TEXT,
-                    created DOUBLE PRECISION NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS news (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    currency TEXT NOT NULL,
-                    impact TEXT NOT NULL,
-                    ts DOUBLE PRECISION NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS kv (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS sim_positions (
-                    dispatch_id BIGINT PRIMARY KEY REFERENCES dispatches(id),
-                    account_id TEXT REFERENCES accounts(id),
-                    side TEXT NOT NULL,
-                    entry DOUBLE PRECISION NOT NULL,
-                    sl DOUBLE PRECISION NOT NULL,
-                    tp DOUBLE PRECISION NOT NULL,
-                    lots DOUBLE PRECISION NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS login_limits (
-                    key TEXT PRIMARY KEY,
-                    attempts INT NOT NULL,
-                    until DOUBLE PRECISION NOT NULL
-                );
-                """)
                 conn.commit()
+                logger.info("TimescaleDB extension verified/enabled.")
+            except Exception as e:
+                conn.rollback()
+                logger.debug("CREATE EXTENSION timescaledb skipped: %s", e)
 
-                # 3. TimescaleDB Hypertables for High-Frequency Ticks and Candles
-                cur.execute("""
-                CREATE TABLE IF NOT EXISTS quotes (
-                    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    source TEXT NOT NULL,
-                    symbol TEXT NOT NULL DEFAULT 'XAUUSD',
-                    ts DOUBLE PRECISION NOT NULL,
-                    bid DOUBLE PRECISION NOT NULL,
-                    ask DOUBLE PRECISION NOT NULL,
-                    UNIQUE(source, ts)
-                );
-                CREATE TABLE IF NOT EXISTS candles (
-                    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    symbol TEXT NOT NULL DEFAULT 'XAUUSD',
-                    timeframe TEXT NOT NULL DEFAULT 'M15',
-                    open DOUBLE PRECISION NOT NULL,
-                    high DOUBLE PRECISION NOT NULL,
-                    low DOUBLE PRECISION NOT NULL,
-                    close DOUBLE PRECISION NOT NULL,
-                    volume DOUBLE PRECISION NOT NULL DEFAULT 0,
-                    UNIQUE(symbol, timeframe, time)
-                );
-                CREATE TABLE IF NOT EXISTS snapshots (
-                    time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    account_id TEXT REFERENCES accounts(id),
-                    ts DOUBLE PRECISION NOT NULL,
-                    balance DOUBLE PRECISION NOT NULL,
-                    equity DOUBLE PRECISION NOT NULL
-                );
-                """)
-                conn.commit()
-
-                # Convert to hypertables if TimescaleDB is available
-                for table, time_col in [("quotes", "time"), ("candles", "time"), ("snapshots", "time")]:
-                    try:
-                        cur.execute(f"SELECT create_hypertable('{table}', '{time_col}', if_not_exists => TRUE);")
-                        conn.commit()
-                    except Exception as e:
-                        conn.rollback()
-                        logger.debug("Hypertable creation skipped for %s: %s", table, e)
-
-            conn.commit()
+            wrapped = ConnectionWrapper(conn, is_pg=True, pool=pool)
+            run_all_migrations(wrapped, is_pg=True)
+            wrapped.commit()
         finally:
             pool.putconn(conn)
     else:
         # SQLite initialization
         c = sqlite3.connect(DB)
         c.execute('PRAGMA journal_mode=WAL')
-        c.executescript('''
-        CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('customer','admin')));
-        CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),expires REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),login TEXT NOT NULL,server TEXT NOT NULL,mode TEXT NOT NULL CHECK(mode IN ('DEMO','REPLAY')),enabled INTEGER NOT NULL DEFAULT 0,risk REAL NOT NULL DEFAULT 0.25,max_spread REAL NOT NULL DEFAULT 0.8,max_positions INTEGER NOT NULL DEFAULT 1,max_dd REAL NOT NULL DEFAULT 10,balance REAL NOT NULL DEFAULT 10000,equity REAL NOT NULL DEFAULT 10000,peak REAL NOT NULL DEFAULT 10000,seen REAL NOT NULL DEFAULT 0,positions INTEGER NOT NULL DEFAULT 0,UNIQUE(login,server));
-        CREATE TABLE IF NOT EXISTS pairings(code TEXT PRIMARY KEY,account_id TEXT REFERENCES accounts(id),expires REAL NOT NULL,used INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS devices(token TEXT PRIMARY KEY,account_id TEXT UNIQUE REFERENCES accounts(id));
-        CREATE TABLE IF NOT EXISTS signals(id TEXT PRIMARY KEY,source TEXT NOT NULL CHECK(source IN ('DEMO','REPLAY')),side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),price REAL NOT NULL,sl REAL NOT NULL,tp REAL NOT NULL,created REAL NOT NULL,expires REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS dispatches(id INTEGER PRIMARY KEY AUTOINCREMENT,account_id TEXT REFERENCES accounts(id),signal_id TEXT REFERENCES signals(id),state TEXT NOT NULL DEFAULT 'queued',nonce TEXT,ticket TEXT,deal TEXT,reason TEXT,created REAL NOT NULL,updated REAL NOT NULL,UNIQUE(account_id,signal_id));
-        CREATE UNIQUE INDEX IF NOT EXISTS unique_deal ON dispatches(account_id,deal) WHERE deal IS NOT NULL AND deal != '';
-        CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY,account_id TEXT REFERENCES accounts(id),ts REAL NOT NULL,balance REAL NOT NULL,equity REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS quotes(id INTEGER PRIMARY KEY,source TEXT NOT NULL,ts REAL NOT NULL,bid REAL NOT NULL,ask REAL NOT NULL,UNIQUE(source,ts));
-        CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,ts REAL NOT NULL,actor TEXT NOT NULL,event TEXT NOT NULL,detail TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,state TEXT NOT NULL,decision INTEGER,result TEXT,error TEXT,created REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS news(id TEXT PRIMARY KEY,title TEXT NOT NULL,currency TEXT NOT NULL,impact TEXT NOT NULL,ts REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS sim_positions(dispatch_id INTEGER PRIMARY KEY REFERENCES dispatches(id),account_id TEXT REFERENCES accounts(id),side TEXT NOT NULL,entry REAL NOT NULL,sl REAL NOT NULL,tp REAL NOT NULL,lots REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS login_limits(key TEXT PRIMARY KEY,attempts INTEGER NOT NULL,until REAL NOT NULL);
-        ''')
-        c.commit()
-        c.close()
-
+        wrapped = ConnectionWrapper(c, is_pg=False)
+        run_all_migrations(wrapped, is_pg=False)
+        wrapped.commit()
+        wrapped.close()
 
 def audit(c, actor: str, event: str, detail: Any):
     """Record an audit trail event."""
@@ -428,12 +287,21 @@ def getkv(c, key: str, default: Optional[str] = None) -> Optional[str]:
 # TimescaleDB High-Speed Time-Series Query Helpers
 # ---------------------------------------------------------------------------
 
+SUPPORTED_TIMEFRAMES = {
+    "M1": "1 minute",
+    "M5": "5 minutes",
+    "M15": "15 minutes",
+    "H1": "1 hour",
+    "D1": "1 day",
+}
+
+
 def insert_timescale_quote(source: str, ts: float, bid: float, ask: float, symbol: str = "XAUUSD"):
     """Insert quote tick into TimescaleDB hypertable."""
     with tx() as c:
         if is_postgres():
             c.execute(
-                "INSERT INTO quotes(time, source, symbol, ts, bid, ask) VALUES(to_timestamp(?), ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                "INSERT INTO quotes(time, source, symbol, ts, bid, ask) VALUES(to_timestamp(?), ?, ?, ?, ?, ?) ON CONFLICT (time, source, ts) DO NOTHING",
                 (ts, source, symbol, ts, bid, ask)
             )
         else:
@@ -443,24 +311,78 @@ def insert_timescale_quote(source: str, ts: float, bid: float, ask: float, symbo
             )
 
 
-def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", limit: int = 100) -> List[Dict[str, Any]]:
-    """Query recent aggregated OHLCV candles from TimescaleDB or snapshots."""
+def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", source: str = "DEMO", limit: int = 100) -> List[Dict[str, Any]]:
+    """Query recent aggregated OHLCV candles from TimescaleDB or snapshots.
+    Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO vs REPLAY)."""
+    if timeframe not in SUPPORTED_TIMEFRAMES:
+        raise ValueError(f"Unsupported timeframe '{timeframe}'. Supported: {', '.join(SUPPORTED_TIMEFRAMES.keys())}")
+    if source not in ("DEMO", "REPLAY"):
+        raise ValueError(f"Unsupported source '{source}'. Supported: DEMO, REPLAY")
+
+    bucket_interval = SUPPORTED_TIMEFRAMES[timeframe]
+
     with tx() as c:
         if is_postgres():
-            # Uses TimescaleDB time_bucket for continuous M15 candle aggregation
-            rows = c.execute("""
+            rows = c.execute(f"""
                 SELECT 
-                    time_bucket('15 minutes', time) AS bucket,
+                    time_bucket('{bucket_interval}', time) AS bucket,
                     first(bid, time) AS open,
                     max(bid) AS high,
                     min(bid) AS low,
                     last(bid, time) AS close,
                     count(*) AS volume
                 FROM quotes
-                WHERE symbol = ?
+                WHERE symbol = ? AND source = ?
                 GROUP BY bucket
                 ORDER BY bucket DESC
                 LIMIT ?
-            """, (symbol, limit)).fetchall()
+            """, (symbol, source, limit)).fetchall()
             return [dict(r) for r in rows]
-        return []
+        else:
+            # SQLite fallback aggregation
+            rows = c.execute("""
+                SELECT 
+                    time,
+                    open,
+                    high,
+                    low,
+                    close,
+                    volume
+                FROM candles
+                WHERE symbol = ? AND source = ? AND timeframe = ?
+                ORDER BY time DESC
+                LIMIT ?
+            """, (symbol, source, timeframe, limit)).fetchall()
+            return [dict(r) for r in rows]
+
+
+def check_db_health() -> Dict[str, Any]:
+    """Diagnostic health check verifying live database connection."""
+    try:
+        with tx() as c:
+            row = c.execute("SELECT 1").fetchone()
+            ok = bool(row and row[0] == 1)
+        return {
+            "status": "up" if ok else "down",
+            "engine": "postgresql" if is_postgres() else "sqlite",
+            "is_postgres": is_postgres(),
+        }
+    except Exception as e:
+        return {
+            "status": "down",
+            "engine": "postgresql" if is_postgres() else "sqlite",
+            "is_postgres": is_postgres(),
+            "error": str(e)
+        }
+
+
+def check_timescale_metadata() -> Dict[str, Any]:
+    """Retrieve TimescaleDB metadata if in PostgreSQL mode."""
+    if not is_postgres():
+        return {"timescaledb_available": False, "mode": "sqlite"}
+    try:
+        with tx() as c:
+            from .migrations import verify_timescaledb_metadata
+            return verify_timescaledb_metadata(c, is_pg=True)
+    except Exception as e:
+        return {"timescaledb_available": False, "error": str(e)}

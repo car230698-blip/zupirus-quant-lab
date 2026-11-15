@@ -208,3 +208,152 @@ def test_admin_tracing_telemetry_endpoint(client):
     assert 'project' in data
     assert 'total_traces_recorded' in data
     assert isinstance(data['recent_traces'], list)
+
+
+def test_migrations_runner(client):
+    """Verify versioned migration runner applies all versions and tracks schema_migrations."""
+    with tx() as c:
+        from app.migrations import get_applied_versions
+        versions = get_applied_versions(c)
+        assert 1 in versions
+        assert 2 in versions
+        assert 3 in versions
+        assert 4 in versions
+
+
+def test_timescale_candles_timeframe_validation(client):
+    """Verify strict validation on /api/timescale/candles: support M1, M5, M15, H1, D1; reject invalid with 400."""
+    for tf in ['M1', 'M5', 'M15', 'H1', 'D1']:
+        resp = client.get(f'/api/timescale/candles?symbol=XAUUSD&timeframe={tf}')
+        assert resp.status_code == 200, f"Expected 200 for timeframe {tf}"
+        data = resp.json()
+        assert data['timeframe'] == tf
+        assert data['symbol'] == 'XAUUSD'
+
+    # Unsupported timeframe
+    resp_bad = client.get('/api/timescale/candles?symbol=XAUUSD&timeframe=M3')
+    assert resp_bad.status_code == 400
+    assert 'Unsupported timeframe' in resp_bad.json()['detail']
+
+
+def test_readiness_probe_contract(client):
+    """Verify /readyz returns complete diagnostic health structure."""
+    resp = client.get('/readyz')
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data['status'] == 'ready'
+    assert 'database' in data
+    assert 'redis' in data
+    assert 'timescaledb' in data
+    assert 'execution_worker' in data
+
+
+def test_trace_secret_sanitization():
+    """Verify passwords, authorization headers, and tokens are scrubbed from LangSmith traces."""
+    from app.tracing import sanitize_secrets, REDACTED
+    raw = {
+        'username': 'john',
+        'password': 'super-secret-password-123',
+        'token': 'Bearer secret-token-value-here',
+        'sub': {
+            'apiKey': 'sk-proj-xyz123',
+            'normal_field': 'normal_data'
+        }
+    }
+    cleaned = sanitize_secrets(raw)
+    assert cleaned['username'] == 'john'
+    assert cleaned['password'] == REDACTED
+    assert cleaned['token'] == REDACTED
+    assert cleaned['sub']['apiKey'] == REDACTED
+    assert cleaned['sub']['normal_field'] == 'normal_data'
+
+
+def test_transactional_outbox_flow(client):
+    """Verify signal publishing inserts into outbox and consumer reads from stream."""
+    with tx() as c:
+        from app.engine import publish, flush_outbox
+        from app.redis_client import consume_signals_stream, ack_signal
+        sid = publish(c, 'DEMO', 'BUY', 2700.50, f'test-outbox-{time.time()}')
+        # Check outbox has the pending entry
+        rows = c.execute("SELECT * FROM outbox WHERE payload LIKE ? AND event_type='signal_created'", (f'%{sid}%',)).fetchall()
+        assert len(rows) >= 1
+        # Flush outbox
+        flush_outbox(c)
+        # Verify status is published
+        status_row = c.execute("SELECT status FROM outbox WHERE payload LIKE ?", (f'%{sid}%',)).fetchone()
+        assert status_row[0] == 'published'
+        # Consume stream
+        stream_items = consume_signals_stream(count=5)
+        assert any(item.get('signal_id') == sid for item in stream_items)
+
+
+def test_migration_fresh_and_legacy_database_upgrade():
+    """Verify migrations handle both fresh database and upgrading existing legacy schemas with preserved data."""
+    import sqlite3
+    import tempfile
+    import os
+    from app.migrations import run_all_migrations, get_applied_versions
+    from app.db import ConnectionWrapper
+
+    # 1. Fresh database scenario
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tf:
+        fresh_path = tf.name
+
+    try:
+        fresh_conn = sqlite3.connect(fresh_path)
+        wrapped_fresh = ConnectionWrapper(fresh_conn, is_pg=False)
+        run_all_migrations(wrapped_fresh, is_pg=False)
+        versions = get_applied_versions(wrapped_fresh)
+        assert versions == [1, 2, 3, 4]
+        fresh_conn.close()
+    finally:
+        if os.path.exists(fresh_path):
+            os.remove(fresh_path)
+
+    # 2. Legacy database scenario: pre-create tables without Timescale partition key, populate data, then run migrations
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tf:
+        legacy_path = tf.name
+
+    legacy_conn = None
+    try:
+        legacy_conn = sqlite3.connect(legacy_path)
+        wrapped_legacy = ConnectionWrapper(legacy_conn, is_pg=False)
+        # Apply migration 1 first so core tables exist
+        from app.migrations import apply_migration_001
+        apply_migration_001(wrapped_legacy, is_pg=False)
+        legacy_conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at REAL NOT NULL);")
+        legacy_conn.execute("INSERT INTO schema_migrations VALUES (1, '001_core_schema', 1234567890);")
+        # Legacy quotes table
+        legacy_conn.execute("""
+            CREATE TABLE IF NOT EXISTS quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                symbol TEXT DEFAULT 'XAUUSD',
+                ts REAL NOT NULL,
+                bid REAL NOT NULL,
+                ask REAL NOT NULL,
+                UNIQUE(source, ts)
+            );
+        """)
+        legacy_conn.execute("INSERT INTO quotes (source, symbol, ts, bid, ask) VALUES ('DEMO', 'XAUUSD', 1700000000.0, 2600.0, 2600.3);")
+        legacy_conn.commit()
+
+        # Run migrations on legacy
+        run_all_migrations(wrapped_legacy, is_pg=False)
+        legacy_versions = get_applied_versions(wrapped_legacy)
+        assert legacy_versions == [1, 2, 3, 4]
+
+        # Verify existing data is preserved
+        row = legacy_conn.execute("SELECT count(*), bid, ask FROM quotes WHERE source='DEMO'").fetchone()
+        assert row[0] >= 1
+        assert float(row[1]) == 2600.0
+    finally:
+        if legacy_conn is not None:
+            legacy_conn.close()
+        if os.path.exists(legacy_path):
+            try:
+                os.remove(legacy_path)
+            except Exception:
+                pass
+
+

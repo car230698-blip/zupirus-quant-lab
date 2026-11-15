@@ -97,6 +97,17 @@ class InMemoryRedisMock:
                 results.append((stream_name, filtered))
         return results
 
+    def xgroup_create(self, name: str, groupname: str, id: str = "$", mkstream: bool = False) -> bool:
+        if mkstream and name not in self._streams:
+            self._streams[name] = []
+        return True
+
+    def xreadgroup(self, groupname: str, consumername: str, streams: Dict[str, str], count: Optional[int] = None, block: Optional[int] = None) -> List[Any]:
+        return self.xread(streams, count=count, block=block)
+
+    def xack(self, name: str, groupname: str, *ids: str) -> int:
+        return len(ids)
+
     def publish(self, channel: str, message: str) -> int:
         return 1
 
@@ -174,6 +185,40 @@ def read_recent_signals(count: int = 20) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.debug(f"Error reading signal stream: {e}")
         return []
+
+
+def consume_signals_stream(group_name: str = "cg_dispatches", consumer_name: str = "worker-1", count: int = 10) -> List[Dict[str, Any]]:
+    """Consume signals using Redis Consumer Group for guaranteed durable delivery."""
+    r = get_redis_client()
+    try:
+        try:
+            r.xgroup_create(STREAM_SIGNALS, group_name, id="0", mkstream=True)
+        except Exception:
+            pass  # Group already exists
+        entries = r.xreadgroup(group_name, consumer_name, {STREAM_SIGNALS: ">"}, count=count)
+        if not entries:
+            return []
+        items = []
+        for stream_name, stream_entries in entries:
+            for entry_id, data in stream_entries:
+                item = dict(data)
+                item["stream_id"] = entry_id
+                items.append(item)
+        return items
+    except Exception as e:
+        logger.debug(f"Error consuming signal stream: {e}")
+        return []
+
+
+def ack_signal(stream_id: str, group_name: str = "cg_dispatches") -> bool:
+    """Acknowledge message processing in Redis consumer group."""
+    r = get_redis_client()
+    try:
+        res = r.xack(STREAM_SIGNALS, group_name, stream_id)
+        return bool(res)
+    except Exception as e:
+        logger.debug(f"Error acking signal stream: {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------

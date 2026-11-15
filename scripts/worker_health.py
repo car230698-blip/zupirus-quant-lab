@@ -1,4 +1,17 @@
-import os,sqlite3,time,sys
-c=sqlite3.connect(os.path.join(os.getenv('DATA_DIR','/data'),'lab.sqlite3'))
-r=c.execute('SELECT value FROM kv WHERE key=?',(sys.argv[1],)).fetchone()
-sys.exit(0 if r and time.time()-float(r[0])<60 else 1)
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.db import tx, getkv
+
+try:
+    key = sys.argv[1] if len(sys.argv) > 1 else 'execution_heartbeat'
+    with tx() as c:
+        val = getkv(c, key)
+        if val and time.time() - float(val) < 60:
+            sys.exit(0)
+        sys.exit(1)
+except Exception as e:
+    sys.exit(1)

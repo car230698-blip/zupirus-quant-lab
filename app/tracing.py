@@ -49,6 +49,33 @@ def get_langsmith_client():
         return None
 
 
+REDACTED = "[REDACTED]"
+SENSITIVE_KEYS = {
+    "password", "secret", "token", "eatoken", "admin_password",
+    "ai_api_key", "authorization", "cookie", "pairingcode", "api_key"
+}
+
+
+def sanitize_secrets(obj: Any) -> Any:
+    """Recursively redact sensitive keys and secrets from trace payloads."""
+    if isinstance(obj, dict):
+        cleaned = {}
+        for k, v in obj.items():
+            k_lower = str(k).lower()
+            if k_lower in SENSITIVE_KEYS or any(s in k_lower for s in ("password", "secret", "token", "auth", "key")):
+                cleaned[k] = REDACTED
+            else:
+                cleaned[k] = sanitize_secrets(v)
+        return cleaned
+    elif isinstance(obj, list):
+        return [sanitize_secrets(x) for x in obj]
+    elif isinstance(obj, str):
+        if len(obj) > 60 and ("bearer " in obj.lower() or "token" in obj.lower()):
+            return REDACTED
+        return obj
+    return obj
+
+
 def record_trace(
     name: str,
     run_type: str,
@@ -62,16 +89,18 @@ def record_trace(
     """Record a trace event both in memory and to LangSmith if configured."""
     run_id = str(uuid.uuid4())
     ts = time.time()
+    sanitized_inputs = sanitize_secrets(inputs)
+    sanitized_outputs = sanitize_secrets(outputs or {})
     trace_entry = {
         "id": run_id,
         "name": name,
         "run_type": run_type,
         "timestamp": ts,
         "latency_ms": round(latency_ms, 2),
-        "inputs": inputs,
-        "outputs": outputs or {},
+        "inputs": sanitized_inputs,
+        "outputs": sanitized_outputs,
         "error": error,
-        "metadata": metadata or {},
+        "metadata": sanitize_secrets(metadata or {}),
         "tokens": tokens or {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         "langsmith_synced": False,
     }
@@ -85,14 +114,14 @@ def record_trace(
     client = get_langsmith_client()
     if client:
         try:
-            extra = {"metadata": metadata or {}}
+            extra = {"metadata": trace_entry["metadata"]}
             if tokens:
                 extra["token_usage"] = tokens
             client.create_run(
                 name=name,
                 run_type=run_type,
-                inputs=inputs,
-                outputs=outputs or {},
+                inputs=sanitized_inputs,
+                outputs=sanitized_outputs,
                 error=error,
                 project_name=LANGSMITH_PROJECT,
                 run_id=run_id,
