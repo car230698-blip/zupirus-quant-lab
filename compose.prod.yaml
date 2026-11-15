@@ -1,0 +1,15 @@
+# Production override for VPS deployment behind Nginx Proxy Manager
+services:
+  api:
+    environment:
+      COOKIE_SECURE: "true"
+      ALLOWED_ORIGINS: "http://localhost:8080,https://zupirus.com,https://www.zupirus.com,https://app.zupirus.com,https://adm.zupirus.com"
+    networks:
+      private:
+      npm_default:
+        aliases:
+          - zupirus-api
+
+networks:
+  npm_default:
+    external: true

@@ -57,7 +57,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zupirus.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin_secure_change_me_2026}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,https://zupirus.com,https://adm.zupirus.com}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,https://zupirus.com,https://www.zupirus.com,https://app.zupirus.com,https://adm.zupirus.com}
       FEED_TOKEN: ${FEED_TOKEN:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
