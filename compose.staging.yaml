@@ -8,6 +8,6 @@ services:
   api:
     environment:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin_staging_secure_pass_2026}
-    ports: !reset
+    ports: !override
       - "127.0.0.1:3101:8000"
 
