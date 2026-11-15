@@ -5,6 +5,7 @@ interface AdminTracingTabProps {
 }
 
 export const AdminTracingTab: React.FC<AdminTracingTabProps> = ({ tracingData }) => {
+  if (!tracingData) return <div className="quant-status" role="status">Chưa nhận được dữ liệu truy vết.</div>;
   return (
     <div className="space-y-6">
       <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
@@ -43,13 +44,13 @@ export const AdminTracingTab: React.FC<AdminTracingTabProps> = ({ tracingData })
           <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
             <span className="text-slate-500 block text-[10px]">LẦN CẬP NHẬT</span>
             <span className="text-xs font-bold text-amber-300 mt-1">
-              {tracingData.last_updated ? new Date(tracingData.last_updated * 1000).toLocaleTimeString('vi-VN') : 'Vừa xong'}
+              {tracingData.last_updated ? new Date(tracingData.last_updated * 1000).toLocaleTimeString('vi-VN') : 'Chưa ghi nhận'}
             </span>
           </div>
           <div className="bg-slate-950/40 p-3 rounded-lg border border-slate-800">
             <span className="text-slate-500 block text-[10px]">TÌNH TRẠNG KHẢ DỤNG</span>
             <span className="text-xs font-bold text-emerald-400 mt-1 truncate block">
-              {tracingData.availability_info || 'Sẵn sàng'}
+              {tracingData.availability_info || 'Chưa xác định'}
             </span>
           </div>
         </div>
@@ -57,7 +58,7 @@ export const AdminTracingTab: React.FC<AdminTracingTabProps> = ({ tracingData })
         {/* Recent trace events */}
         <div className="space-y-2">
           <h4 className="text-xs font-bold text-slate-300">Các vết suy luận thực tế gần nhất:</h4>
-          {tracingData.recent_traces?.length === 0 ? (
+          {!tracingData.recent_traces?.length ? (
             <div className="p-4 text-center text-slate-500 font-mono text-xs">
               Chưa có trace event nào được ghi. Khi AI Assistant hoặc LangGraph chạy, vết sự kiện sẽ hiển thị ở đây.
             </div>
@@ -74,7 +75,7 @@ export const AdminTracingTab: React.FC<AdminTracingTabProps> = ({ tracingData })
                   </div>
                   <div className="flex items-center gap-3 text-slate-400 text-[11px]">
                     <span>Độ trễ: {Number(t.latency_ms || 0).toFixed(1)}ms</span>
-                    <span>Tokens: {(t.prompt_tokens || 0) + (t.completion_tokens || 0)}</span>
+                    <span>Tokens: {t.tokens?.total_tokens ?? ((t.prompt_tokens || 0) + (t.completion_tokens || 0))}</span>
                     <span className={t.status === 'success' ? 'text-emerald-400' : 'text-rose-400'}>
                       {t.status}
                     </span>

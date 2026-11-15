@@ -1,5 +1,5 @@
 import React from 'react';
-import { mapBackendState } from '../utils/stateMapping.ts';
+import { activityStates, mapBackendState, orderStates } from '../utils/stateMapping.ts';
 
 interface AdminActivityTabProps {
   adminViewMode: 'orders' | 'activity';
@@ -17,6 +17,13 @@ interface AdminActivityTabProps {
   activitySearchQuery: string;
   setActivitySearchQuery: (v: string) => void;
   accounts: any[];
+  ordersStatus: string;
+  adminOrderState: string;
+  setAdminOrderState: (state: string) => void;
+  adminOrderSource: string;
+  setAdminOrderSource: (source: string) => void;
+  adminOrderSearch: string;
+  setAdminOrderSearch: (query: string) => void;
   adminOrders: any[];
 }
 
@@ -36,30 +43,33 @@ export const AdminActivityTab: React.FC<AdminActivityTabProps> = ({
   activitySearchQuery,
   setActivitySearchQuery,
   accounts,
-  adminOrders,
+  adminOrders, ordersStatus, adminOrderState, setAdminOrderState,
+  adminOrderSource, setAdminOrderSource, adminOrderSearch, setAdminOrderSearch,
 }) => {
   return (
     <div className="space-y-4">
       <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-3">
-            <h3 className="font-bold text-sm text-slate-200">Nhật Ký & Quản Trị Hệ Thống</h3>
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="font-bold text-sm text-slate-200">Nhật ký vận hành</h3>
             <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-mono">
               <button
+                aria-pressed={adminViewMode === 'orders'}
                 onClick={() => setAdminViewMode('orders')}
                 className={`px-2.5 py-1 rounded ${
                   adminViewMode === 'orders' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Lệnh toàn hệ thống ({adminOrdersTotal})
+                Lệnh toàn hệ thống
               </button>
               <button
+                aria-pressed={adminViewMode === 'activity'}
                 onClick={() => setAdminViewMode('activity')}
                 className={`px-2.5 py-1 rounded ${
                   adminViewMode === 'activity' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                Nhật ký sự kiện & Audit ({filteredActivities.length})
+                Sự kiện và tác vụ
               </button>
             </div>
           </div>
@@ -86,22 +96,23 @@ export const AdminActivityTab: React.FC<AdminActivityTabProps> = ({
                 </select>
 
                 <select
-                  aria-label="Lọc theo trạng thái admin"
-                  value={activityStatusFilter}
-                  onChange={(e: any) => {
-                    setActivityStatusFilter(e.target.value);
-                    setAdminOrderPage(0);
-                  }}
-                  className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
+                  aria-label="Lọc nguồn lệnh"
+                  value={adminOrderSource}
+                  onChange={(event) => { setAdminOrderSource(event.target.value); setAdminOrderPage(0); }}
+                  className="quant-filter"
+                >
+                  <option value="all">Tất cả nguồn</option>
+                  <option value="execution">MT5</option>
+                  <option value="replay">Phát lại</option>
+                </select>
+                <select
+                  aria-label="Lọc theo trạng thái lệnh"
+                  value={adminOrderState}
+                  onChange={(event) => { setAdminOrderState(event.target.value); setAdminOrderPage(0); }}
+                  className="quant-filter"
                 >
                   <option value="all">Tất cả trạng thái</option>
-                  <option value="queued">Đang chờ (queued)</option>
-                  <option value="resume">Chờ tiếp tục (resume)</option>
-                  <option value="waiting_approval">Chờ duyệt (waiting_approval)</option>
-                  <option value="completed">Đã khớp (filled)</option>
-                  <option value="error">Bị từ chối (rejected)</option>
-                  <option value="cancelled">Đã hủy (cancelled)</option>
-                  <option value="expired">Hết hạn (expired)</option>
+                  {orderStates.map((state) => <option key={state} value={state}>{mapBackendState(state).label}</option>)}
                 </select>
               </>
             ) : (
@@ -125,37 +136,44 @@ export const AdminActivityTab: React.FC<AdminActivityTabProps> = ({
                   className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
                 >
                   <option value="all">Tất cả trạng thái</option>
-                  <option value="running">Đang chạy</option>
-                  <option value="waiting">Đang chờ</option>
-                  <option value="completed">Hoàn tất</option>
-                  <option value="error">Lỗi</option>
+                  {activityStates.map((state) => <option key={state} value={state}>{mapBackendState(state).label}</option>)}
                 </select>
               </>
             )}
 
             <input
               type="text"
-              value={activitySearchQuery}
-              onChange={(e) => {
-                setActivitySearchQuery(e.target.value);
-                setAdminOrderPage(0);
+              aria-label={adminViewMode === 'orders' ? 'Tìm lệnh' : 'Tìm sự kiện'}
+              value={adminViewMode === 'orders' ? adminOrderSearch : activitySearchQuery}
+              onChange={(event) => {
+                if (adminViewMode === 'orders') {
+                  setAdminOrderSearch(event.target.value);
+                  setAdminOrderPage(0);
+                } else {
+                  setActivitySearchQuery(event.target.value);
+                }
               }}
-              placeholder="Tìm ID tín hiệu / job / ticket..."
+              placeholder={adminViewMode === 'orders' ? 'Mã tín hiệu, tài khoản, ticket…' : 'Mã tác vụ hoặc nội dung…'}
               className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-1 text-xs text-slate-200 font-mono placeholder-slate-500"
             />
           </div>
         </div>
 
+        {adminViewMode === 'orders' && ordersStatus !== 'ready' && (
+          <div className={ordersStatus === 'offline' ? 'quant-alert' : 'quant-status'} role="status">
+            {ordersStatus === 'offline' ? 'Không thể cập nhật lệnh.' : 'Đang tải lệnh…'}
+          </div>
+        )}
         {/* VIEW 1: All System Orders (/api/admin/orders) */}
         {adminViewMode === 'orders' ? (
           adminOrders.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-mono text-xs">
+            ordersStatus === 'ready' && <div className="p-8 text-center text-slate-500 font-mono text-xs">
               Không tìm thấy lệnh nào phù hợp với bộ lọc quản trị.
             </div>
           ) : (
             <div className="space-y-4">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs font-mono">
+                <table className="quant-data-table w-full text-left text-xs font-mono">
                   <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
                     <tr>
                       <th className="p-3">ID / TÍN HIỆU</th>
@@ -175,38 +193,38 @@ export const AdminActivityTab: React.FC<AdminActivityTabProps> = ({
                       const stateInfo = mapBackendState(o.state);
                       const signalPriceStr = o.price != null ? `$${Number(o.price).toFixed(2)}` : '—';
                       const fillPriceStr = o.fill_price != null ? `$${Number(o.fill_price).toFixed(2)}` : '—';
-                      const slStr = o.sl != null ? `$${Number(o.sl).toFixed(1)}` : '—';
-                      const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(1)}` : '—';
+                      const slStr = o.sl != null ? `$${Number(o.sl).toFixed(2)}` : '—';
+                      const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(2)}` : '—';
                       const reasonStr = o.reason || 'Chưa ghi nhận';
 
                       return (
                         <tr key={o.id} className="hover:bg-slate-900/40">
-                          <td className="p-3 font-bold text-slate-300">
+                          <td data-label="Mã lệnh" className="p-3 font-bold text-slate-300">
                             #{o.id}
                             <span className="block text-[10px] font-normal text-slate-500">Sig: {o.signal_id || '—'}</span>
                           </td>
-                          <td className="p-3 text-slate-300">
-                            #{o.login || o.account_id?.slice(0, 8)}
-                            <span className="block text-[10px] text-slate-500">{o.server || 'DEMO'}</span>
+                          <td data-label="Tài khoản" className="p-3 text-slate-300">
+                            #{o.account_login || o.account_id?.slice(0, 8)}
+                            <span className="block text-[10px] text-slate-500">{o.account_server || '—'}</span>
                           </td>
-                          <td className="p-3 text-slate-400 text-[11px]">{o.user_email || '—'}</td>
-                          <td className="p-3">
+                          <td data-label="Người dùng" className="p-3 text-slate-400 text-[11px]">{o.user_email || '—'}</td>
+                          <td data-label="Chiều" className="p-3">
                             <span className={o.side === 'BUY' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
                               {o.side}
                             </span>
                           </td>
-                          <td className="p-3 text-slate-200">{signalPriceStr}</td>
-                          <td className="p-3 text-cyan-300 font-semibold">{fillPriceStr}</td>
-                          <td className="p-3 text-slate-400">
+                          <td data-label="Giá tín hiệu" className="p-3 text-slate-200">{signalPriceStr}</td>
+                          <td data-label="Giá khớp" className="p-3 text-cyan-300 font-semibold">{fillPriceStr}</td>
+                          <td data-label="SL / TP" className="p-3 text-slate-400">
                             {slStr} / {tpStr}
                           </td>
-                          <td className="p-3 text-slate-300">{o.ticket ? `${o.ticket}${o.deal ? ` / ${o.deal}` : ''}` : '—'}</td>
-                          <td className="p-3">
+                          <td data-label="Ticket / Deal" className="p-3 text-slate-300">{o.ticket ? `${o.ticket}${o.deal ? ` / ${o.deal}` : ''}` : '—'}</td>
+                          <td data-label="Trạng thái" className="p-3">
                             <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${stateInfo.badge}`}>
                               {stateInfo.label}
                             </span>
                           </td>
-                          <td className="p-3 text-slate-400 max-w-xs truncate" title={reasonStr}>
+                          <td data-label="Lý do" className="p-3 text-slate-400 max-w-xs truncate" title={reasonStr}>
                             {reasonStr}
                           </td>
                         </tr>
@@ -250,7 +268,7 @@ export const AdminActivityTab: React.FC<AdminActivityTabProps> = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
+            <table className="quant-data-table w-full text-left text-xs font-mono">
               <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
                 <tr>
                   <th className="p-3">THỜI ĐIỂM</th>
@@ -264,8 +282,8 @@ export const AdminActivityTab: React.FC<AdminActivityTabProps> = ({
               <tbody className="divide-y divide-slate-800/60">
                 {filteredActivities.slice(0, 100).map((item) => (
                   <tr key={item.id} className="hover:bg-slate-900/40">
-                    <td className="p-3 text-slate-400 whitespace-nowrap">{new Date(item.ts * 1000).toLocaleTimeString()}</td>
-                    <td className="p-3">
+                    <td data-label="Thời điểm" className="p-3 text-slate-400 whitespace-nowrap">{new Date(item.ts * 1000).toLocaleTimeString()}</td>
+                    <td data-label="Đội" className="p-3">
                       <span
                         className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
                           item.team === 'execution'
@@ -278,24 +296,16 @@ export const AdminActivityTab: React.FC<AdminActivityTabProps> = ({
                         {item.team.toUpperCase()}
                       </span>
                     </td>
-                    <td className="p-3 font-semibold text-slate-200">{item.event}</td>
-                    <td className="p-3 text-slate-400">{item.actor}</td>
-                    <td className="p-3">
+                    <td data-label="Sự kiện" className="p-3 font-semibold text-slate-200">{item.event}</td>
+                    <td data-label="Tác nhân" className="p-3 text-slate-400">{item.actor}</td>
+                    <td data-label="Trạng thái" className="p-3">
                       <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] uppercase font-bold ${
-                          item.status === 'completed'
-                            ? 'bg-emerald-950 text-emerald-300'
-                            : item.status === 'waiting'
-                            ? 'bg-amber-950 text-amber-300'
-                            : item.status === 'running'
-                            ? 'bg-cyan-950 text-cyan-300 animate-pulse'
-                            : 'bg-rose-950 text-rose-300'
-                        }`}
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${mapBackendState(item.status).badge}`}
                       >
-                        {item.status}
+                        {mapBackendState(item.status).label}
                       </span>
                     </td>
-                    <td className="p-3 text-slate-300 max-w-sm truncate" title={item.detail}>
+                    <td data-label="Chi tiết" className="p-3 text-slate-300 max-w-sm truncate" title={item.detail}>
                       {item.detail}
                     </td>
                   </tr>

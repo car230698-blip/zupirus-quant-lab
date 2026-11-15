@@ -1,9 +1,9 @@
 import React from 'react';
-import { mapBackendState } from '../utils/stateMapping.ts';
+import { mapBackendState, orderStates } from '../utils/stateMapping.ts';
 
 interface UserOrdersTabProps {
   accounts: any[];
-  orders: any[];
+  status: string;
   filteredUserOrders: any[];
   orderAccountFilter: string;
   setOrderAccountFilter: (v: string) => void;
@@ -13,7 +13,7 @@ interface UserOrdersTabProps {
 
 export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
   accounts,
-  orders,
+  status,
   filteredUserOrders,
   orderAccountFilter,
   setOrderAccountFilter,
@@ -24,7 +24,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
     <div className="space-y-6">
       <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] overflow-hidden">
         <div className="border-b border-slate-800 px-5 py-3 flex flex-wrap items-center justify-between gap-3">
-          <span className="font-bold text-sm text-slate-200">Nhật Ký Tín Hiệu & Đối Soát Lệnh Thực Thi</span>
+          <span className="font-bold text-sm text-slate-200">Tín hiệu và đối soát</span>
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Filter by account */}
@@ -50,23 +50,19 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               className="rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1 text-xs text-slate-200 font-mono"
             >
               <option value="all">Tất cả trạng thái</option>
-              <option value="queued">Đang chờ (queued)</option>
-              <option value="filled">Đã khớp (filled)</option>
-              <option value="rejected">Bị từ chối (rejected)</option>
-              <option value="cancelled">Đã hủy (cancelled)</option>
-              <option value="expired">Hết hạn (expired)</option>
-              <option value="intent">Chưa đối soát (intent)</option>
+              {orderStates.map((state) => <option key={state} value={state}>{mapBackendState(state).label}</option>)}
             </select>
 
             <span className="text-xs font-mono text-slate-400 ml-1">{filteredUserOrders.length} lệnh</span>
           </div>
         </div>
 
+        {status !== 'ready' && <div className={status === 'offline' ? 'quant-alert m-4' : 'quant-status m-4'} role="status">
+          {status === 'offline' ? 'Không thể cập nhật lịch sử lệnh.' : 'Đang tải lịch sử lệnh…'}
+        </div>}
         {filteredUserOrders.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 font-mono text-xs">
-            {orders.length === 0
-              ? 'Chưa có lệnh nào được tạo. Khi Quant Engine phát tín hiệu hoặc EA khớp lệnh, bản ghi sẽ xuất hiện tại đây.'
-              : 'Không có lệnh nào khớp với bộ lọc hiện tại.'}
+          status === 'ready' && <div className="p-8 text-center text-slate-400 text-sm">
+            {orderAccountFilter === 'all' && orderStateFilter === 'all' ? 'Chưa có lệnh nào.' : 'Không có lệnh phù hợp với bộ lọc.'}
           </div>
         ) : (
           <>
@@ -91,8 +87,8 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                     const stateInfo = mapBackendState(o.state);
                     const signalPriceStr = o.price != null ? `$${Number(o.price).toFixed(2)}` : '—';
                     const fillPriceStr = o.fill_price != null ? `$${Number(o.fill_price).toFixed(2)}` : '—';
-                    const slStr = o.sl != null ? `$${Number(o.sl).toFixed(1)}` : '—';
-                    const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(1)}` : '—';
+                    const slStr = o.sl != null ? `$${Number(o.sl).toFixed(2)}` : '—';
+                    const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(2)}` : '—';
                     const reasonStr = o.reason || 'Chưa ghi nhận';
 
                     return (
@@ -101,7 +97,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                           #{o.id}
                           <span className="block text-[10px] font-normal text-slate-500">Sig: {o.signal_id || '—'}</span>
                         </td>
-                        <td className="p-3 text-slate-300">#{o.login || o.account_id?.slice(0, 8)}</td>
+                        <td className="p-3 text-slate-300">#{o.account_login || o.account_id?.slice(0, 8)}</td>
                         <td className="p-3">
                           <span className={o.side === 'BUY' ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}>
                             {o.side}
@@ -134,8 +130,8 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 const stateInfo = mapBackendState(o.state);
                 const signalPriceStr = o.price != null ? `$${Number(o.price).toFixed(2)}` : '—';
                 const fillPriceStr = o.fill_price != null ? `$${Number(o.fill_price).toFixed(2)}` : '—';
-                const slStr = o.sl != null ? `$${Number(o.sl).toFixed(1)}` : '—';
-                const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(1)}` : '—';
+                const slStr = o.sl != null ? `$${Number(o.sl).toFixed(2)}` : '—';
+                const tpStr = o.tp != null ? `$${Number(o.tp).toFixed(2)}` : '—';
                 const reasonStr = o.reason || 'Chưa ghi nhận';
 
                 return (
@@ -176,7 +172,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                         <div className="flex justify-between">
                           <span className="text-slate-500">Tài khoản:</span>
                           <span className="text-slate-200">
-                            #{o.login || o.account_id?.slice(0, 8)} ({o.server || 'DEMO'})
+                            #{o.account_login || o.account_id?.slice(0, 8)} ({o.server || 'DEMO'})
                           </span>
                         </div>
                         <div className="flex justify-between">

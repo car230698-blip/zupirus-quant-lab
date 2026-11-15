@@ -11,7 +11,6 @@ interface AdminOverviewTabProps {
   researchActive: boolean;
   lastResearchJob: any;
   formatHeartbeat: (timestamp: number) => string;
-  handleStartResearch: () => void;
   onNavigateApprovals: () => void;
 }
 
@@ -26,7 +25,6 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
   researchActive,
   lastResearchJob,
   formatHeartbeat,
-  handleStartResearch,
   onNavigateApprovals,
 }) => {
   return (
@@ -67,14 +65,14 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
                 ? 'Chưa xác định trạng thái cấp lệnh.'
                 : monitorData.halted
                 ? 'Toàn bộ việc cấp lệnh sao chép đang bị ngắt an toàn. Các vị thế hiện tại vẫn được theo dõi.'
-                : 'Hệ thống đang cho phép cấp lệnh sao chép bình thường theo quy chuẩn rủi ro.'}
+                : 'Cấp lệnh được phép cho tài khoản đã bật sao chép và đạt kiểm tra rủi ro.'}
             </p>
             <div className="text-[11px] font-mono text-slate-400 pt-1">
               ■ Tài khoản đang bật sao chép:{' '}
               <b className="text-slate-200">
                 {monitorData.accounts.filter((a: any) => a.enabled).length}/{monitorData.accounts.length}
               </b>{' '}
-              · Cờ ngắt cấp lệnh hệ thống hoạt động độc lập với cờ bật/tắt riêng của từng tài khoản.
+              · Khi mở lại cấp lệnh, các tài khoản vẫn tạm dừng cho đến khi được bật sao chép.
             </div>
           </div>
 
@@ -176,12 +174,6 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
           </div>
 
           <div className="pt-2 flex flex-col sm:flex-row gap-2">
-            <button
-              onClick={handleStartResearch}
-              className="flex-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold py-2 text-xs font-mono transition-colors"
-            >
-              + Chạy kiểm định ngay
-            </button>
             <button
               onClick={onNavigateApprovals}
               className="flex-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold py-2 text-xs font-mono transition-colors"

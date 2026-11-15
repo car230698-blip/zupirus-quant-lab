@@ -1,3 +1,4 @@
+import type { StrategyDecision } from '../utils/strategyDecision.ts';
 import { useQuantChat } from './useQuantChat.ts';
 import React, { useState, useEffect } from 'react';
 import type { StrategyApprovalCardProps } from '../types/ai.ts';
@@ -69,7 +70,7 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
         <div className="rounded-lg bg-slate-900/80 border border-slate-800 p-2.5">
           <div className="text-[10px] text-slate-500">SỐ CHU KỲ TEST</div>
           <div className="text-sm font-bold text-slate-200">
-            {report.folds ? report.folds.length : 13} Folds ({report.trades ?? 0} lệnh)
+            {report.folds?.length ?? '—'} Folds ({report.trades ?? 0} lệnh)
           </div>
         </div>
         <div className="rounded-lg bg-slate-900/80 border border-slate-800 p-2.5">
@@ -138,7 +139,7 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
   );
 };
 
-export const AdminApprovalQueue: React.FC = () => {
+export const AdminApprovalQueue: React.FC<{ decision: StrategyDecision | null }> = ({ decision }) => {
   const { messages, sendMessage, setMessages, status: reviewStatus, error: reviewError } = useQuantChat('admin');
   const reviewing = reviewStatus === 'submitted' || reviewStatus === 'streaming';
   const review = messages.filter((message) => message.role === 'assistant').at(-1);
@@ -236,38 +237,16 @@ export const AdminApprovalQueue: React.FC = () => {
         </div>
       </div>
 
-      {/* Runtime Policy vs Approved Candidates distinction banner */}
-      <div className="rounded-xl border border-cyan-500/30 bg-[#0a1120] p-4 font-mono text-xs space-y-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-bold text-sm text-slate-100">Chính Sách Thực Thi Đang Chạy (Runtime Policy)</span>
-          </div>
-          <span className="rounded bg-emerald-950 border border-emerald-700/60 px-2.5 py-0.5 text-[10px] text-emerald-300 font-bold">
-            ĐANG CHẠY TRONG RUNTIME
-          </span>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px] text-slate-300">
-          <div>
-            <span className="text-slate-500 text-[10px] block">PHIÊN BẢN CHÍNH SÁCH</span>
-            <span className="font-bold text-cyan-300">v2.1.0 Multi-Coordinator</span>
-          </div>
-          <div>
-            <span className="text-slate-500 text-[10px] block">KHUNG THỜI GIAN NẾN</span>
-            <span className="font-bold text-slate-200">M15 (Nến đã đóng)</span>
-          </div>
-          <div>
-            <span className="text-slate-500 text-[10px] block">MÔ HÌNH QUYẾT ĐỊNH</span>
-            <span className="text-slate-300">Trend + MeanRev + Breakout</span>
-          </div>
-          <div>
-            <span className="text-slate-500 text-[10px] block">CƠ CHẾ KÍCH HOẠT</span>
-            <span className="text-amber-300 font-semibold">Chưa có luồng kích hoạt tự động</span>
-          </div>
-        </div>
-        <p className="text-[11px] text-slate-400 border-t border-slate-800/70 pt-2 leading-relaxed">
-          ℹ <b className="text-slate-300">Phân định rõ ràng:</b> &ldquo;Đã duyệt ứng viên&rdquo; là ghi nhận lưu trữ kết quả kiểm định nghiên cứu vào hệ thống. Việc này <span className="text-amber-300 underline">không tự động thay đổi</span> chính sách &ldquo;Đang chạy&rdquo; của Quant Engine. Hiện tại hệ thống chưa có luồng tự động ghi đè mã nguồn thực thi, mọi thăng cấp chính sách vào runtime cần quy trình đánh giá và bàn giao có kiểm soát.
-        </p>
+      <div className="quant-panel p-4 space-y-2">
+        <h3 className="font-semibold text-sm">Quyết định gần nhất của engine</h3>
+        {decision ? (
+          <dl className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
+            <div><dt className="text-slate-400">Phiên bản ghi nhận</dt><dd>{decision.version || '—'}</dd></div>
+            <div><dt className="text-slate-400">Khung đánh giá</dt><dd>{decision.timeframe || '—'}</dd></div>
+            {decision.reason && <div><dt className="text-slate-400">Lý do</dt><dd>{decision.reason}</dd></div>}
+          </dl>
+        ) : <p className="text-xs text-slate-400">Chưa có quyết định được ghi nhận.</p>}
+        <p className="text-xs text-slate-300">Phê duyệt lưu kết quả kiểm định. Chiến lược thực thi được cập nhật qua quy trình triển khai riêng.</p>
       </div>
 
       {banner && (
@@ -383,7 +362,6 @@ export const AdminApprovalQueue: React.FC = () => {
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
               <div>
                 <h3 className="text-sm font-semibold text-slate-100">Trợ lý kiểm định định lượng</h3>
-                <span className="text-[10px] font-mono text-cyan-400">AI Contextual Review</span>
               </div>
               <button
                 className="quant-quiet text-xs"
@@ -394,7 +372,7 @@ export const AdminApprovalQueue: React.FC = () => {
                   void sendMessage({ text: 'Kiểm tra ứng viên gần nhất đang chờ duyệt và tóm tắt rủi ro.' });
                 }}
               >
-                {reviewing ? 'Đang phân tích…' : 'Phân tích ứng viên ↗'}
+                {reviewing ? 'Đang tải…' : 'Xem tóm tắt ứng viên'}
               </button>
             </div>
 
@@ -422,16 +400,12 @@ export const AdminApprovalQueue: React.FC = () => {
                 })
               ) : (
                 <div className="text-slate-400 text-xs py-4 text-center leading-relaxed">
-                  Nhấn &ldquo;Phân tích ứng viên ↗&rdquo; để trợ lý AI tóm tắt các chỉ số OOS Net PnL, Max Drawdown và kiểm tra quá khớp (overfitting) cho hồ sơ đang chờ duyệt.
+                  Xem thông tin ứng viên gần nhất đang chờ phê duyệt.
                 </div>
               )}
               {reviewError && <div className="quant-alert" role="alert">Không thể tải tóm tắt kiểm định.</div>}
             </div>
 
-            <div className="border-t border-slate-800/80 pt-3 text-[11px] font-mono text-slate-500 space-y-1">
-              <div>• Tiêu chuẩn chấp thuận: OOS PnL &gt; 0, Max DD &lt; 50 pts</div>
-              <div>• Trợ lý sử dụng Vercel AI SDK 6 ToolLoop Stream</div>
-            </div>
           </section>
         </div>
       </div>

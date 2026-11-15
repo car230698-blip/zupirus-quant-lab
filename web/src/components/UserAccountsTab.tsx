@@ -77,14 +77,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
           </div>
         </form>
 
-        {/* Secondary Option: Replay Account */}
-        <div className="rounded-lg border border-slate-800/80 bg-slate-950/40 p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
-          <div>
-            <span className="text-slate-300 font-semibold">Tùy chọn phụ: Tài khoản phát lại (Replay Mode)</span>
-            <p className="text-slate-500 text-[11px] mt-0.5">
-              Mô phỏng khớp nến XAUUSD tự động mà không cần kết nối phần mềm MT5 bên ngoài.
-            </p>
-          </div>
+        <details className="rounded-lg border border-slate-800/80 bg-slate-950/40 p-3.5 text-xs">
+          <summary className="cursor-pointer text-slate-300 font-semibold">Tùy chọn phát lại</summary>
+          <p className="my-2 text-slate-400">Xem danh mục bằng dữ liệu XAU/USD phát lại, không cần kết nối MT5.</p>
           <button
             id="new-replay"
             type="button"
@@ -94,7 +89,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
           >
             + Tạo tài khoản phát lại
           </button>
-        </div>
+        </details>
       </div>
 
       {/* Account List */}

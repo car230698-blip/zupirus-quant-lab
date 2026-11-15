@@ -1,3 +1,4 @@
+import { readStrategyDecision } from '../utils/strategyDecision.ts';
 import React from 'react';
 import { EquityHistory } from './EquityHistory.tsx';
 
@@ -194,35 +195,27 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
         {chartMode === 'candles' ? (
           <div className="space-y-3">
             {renderCandlestickSvg()}
-            {health?.strategy_last_decision &&
-              (() => {
-                let strat: any = {};
-                try {
-                  strat =
-                    typeof health.strategy_last_decision === 'string'
-                      ? JSON.parse(health.strategy_last_decision)
-                      : health.strategy_last_decision;
-                } catch {
-                  strat = {};
-                }
+            {(() => {
+                const strat = readStrategyDecision(health?.strategy_last_decision);
+                if (!strat) return null;
                 const candleTimeStr = strat.candle_time
                   ? new Date(strat.candle_time * 1000).toLocaleTimeString('vi-VN')
-                  : 'Vừa xong';
+                  : 'Chưa ghi nhận';
                 return (
                   <div className="rounded-lg bg-slate-950/60 border border-slate-800/80 p-3 font-mono text-xs flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-cyan-400 font-bold">Chiến lược: {strat.version || 'v2.1.0'}</span>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-cyan-400 font-bold">Phiên bản: {strat.version || 'Chưa ghi nhận'}</span>
                       <span className="text-slate-400">
-                        Khung nến đã đóng: <b className="text-slate-200">{strat.timeframe || timeframe}</b>
+                        Khung đánh giá: <b className="text-slate-200">{strat.timeframe || timeframe}</b>
                       </span>
                       <span className="text-slate-400">
-                        Thời điểm nến đóng: <b className="text-slate-200">{candleTimeStr}</b>
+                        Thời điểm dữ liệu: <b className="text-slate-200">{candleTimeStr}</b>
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-slate-400">Lý do:</span>
                       <span className="text-amber-300 font-semibold max-w-md truncate" title={strat.reason}>
-                        {strat.reason || 'Đang theo dõi nến đã đóng'}
+                        {strat.reason || 'Chưa ghi nhận'}
                       </span>
                     </div>
                   </div>

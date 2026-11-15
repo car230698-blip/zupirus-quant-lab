@@ -43,21 +43,23 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
     <div className="space-y-6">
       {/* Form Add Event */}
       <div className="quant-panel rounded-xl border border-slate-800 bg-[#0d1424] p-5 space-y-4">
-        <h3 className="font-bold text-sm text-slate-200 flex items-center justify-between">
-          <span>Thêm Sự Kiện Lịch Kinh Tế (Bảo Vệ Rủi Ro Ra Tin)</span>
+        <h3 className="font-bold text-sm text-slate-200 flex flex-wrap gap-2 items-center justify-between">
+          <span>Thêm sự kiện kinh tế</span>
           <span className="text-xs font-normal text-cyan-300 font-mono">Cửa sổ chặn: ±15 phút quanh giờ tin</span>
         </h3>
         <p className="text-xs text-slate-400">
           Cơ chế bảo vệ tài khoản khách: Tự động chặn mở lệnh mới trong khoảng ±15 phút trước và sau thời điểm ra tin để tránh trượt giá dãn spread.
         </p>
 
+        <p className="text-xs text-slate-400">Múi giờ nhập và hiển thị: {Intl.DateTimeFormat().resolvedOptions().timeZone}</p>
         <form onSubmit={handleAddNews} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div className="sm:col-span-2">
-            <label className="block text-[11px] font-mono text-slate-400 mb-1">Tên sự kiện *</label>
+            <label htmlFor="risk-title" className="block text-[11px] font-mono text-slate-400 mb-1">Tên sự kiện *</label>
             <input
               type="text"
               required
-              value={newsTitle}
+              id="risk-title"
+                value={newsTitle}
               onChange={(e) => setNewsTitle(e.target.value)}
               placeholder="Ví dụ: US Non-Farm Payrolls / CPI"
               className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 placeholder-slate-500 font-mono"
@@ -65,11 +67,12 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
           </div>
 
           <div>
-            <label className="block text-[11px] font-mono text-slate-400 mb-1">Thời điểm ra tin *</label>
+            <label htmlFor="risk-when" className="block text-[11px] font-mono text-slate-400 mb-1">Thời điểm ra tin *</label>
             <input
               type="datetime-local"
               required
-              value={newsWhen}
+              id="risk-when"
+                value={newsWhen}
               onChange={(e) => setNewsWhen(e.target.value)}
               className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-100 font-mono"
             />
@@ -103,10 +106,11 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
 
           <form onSubmit={handleUpdateNews} className="grid grid-cols-1 sm:grid-cols-4 gap-3 font-mono text-xs">
             <div className="sm:col-span-2">
-              <label className="block text-[11px] text-slate-400 mb-1">Tên sự kiện</label>
+              <label htmlFor="risk-edit-title" className="block text-[11px] text-slate-400 mb-1">Tên sự kiện</label>
               <input
                 type="text"
                 required
+                id="risk-edit-title"
                 value={editNewsTitle}
                 onChange={(e) => setEditNewsTitle(e.target.value)}
                 className="w-full rounded bg-slate-900 border border-slate-700 px-3 py-1.5 text-slate-100"
@@ -114,9 +118,11 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] text-slate-400 mb-1">Thời điểm mới</label>
+              <label htmlFor="risk-edit-when" className="block text-[11px] text-slate-400 mb-1">Thời điểm mới</label>
               <input
                 type="datetime-local"
+                required
+                id="risk-edit-when"
                 value={editNewsWhen}
                 onChange={(e) => setEditNewsWhen(e.target.value)}
                 className="w-full rounded bg-slate-900 border border-slate-700 px-3 py-1.5 text-slate-100"
@@ -159,7 +165,7 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
+            <table className="quant-data-table w-full text-left text-xs font-mono">
               <thead className="bg-slate-950/60 border-b border-slate-800 text-[11px] text-slate-400">
                 <tr>
                   <th className="p-3">SỰ KIỆN</th>
@@ -174,7 +180,8 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
               <tbody className="divide-y divide-slate-800/60">
                 {(monitorData.news || []).map((item: any) => {
                   const nowTs = Date.now() / 1000;
-                  const isBlocking = Math.abs(nowTs - item.ts) <= 900;
+                  const eligible = (item.currency === 'USD' || item.currency === 'ALL') && item.impact === 'high';
+                  const isBlocking = eligible && Math.abs(nowTs - item.ts) < 900;
                   const isUpcoming = nowTs < item.ts - 900;
 
                   const windowStartStr = new Date((item.ts - 900) * 1000).toLocaleTimeString('vi-VN');
@@ -183,25 +190,25 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
 
                   return (
                     <tr key={item.id} className="hover:bg-slate-900/40">
-                      <td className="p-3 font-bold text-slate-200">{item.title}</td>
-                      <td className="p-3">
+                      <td data-label="Sự kiện" className="p-3 font-bold text-slate-200">{item.title}</td>
+                      <td data-label="Tiền tệ" className="p-3">
                         <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-cyan-300">
                           {item.currency || 'USD'}
                         </span>
                       </td>
-                      <td className="p-3">
+                      <td data-label="Tác động" className="p-3">
                         <span className="rounded bg-rose-950 text-rose-300 border border-rose-800/40 px-1.5 py-0.5 text-[10px] font-bold uppercase">
                           {item.impact || 'high'}
                         </span>
                       </td>
-                      <td className="p-3 text-slate-300">
+                      <td data-label="Thời điểm" className="p-3 text-slate-300">
                         {eventTimeStr}
                       </td>
-                      <td className="p-3 text-slate-400">
-                        {windowStartStr} – {windowEndStr}
+                      <td data-label="Cửa sổ chặn" className="p-3 text-slate-400">
+                        {eligible ? `${windowStartStr} – ${windowEndStr}` : '—'}
                       </td>
-                      <td className="p-3">
-                        {isBlocking ? (
+                      <td data-label="Trạng thái" className="p-3">
+                        {!eligible ? <span className="text-slate-400">Không áp dụng chặn lệnh</span> : isBlocking ? (
                           <span className="rounded px-2 py-0.5 text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-700/50 animate-pulse">
                             ĐANG CHẶN LỆNH (±15m)
                           </span>
@@ -215,7 +222,7 @@ export const AdminRiskCalendarTab: React.FC<AdminRiskCalendarTabProps> = ({
                           </span>
                         )}
                       </td>
-                      <td className="p-3">
+                      <td data-label="Thao tác" className="p-3">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => {

@@ -78,7 +78,17 @@ python scripts/run_dom_smoke.py
 
 ### Kiểm tra hai cổng sau khi build
 
-Mở trang chủ để kiểm tra cổng người dùng. Trong môi trường phát triển, mở `/?portal=admin` và đăng nhập bằng tài khoản quản trị để kiểm tra cổng admin. Kiểm tra trên desktop và mobile, bao gồm đăng nhập, dữ liệu tài khoản và phản hồi trợ lý.
+Mở trang chủ để kiểm tra cổng người dùng. Trong môi trường phát triển, dùng `/?portal=admin` và tài khoản quản trị để mở cổng admin. Vite chuyển API đến `VITE_BACKEND_URL` (mặc định `http://127.0.0.1:8000`). Khi chạy giao diện qua Vite, cấu hình `ALLOWED_ORIGINS` trên backend cho địa chỉ giao diện đang dùng. Nếu cần dữ liệu mẫu trong quá trình thiết kế, bật tường minh `ZUPIRUS_UI_FIXTURES=1` để chạy preview trên loopback.
+
+Kiểm thử hai vai trò và tạo bốn ảnh desktop/mobile bằng một backend FastAPI cục bộ, với database tạm. Cài Playwright và Chromium trước khi chạy.
+
+```bash
+npm ci
+npm run build
+python -m pip install playwright
+python -m playwright install chromium
+python scripts/capture_screenshots.py
+```
 
 ---
 

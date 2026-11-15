@@ -10,3 +10,5 @@ dist/
 data/*.sqlite3*
 data/snapshots/
 .agents/
+
+/artifacts/portal-review/

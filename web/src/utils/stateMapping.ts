@@ -22,13 +22,18 @@ export function mapBackendState(state: string): BackendStateInfo {
     case 'rejected':
       return { label: 'Bị từ chối', badge: 'bg-rose-950 text-rose-300 border border-rose-700/50' };
     case 'intent':
+      return { label: 'Đang thực thi', badge: 'bg-cyan-950 text-cyan-300 border border-cyan-700/50' };
     case 'unknown':
       return { label: 'Chưa đối soát', badge: 'bg-purple-950 text-purple-300 border border-purple-700/50' };
     case 'running':
       return { label: 'Đang chạy', badge: 'bg-cyan-950 text-cyan-300 border border-cyan-700/50' };
+    case 'failed':
     case 'error':
       return { label: 'Lỗi', badge: 'bg-rose-950 text-rose-300 border border-rose-700/50' };
     default:
       return { label: state, badge: 'bg-slate-800 text-slate-300 border border-slate-700' };
   }
 }
+
+export const orderStates = ['queued', 'intent', 'unknown', 'filled', 'rejected', 'cancelled', 'expired'] as const;
+export const activityStates = ['queued', 'resume', 'waiting_approval', 'running', 'completed', 'failed'] as const;

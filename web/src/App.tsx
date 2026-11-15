@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { readStrategyDecision } from './utils/strategyDecision.ts';
+import { useOrderQuery } from './hooks/useOrderQuery.ts';
 import { PortalAuth, PortalShell } from './components/PortalChrome.tsx';
 import { UserOverviewTab } from './components/UserOverviewTab.tsx';
 import { UserAccountsTab } from './components/UserAccountsTab.tsx';
@@ -65,17 +67,12 @@ export const App: React.FC = () => {
 
   // Admin & Monitoring state
   const [monitorData, setMonitorData] = useState<any>({ accounts: [], audit: [], jobs: [], news: [], halted: null });
-  const [tracingData, setTracingData] = useState<any>({
-    langsmith_configured: false,
-    project: 'zupirus-quant-lab',
-    total_traces_recorded: 0,
-    recent_traces: [],
-  });
+  const [tracingData, setTracingData] = useState<any>(null);
   const [readyData, setReadyData] = useState<any>(null);
 
   // Activity filter state
   const [activityTeamFilter, setActivityTeamFilter] = useState<'all' | 'execution' | 'research' | 'security'>('all');
-  const [activityStatusFilter, setActivityStatusFilter] = useState<'all' | 'running' | 'waiting' | 'completed' | 'error' | 'stale'>('all');
+  const [activityStatusFilter, setActivityStatusFilter] = useState('all');
   const [activitySearchQuery, setActivitySearchQuery] = useState<string>('');
 
   // User Order Filters
@@ -83,10 +80,11 @@ export const App: React.FC = () => {
   const [orderStateFilter, setOrderStateFilter] = useState<string>('all');
 
   // Admin Orders state (from /api/admin/orders)
-  const [adminOrders, setAdminOrders] = useState<any[]>([]);
-  const [adminOrdersTotal, setAdminOrdersTotal] = useState<number>(0);
   const [adminOrderPage, setAdminOrderPage] = useState<number>(0);
   const [adminAccountFilter, setAdminAccountFilter] = useState<string>('all');
+  const [adminOrderState, setAdminOrderState] = useState('all');
+  const [adminOrderSource, setAdminOrderSource] = useState('all');
+  const [adminOrderSearch, setAdminOrderSearch] = useState('');
   const [adminViewMode, setAdminViewMode] = useState<'orders' | 'activity'>('orders');
 
   // Risk Calendar state
@@ -165,37 +163,30 @@ export const App: React.FC = () => {
       } else {
         setMonitorStatus('offline');
       }
-      if (tRes.ok) setTracingData(await tRes.json());
+      setTracingData(tRes.ok ? await tRes.json() : null);
       if (rRes.ok || rRes.status === 503) setReadyData(await rRes.json());
     } catch {
       setMonitorStatus('offline');
+      setTracingData(null);
     }
   }, []);
 
-  const loadAdminOrders = useCallback(async () => {
-    if (!currentUser || currentUser.role !== 'admin') return;
-    try {
-      const params = new URLSearchParams();
-      if (adminAccountFilter !== 'all') params.set('account_id', adminAccountFilter);
-      if (activityStatusFilter !== 'all') {
-        if (activityStatusFilter === 'waiting') params.set('state', 'queued');
-        else if (activityStatusFilter === 'completed') params.set('state', 'filled');
-        else if (activityStatusFilter === 'error') params.set('state', 'rejected');
-      }
-      if (activityTeamFilter !== 'all') params.set('team', activityTeamFilter);
-      if (activitySearchQuery.trim()) params.set('search', activitySearchQuery.trim());
-      params.set('limit', '50');
-      params.set('offset', String(adminOrderPage * 50));
-      const res = await fetch(`/api/admin/orders?${params.toString()}`);
-      if (res.ok) {
-        const d = await res.json();
-        setAdminOrders(d.orders || []);
-        setAdminOrdersTotal(d.total || 0);
-      }
-    } catch {
-      // ignore
-    }
-  }, [currentUser, adminAccountFilter, activityStatusFilter, activityTeamFilter, activitySearchQuery, adminOrderPage]);
+  const userOrderParams = new URLSearchParams();
+  if (orderAccountFilter !== 'all') userOrderParams.set('account_id', orderAccountFilter);
+  if (orderStateFilter !== 'all') userOrderParams.set('state', orderStateFilter);
+  const systemOrderParams = new URLSearchParams({ limit: '50', offset: String(adminOrderPage * 50) });
+  if (adminAccountFilter !== 'all') systemOrderParams.set('account_id', adminAccountFilter);
+  if (adminOrderState !== 'all') systemOrderParams.set('state', adminOrderState);
+  if (adminOrderSource !== 'all') systemOrderParams.set('team', adminOrderSource);
+  if (adminOrderSearch.trim()) systemOrderParams.set('search', adminOrderSearch.trim());
+  const sessionKey = currentUser?.email ?? null;
+  const userOrderQuery = useOrderQuery(portal === 'user' && userTab === 'orders' && currentUser
+    ? `/api/dashboard?${userOrderParams}` : null, sessionKey);
+  const systemOrders = useOrderQuery(
+    portal === 'admin' && adminTab === 'activity' && adminViewMode === 'orders' && currentUser?.role === 'admin'
+      ? `/api/admin/orders?${systemOrderParams}` : null,
+    sessionKey,
+  );
 
   useEffect(() => {
     checkAuth();
@@ -204,22 +195,16 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (currentUser) {
       loadDashboard();
-      loadCandles(timeframe);
-      if (currentUser.role === 'admin') {
-        loadAdminMonitor();
-        loadAdminOrders();
-      }
+      if (portal === 'user' && userTab === 'overview' && chartMode === 'candles') loadCandles(timeframe);
+      if (portal === 'admin' && currentUser.role === 'admin') loadAdminMonitor();
       const timer = setInterval(() => {
         loadDashboard();
-        if (chartMode === 'candles') loadCandles(timeframe);
-        if (currentUser.role === 'admin') {
-          loadAdminMonitor();
-          loadAdminOrders();
-        }
+        if (portal === 'user' && userTab === 'overview' && chartMode === 'candles') loadCandles(timeframe);
+        if (portal === 'admin' && currentUser.role === 'admin') loadAdminMonitor();
       }, 5000);
       return () => clearInterval(timer);
     }
-  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, loadAdminOrders, timeframe, chartMode]);
+  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe, chartMode, portal, userTab]);
 
   const showNotice = (msg: string) => {
     setNotice(msg);
@@ -357,7 +342,7 @@ export const App: React.FC = () => {
         }),
       });
       if (res.ok) {
-        showNotice(nextHalt ? 'ĐÃ KÍCH HOẠT KILL-SWITCH: Toàn bộ việc cấp lệnh copy đã dừng an toàn.' : 'ĐÃ TẮT KILL-SWITCH: Hệ thống tiếp tục vận hành bình thường.');
+        showNotice(nextHalt ? 'Đã ngắt cấp lệnh và tạm dừng sao chép trên mọi tài khoản.' : 'Đã mở cấp lệnh ở cấp hệ thống. Bật lại sao chép trên từng tài khoản khi cần.');
         await loadDashboard();
         await loadAdminMonitor();
       } else {
@@ -370,21 +355,11 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleStartResearch = async () => {
-    const res = await fetch('/api/admin/research', {
-      method: 'POST',
-      headers: { 'X-Zupirus': '1' },
-    });
-    if (res.ok) {
-      showNotice('Đã đưa yêu cầu kiểm định Walk-Forward vào hàng đợi.');
-      await loadAdminMonitor();
-    }
-  };
-
   const handleAddNews = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newsTitle.trim()) return;
-    const ts = newsWhen ? new Date(newsWhen).getTime() / 1000 : Date.now() / 1000 + 3600;
+    const ts = newsWhen ? new Date(newsWhen).getTime() / 1000 : NaN;
+    if (!Number.isFinite(ts) || ts <= 0) return showNotice('Hãy nhập thời điểm sự kiện hợp lệ.');
     const res = await fetch('/api/admin/news', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
@@ -408,7 +383,8 @@ export const App: React.FC = () => {
   const handleUpdateNews = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingNews || !editNewsTitle.trim()) return;
-    const ts = editNewsWhen ? new Date(editNewsWhen).getTime() / 1000 : editingNews.ts;
+    const ts = editNewsWhen ? new Date(editNewsWhen).getTime() / 1000 : NaN;
+    if (!Number.isFinite(ts) || ts <= 0) return showNotice('Hãy nhập thời điểm sự kiện hợp lệ.');
     const res = await fetch(`/api/admin/news/${editingNews.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
@@ -474,28 +450,14 @@ export const App: React.FC = () => {
         type: 'job',
         event: 'walk_forward_evaluation',
         actor: 'langgraph_worker',
-        status: j.state === 'waiting_approval' ? 'waiting' : j.state === 'completed' ? 'completed' : j.state === 'running' ? 'running' : 'error',
-        detail: `Proposal ID: ${j.id} · Decision: ${j.decision || 'Chờ duyệt'}`,
-      });
-    });
-
-    // From recent orders
-    (dashboard.orders || []).forEach((o: any) => {
-      list.push({
-        id: `disp_${o.id}`,
-        ts: o.created || Date.now() / 1000,
-        team: 'execution',
-        type: 'dispatch',
-        event: `order_${o.side.toLowerCase()}`,
-        actor: o.source,
-        status: o.state === 'filled' ? 'completed' : o.state === 'rejected' ? 'error' : o.state === 'queued' ? 'waiting' : 'running',
-        detail: `Signal: ${o.signal_id} · Ticket: ${o.ticket || '—'} · Deal: ${o.deal || '—'}${o.reason ? ` · Lý do: ${o.reason}` : ''}`,
+        status: j.state,
+        detail: `Mã kiểm định: ${j.id} · ${j.decision == null ? 'Chưa có quyết định' : j.decision ? 'Đã duyệt' : 'Đã từ chối'}`,
       });
     });
 
     // Sort descending by timestamp
     return list.sort((a, b) => b.ts - a.ts);
-  }, [monitorData, dashboard]);
+  }, [monitorData]);
 
   const filteredActivities = useMemo(() => {
     return consolidatedActivities.filter((item) => {
@@ -516,19 +478,10 @@ export const App: React.FC = () => {
 
   // Calculations for User Dashboard
   const accounts = dashboard.accounts || [];
-  const orders = dashboard.orders || [];
   const totalBalance = accounts.reduce((acc: number, a: any) => acc + (a.balance || 0), 0);
   const totalEquity = accounts.reduce((acc: number, a: any) => acc + (a.equity || 0), 0);
   const totalPositions = accounts.reduce((acc: number, a: any) => acc + (a.positions || 0), 0);
   const totalPnl = totalEquity - totalBalance;
-
-  const filteredUserOrders = useMemo(() => {
-    return orders.filter((o: any) => {
-      if (orderAccountFilter !== 'all' && o.account_id !== orderAccountFilter) return false;
-      if (orderStateFilter !== 'all' && o.state !== orderStateFilter) return false;
-      return true;
-    });
-  }, [orders, orderAccountFilter, orderStateFilter]);
 
   if (authChecking) return <div className="quant-app quant-loading" role="status">Đang kiểm tra phiên đăng nhập…</div>;
   if (!currentUser) return <PortalAuth portal={portal} loading={authLoading} error={authError} onSubmit={authenticate} />;
@@ -575,9 +528,10 @@ export const App: React.FC = () => {
       {status === 'offline' && <div className="quant-alert" role="status">Không thể cập nhật. Dữ liệu đang hiển thị có thể đã cũ.</div>}
       {notice && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-xs text-amber-200 font-mono flex items-center justify-between">
-          <span>■ {notice}</span>
+          <span role="status">{notice}</span>
           <button
             type="button"
+            aria-label="Đóng thông báo"
             onClick={() => setNotice(null)}
             className="text-amber-400 hover:text-amber-200 font-bold ml-4"
           >
@@ -628,8 +582,8 @@ export const App: React.FC = () => {
           {userTab === 'orders' && (
             <UserOrdersTab
               accounts={accounts}
-              orders={orders}
-              filteredUserOrders={filteredUserOrders}
+              filteredUserOrders={userOrderQuery.data?.orders ?? []}
+              status={userOrderQuery.status}
               orderAccountFilter={orderAccountFilter}
               setOrderAccountFilter={setOrderAccountFilter}
               orderStateFilter={orderStateFilter}
@@ -662,7 +616,6 @@ export const App: React.FC = () => {
               researchActive={researchActive}
               lastResearchJob={lastResearchJob}
               formatHeartbeat={formatHeartbeat}
-              handleStartResearch={handleStartResearch}
               onNavigateApprovals={() => setAdminTab('approvals')}
             />
           )}
@@ -670,7 +623,7 @@ export const App: React.FC = () => {
           {adminTab === 'approvals' && (
             <div className="space-y-6">
               <Suspense fallback={<div className="quant-status" role="status">Đang tải hàng đợi…</div>}>
-                <AdminApprovalQueue />
+                <AdminApprovalQueue decision={readStrategyDecision(dashboard.health?.strategy_last_decision)} />
               </Suspense>
             </div>
           )}
@@ -679,7 +632,7 @@ export const App: React.FC = () => {
             <AdminActivityTab
               adminViewMode={adminViewMode}
               setAdminViewMode={setAdminViewMode}
-              adminOrdersTotal={adminOrdersTotal}
+              adminOrdersTotal={systemOrders.data?.total ?? 0}
               filteredActivities={filteredActivities}
               adminAccountFilter={adminAccountFilter}
               setAdminAccountFilter={setAdminAccountFilter}
@@ -692,7 +645,14 @@ export const App: React.FC = () => {
               activitySearchQuery={activitySearchQuery}
               setActivitySearchQuery={setActivitySearchQuery}
               accounts={monitorData.accounts || []}
-              adminOrders={adminOrders}
+              adminOrders={systemOrders.data?.orders ?? []}
+              ordersStatus={systemOrders.status}
+              adminOrderState={adminOrderState}
+              setAdminOrderState={setAdminOrderState}
+              adminOrderSource={adminOrderSource}
+              setAdminOrderSource={setAdminOrderSource}
+              adminOrderSearch={adminOrderSearch}
+              setAdminOrderSearch={setAdminOrderSearch}
             />
           )}
 

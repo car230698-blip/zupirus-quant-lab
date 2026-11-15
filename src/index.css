@@ -129,3 +129,13 @@ body { margin: 0; background: #080e16; color: #e8f2f7; }
 .quant-chart-legend { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11px; }
 .quant-chart-legend i { display: inline-block; width: 10px; height: 2px; margin: 0 4px; vertical-align: middle; background: var(--accent); }
 .quant-chart-legend .quant-balance-key { background: #8b9fb6; margin-left: 9px; }
+
+.quant-filter { border: 1px solid var(--edge); border-radius: 7px; background: #111e2b; color: #cfdee8; min-height: 34px; padding: 5px 9px; font-size: 12px; }
+@media (max-width: 767px) {
+  .quant-data-table, .quant-data-table tbody, .quant-data-table tr { display: block; }
+  .quant-data-table thead { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+  .quant-data-table tbody tr { padding: 8px 0; }
+  .quant-data-table td { display: grid; grid-template-columns: minmax(75px, 34%) minmax(0, 1fr); gap: 7px; max-width: none; white-space: normal; padding: 6px 10px; text-overflow: unset; overflow-wrap: anywhere; }
+  .quant-data-table td::before { content: attr(data-label); grid-row: span 2; color: var(--muted); font: 11px/1.4 system-ui, sans-serif; }
+  .quant-data-table td > * { grid-column: 2; justify-self: start; min-width: 0; }
+}
