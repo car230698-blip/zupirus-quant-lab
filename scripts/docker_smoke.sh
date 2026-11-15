@@ -67,8 +67,8 @@ echo "=== 6. Verifying Quote Ingestion & Candle Queries ==="
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
 import time
 from app.db import insert_timescale_quote, query_timescale_candles
-now = time.time()
-insert_timescale_quote('DEMO', now, 2655.10, 2655.40, symbol='XAUUSD')
+test_ts = 1700000888.0
+insert_timescale_quote('DEMO', test_ts, 2655.10, 2655.40, symbol='XAUUSD')
 candles = query_timescale_candles(symbol='XAUUSD', timeframe='M15', source='DEMO', limit=10)
 assert isinstance(candles, list), 'Candles query must return a list'
 print('PASS: Quote ingestion and candle query verified')
@@ -79,12 +79,28 @@ docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml restart resea
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml up -d --wait api execution research
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
 import urllib.request, json
+from app.db import get_db_connection
 ready = json.loads(urllib.request.urlopen('http://localhost:8000/readyz').read().decode())
 assert ready.get('status') == 'ready', 'System must recover to ready status after restart'
-print('PASS: Services and data persist across restart')
+
+# Read back previously inserted test quote record to verify data persisted across restart
+with get_db_connection() as conn:
+    with conn.cursor() as cur:
+        cur.execute(\"SELECT bid, ask FROM quotes WHERE source = 'DEMO' AND ts = 1700000888.0\")
+        row = cur.fetchone()
+        assert row is not None, 'Persisted quote record was lost after service restart!'
+        assert float(row[0]) == 2655.10 and float(row[1]) == 2655.40, f'Persisted quote corrupted: {row}'
+print('PASS: Services and persisted database records verified intact across restart')
 "
 
-echo "=== 8. Verifying Fail-Closed Readiness on Disconnection (PostgreSQL and Redis Separately) ==="
+echo "=== 7b. Verifying Migrations on Fresh and Legacy Database Schemas ==="
+docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
+from tests.test_modern_architecture import run_postgres_migration_test
+run_postgres_migration_test()
+print('PASS: PostgreSQL and TimescaleDB fresh and legacy migration verified')
+"
+
+echo "=== 8. Verifying Fail-Closed Readiness on Disconnection (TimescaleDB and Redis Separately) ==="
 # 8a. Pause Redis: /readyz must return HTTP 503 and report Redis failure
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml pause redis
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
@@ -111,30 +127,30 @@ assert ready.get('status') == 'ready', f'System should be ready: {ready}'
 print('PASS: Redis recovery verified')
 "
 
-# 8b. Pause PostgreSQL: /readyz must return HTTP 503 and report database failure
-docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml pause postgres
+# 8b. Pause TimescaleDB: /readyz must return HTTP 503 and report database failure
+docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml pause timescaledb
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
 import urllib.request, urllib.error, json
 try:
     urllib.request.urlopen('http://localhost:8000/readyz', timeout=4)
-    raise AssertionError('Expected HTTP 503 when PostgreSQL is paused, but got 200 OK')
+    raise AssertionError('Expected HTTP 503 when TimescaleDB is paused, but got 200 OK')
 except urllib.error.HTTPError as e:
     assert e.code == 503, f'Expected HTTP 503, got {e.code}'
     data = json.loads(e.read().decode())
     assert data.get('status') == 'not_ready', f'Expected not_ready: {data}'
     assert data.get('database', {}).get('connected') is False, f'Database should report disconnected: {data}'
-print('PASS: PostgreSQL disconnect strictly returns HTTP 503 and reports database failure')
+print('PASS: TimescaleDB disconnect strictly returns HTTP 503 and reports database failure')
 "
-docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml unpause postgres
+docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml unpause timescaledb
 
-# Wait for PostgreSQL reconnection
+# Wait for TimescaleDB reconnection
 docker compose -p "$project" -f compose.yaml -f compose.smoke.yaml exec -T api python -c "
 import urllib.request, json, time
 time.sleep(3)
 ready = json.loads(urllib.request.urlopen('http://localhost:8000/readyz').read().decode())
-assert ready.get('database', {}).get('connected') is True, f'PostgreSQL did not recover: {ready}'
+assert ready.get('database', {}).get('connected') is True, f'TimescaleDB did not recover: {ready}'
 assert ready.get('status') == 'ready', f'System should be ready: {ready}'
-print('PASS: PostgreSQL recovery verified')
+print('PASS: TimescaleDB recovery verified')
 "
 
 echo "=== 9. Verifying React Production Bundle on Docker ==="

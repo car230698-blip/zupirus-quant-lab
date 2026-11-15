@@ -50,6 +50,7 @@ def run():
             CHROME,
             "--headless=new",
             "--disable-gpu",
+            "--virtual-time-budget=2000",
             f"--screenshot={desktop_user}",
             "--window-size=1440,900",
             "http://127.0.0.1:8765/?demo_user=1"
@@ -59,6 +60,7 @@ def run():
             CHROME,
             "--headless=new",
             "--disable-gpu",
+            "--virtual-time-budget=2000",
             f"--screenshot={mobile_user}",
             "--window-size=390,844",
             "http://127.0.0.1:8765/?demo_user=1"
@@ -69,6 +71,7 @@ def run():
             CHROME,
             "--headless=new",
             "--disable-gpu",
+            "--virtual-time-budget=2000",
             f"--screenshot={desktop_admin}",
             "--window-size=1440,900",
             "http://127.0.0.1:8765/?demo_admin=1"
@@ -78,6 +81,7 @@ def run():
             CHROME,
             "--headless=new",
             "--disable-gpu",
+            "--virtual-time-budget=2000",
             f"--screenshot={mobile_admin}",
             "--window-size=390,844",
             "http://127.0.0.1:8765/?demo_admin=1"

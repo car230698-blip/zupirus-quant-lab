@@ -1,7 +1,10 @@
-import sys,subprocess,tempfile,os,time
+import sys,subprocess,tempfile,os,time,shutil
 from pathlib import Path
 import httpx
 root=Path(__file__).resolve().parents[1]
+node_bin = shutil.which('node') or os.path.expanduser(r'~/.local/nodejs/node.exe')
+if not os.path.exists(str(node_bin)):
+    node_bin = 'node'
 env={**os.environ,'DATA_DIR':tempfile.mkdtemp(prefix='zupirus-dom-'),'ADMIN_PASSWORD':'dom-test-password-123','COOKIE_SECURE':'false','ALLOWED_ORIGINS':'http://127.0.0.1:18082'}
 processes=[]
 try:
@@ -14,7 +17,7 @@ try:
             except httpx.HTTPError:pass
             time.sleep(.1)
         else:raise RuntimeError('API startup timed out')
-    result=subprocess.run(['node','scripts/dom_smoke.cjs'],cwd=root,env=env,timeout=70)
+    result=subprocess.run([str(node_bin),'scripts/dom_smoke.cjs'],cwd=root,env=env,timeout=70)
     sys.exit(result.returncode)
 finally:
     for p in processes:p.terminate()

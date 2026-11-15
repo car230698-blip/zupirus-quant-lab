@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -1052,7 +1053,7 @@ export default defineConfig(() => {
   };
 
   return {
-    plugins: [zupirusApiPlugin(), react()],
+    plugins: [zupirusApiPlugin(), react(), tailwindcss()],
     server: {
       port: 3000,
       host: '0.0.0.0',

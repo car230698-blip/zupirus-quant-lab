@@ -1,0 +1,10 @@
+# Compose staging override for isolated VPS test environment
+# Maps API strictly to 127.0.0.1:3101 and eliminates host port exposure for internal database/redis.
+services:
+  timescaledb:
+    ports: []
+  redis:
+    ports: []
+  api:
+    ports:
+      - "127.0.0.1:3101:8000"

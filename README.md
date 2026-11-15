@@ -103,21 +103,21 @@ VPS cấu hình độc lập, không can thiệp vào stack chính đang chạy 
 ```bash
 cd ~/zupirus-quant-lab-test
 git fetch origin main && git checkout main && git pull origin main
-docker compose -p zupirus-test -f compose.yaml -f compose.smoke.yaml up -d --build
+docker compose -p zupirus-test -f compose.yaml -f compose.staging.yaml up -d --build
 ```
 
 ### Kiểm tra sức khỏe & Readiness Fail-Closed
 
 ```bash
-curl -s http://127.0.0.1:3101/healthz
-curl -s http://127.0.0.1:3101/readyz
+curl -f http://127.0.0.1:3101/healthz
+curl -f http://127.0.0.1:3101/readyz
 ```
 
 ### Sao lưu (Backup) và Khôi phục (Restore) PostgreSQL
 
 ```bash
 # Sao lưu dữ liệu ra file nén .sql.gz và file metadata .json
-python scripts/backup_postgres.py --url "$DATABASE_URL" --output /backups
+python scripts/backup_postgres.py --url "$DATABASE_URL" --out /backups
 
 # Khôi phục dữ liệu từ bản sao lưu
 python scripts/restore_postgres.py --url "$DATABASE_URL" --file /backups/zupirus_pg_backup_TIMESTAMP.sql.gz

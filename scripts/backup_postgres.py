@@ -83,7 +83,7 @@ def backup(database_url: str, output_dir: Path):
 def main():
     parser = argparse.ArgumentParser(description="ZUPIRUS PostgreSQL Backup Script")
     parser.add_argument("--url", default=os.getenv("DATABASE_URL", "postgresql://zupirus:zupirus_secure_password@127.0.0.1:5432/zupirus"))
-    parser.add_argument("--out", default="./backups")
+    parser.add_argument("--out", "--output", dest="out", default="./backups", help="Output directory for backup")
     args = parser.parse_args()
 
     try:
