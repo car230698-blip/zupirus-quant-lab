@@ -398,8 +398,8 @@ def run_postgres_migration_test(database_url: str = None):
         wrapped_legacy = ConnectionWrapper(raw_conn, is_pg=True)
         apply_migration_001(wrapped_legacy, is_pg=True)
         with raw_conn.cursor() as cur:
-            cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at DOUBLE PRECISION NOT NULL);")
-            cur.execute("INSERT INTO schema_migrations VALUES (1, '001_core_schema', 1234567890);")
+            cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW());")
+            cur.execute("INSERT INTO schema_migrations (version, name) VALUES (1, '001_core_schema');")
             # Legacy quotes table without hypertable structure
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS quotes (

@@ -1,3 +1,7 @@
 services:
   api:
     ports: !reset []
+  timescaledb:
+    ports: !reset []
+  redis:
+    ports: !reset []
