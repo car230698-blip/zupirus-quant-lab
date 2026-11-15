@@ -32,6 +32,18 @@ def is_postgres() -> bool:
     return bool(DATABASE_URL and (DATABASE_URL.startswith("postgresql://") or DATABASE_URL.startswith("postgres://")))
 
 
+def _configure_pg_conn(conn):
+    """Set socket timeouts on PostgreSQL connection so paused/frozen servers abort quickly."""
+    try:
+        import socket
+        fd = getattr(getattr(conn, "pgconn", None), "socket", -1)
+        if fd and fd > 0:
+            s = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(3.0)
+    except Exception:
+        pass
+
+
 def get_pg_pool():
     """Lazily initialize and return the PostgreSQL connection pool."""
     global _pg_pool
@@ -48,6 +60,7 @@ def get_pg_pool():
                 max_size=20,
                 timeout=3.0,
                 open=True,
+                configure=_configure_pg_conn,
                 kwargs={"connect_timeout": 3}
             )
             logger.info("Connected to PostgreSQL/TimescaleDB connection pool")
@@ -381,6 +394,30 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
             return [dict(r) for r in rows]
 
 
+def run_with_timeout(fn, timeout: float = 2.0):
+    """Run callable in a daemon thread with strict timeout to avoid blocking main thread."""
+    import threading
+    res = [None]
+    err = [None]
+    done = threading.Event()
+
+    def _target():
+        try:
+            res[0] = fn()
+        except Exception as ex:
+            err[0] = ex
+        finally:
+            done.set()
+
+    t = threading.Thread(target=_target, daemon=True)
+    t.start()
+    if not done.wait(timeout=timeout):
+        raise TimeoutError(f"Database operation timed out after {timeout}s")
+    if err[0] is not None:
+        raise err[0]
+    return res[0]
+
+
 def check_db_health(timeout: float = 2.0) -> Dict[str, Any]:
     """Diagnostic health check verifying live database connection."""
     if not is_postgres():
@@ -401,17 +438,13 @@ def check_db_health(timeout: float = 2.0) -> Dict[str, Any]:
                 "error": str(e)
             }
 
-    import concurrent.futures
-
     def _probe():
         with tx() as c:
             row = c.execute("SELECT 1").fetchone()
             return bool(row and row[0] == 1)
 
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_probe)
-            ok = future.result(timeout=timeout)
+        ok = run_with_timeout(_probe, timeout=timeout)
         return {
             "status": "up" if ok else "down",
             "engine": "postgresql",
@@ -431,16 +464,12 @@ def check_timescale_metadata(timeout: float = 2.0) -> Dict[str, Any]:
     if not is_postgres():
         return {"timescaledb_available": False, "mode": "sqlite"}
 
-    import concurrent.futures
-
     def _probe():
         with tx() as c:
             from .migrations import verify_timescaledb_metadata
             return verify_timescaledb_metadata(c, is_pg=True)
 
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_probe)
-            return future.result(timeout=timeout)
+        return run_with_timeout(_probe, timeout=timeout)
     except Exception as e:
         return {"timescaledb_available": False, "error": str(e)}
