@@ -93,6 +93,14 @@ def update_key_usage(c, key_id: str, success: bool, error_msg: Optional[str] = N
         logger.debug(f"Update key usage note: {e}")
 
 
+GEMINI_FALLBACK_MODELS = [
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-latest",
+    "gemini-3.8-flash",
+]
+
+
 def call_gemini(
     prompt: str,
     system_instruction: Optional[str] = None,
@@ -102,18 +110,28 @@ def call_gemini(
     max_tries: int = 5,
     model: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
-    """Calls Google Gemini API with multi-key failover across the configured pool.
+    """Calls Google Gemini API with multi-key AND multi-model failover across the configured pool.
     Returns (response_text, used_key_id)."""
     keys = active_keys or []
     if not keys and c:
         keys = get_active_keys(c)
+        if not keys:
+            # Fallback to any enabled key even if previously rate-limited
+            try:
+                rows = c.execute(
+                    "SELECT id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created FROM gemini_keys WHERE is_active = 1 ORDER BY calls_count ASC"
+                ).fetchall()
+                keys = [dict(r) for r in rows]
+            except Exception:
+                pass
     if not keys:
         keys = [{"id": f"k_{i}", "key_cipher": k} for i, k in enumerate(DEFAULT_GEMINI_KEYS)]
 
-    target_model = (model or "gemini-flash-latest").strip()
-    if target_model in ("gemini-2.0-flash", "gemini-1.5-flash"):
-        target_model = "gemini-3.8-flash"
-    url_template = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={{key}}"
+    req_model = (model or "gemini-3-flash-preview").strip()
+    if req_model in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"):
+        req_model = "gemini-3-flash-preview"
+
+    model_candidates = [req_model] + [m for m in GEMINI_FALLBACK_MODELS if m != req_model]
 
     payload: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -130,40 +148,45 @@ def call_gemini(
 
     last_error = None
     attempt = 0
-    for k_item in keys:
-        if attempt >= max_tries:
-            break
-        api_key = str(k_item.get("key_cipher") or "").strip()
-        kid = k_item.get("id", "unknown")
-        if not api_key:
-            continue
-        attempt += 1
+    for target_model in model_candidates:
+        url_template = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={{key}}"
+        for k_item in keys:
+            if attempt >= max_tries * 2:
+                break
+            api_key = str(k_item.get("key_cipher") or "").strip()
+            kid = k_item.get("id", "unknown")
+            if not api_key:
+                continue
+            attempt += 1
 
-        endpoint = url_template.format(key=api_key)
-        req = urllib.request.Request(endpoint, data=body_bytes, headers=headers, method="POST")
+            endpoint = url_template.format(key=api_key)
+            req = urllib.request.Request(endpoint, data=body_bytes, headers=headers, method="POST")
 
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                res_data = json.loads(resp.read().decode("utf-8"))
-                candidates = res_data.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts and "text" in parts[0]:
-                        text = parts[0]["text"]
-                        if c:
-                            update_key_usage(c, kid, success=True)
-                        return text, kid
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="ignore")
-            logger.warning(f"Gemini API key {mask_key(api_key)} failed (HTTP {e.code}): {err_body[:100]}")
-            last_error = f"HTTP {e.code}: {err_body[:120]}"
-            if c:
-                update_key_usage(c, kid, success=False, error_msg=str(e.code))
-            continue
-        except Exception as e:
-            logger.warning(f"Gemini API network error on key {mask_key(api_key)}: {e}")
-            last_error = str(e)
-            continue
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    res_data = json.loads(resp.read().decode("utf-8"))
+                    candidates = res_data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts and "text" in parts[0]:
+                            text = parts[0]["text"]
+                            if c:
+                                update_key_usage(c, kid, success=True)
+                            return text, f"{kid} · {target_model}"
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="ignore")
+                logger.warning(f"Gemini {target_model} key {mask_key(api_key)} failed (HTTP {e.code}): {err_body[:100]}")
+                last_error = f"HTTP {e.code}: {err_body[:120]}"
+                if c and e.code == 429:
+                    update_key_usage(c, kid, success=False, error_msg=str(e.code))
+                # If 404/503 on this model, break inner key loop and try next fallback model immediately
+                if e.code in (404, 503):
+                    break
+                continue
+            except Exception as e:
+                logger.warning(f"Gemini {target_model} network error on key {mask_key(api_key)}: {e}")
+                last_error = str(e)
+                continue
 
     logger.info(f"Gemini pool exhausted or offline, returning fallback. Last err: {last_error}")
     return None, None

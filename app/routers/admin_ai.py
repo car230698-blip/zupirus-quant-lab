@@ -17,10 +17,11 @@ logger = logging.getLogger("zupirus.admin_ai")
 router = APIRouter(prefix="/api/admin/ai", tags=["Admin AI Agent Configuration"])
 
 AVAILABLE_MODELS = [
-    {"id": "gpt-4o-mini", "name": "OpenAI GPT-4o Mini (Khuyên dùng)", "provider": "openai", "desc": "Nhanh, tiết kiệm chi phí, phân tích dữ liệu định lượng chuẩn xác"},
-    {"id": "gpt-4o", "name": "OpenAI GPT-4o Flagship", "provider": "openai", "desc": "Mô hình cao cấp nhất, suy luận logic sâu và đọc biểu đồ thông minh"},
-    {"id": "gemini-3.8-flash", "name": "Google Gemini 3.8 Flash", "provider": "gemini", "desc": "Tốc độ xử lý microsecond, lý tưởng cho phân tích thị trường M15"},
+    {"id": "gemini-3-flash-preview", "name": "Google Gemini 3 Flash Preview (Khuyên dùng)", "provider": "gemini", "desc": "Tốc độ cao, ổn định nhất cho Pool Gemini hiện tại"},
+    {"id": "gemini-3.1-flash-lite", "name": "Google Gemini 3.1 Flash Lite (Siêu nhanh)", "provider": "gemini", "desc": "Độ trễ cực thấp, phù hợp phân tích M15 thời gian thực"},
     {"id": "gemini-flash-latest", "name": "Google Gemini Flash Latest", "provider": "gemini", "desc": "Tự động trỏ tới phiên bản Gemini Flash mới nhất của Google"},
+    {"id": "gpt-4o-mini", "name": "OpenAI GPT-4o Mini", "provider": "openai", "desc": "Nhanh, tiết kiệm chi phí, phân tích dữ liệu định lượng chuẩn xác"},
+    {"id": "gpt-4o", "name": "OpenAI GPT-4o Flagship", "provider": "openai", "desc": "Mô hình cao cấp nhất, suy luận logic sâu và đọc biểu đồ thông minh"},
     {"id": "deepseek-chat", "name": "DeepSeek V3 (DeepSeek API / OpenRouter)", "provider": "openai", "desc": "Hiệu năng định lượng toán học cao, chi phí cực thấp"},
     {"id": "claude-3-5-sonnet-20241022", "name": "Anthropic Claude 3.5 Sonnet (qua OpenRouter)", "provider": "openai", "desc": "Lập luận xuất sắc, phát hiện anomaly thị trường chuẩn xác"},
 ]

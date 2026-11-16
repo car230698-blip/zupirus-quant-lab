@@ -464,10 +464,11 @@ export const AdminSourcesTab: React.FC = () => {
                   {(aiSettings.available_models && aiSettings.available_models.length > 0
                     ? aiSettings.available_models
                     : [
-                        { id: 'gpt-4o-mini', name: 'OpenAI GPT-4o Mini (Khuyên dùng)' },
-                        { id: 'gpt-4o', name: 'OpenAI GPT-4o Flagship' },
-                        { id: 'gemini-3.8-flash', name: 'Google Gemini 3.8 Flash' },
+                        { id: 'gemini-3-flash-preview', name: 'Google Gemini 3 Flash Preview (Khuyên dùng)' },
+                        { id: 'gemini-3.1-flash-lite', name: 'Google Gemini 3.1 Flash Lite (Siêu nhanh)' },
                         { id: 'gemini-flash-latest', name: 'Google Gemini Flash Latest' },
+                        { id: 'gpt-4o-mini', name: 'OpenAI GPT-4o Mini' },
+                        { id: 'gpt-4o', name: 'OpenAI GPT-4o Flagship' },
                         { id: 'deepseek-chat', name: 'DeepSeek V3 (DeepSeek / OpenRouter)' },
                         { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (qua OpenRouter)' },
                       ]
