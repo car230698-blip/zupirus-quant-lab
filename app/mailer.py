@@ -186,3 +186,57 @@ def send_sentinel_alert(
     </html>
     """
     return send_resend_email(to=email, subject=subject, html=html)
+
+
+def send_payment_receipt_email(
+    email: str,
+    order_id: str,
+    plan_tier: str,
+    amount_vnd: int,
+    cloud_slots: int,
+    expires_at: float,
+) -> Dict[str, Any]:
+    """Send automated SePay payment confirmation receipt & Cloud activation notice."""
+    from datetime import datetime, timezone
+    exp_str = datetime.fromtimestamp(float(expires_at), tz=timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    subject = f"[ZUPIRUS] Xác nhận thanh toán đơn {order_id} - Kích hoạt gói {plan_tier.upper()}"
+    html = f"""
+    <!DOCTYPE html>
+    <html><body style="background:#050811;color:#f8fafc;font-family:Arial,sans-serif;padding:32px;">
+      <div style="max-width:560px;margin:0 auto;background:#0d1527;border:1px solid #1e293b;border-radius:14px;padding:28px;">
+        <h2 style="color:#10b981;margin:0 0 12px;">Thanh Toán Thành Công &amp; Đã Kích Hoạt Cloud MT5</h2>
+        <p style="color:#cbd5e1;font-size:14px;">Hệ thống ZUPIRUS Quant Lab đã đối soát giao dịch VietQR tự động và mở khóa gói cước của bạn:</p>
+        <table width="100%" style="background:#090d1a;border-radius:10px;padding:16px;margin:16px 0;font-size:13px;">
+          <tr><td style="color:#94a3b8;padding:6px 0;">Mã đơn hàng:</td><td style="color:#38bdf8;font-weight:700;">{order_id}</td></tr>
+          <tr><td style="color:#94a3b8;padding:6px 0;">Gói dịch vụ:</td><td style="color:#f8fafc;font-weight:700;">{plan_tier.upper()} ({cloud_slots} MT5 Slots)</td></tr>
+          <tr><td style="color:#94a3b8;padding:6px 0;">Số tiền đã nhận:</td><td style="color:#10b981;font-weight:700;">{int(amount_vnd):,} VND</td></tr>
+          <tr><td style="color:#94a3b8;padding:6px 0;">Hiệu lực đến:</td><td style="color:#f8fafc;">{exp_str}</td></tr>
+        </table>
+        <p style="color:#94a3b8;font-size:12px;">Bạn có thể truy cập <a href="https://app.zupirus.com" style="color:#38bdf8;">app.zupirus.com</a> để kết nối tài khoản MT5 và nhận tín hiệu tự động 24/5.</p>
+      </div>
+    </body></html>
+    """
+    return send_resend_email(to=email, subject=subject, html=html)
+
+
+def send_subscription_expiry_reminder(
+    email: str,
+    plan_tier: str,
+    days_left: int,
+    expires_at: float,
+) -> Dict[str, Any]:
+    """Send automated renewal reminder 3 days or 1 day prior to subscription expiry."""
+    from datetime import datetime, timezone
+    exp_str = datetime.fromtimestamp(float(expires_at), tz=timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    subject = f"[ZUPIRUS] Gói {plan_tier.upper()} sắp hết hạn trong {days_left} ngày"
+    html = f"""
+    <!DOCTYPE html>
+    <html><body style="background:#050811;color:#f8fafc;font-family:Arial,sans-serif;padding:32px;">
+      <div style="max-width:560px;margin:0 auto;background:#0d1527;border:1px solid #f59e0b;border-radius:14px;padding:28px;">
+        <h2 style="color:#f59e0b;margin:0 0 12px;">Nhắc Gia Hạn Gói Cloud MT5 ({days_left} ngày còn lại)</h2>
+        <p style="color:#cbd5e1;font-size:14px;">Gói <strong>{plan_tier.upper()}</strong> của bạn sẽ hết hạn vào <strong>{exp_str}</strong>.</p>
+        <p style="color:#94a3b8;font-size:13px;">Khi hết hạn, hệ thống sẽ tự động tạm ngưng mở lệnh mới và thu hồi kết nối Cloud (PositionWatcher vẫn bảo vệ các lệnh đang mở cho tới khi đóng). Gia hạn ngay tại <a href="https://app.zupirus.com" style="color:#38bdf8;">app.zupirus.com</a> để không gián đoạn giao dịch.</p>
+      </div>
+    </body></html>
+    """
+    return send_resend_email(to=email, subject=subject, html=html)

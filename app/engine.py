@@ -529,8 +529,11 @@ def autonomous_agent_step(force_side: Optional[str] = None) -> Dict[str, Any]:
     return asyncio.run(autonomous_agent_step_async(force_side=force_side))
 
 
+_last_sub_lifecycle_ts = 0.0
+
+
 def tick():
-    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts
+    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts, _last_sub_lifecycle_ts
     with tx() as c:
         now = time.time()
         flush_outbox(c)
@@ -565,6 +568,16 @@ def tick():
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_agent_eval_ts >= 30.0:
         _last_agent_eval_ts = now
         autonomous_agent_step()
+
+    # 4. Run Subscription Lifecycle Worker (reminders, expiry undeploy, pending retries) every 1 hour
+    if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_sub_lifecycle_ts >= 3600.0:
+        _last_sub_lifecycle_ts = now
+        try:
+            import asyncio
+            from app.services.subscription_lifecycle import run_subscription_lifecycle_cycle
+            asyncio.run(run_subscription_lifecycle_cycle(now_ts=now))
+        except Exception as e:
+            logger.debug(f"Subscription lifecycle cycle error: {e}")
 
 def main():
     init()

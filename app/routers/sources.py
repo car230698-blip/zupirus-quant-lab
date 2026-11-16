@@ -42,6 +42,8 @@ def get_sources(status: Optional[str] = None, _admin=Depends(get_current_admin))
     with tx() as c:
         mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
         active_mode = mode_row[0] if mode_row else "HYBRID"
+        auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
+        auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
         try:
             closed_trades = c.execute(
                 "SELECT count(*) FROM dispatches WHERE state IN ('FILLED', 'SUCCESS', 'EXECUTED', 'CLOSED')"
@@ -57,6 +59,7 @@ def get_sources(status: Optional[str] = None, _admin=Depends(get_current_admin))
         "max_active_limit": MAX_ACTIVE_LIVE_SOURCES,
         "active_count": sum(1 for s in sources if s.get("status") == "ACTIVE_LIVE"),
         "active_signal_mode": active_mode,
+        "auto_promote_qualified_strategies": auto_promote,
         "learning_progress": {
             "closed_trades_analyzed": closed_trades,
             "target_trades_for_autonomy": target,
@@ -82,6 +85,29 @@ def set_signal_mode(req: SetSignalModeRequest, _admin=Depends(get_current_admin)
         )
 
     return {"message": f"Đã chuyển sang chế độ {mode}.", "active_signal_mode": mode}
+
+
+class SetAutoPromoteRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/auto-promote")
+def set_auto_promote(req: SetAutoPromoteRequest, _admin=Depends(get_current_admin)):
+    """Toggle 100% autonomous Walk-Forward strategy promotion & stage progression."""
+    val = "true" if req.enabled else "false"
+    with tx() as c:
+        c.execute(
+            """
+            INSERT INTO kv (key, value) VALUES ('AUTO_PROMOTE_QUALIFIED_STRATEGIES', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (val,)
+        )
+    return {
+        "ok": True,
+        "auto_promote_qualified_strategies": req.enabled,
+        "message": "Đã bật chế độ AI tự duyệt & tự tiến hóa 100%." if req.enabled else "Đã chuyển về chế độ Admin duyệt chiến lược thủ công.",
+    }
 
 
 @router.post("")

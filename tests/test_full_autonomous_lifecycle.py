@@ -206,6 +206,6 @@ async def test_full_autonomous_lifecycle_end_to_end():
     # -------------------------------------------------------------------------
     # STEP 4: Stage 3 (ZUPIRUS_AGENT) -> M15 Close -> AI Swarm -> Sanitizer -> Customer Fan-Out
     # -------------------------------------------------------------------------
-    ag_res = await autonomous_agent_step_async(force_side="BUY")
+    ag_res = await autonomous_agent_step_async(force_side="SELL")
     assert ag_res["status"] == "DISPATCHED", f"Expected DISPATCHED in Stage 3, got {ag_res}"
     assert ag_res["report"]["executed"] >= 3

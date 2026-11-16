@@ -213,22 +213,49 @@ async def create_account(
     if is_prop and not sub.get("allow_prop_firm_mode") and u.get("role") != "admin":
         fail(403, "Tính năng Bảo Vệ Quỹ (Prop Firm Pass Guard) chỉ dành cho gói Prop Firm Alpha.")
 
-    # 4. Provision terminal on MetaApi Cloud
+    # 4. Provision & Auto-Deploy terminal on MetaApi Cloud (with 3-attempt transient retry)
     client = MetaApiClient()
-    try:
-        prov = await client.provision_account(
-            name=p.account_name or f"User-{user_id[:6]}",
-            login=p.login,
-            password=p.password,
-            server=p.server,
-            platform=p.platform,
-        )
-    except Exception as e:
-        logger.error(f"MetaApi provisioning failed for login {p.login}: {e}")
-        fail(400, f"Lỗi kết nối MetaApi Cloud: {str(e)}")
+    prov = None
+    last_prov_err = None
+    for attempt in range(1, 4):
+        try:
+            prov = await client.provision_account(
+                name=p.account_name or f"User-{user_id[:6]}",
+                login=p.login,
+                password=p.password,
+                server=p.server,
+                platform=p.platform,
+            )
+            break
+        except Exception as e:
+            last_prov_err = e
+            err_msg = str(e).lower()
+            is_auth_or_server_err = any(k in err_msg for k in ("password", "credential", "invalid", "server", "unauthorized", "401", "403", "not found"))
+            if is_auth_or_server_err or attempt == 3:
+                logger.error(f"MetaApi provisioning failed for login {p.login} (attempt {attempt}): {e}")
+                fail(400, f"Lỗi kết nối MetaApi Cloud (kiểm tra lại Mật khẩu/Server MT5): {str(e)}")
+            import asyncio as _asyncio
+            await _asyncio.sleep(1)
 
     meta_id = prov.get("id")
-    meta_state = prov.get("state", "DEPLOYED")
+    meta_state = prov.get("state", "DEPLOY_PENDING")
+
+    # Auto-call deploy_account() with 3 retries on transient errors
+    if meta_id:
+        import asyncio as _asyncio
+        deployed_ok = False
+        for attempt in range(1, 4):
+            try:
+                if await client.deploy_account(meta_id):
+                    deployed_ok = True
+                    meta_state = "DEPLOYED"
+                    break
+            except Exception as dep_err:
+                logger.warning(f"MetaApi deploy attempt {attempt}/3 failed for {meta_id}: {dep_err}")
+            if attempt < 3:
+                await _asyncio.sleep(1)
+        if not deployed_ok and meta_state != "DEPLOYED":
+            meta_state = "DEPLOY_PENDING"
     account_id = existing_same_acc["id"] if existing_same_acc else f"acc_{secrets.token_hex(8)}"
     enc_pwd = encrypt_secret(p.password)
 
@@ -294,21 +321,37 @@ async def create_account(
 
         from app.services.account_classifier import detect_account_type
         from app.services.symbol_mapper import discover_and_map_account_symbols
-        acc_type = detect_account_type(currency="USD", server=p.server, name=p.account_name)
-        c.execute("UPDATE trading_accounts SET account_type=?, latency_ms=28 WHERE id=?", (acc_type, account_id))
+        acc_currency = "USD"
+        acc_info = None
+        try:
+            acc_info = await client.get_account_information(meta_id)
+            if acc_info and acc_info.get("currency"):
+                acc_currency = str(acc_info.get("currency")).upper()
+        except Exception:
+            pass
+
+        acc_type = detect_account_type(currency=acc_currency, server=p.server, name=p.account_name)
+        contract_size = 1.0 if acc_type == "CENT" else 100.0
+        auto_be_default = 1 if sub.get("allow_partial_tp_be") else 0
+        auto_prop_default = 1 if (is_prop or (sub.get("allow_prop_firm_mode") and acc_type in ("PROP", "PROP_FIRM"))) else 0
+
+        c.execute(
+            """
+            UPDATE trading_accounts
+            SET account_type=?, contract_size=?, auto_be_partial_tp=?, is_prop_firm_mode=?, latency_ms=28
+            WHERE id=?
+            """,
+            (acc_type, contract_size, auto_be_default, auto_prop_default, account_id),
+        )
         discover_and_map_account_symbols(account_id, ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"], db_cursor=c)
 
         # Attempt immediate live balance synchronization from broker
-        try:
-            acc_info = await client.get_account_information(meta_id)
-            if acc_info and acc_info.get("balance") is not None:
-                real_bal = float(acc_info.get("balance", 0.0))
-                real_eq = float(acc_info.get("equity", real_bal))
-                if real_bal > 0:
-                    c.execute("UPDATE trading_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
-                    c.execute("UPDATE metaapi_cloud_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
-        except Exception:
-            pass
+        if acc_info and acc_info.get("balance") is not None:
+            real_bal = float(acc_info.get("balance", 0.0))
+            real_eq = float(acc_info.get("equity", real_bal))
+            if real_bal > 0:
+                c.execute("UPDATE trading_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
+                c.execute("UPDATE metaapi_cloud_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
 
         audit(c, user_id, "trading_account_cloud_connected", {
             "account_id": account_id,

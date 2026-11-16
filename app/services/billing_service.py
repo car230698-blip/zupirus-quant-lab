@@ -322,7 +322,7 @@ async def process_successful_payment(
                 )
             )
 
-        # 6. Extend cloud_expires_at on user's trading_accounts
+        # 6. Extend cloud_expires_at on user's trading_accounts and re-enable auto_trade
         acc_rows = c.execute(
             "SELECT id, metaapi_account_id, cloud_expires_at FROM trading_accounts WHERE user_id = ? LIMIT ?",
             (user_id, max_accounts)
@@ -331,16 +331,37 @@ async def process_successful_payment(
             a = dict(a_row)
             curr_c_exp = float(a["cloud_expires_at"] or 0) if a.get("cloud_expires_at") else 0.0
             new_c_exp = max(curr_c_exp, now_ts) + duration_sec
-            c.execute("UPDATE trading_accounts SET cloud_expires_at = ? WHERE id = ? AND user_id = ?", (new_c_exp, a["id"], user_id))
+            c.execute(
+                "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = 1 WHERE id = ? AND user_id = ?",
+                (new_c_exp, a["id"], user_id),
+            )
             if a.get("metaapi_account_id"):
                 accounts_to_deploy.append((a["id"], a["metaapi_account_id"]))
 
         if not accounts_to_deploy:
             c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))
 
+        user_row = c.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
+        user_email = user_row[0] if user_row else None
+
     # 7. MetaApi Auto-Deploy with 3 retries and truthful status persistence
     if accounts_to_deploy:
         await _deploy_with_retries(accounts_to_deploy, order_id=order["id"], max_retries=3, delay=1)
+
+    # 8. Dispatch automated payment receipt email via Resend
+    if user_email:
+        try:
+            from app.mailer import send_payment_receipt_email
+            send_payment_receipt_email(
+                email=user_email,
+                order_id=order["id"],
+                plan_tier=tier,
+                amount_vnd=int(new_paid_total),
+                cloud_slots=int(max_accounts),
+                expires_at=new_sub_exp,
+            )
+        except Exception as mail_err:
+            logger.warning(f"Failed sending payment receipt email to {user_email}: {mail_err}")
 
     logger.info(f"Order {order['id']} fulfilled successfully for user {order['user_id']}.")
     return True
@@ -371,7 +392,7 @@ async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = No
 
         if deployed_ok and acc_id:
             with tx() as c:
-                c.execute("UPDATE trading_accounts SET deployment_state = 'DEPLOYED' WHERE id = ?", (acc_id,))
+                c.execute("UPDATE trading_accounts SET deployment_state = 'DEPLOYED', auto_trade = 1 WHERE id = ?", (acc_id,))
         elif not deployed_ok:
             all_ok = False
 

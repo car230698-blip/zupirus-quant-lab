@@ -7,6 +7,7 @@ import { AdminApprovalQueue } from './AdminApprovalQueue.tsx';
 export const AdminSourcesTab: React.FC = () => {
   const [data, setData] = useState<any>({
     active_signal_mode: 'HYBRID',
+    auto_promote_qualified_strategies: false,
     sources: [],
     learning_progress: {
       closed_trades_analyzed: 0,
@@ -377,6 +378,37 @@ export const AdminSourcesTab: React.FC = () => {
               </button>
             );
           })}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#040710]/70 px-4 py-3">
+          <div>
+            <div className="text-xs font-bold text-white">Tự Động Duyệt Chiến Lược Đạt Chuẩn (100% Autonomous Progression)</div>
+            <div className="text-[11px] text-slate-400">
+              Khi bật, chiến lược đạt chuẩn Walk-Forward (Win Rate ≥ 55%, PF ≥ 1.4, ≥ 30 mẫu) sẽ tự động duyệt PROD và nâng cấp lên ZUPIRUS AGENT mà không cần Admin bấm tay.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const nextVal = !Boolean(data.auto_promote_qualified_strategies);
+              const res = await fetch('/api/admin/sources/auto-promote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                body: JSON.stringify({ enabled: nextVal }),
+              });
+              if (res.ok) {
+                const j = await res.json();
+                setData((prev: any) => ({ ...prev, auto_promote_qualified_strategies: nextVal }));
+                setMsg(j.message || 'Đã cập nhật chế độ tự tiến hóa.');
+              }
+            }}
+            className={`rounded-lg px-4 py-2 text-xs font-bold transition ${
+              data.auto_promote_qualified_strategies
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                : 'bg-slate-800 text-slate-300 border border-white/10 hover:bg-slate-700'
+            }`}
+          >
+            {data.auto_promote_qualified_strategies ? 'Đang BẬT (Tự Động 100%)' : 'Đang TẮT (Admin Duyệt Tay)'}
+          </button>
         </div>
       </div>
 
