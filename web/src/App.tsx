@@ -50,6 +50,7 @@ const AppContent: React.FC = () => {
   // Auth state
   const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
+  const [authPreviewOpen, setAuthPreviewOpen] = useState(false);
   const [dashboardStatus, setDashboardStatus] = useState('loading');
   const [monitorStatus, setMonitorStatus] = useState('loading');
   const [authLoading, setAuthLoading] = useState<boolean>(false);
@@ -213,6 +214,7 @@ const AppContent: React.FC = () => {
       setDashboardStatus('loading');
       setMonitorStatus('loading');
       setNotice(null);
+      setAuthPreviewOpen(false);
       setCurrentUser(await session.json());
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Không thể kết nối máy chủ.');
@@ -272,6 +274,7 @@ const AppContent: React.FC = () => {
   const totalPnl = totalEquity - totalBalance;
 
   const navigateToPortal = (target: PortalType) => {
+    setAuthPreviewOpen(false);
     if (
       typeof window !== 'undefined' &&
       ['zupirus.com', 'www.zupirus.com', 'adm.zupirus.com', 'app.zupirus.com'].includes(window.location.hostname)
@@ -311,14 +314,14 @@ const AppContent: React.FC = () => {
     );
   }
 
-  if (!currentUser) {
+  if (!currentUser || authPreviewOpen) {
     return (
       <PortalAuth
         portal={portal}
         loading={authLoading}
         error={authError}
         onSubmit={authenticate}
-        onSwitchPortal={navigateToPortal}
+        onClosePreview={currentUser ? () => setAuthPreviewOpen(false) : undefined}
       />
     );
   }
@@ -331,9 +334,6 @@ const AppContent: React.FC = () => {
           <h2>Cần quyền quản trị</h2>
           <p>Tài khoản hiện tại không có quyền truy cập Trạm Chỉ Huy Điều Hành.</p>
           <div className="flex gap-3">
-            <button className="quant-quiet flex-1" onClick={() => navigateToPortal('user')}>
-              Về Cổng Người Dùng
-            </button>
             <button className="quant-primary flex-1" onClick={handleLogout}>
               Đổi Tài Khoản
             </button>
@@ -352,8 +352,6 @@ const AppContent: React.FC = () => {
       ? new Date(timestamp * 1000).toLocaleTimeString('vi-VN')
       : 'Chưa ghi nhận';
   const status = portal === 'admin' ? monitorStatus : dashboardStatus;
-  const alternatePortal = portal === 'admin' ? 'user' : 'admin';
-  const switchPortal = () => navigateToPortal(alternatePortal);
 
   return (
     <PortalShell
@@ -362,7 +360,6 @@ const AppContent: React.FC = () => {
       email={currentUser.email}
       onNavigate={(page) => (portal === 'admin' ? setAdminTab(page as AdminTabKey) : setUserTab(page as UserTabKey))}
       logout={handleLogout}
-      switchPortal={portal === 'admin' && isAdmin ? switchPortal : undefined}
     >
       {status === 'loading' && (
         <div className="quant-status" role="status">

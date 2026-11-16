@@ -8,27 +8,38 @@
   --font-sans: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --bg-void: #02040a;
-  --bg-stage: #040814;
-  --surface-base: #070d1d;
-  --surface-card: #0a1328;
-  --surface-elevated: #0e1a36;
-  --surface-hover: #132347;
+  /* ZUPIRUS Quantum OS v4.0 — Sovereign XAU Gold & Cyber-Titanium Palette */
+  --bg-void: #03050a;
+  --bg-stage: #060913;
+  --surface-base: #090e1c;
+  --surface-card: #0c1326;
+  --surface-elevated: #111b34;
+  --surface-hover: #162342;
 
-  --accent: #00f2fe;
+  --accent: #f59e0b;
+  --accent-gold: #fbbf24;
   --accent-cyan: #06b6d4;
   --accent-emerald: #10b981;
-  --accent-amber: #f59e0b;
-  --accent-violet: #8b5cf6;
+  --accent-violet: #6366f1;
 
-  --edge: rgba(148, 163, 184, 0.14);
+  --edge: rgba(251, 191, 36, 0.18);
   --edge-subtle: rgba(255, 255, 255, 0.08);
-  --edge-cyan: rgba(6, 182, 212, 0.42);
-  --edge-emerald: rgba(16, 185, 129, 0.42);
+  --edge-cyan: rgba(6, 182, 212, 0.38);
+  --edge-emerald: rgba(16, 185, 129, 0.38);
   --muted: #64748b;
 
-  --cyan-glow: 0 0 32px rgba(6, 182, 212, 0.28);
-  --emerald-glow: 0 0 32px rgba(16, 185, 129, 0.24);
+  --gold-glow: 0 0 32px rgba(245, 158, 11, 0.24);
+  --cyan-glow: 0 0 32px rgba(6, 182, 212, 0.24);
+  --emerald-glow: 0 0 32px rgba(16, 185, 129, 0.22);
+}
+
+[data-quant-theme="cyber"] {
+  --bg-void: #02050c;
+  --bg-stage: #040916;
+  --surface-card: #081226;
+  --accent: #00f2fe;
+  --accent-gold: #22d3ee;
+  --edge: rgba(6, 182, 212, 0.24);
 }
 
 * {
@@ -65,34 +76,25 @@ code, pre, .font-mono, .tabular-nums {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(3, 6, 14, 0.9);
+  background: rgba(3, 5, 10, 0.95);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(6, 182, 212, 0.3);
+  background: rgba(245, 158, 11, 0.32);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(6, 182, 212, 0.65);
+  background: rgba(245, 158, 11, 0.65);
 }
 
-/* Compositor-Only High-Tech Animations & Special Effects */
+/* Compositor-Only High-Tech Animations */
 @keyframes aurora-pulse {
   0%, 100% {
     transform: translate3d(0, 0, 0) scale(1);
     opacity: 0.55;
   }
   50% {
-    transform: translate3d(18px, -14px, 0) scale(1.08);
-    opacity: 0.9;
-  }
-}
-
-@keyframes shimmer-sweep {
-  0% {
-    transform: translateX(-120%) skewX(-18deg);
-  }
-  100% {
-    transform: translateX(220%) skewX(-18deg);
+    transform: translate3d(16px, -12px, 0) scale(1.06);
+    opacity: 0.88;
   }
 }
 
@@ -118,16 +120,7 @@ code, pre, .font-mono, .tabular-nums {
     transform: translateY(0px);
   }
   50% {
-    transform: translateY(-6px);
-  }
-}
-
-@keyframes border-pulse-glow {
-  0%, 100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
+    transform: translateY(-5px);
   }
 }
 
@@ -140,7 +133,7 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .animate-laser-scan {
-  animation: laser-scan-vertical 5s linear infinite;
+  animation: laser-scan-vertical 5.5s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -153,66 +146,75 @@ code, pre, .font-mono, .tabular-nums {
   }
 }
 
-/* Cyber Grid & Holographic Backdrops */
+/* Architectural Cyber Grid & Optical Backdrops */
 .quant-cyber-grid {
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(6, 182, 212, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(6, 182, 212, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-image:
+    linear-gradient(to right, rgba(245, 158, 11, 0.038) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(6, 182, 212, 0.038) 1px, transparent 1px);
 }
 
 .quant-dot-matrix {
-  background-image: radial-gradient(rgba(6, 182, 212, 0.18) 1px, transparent 1px);
+  background-image: radial-gradient(rgba(245, 158, 11, 0.18) 1px, transparent 1px);
   background-size: 18px 18px;
+}
+
+/* Precision HUD Corner Reticle Accent */
+.quant-hud-corner {
+  position: relative;
+  box-shadow:
+    inset 1px 1px 0 rgba(251, 191, 36, 0.32),
+    0 16px 40px rgba(0, 0, 0, 0.55);
 }
 
 /* High-Tech Card, Holographic & Glass Surfaces */
 .quant-glass {
-  background: rgba(8, 15, 32, 0.76);
+  background: rgba(9, 14, 28, 0.82);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
-  border: 1px solid rgba(6, 182, 212, 0.18);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.09);
 }
 
 .quant-panel {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(circle at 100% 0%, rgba(6, 182, 212, 0.08), transparent 45%),
-    linear-gradient(180deg, rgba(11, 20, 42, 0.9) 0%, rgba(5, 10, 22, 0.96) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.085);
-  border-radius: 18px;
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms ease;
+    radial-gradient(circle at 100% 0%, rgba(245, 158, 11, 0.08), transparent 45%),
+    radial-gradient(circle at 0% 100%, rgba(6, 182, 212, 0.06), transparent 45%),
+    linear-gradient(180deg, rgba(13, 20, 38, 0.95) 0%, rgba(6, 10, 22, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.58), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease;
 }
 
 .quant-panel::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 5%, rgba(6, 182, 212, 0.55) 35%, rgba(16, 185, 129, 0.55) 65%, transparent 95%);
-  opacity: 0.65;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 2%, rgba(245, 158, 11, 0.75) 28%, rgba(6, 182, 212, 0.75) 68%, transparent 98%);
+  opacity: 0.85;
   pointer-events: none;
 }
 
 .quant-panel:hover {
-  border-color: rgba(6, 182, 212, 0.32);
-  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.65), 0 0 28px rgba(6, 182, 212, 0.1);
+  border-color: rgba(245, 158, 11, 0.35);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.65), 0 0 28px rgba(245, 158, 11, 0.08);
 }
 
 .quant-card-interactive {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(circle at 0% 0%, rgba(6, 182, 212, 0.12), transparent 55%),
-    radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.08), transparent 55%),
-    linear-gradient(165deg, rgba(13, 24, 48, 0.9) 0%, rgba(5, 10, 22, 0.98) 100%);
-  border: 1px solid rgba(6, 182, 212, 0.18);
+    radial-gradient(circle at 0% 0%, rgba(245, 158, 11, 0.13), transparent 55%),
+    radial-gradient(circle at 100% 100%, rgba(6, 182, 212, 0.09), transparent 55%),
+    linear-gradient(165deg, rgba(15, 23, 44, 0.95) 0%, rgba(7, 11, 24, 0.99) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.22);
   border-radius: 18px;
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), border-color 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms ease;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease;
 }
 
 .quant-card-interactive::before {
@@ -220,48 +222,31 @@ code, pre, .font-mono, .tabular-nums {
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, #06b6d4, #10b981, transparent);
-  opacity: 0.75;
-  transition: opacity 200ms ease;
-}
-
-.quant-card-interactive::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 45%;
-  background: linear-gradient(90deg, transparent, rgba(6, 182, 212, 0.08), transparent);
-  transform: translateX(-150%) skewX(-18deg);
-  pointer-events: none;
+  background: linear-gradient(90deg, #f59e0b, #06b6d4, #10b981);
+  opacity: 0.9;
+  transition: opacity 180ms ease;
 }
 
 .quant-card-interactive:hover {
   transform: translateY(-3px);
-  border-color: rgba(6, 182, 212, 0.5);
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65), 0 0 30px rgba(6, 182, 212, 0.18);
+  border-color: rgba(251, 191, 36, 0.5);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.65), 0 0 28px rgba(245, 158, 11, 0.14);
 }
 
-.quant-card-interactive:hover::before {
-  opacity: 1;
-}
-
-.quant-card-interactive:hover::after {
-  animation: shimmer-sweep 950ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* High-Tech Form Inputs, Buttons & Tabular Data Classes */
-.quant-input {
-  width: 100%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: rgba(3, 7, 18, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  color: #f8fafc;
-  font-size: 13px;
-  line-height: 1.4;
-  outline: none;
-  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+/* High-Tech Form Inputs, Range Sliders, Buttons & Tabular Data Classes */
+@layer components {
+  .quant-input {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: rgba(4, 7, 16, 0.94);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    color: #f8fafc;
+    font-size: 13px;
+    line-height: 1.4;
+    outline: none;
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+  }
 }
 
 .quant-input::placeholder {
@@ -269,13 +254,20 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-input:hover {
-  border-color: rgba(6, 182, 212, 0.35);
+  border-color: rgba(245, 158, 11, 0.42);
 }
 
 .quant-input:focus {
-  border-color: #06b6d4;
-  background: rgba(4, 10, 24, 0.98);
-  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.18), 0 0 18px rgba(6, 182, 212, 0.15);
+  border-color: #f59e0b;
+  background: rgba(6, 11, 24, 0.98);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18), 0 0 18px rgba(245, 158, 11, 0.14);
+}
+
+input[type="range"] {
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.9);
+  outline: none;
 }
 
 .quant-btn-primary {
@@ -286,20 +278,20 @@ code, pre, .font-mono, .tabular-nums {
   justify-content: center;
   gap: 8px;
   border-radius: 12px;
-  background: linear-gradient(95deg, #06b6d4 0%, #0ea5e9 45%, #10b981 100%);
+  background: linear-gradient(95deg, #f59e0b 0%, #fbbf24 45%, #10b981 100%);
   color: #020617;
   font-family: var(--font-mono);
   font-weight: 800;
   letter-spacing: 0.02em;
-  border: 1px solid rgba(165, 243, 252, 0.4);
-  box-shadow: 0 0 24px rgba(6, 182, 212, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(253, 230, 138, 0.55);
+  box-shadow: 0 0 26px rgba(245, 158, 11, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.45);
   cursor: pointer;
-  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 160ms ease, opacity 160ms ease;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 150ms ease, opacity 150ms ease;
 }
 
 .quant-btn-primary:hover:not(:disabled) {
   transform: translateY(-1.5px);
-  box-shadow: 0 0 32px rgba(6, 182, 212, 0.5), 0 0 16px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 34px rgba(245, 158, 11, 0.52), 0 0 18px rgba(16, 185, 129, 0.35);
 }
 
 .quant-btn-primary:active:not(:disabled) {
@@ -317,21 +309,21 @@ code, pre, .font-mono, .tabular-nums {
   justify-content: center;
   gap: 8px;
   border-radius: 12px;
-  background: rgba(11, 20, 40, 0.85);
-  color: #e2e8f0;
+  background: rgba(13, 21, 42, 0.9);
+  color: #f1f5f9;
   font-family: var(--font-mono);
   font-weight: 600;
-  border: 1px solid rgba(6, 182, 212, 0.28);
+  border: 1px solid rgba(245, 158, 11, 0.3);
   cursor: pointer;
-  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), border-color 160ms ease, color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms ease, color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
 .quant-btn-secondary:hover:not(:disabled) {
   transform: translateY(-1px);
-  background: rgba(6, 182, 212, 0.14);
-  border-color: rgba(6, 182, 212, 0.55);
-  color: #67e8f9;
-  box-shadow: 0 0 20px rgba(6, 182, 212, 0.18);
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(251, 191, 36, 0.6);
+  color: #fde68a;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.18);
 }
 
 .quant-btn-secondary:disabled {
@@ -345,22 +337,22 @@ code, pre, .font-mono, .tabular-nums {
   justify-content: center;
   gap: 8px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(244, 63, 94, 0.22) 0%, rgba(190, 18, 60, 0.32) 100%);
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.25) 0%, rgba(190, 18, 60, 0.38) 100%);
   color: #fecdd3;
   font-family: var(--font-mono);
   font-weight: 800;
-  border: 1px solid rgba(244, 63, 94, 0.5);
-  box-shadow: 0 0 22px rgba(244, 63, 94, 0.22);
+  border: 1px solid rgba(244, 63, 94, 0.55);
+  box-shadow: 0 0 24px rgba(244, 63, 94, 0.24);
   cursor: pointer;
-  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
 }
 
 .quant-btn-danger:hover:not(:disabled) {
   transform: translateY(-1px);
-  background: linear-gradient(135deg, rgba(244, 63, 94, 0.35) 0%, rgba(225, 29, 72, 0.45) 100%);
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.38) 0%, rgba(225, 29, 72, 0.48) 100%);
   border-color: #fb7185;
   color: #ffffff;
-  box-shadow: 0 0 30px rgba(244, 63, 94, 0.4);
+  box-shadow: 0 0 32px rgba(244, 63, 94, 0.42);
 }
 
 /* High-Density Quantitative Data Table */
@@ -380,21 +372,21 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-table thead th {
-  padding: 12px 16px;
+  padding: 13px 16px;
   font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #94a3b8;
-  background: rgba(8, 15, 32, 0.92);
-  border-bottom: 1px solid rgba(6, 182, 212, 0.2);
+  letter-spacing: 0.13em;
+  color: #fde68a;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(8, 13, 26, 0.96) 100%);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.28);
   white-space: nowrap;
 }
 
 .quant-table tbody td {
   padding: 13px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   color: #e2e8f0;
   vertical-align: middle;
   transition: background-color 140ms ease;
@@ -405,16 +397,16 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-table tbody tr:hover td {
-  background: rgba(6, 182, 212, 0.065);
+  background: rgba(245, 158, 11, 0.075);
 }
 
-/* Modern Quant Terminal Global Layout */
+/* Modern Quant OS v4.0 Global Layout */
 .quant-app {
   min-height: 100vh;
   background:
-    radial-gradient(ellipse 85% 55% at 50% -15%, rgba(6, 182, 212, 0.18), transparent 70%),
-    radial-gradient(ellipse 60% 45% at 92% 18%, rgba(16, 185, 129, 0.1), transparent 65%),
-    radial-gradient(ellipse 50% 40% at 8% 85%, rgba(139, 92, 246, 0.07), transparent 65%),
+    radial-gradient(ellipse 80% 50% at 50% -12%, rgba(245, 158, 11, 0.16), transparent 68%),
+    radial-gradient(ellipse 65% 45% at 92% 18%, rgba(6, 182, 212, 0.12), transparent 65%),
+    radial-gradient(ellipse 55% 40% at 8% 85%, rgba(16, 185, 129, 0.08), transparent 65%),
     var(--bg-void);
   color: #f8fafc;
 }
@@ -425,28 +417,30 @@ code, pre, .font-mono, .tabular-nums {
   min-height: 100vh;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: #38bdf8;
+  color: #fbbf24;
 }
 
 .quant-sidebar {
   position: fixed;
   inset: 0 auto 0 0;
-  width: 272px;
+  width: 288px;
   z-index: 40;
   display: flex;
   flex-direction: column;
-  padding: 20px 14px;
-  background: linear-gradient(180deg, rgba(4, 9, 22, 0.96) 0%, rgba(2, 5, 13, 0.99) 100%);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-right: 1px solid rgba(6, 182, 212, 0.16);
-  box-shadow: 8px 0 36px rgba(0, 0, 0, 0.55);
-  transition: width 220ms cubic-bezier(0.16, 1, 0.3, 1), transform 220ms cubic-bezier(0.16, 1, 0.3, 1), padding 220ms ease;
+  padding: 18px 14px;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(245, 158, 11, 0.1), transparent 50%),
+    linear-gradient(180deg, rgba(6, 10, 22, 0.98) 0%, rgba(3, 5, 12, 0.99) 100%);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border-right: 1px solid rgba(245, 158, 11, 0.22);
+  box-shadow: 10px 0 42px rgba(0, 0, 0, 0.65);
+  transition: width 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 200ms cubic-bezier(0.16, 1, 0.3, 1), padding 200ms ease;
 }
 
 .quant-sidebar.is-collapsed {
-  width: 78px;
-  padding: 20px 10px;
+  width: 82px;
+  padding: 18px 10px;
 }
 
 .quant-brand {
@@ -464,12 +458,15 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-workspace {
-  margin-top: 22px;
+  margin-top: 16px;
   margin-bottom: 8px;
-  padding: 4px 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
   font: 700 10px/1.4 var(--font-mono);
   letter-spacing: 0.16em;
-  color: #64748b;
+  color: #fde68a;
   text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
@@ -494,15 +491,15 @@ code, pre, .font-mono, .tabular-nums {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 11px 14px;
-  border-radius: 13px;
+  padding: 11px 13px;
+  border-radius: 14px;
   color: #94a3b8;
   font-size: 13px;
   font-weight: 600;
   font-family: var(--font-display);
-  background: transparent;
-  border: 1px solid transparent;
-  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
   cursor: pointer;
   text-align: left;
   white-space: nowrap;
@@ -515,21 +512,25 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-nav-button span {
-  font-size: 16px;
+  font-size: 15px;
   color: #64748b;
-  transition: color 160ms ease, transform 160ms ease;
+  transition: color 150ms ease, transform 150ms ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
 }
 
 .quant-nav-button:hover {
   color: #f8fafc;
-  background: rgba(6, 182, 212, 0.06);
-  border-color: rgba(6, 182, 212, 0.18);
-  transform: translateX(2px);
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.28);
+  transform: translateX(3px);
 }
 
 .quant-sidebar.is-collapsed .quant-nav-button:hover {
@@ -537,27 +538,31 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-nav-button:hover span {
-  color: #22d3ee;
-  transform: scale(1.1);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+  transform: scale(1.06);
 }
 
 .quant-nav-button[aria-current="page"] {
-  color: #ecfeff;
-  background: linear-gradient(90deg, rgba(6, 182, 212, 0.22) 0%, rgba(16, 185, 129, 0.07) 100%);
-  border: 1px solid rgba(6, 182, 212, 0.45);
-  box-shadow: 0 0 22px rgba(6, 182, 212, 0.16), inset 3px 0 0 #06b6d4;
+  color: #ffffff;
+  background: linear-gradient(95deg, rgba(245, 158, 11, 0.22) 0%, rgba(6, 182, 212, 0.12) 100%);
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  box-shadow: 0 0 26px rgba(245, 158, 11, 0.18), inset 3px 0 0 #fbbf24;
 }
 
 .quant-nav-button[aria-current="page"] span {
-  color: #22d3ee;
+  color: #020617;
+  background: linear-gradient(135deg, #fbbf24, #06b6d4);
+  border-color: transparent;
+  font-weight: 800;
 }
 
 .quant-sidebar-end {
   margin-top: auto;
   padding: 14px;
   border-radius: 16px;
-  background: linear-gradient(165deg, rgba(10, 19, 40, 0.9) 0%, rgba(4, 9, 20, 0.95) 100%);
-  border: 1px solid rgba(6, 182, 212, 0.2);
+  background: linear-gradient(165deg, rgba(14, 21, 42, 0.95) 0%, rgba(5, 9, 20, 0.98) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.24);
   font: 600 11px var(--font-mono);
   color: #94a3b8;
   display: flex;
@@ -572,35 +577,35 @@ code, pre, .font-mono, .tabular-nums {
 
 /* Stage & Content Area */
 .quant-stage {
-  margin-left: 272px;
+  margin-left: 288px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  transition: margin-left 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: margin-left 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .quant-stage.is-collapsed {
-  margin-left: 78px;
+  margin-left: 82px;
 }
 
 .quant-topbar {
-  min-height: 64px;
-  padding: 0 clamp(16px, 3vw, 36px);
+  min-height: 68px;
+  padding: 0 clamp(16px, 2.5vw, 36px);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  background: rgba(4, 8, 20, 0.86);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(6, 182, 212, 0.14);
+  gap: 16px;
+  background: rgba(5, 9, 20, 0.9);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.22);
   position: sticky;
   top: 0;
   z-index: 30;
 }
 
 .quant-context {
-  color: #64748b;
+  color: #94a3b8;
   font-size: 12px;
   font-family: var(--font-mono);
   display: flex;
@@ -617,25 +622,25 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-email {
-  color: #cbd5e1;
-  font-size: 12px;
+  color: #fde68a;
+  font-size: 11.5px;
   font-family: var(--font-mono);
   padding: 6px 12px;
-  background: rgba(6, 182, 212, 0.06);
+  background: rgba(245, 158, 11, 0.1);
   border-radius: 10px;
-  border: 1px solid rgba(6, 182, 212, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.28);
   white-space: nowrap;
 }
 
 .quant-quiet {
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 10px;
   padding: 7px 13px;
-  color: #cbd5e1;
+  color: #e2e8f0;
   font-size: 12px;
   font-weight: 600;
   font-family: var(--font-mono);
-  background: rgba(11, 20, 40, 0.7);
+  background: rgba(13, 21, 42, 0.8);
   transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms ease, color 150ms ease, background-color 150ms ease;
   cursor: pointer;
   white-space: nowrap;
@@ -643,37 +648,45 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-quiet:hover:not(:disabled) {
-  border-color: rgba(6, 182, 212, 0.55);
-  color: #22d3ee;
-  background: rgba(6, 182, 212, 0.12);
+  border-color: rgba(251, 191, 36, 0.6);
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.14);
   transform: translateY(-1px);
 }
 
 .quant-content {
   flex: 1;
-  max-width: 1560px;
+  max-width: 1580px;
   width: 100%;
   margin: 0 auto;
-  padding: 28px clamp(16px, 3vw, 40px) 84px;
+  padding: 24px clamp(16px, 2.8vw, 38px) 84px;
 }
 
 .quant-heading {
-  border-bottom: 1px solid rgba(6, 182, 212, 0.14);
-  padding-bottom: 18px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(245, 158, 11, 0.14), transparent 52%),
+    radial-gradient(circle at 100% 100%, rgba(6, 182, 212, 0.12), transparent 52%),
+    linear-gradient(135deg, rgba(13, 20, 40, 0.94) 0%, rgba(6, 10, 22, 0.98) 100%);
+  padding: 20px 24px;
   margin-bottom: 24px;
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .quant-heading h1 {
   margin: 0;
-  font-size: clamp(22px, 2.6vw, 32px);
+  font-size: clamp(22px, 2.4vw, 30px);
   font-weight: 800;
   letter-spacing: -0.025em;
-  background: linear-gradient(95deg, #ffffff 0%, #e0f2fe 60%, #67e8f9 100%);
+  background: linear-gradient(95deg, #ffffff 0%, #fef3c7 55%, #fbbf24 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   text-wrap: balance;
@@ -692,8 +705,9 @@ code, pre, .font-mono, .tabular-nums {
   flex-direction: column;
   justify-content: space-between;
   padding: clamp(32px, 5vw, 64px);
-  background: radial-gradient(circle at 30% 25%, rgba(6, 182, 212, 0.18) 0%, rgba(6, 12, 26, 0.96) 65%, #02040a 100%);
-  border-right: 1px solid rgba(6, 182, 212, 0.18);
+  background:
+    radial-gradient(circle at 30% 25%, rgba(245, 158, 11, 0.18) 0%, rgba(6, 12, 26, 0.96) 65%, #03050a 100%);
+  border-right: 1px solid rgba(245, 158, 11, 0.24);
   overflow: hidden;
 }
 
@@ -701,17 +715,17 @@ code, pre, .font-mono, .tabular-nums {
   display: grid;
   place-items: center;
   padding: 32px;
-  background: #02040a;
+  background: #03050a;
   position: relative;
 }
 
 .quant-auth-box {
-  width: min(100%, 460px);
-  border: 1px solid rgba(6, 182, 212, 0.32);
-  background: linear-gradient(180deg, rgba(11, 20, 42, 0.95) 0%, rgba(5, 10, 22, 0.98) 100%);
+  width: min(100%, 476px);
+  border: 1px solid rgba(245, 158, 11, 0.36);
+  background: linear-gradient(180deg, rgba(13, 21, 42, 0.96) 0%, rgba(5, 9, 20, 0.99) 100%);
   border-radius: 22px;
   padding: clamp(24px, 4vw, 38px);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75), 0 0 36px rgba(6, 182, 212, 0.14);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.78), 0 0 38px rgba(245, 158, 11, 0.15);
 }
 
 .quant-auth-box h2 {
@@ -736,7 +750,7 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .quant-auth-box label {
-  color: #cbd5e1;
+  color: #fde68a;
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-mono);
@@ -748,31 +762,31 @@ code, pre, .font-mono, .tabular-nums {
   padding: 12px 14px;
   border-radius: 12px;
   background: rgba(3, 7, 18, 0.92);
-  border: 1px solid rgba(6, 182, 212, 0.22);
+  border: 1px solid rgba(245, 158, 11, 0.25);
   color: #f8fafc;
   font-size: 13px;
   outline: none;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
 .quant-auth-box input:focus {
-  border-color: #06b6d4;
-  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.18);
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
 }
 
 .quant-primary {
   width: 100%;
   padding: 12px 20px;
   border-radius: 12px;
-  background: linear-gradient(90deg, #06b6d4 0%, #0ea5e9 50%, #10b981 100%);
+  background: linear-gradient(95deg, #f59e0b 0%, #fbbf24 50%, #10b981 100%);
   color: #020617;
   font-size: 13px;
   font-weight: 800;
   font-family: var(--font-mono);
   border: none;
-  box-shadow: 0 0 24px rgba(6, 182, 212, 0.3);
+  box-shadow: 0 0 26px rgba(245, 158, 11, 0.32);
   cursor: pointer;
-  transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1), opacity 160ms ease, box-shadow 160ms ease;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease, box-shadow 150ms ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -783,7 +797,7 @@ code, pre, .font-mono, .tabular-nums {
 .quant-primary:hover:not(:disabled) {
   opacity: 0.96;
   transform: translateY(-1.5px);
-  box-shadow: 0 0 32px rgba(6, 182, 212, 0.5);
+  box-shadow: 0 0 34px rgba(245, 158, 11, 0.52);
 }
 
 .quant-primary:disabled {
@@ -805,9 +819,9 @@ code, pre, .font-mono, .tabular-nums {
 .quant-status {
   padding: 10px 14px;
   border-radius: 12px;
-  background: rgba(6, 182, 212, 0.1);
-  border: 1px solid rgba(6, 182, 212, 0.3);
-  color: #67e8f9;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  color: #fde68a;
   font-size: 12px;
   font-family: var(--font-mono);
   margin-bottom: 16px;
@@ -826,15 +840,15 @@ code, pre, .font-mono, .tabular-nums {
 }
 
 .animate-toast {
-  animation: toast-slide-down 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: toast-slide-down 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @media (max-width: 960px) {
   .quant-sidebar {
     position: fixed;
     inset: 0 auto 0 0;
-    width: 272px !important;
-    padding: 20px 16px !important;
+    width: 288px !important;
+    padding: 18px 16px !important;
     transform: translateX(0);
     z-index: 50;
   }
@@ -855,10 +869,10 @@ code, pre, .font-mono, .tabular-nums {
 
 @media (max-width: 768px) {
   .quant-content {
-    padding: 16px 12px 104px !important;
+    padding: 14px 12px 108px !important;
   }
   .quant-heading {
-    padding-bottom: 12px !important;
+    padding: 16px !important;
     margin-bottom: 16px !important;
   }
   .quant-heading h1 {
@@ -869,6 +883,6 @@ code, pre, .font-mono, .tabular-nums {
   }
   .quant-topbar {
     padding: 0 12px !important;
-    min-height: 56px !important;
+    min-height: 58px !important;
   }
 }

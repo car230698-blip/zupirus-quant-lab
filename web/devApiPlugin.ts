@@ -218,9 +218,11 @@ export function zupirusApiPlugin(): Plugin {
       signal_id: 'sig_demo_9941a',
       source: 'DEMO',
       side: 'BUY',
+      lot: 0.25,
       price: 2658.4,
       sl: 2652.4,
       tp: 2670.4,
+      pnl: 142.5,
       state: 'filled',
       ticket: '7089124',
       deal: '8094112',
@@ -234,9 +236,11 @@ export function zupirusApiPlugin(): Plugin {
       signal_id: 'sig_rep_8820b',
       source: 'REPLAY',
       side: 'BUY',
+      lot: 0.15,
       price: 2654.15,
       sl: 2648.15,
       tp: 2666.15,
+      pnl: 88.2,
       state: 'filled',
       ticket: 'SIM-103',
       deal: 'SIM-103',
@@ -250,9 +254,11 @@ export function zupirusApiPlugin(): Plugin {
       signal_id: 'sig_demo_7712c',
       source: 'DEMO',
       side: 'SELL',
+      lot: 0.1,
       price: 2661.8,
       sl: 2667.8,
       tp: 2649.8,
+      pnl: -41.0,
       state: 'filled',
       ticket: '7088901',
       deal: '8093880',
@@ -266,9 +272,11 @@ export function zupirusApiPlugin(): Plugin {
       signal_id: 'sig_rep_6610d',
       source: 'REPLAY',
       side: 'SELL',
+      lot: 0.25,
       price: 2649.2,
       sl: 2655.2,
       tp: 2637.2,
+      pnl: 194.8,
       state: 'filled',
       ticket: 'SIM-101',
       deal: 'SIM-101',
@@ -1816,96 +1824,163 @@ export function zupirusApiPlugin(): Plugin {
     }
 
     // Signals v1 Audit & Stats
+    if (!(globalThis as any).__zupirusAuditLogs) {
+      (globalThis as any).__zupirusAuditLogs = [
+        {
+          id: 'aud_01',
+          created_at: nowSec() - 120,
+          signal_id: 'sig_xau_london_901',
+          source: 'LONDON_INST_G2',
+          source_name: 'London Institutional Feed',
+          raw_message: 'BUY XAUUSD @ 2906.40 SL 2896.00 TP 2926.00',
+          action: 'BUY',
+          side: 'BUY',
+          symbol: 'XAUUSD',
+          entry_price: 2906.4,
+          sl: 2896.0,
+          stop_loss: 2896.0,
+          tp: 2926.0,
+          status: 'EXECUTED',
+          accounts_dispatched: 2,
+          strategy_tier: 'ALPHA',
+          reject_reason: 'Passed all 4 safety guards (Idempotency, Mandatory SL, News Shield, Spread 2.2p)',
+          pnl: 142.5,
+          mae: -1.4,
+          mfe: 9.8,
+          context_snapshot: {
+            session: 'LONDON_NY_OVERLAP',
+            atr_14: 4.15,
+            spread_pips: 2.2,
+            news_distance_mins: 185,
+          },
+        },
+        {
+          id: 'aud_02',
+          created_at: nowSec() - 540,
+          signal_id: 'sig_xau_tv_884',
+          source: 'TV_WEBHOOK_PRO',
+          source_name: 'TradingView Webhook Pro',
+          raw_message: 'SELL XAUUSD @ 2912.80 SL 2921.50 TP 2894.00',
+          action: 'SELL',
+          side: 'SELL',
+          symbol: 'XAUUSD',
+          entry_price: 2912.8,
+          sl: 2921.5,
+          stop_loss: 2921.5,
+          tp: 2894.0,
+          status: 'EXECUTED',
+          accounts_dispatched: 2,
+          strategy_tier: 'GROWTH',
+          reject_reason: 'Passed all 4 safety guards · Auto Break-Even armed at 1R',
+          pnl: 96.0,
+          mae: -0.9,
+          mfe: 6.4,
+          context_snapshot: {
+            session: 'LONDON_OPEN',
+            atr_14: 3.85,
+            spread_pips: 2.4,
+            news_distance_mins: 240,
+          },
+        },
+        {
+          id: 'aud_03',
+          created_at: nowSec() - 1380,
+          signal_id: 'sig_ext_unverified_402',
+          source: 'SHADOW_CAND_04',
+          source_name: 'Shadow Candidate #04',
+          raw_message: 'BUY GOLD NOW NO SL',
+          action: 'BUY',
+          side: 'BUY',
+          symbol: 'XAUUSD',
+          entry_price: 2909.0,
+          sl: null,
+          stop_loss: null,
+          tp: null,
+          status: 'BLOCKED_NO_SL',
+          accounts_dispatched: 0,
+          strategy_tier: 'SHADOW',
+          reject_reason: 'Guard #02 Triggered: Missing Mandatory Hard Stop-Loss',
+          pnl: null,
+          context_snapshot: {
+            session: 'ASIAN_RANGE',
+            atr_14: 2.4,
+            spread_pips: 3.1,
+            news_distance_mins: 410,
+          },
+        },
+      ];
+      (globalThis as any).__zupirusSignalCounters = {
+        total_signals: 128,
+        executed: 114,
+        blocked: 14,
+        active_trades: 2,
+        learning_progress_pct: 92,
+        active_signal_mode: 'HYBRID_TABULA_RASA',
+      };
+    }
+
     if (pathname === '/api/v1/signals/audit-logs' && method === 'GET') {
+      const logs = (globalThis as any).__zupirusAuditLogs;
       return sendJson(res, 200, {
-        audit_logs: [
-          {
-            id: 'aud_01',
-            signal_id: 'sig_xau_london_901',
-            source_name: 'London Institutional Feed',
-            strategy_tier: 'ALPHA',
-            side: 'BUY',
-            symbol: 'XAUUSD',
-            entry_price: 2654.2,
-            stop_loss: 2648.5,
-            status: 'APPROVED',
-            reject_reason: 'Passed all 4 safety guards (Idempotency, Mandatory SL, News Shield, Spread 2.6p)',
-            pnl: 142.5,
-            mae: -1.4,
-            mfe: 9.8,
-            context_snapshot: {
-              session: 'LONDON_NY_OVERLAP',
-              atr_14: 4.15,
-              spread_pips: 2.6,
-              news_distance_mins: 185,
-            },
-          },
-          {
-            id: 'aud_02',
-            signal_id: 'sig_xau_tv_884',
-            source_name: 'TradingView Webhook Pro',
-            strategy_tier: 'GROWTH',
-            side: 'SELL',
-            symbol: 'XAUUSD',
-            entry_price: 2661.8,
-            stop_loss: 2667.8,
-            status: 'APPROVED',
-            reject_reason: 'Passed all 4 safety guards · Auto Break-Even armed at 1R',
-            pnl: 96.0,
-            mae: -0.9,
-            mfe: 6.4,
-            context_snapshot: {
-              session: 'LONDON_OPEN',
-              atr_14: 3.85,
-              spread_pips: 2.4,
-              news_distance_mins: 240,
-            },
-          },
-          {
-            id: 'aud_03',
-            signal_id: 'sig_ext_unverified_402',
-            source_name: 'Shadow Candidate #04',
-            strategy_tier: 'SHADOW',
-            side: 'BUY',
-            symbol: 'XAUUSD',
-            entry_price: 2659.0,
-            stop_loss: null,
-            status: 'REJECTED',
-            reject_reason: 'Guard #02 Triggered: Missing Mandatory Hard Stop-Loss',
-            pnl: null,
-            context_snapshot: {
-              session: 'ASIAN_RANGE',
-              atr_14: 2.4,
-              spread_pips: 3.1,
-              news_distance_mins: 410,
-            },
-          },
-        ],
+        logs,
+        audit_logs: logs,
       });
     }
 
     if (pathname === '/api/v1/signals/stats' && method === 'GET') {
+      const c = (globalThis as any).__zupirusSignalCounters;
       return sendJson(res, 200, {
-        total_audited: 128,
-        approved_count: 114,
-        rejected_count: 14,
+        total_audited: c.total_signals,
+        approved_count: c.executed,
+        rejected_count: c.blocked,
+        ...c,
       });
     }
 
     if (pathname === '/api/v1/signals/test-ingest' && method === 'POST') {
       const body = await readJsonBody(req);
+      const rawMsg = String(body.raw_message || 'BUY XAUUSD @ 2908.50 SL 2898.00 TP 2928.00');
+      const upper = rawMsg.toUpperCase();
+      const action = upper.includes('SELL') ? 'SELL' : 'BUY';
+      const sigId = 'sig_test_' + crypto.randomBytes(3).toString('hex');
+      const dispatchedCount = Math.max(accounts.length, 2);
+      const newEntry = {
+        id: sigId,
+        created_at: nowSec(),
+        signal_id: sigId,
+        source: body.source || 'ADMIN_TEST_BENCH',
+        source_name: body.source || 'Admin Test Bench',
+        raw_message: rawMsg,
+        action,
+        side: action,
+        symbol: 'XAUUSD',
+        entry_price: 2908.5,
+        sl: action === 'BUY' ? 2898.0 : 2918.5,
+        stop_loss: action === 'BUY' ? 2898.0 : 2918.5,
+        tp: action === 'BUY' ? 2928.0 : 2888.0,
+        status: 'EXECUTED',
+        accounts_dispatched: dispatchedCount,
+        strategy_tier: 'ALPHA',
+        reject_reason: 'Passed all 4 safety guards · Auto-ATR SL verified',
+      };
+      (globalThis as any).__zupirusAuditLogs.unshift(newEntry);
+      (globalThis as any).__zupirusSignalCounters.total_signals += 1;
+      (globalThis as any).__zupirusSignalCounters.executed += 1;
+
       return sendJson(res, 200, {
         ok: true,
-        signal_id: 'sig_test_' + crypto.randomBytes(3).toString('hex'),
+        signal_id: sigId,
         symbol: body.symbol || 'XAUUSD',
-        action: body.action || 'BUY',
+        action,
+        dispatched: dispatchedCount,
+        reason: `Đã chuẩn hóa ${action} XAUUSD, vượt qua 4 lớp bảo vệ và quạt lệnh tới ${dispatchedCount} tài khoản Cloud MT5 (28ms)`,
         guards_evaluated: {
           redis_idempotency_lock: 'PASS (<0.8ms)',
-          mandatory_sl_guard: 'AUTO_ATTACHED_ATR_SL ($2,674.80)',
+          mandatory_sl_guard: 'AUTO_ATTACHED_ATR_SL ($2,898.00)',
           live_news_shield: 'PASS (No USD Red News within ±15m)',
-          spread_slippage_guard: 'PASS (2.7 pips <= 4.5 pips max)',
+          spread_slippage_guard: 'PASS (2.2 pips <= 4.5 pips max)',
         },
-        status: 'APPROVED_FOR_DISPATCH',
+        status: 'EXECUTED',
       });
     }
 
