@@ -600,34 +600,36 @@ def run_eod_shadow_evaluation_cycle(force: bool = False):
         _last_eod_utc_date = today_str
 
     try:
-        from app.services.sources.curator import evaluate_shadow_signals_eod, list_sources
+        from app.services.sources.curator import evaluate_shadow_signals_eod, auto_rotate_signal_sources
         eval_res = evaluate_shadow_signals_eod()
         logger.info(f"EOD Shadow Evaluation completed: {eval_res}")
 
+        rot_res = auto_rotate_signal_sources(min_samples=10)
+        if rot_res.get("promoted") or rot_res.get("demoted"):
+            logger.info(f"Auto-Rotation updated sources: {rot_res}")
+
         if int(eval_res.get("evaluated", 0)) > 0:
             run_autonomous_induction_and_wfo(force=True)
-
-        # Check if any SHADOW_ONLY source qualifies to surpass live sources
-        sources = list_sources()
-        live_sources = [s for s in sources if s.get("status") == "ACTIVE_LIVE"]
-        min_live_score = min([float(s.get("trust_score") or 50.0) for s in live_sources]) if live_sources else 0.0
-
-        for s in sources:
-            if s.get("status") == "SHADOW_ONLY" and int(s.get("total_signals") or 0) >= 30:
-                score = float(s.get("trust_score") or 0.0)
-                pf = float(s.get("profit_factor") or 0.0)
-                if score > min_live_score and pf > 1.3:
-                    with tx() as c:
-                        audit(c, "curator", "shadow_promotion_recommended", {
-                            "source_id": s["id"],
-                            "name": s["name"],
-                            "trust_score": score,
-                            "profit_factor": pf,
-                            "total_signals": s["total_signals"],
-                            "message": f"Nguồn ẩn '{s['name']}' đã đạt {s['total_signals']} tín hiệu và Trust Score ({score:.1f}) vượt nguồn live. Sẵn sàng phê duyệt sang ACTIVE_LIVE."
-                        })
     except Exception as e:
         logger.warning(f"EOD shadow evaluation error: {e}")
+
+
+_last_discovery_ts = 0.0
+
+
+def run_periodic_source_discovery():
+    """Autonomously discover & ingest external cross-asset / feed shadow signals every 30 minutes."""
+    global _last_discovery_ts
+    now = time.time()
+    if now - _last_discovery_ts < 1800.0:
+        return
+    _last_discovery_ts = now
+    try:
+        from app.services.sources.discovery import discover_and_ingest_external_signals
+        discover_and_ingest_external_signals()
+    except Exception as e:
+        logger.debug(f"Periodic source discovery note: {e}")
+
 
 def main():
     init()
@@ -635,6 +637,7 @@ def main():
         try:
             process_once()
             run_periodic_calendar_sync()
+            run_periodic_source_discovery()
             run_eod_shadow_evaluation_cycle()
             run_autonomous_induction_and_wfo()
         except Exception as e: print('research error', type(e).__name__, flush=True)

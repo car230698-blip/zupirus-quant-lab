@@ -629,6 +629,63 @@ def get_shadow_signals(source_id: Optional[str] = None, limit: int = 50) -> List
         return result
 
 
+def auto_rotate_signal_sources(min_samples: int = 10) -> Dict[str, Any]:
+    """Autonomous Source Funnel Rotation:
+    - Demotes underperforming ACTIVE_LIVE sources (evaluated >= min_samples and PF < 1.1 or trust < 45).
+    - Promotes top SHADOW_ONLY sources (evaluated >= min_samples, PF >= 1.4, WR >= 52%, trust >= 65)
+      into ACTIVE_LIVE (up to MAX_ACTIVE_LIVE_SOURCES, replacing weaker active sources if needed).
+    """
+    now_ts = time.time()
+    demoted: List[str] = []
+    promoted: List[str] = []
+
+    with tx() as c:
+        from app.db import audit
+        rows = [dict(r) for r in c.execute("SELECT * FROM signal_sources ORDER BY trust_score DESC").fetchall()]
+
+        # 1. Demote failing ACTIVE_LIVE sources
+        for s in rows:
+            if s.get("status") == "ACTIVE_LIVE" and int(s.get("evaluated_signals") or 0) >= min_samples:
+                pf = float(s.get("profit_factor") or 0.0)
+                ts = float(s.get("trust_score") or 0.0)
+                if pf < 1.1 or ts < 45.0:
+                    c.execute("UPDATE signal_sources SET status = 'DEMOTED', updated_at = ? WHERE id = ?", (now_ts, s["id"]))
+                    s["status"] = "DEMOTED"
+                    demoted.append(s["id"])
+                    audit(c, "curator_auto_rotate", "source_demoted", {"source_id": s["id"], "pf": pf, "trust": ts})
+
+        # 2. Promote qualified SHADOW_ONLY sources
+        active_list = [s for s in rows if s.get("status") == "ACTIVE_LIVE"]
+        active_list.sort(key=lambda x: float(x.get("trust_score") or 0.0))
+
+        shadow_candidates = [
+            s for s in rows
+            if s.get("status") == "SHADOW_ONLY"
+            and int(s.get("evaluated_signals") or 0) >= min_samples
+            and float(s.get("profit_factor") or 0.0) >= 1.4
+            and float(s.get("win_rate") or 0.0) >= 0.52
+            and float(s.get("trust_score") or 0.0) >= 65.0
+        ]
+
+        for cand in shadow_candidates:
+            if len(active_list) < MAX_ACTIVE_LIVE_SOURCES:
+                c.execute("UPDATE signal_sources SET status = 'ACTIVE_LIVE', updated_at = ? WHERE id = ?", (now_ts, cand["id"]))
+                active_list.append(cand)
+                promoted.append(cand["id"])
+                audit(c, "curator_auto_rotate", "source_promoted", {"source_id": cand["id"], "trust": cand.get("trust_score")})
+            elif active_list and float(cand.get("trust_score") or 0.0) >= float(active_list[0].get("trust_score") or 0.0) + 10.0:
+                weakest = active_list.pop(0)
+                c.execute("UPDATE signal_sources SET status = 'SHADOW_ONLY', updated_at = ? WHERE id = ?", (now_ts, weakest["id"]))
+                c.execute("UPDATE signal_sources SET status = 'ACTIVE_LIVE', updated_at = ? WHERE id = ?", (now_ts, cand["id"]))
+                active_list.append(cand)
+                active_list.sort(key=lambda x: float(x.get("trust_score") or 0.0))
+                demoted.append(weakest["id"])
+                promoted.append(cand["id"])
+                audit(c, "curator_auto_rotate", "source_rotated", {"promoted": cand["id"], "replaced": weakest["id"]})
+
+    return {"ok": True, "promoted": promoted, "demoted": demoted}
+
+
 
 # Backwards-compatibility aliases
 log_shadow_signal = record_shadow_signal

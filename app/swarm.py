@@ -167,10 +167,15 @@ def run_alpha_cycle(c) -> Dict[str, Any]:
 
 def run_risk_guardian_cycle(c) -> Dict[str, Any]:
     """Risk Guardian Agent calculates Portfolio Value-at-Risk (VaR 99%) and validates leverage."""
-    accounts = c.execute("SELECT id, balance, equity, positions FROM accounts WHERE enabled=1").fetchall()
-    total_balance = sum(a["balance"] for a in accounts)
-    total_equity = sum(a["equity"] for a in accounts)
-    total_positions = sum(a["positions"] for a in accounts)
+    try:
+        accounts = c.execute(
+            "SELECT id, balance, equity, 0 AS positions FROM trading_accounts WHERE auto_trade = 1 OR deployment_state = 'DEPLOYED'"
+        ).fetchall()
+    except Exception:
+        accounts = c.execute("SELECT id, balance, equity, positions FROM accounts WHERE enabled=1").fetchall()
+    total_balance = sum(float(a["balance"] or 0.0) for a in accounts)
+    total_equity = sum(float(a["equity"] or 0.0) for a in accounts)
+    total_positions = sum(int(a["positions"] or 0) for a in accounts)
 
     # Run Monte Carlo for portfolio risk
     mc = run_monte_carlo_simulation(initial_equity=max(1000.0, total_equity), iterations=1000)
@@ -205,9 +210,27 @@ def trigger_swarm_cycle(c=None) -> Dict[str, Any]:
         alpha_res = run_alpha_cycle(conn)
         guardian_res = run_risk_guardian_cycle(conn)
 
+        # Invoke built-in Agent Skills + Cross-Asset Context (DXY / US10Y)
+        skills_telemetry = {}
+        try:
+            from app.skills.registry import execute_skill
+            skills_telemetry["macro"] = execute_skill("macro_news_interpreter")
+            skills_telemetry["regime"] = execute_skill("market_regime_scanner")
+            skills_telemetry["liquidity"] = execute_skill("liquidity_spread_auditor")
+        except Exception as sk_err:
+            logger.debug(f"Swarm skill invocation note: {sk_err}")
+
+        cross_asset = {}
+        try:
+            from app.services.sources.discovery import fetch_cross_asset_context
+            cross_asset = fetch_cross_asset_context()
+        except Exception as ca_err:
+            logger.debug(f"Cross-asset context note: {ca_err}")
+
         msg = (
             f"Chu kỳ #{_SWARM_STATE['cycles_count']}: Sentinel={sentinel_res.get('events_count')} sự kiện | "
             f"Alpha={alpha_res.get('top_asset')} ({alpha_res.get('bias')}) | "
+            f"Macro={cross_asset.get('gold_macro_bias', 'NEUTRAL')} | "
             f"Risk VaR 99%={guardian_res.get('var_99')}%"
         )
 
@@ -239,6 +262,8 @@ def trigger_swarm_cycle(c=None) -> Dict[str, Any]:
             "sentinel": sentinel_res,
             "alpha": alpha_res,
             "risk_guardian": guardian_res,
+            "skills_telemetry": skills_telemetry,
+            "cross_asset": cross_asset,
         }
 
     if c:
