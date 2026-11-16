@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { EquityHistory } from './EquityHistory';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
+import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 
 export interface UserOverviewTabProps {
   totalBalance?: number;
@@ -103,7 +104,8 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const chartMode = externalChartMode ?? localChartMode;
   const setChartMode = externalSetChartMode ?? setLocalChartMode;
 
-  const [liveBid, setLiveBid] = useState<number | null>(null);
+  const { data: telemetryData } = useLiveTopbarTelemetry();
+  const liveBid = Number(telemetryData?.xauusd?.bid || 0);
 
   const computedOpenPnl = openPnl ?? totalPnl ?? totalEquity - totalBalance;
   const computedTotalAccounts = totalAccountsCount ?? accounts.length;
@@ -115,28 +117,6 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
     (totalBalance > 0 && computedOpenPnl < 0
       ? Math.abs((computedOpenPnl / totalBalance) * 100)
       : 0.0);
-
-  useEffect(() => {
-    let mounted = true;
-    const fetchTick = async () => {
-      try {
-        const res = await fetch('/api/v1/telemetry/topbar', { credentials: 'include' });
-        if (res.ok && mounted) {
-          const data = await res.json();
-          if (data.bid) setLiveBid(Number(data.bid));
-          else if (data.xauusd?.bid) setLiveBid(Number(data.xauusd.bid));
-        }
-      } catch {
-        // Fallback to candle close
-      }
-    };
-    fetchTick();
-    const timer = setInterval(fetchTick, 3000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   const renderCandlestickSvg = () => {
     const valid = candles
@@ -386,7 +366,22 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 fill="none"
                 stroke="#fbbf24"
                 strokeWidth="2"
-                points="0,22 16,18 32,20 48,12 64,14 80,4"
+                points={
+                  series && series.length > 1
+                    ? series
+                        .slice(-10)
+                        .map((s: any, idx: number, arr: any[]) => {
+                          const x = (idx / (arr.length - 1)) * 80;
+                          const minEq = Math.min(...arr.map((p: any) => Number(p.equity || p.balance || 0)));
+                          const maxEq = Math.max(...arr.map((p: any) => Number(p.equity || p.balance || 0)));
+                          const range = Math.max(maxEq - minEq, 1);
+                          const val = Number(s.equity || s.balance || 0);
+                          const y = 22 - ((val - minEq) / range) * 18;
+                          return `${x.toFixed(1)},${y.toFixed(1)}`;
+                        })
+                        .join(' ')
+                    : '0,13 80,13'
+                }
               />
             </svg>
           </div>
@@ -699,8 +694,8 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
               <div className="mt-4 space-y-3">
                 {accounts.slice(0, 4).map((acc: any) => {
                   const isActive = acc.is_active !== false && acc.copy_enabled !== false;
-                  const accDd = Number(acc.daily_dd_pct || 0.08);
-                  const accMaxDd = Number(acc.max_daily_dd_pct || 4.0);
+                  const accDd = Number(acc.daily_dd_pct ?? 0.0);
+                  const accMaxDd = Number(acc.max_daily_dd_pct ?? 4.0);
                   const accId = acc.account_id || acc.login || acc.id;
                   return (
                     <div

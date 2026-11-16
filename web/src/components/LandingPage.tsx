@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { calculateQuantLotSizing, calculateSubscriptionPricing, type AccountKind, type BillingCycle } from '../utils/quantMath';
 import guardMatrixImg from '../assets/images/guard_matrix_architecture_1794792845754.jpg';
+import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 
 export interface LandingPageProps {
   onEnterPortal?: () => void;
@@ -93,9 +94,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onEnterApp,
 }) => {
   const onEnterPortal = externalOnEnterPortal || onEnterApp || (() => {});
-  const [spotPrice, setSpotPrice] = useState(2908.65);
-  const [spreadPips, setSpreadPips] = useState(1.8);
-  const [usdVndRate, setUsdVndRate] = useState(25500);
+  const { data: telemetryData } = useLiveTopbarTelemetry();
+
+  const spotPrice = Number(telemetryData?.xauusd?.bid || 0);
+  const spreadPips = Number(telemetryData?.xauusd?.spread_pips || 0);
+  const usdVndRate = Number(telemetryData?.usd_vnd?.rate || 25720);
   const [quantTheme, setQuantTheme] = useState<'gold' | 'cyber'>('gold');
 
   // Interactive Hero & Pipeline Simulator State
@@ -123,31 +126,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     document.documentElement.setAttribute('data-quant-theme', quantTheme);
   }, [quantTheme]);
 
-  useEffect(() => {
-    let active = true;
-    const fetchMarketData = async () => {
-      try {
-        const res = await fetch('/api/v1/telemetry/topbar');
-        if (res.ok && active) {
-          const d = await res.json();
-          if (d?.xauusd?.bid > 0) setSpotPrice(Number(d.xauusd.bid));
-          if (d?.xauusd?.spread_pips) setSpreadPips(Number(d.xauusd.spread_pips));
-          if (d?.usd_vnd?.rate) setUsdVndRate(Number(d.usd_vnd.rate));
-        }
-      } catch {
-        // fail silently
-      }
-    };
-
-    fetchMarketData();
-    const timer = setInterval(fetchMarketData, 3000);
-
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, []);
-
   const triggerSimulation = (mode: 'BUY' | 'SELL' | 'NO_SL') => {
     setSimSide(mode);
     setSimRunning(true);
@@ -173,18 +151,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     dailyDrawdownLimitPct: calcAccountKind === 'PROP' ? 4.5 : 10,
   });
 
-  const askPrice = Math.round((spotPrice + spreadPips * 0.1) * 100) / 100;
+  const askPrice = spotPrice > 0 ? Math.round((spotPrice + (spreadPips || 1.8) * 0.1) * 100) / 100 : 0;
   const activeGuard = GUARD_LAYERS[selectedGuardIdx] || GUARD_LAYERS[0];
 
-  const orderBookBids = [
+  const orderBookBids = spotPrice > 0 ? [
     { price: (spotPrice - 0.05).toFixed(2), size: '4.80 Lots', depth: 88 },
     { price: (spotPrice - 0.15).toFixed(2), size: '7.25 Lots', depth: 96 },
     { price: (spotPrice - 0.30).toFixed(2), size: '3.40 Lots', depth: 62 },
+  ] : [
+    { price: '—', size: '—', depth: 50 },
+    { price: '—', size: '—', depth: 50 },
+    { price: '—', size: '—', depth: 50 },
   ];
-  const orderBookAsks = [
+  const orderBookAsks = askPrice > 0 ? [
     { price: (askPrice + 0.25).toFixed(2), size: '5.10 Lots', depth: 74 },
     { price: (askPrice + 0.12).toFixed(2), size: '6.40 Lots', depth: 90 },
     { price: askPrice.toFixed(2), size: '3.90 Lots', depth: 68 },
+  ] : [
+    { price: '—', size: '—', depth: 50 },
+    { price: '—', size: '—', depth: 50 },
+    { price: '—', size: '—', depth: 50 },
   ];
 
   return (
@@ -253,7 +239,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="flex flex-wrap items-center gap-3 text-slate-300 tabular-nums">
             <span className="inline-flex items-center gap-2 rounded-lg bg-amber-500/15 border border-amber-400/35 px-2.5 py-1 font-bold text-amber-300">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              XAU/USD SPOT: ${spotPrice.toFixed(2)} / ${askPrice.toFixed(2)}
+              XAU/USD SPOT: {spotPrice > 0 ? `$${spotPrice.toFixed(2)} / $${askPrice.toFixed(2)}` : 'Đang kết nối...'}
             </span>
             <span className="hidden sm:inline text-emerald-400 font-semibold">
               London G2 Bridge: 24ms
@@ -410,12 +396,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <span>SELL (BID)</span>
                     <span>⚡</span>
                   </div>
-                  <div className="mt-1 text-lg font-extrabold text-white">${spotPrice.toFixed(2)}</div>
+                  <div className="mt-1 text-lg font-extrabold text-white">{spotPrice > 0 ? `$${spotPrice.toFixed(2)}` : '—'}</div>
                 </button>
 
                 <div className="rounded-xl border border-amber-500/30 bg-[#050914] p-3 text-center flex flex-col justify-center">
                   <div className="text-[10px] text-slate-400 uppercase">SPREAD G2</div>
-                  <div className="mt-1 text-base font-extrabold text-amber-300">{spreadPips.toFixed(1)} pips</div>
+                  <div className="mt-1 text-base font-extrabold text-amber-300">{spreadPips > 0 ? `${spreadPips.toFixed(1)} pips` : 'Real-time'}</div>
                   <div className="text-[9.5px] text-emerald-400">ATR(14): 4.50</div>
                 </div>
 
@@ -428,7 +414,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <span>BUY (ASK)</span>
                     <span>⚡</span>
                   </div>
-                  <div className="mt-1 text-lg font-extrabold text-white">${askPrice.toFixed(2)}</div>
+                  <div className="mt-1 text-lg font-extrabold text-white">{askPrice > 0 ? `$${askPrice.toFixed(2)}` : '—'}</div>
                 </button>
               </div>
 
@@ -797,15 +783,48 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     src={guardMatrixImg}
                     alt="Kiến trúc 4 lớp giáp bảo vệ vốn"
                     referrerPolicy="no-referrer"
-                    onError={() => setGuardImgError(true)}
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (!target.src.includes('guard_matrix_architecture_1794792845754.jpg')) {
+                        target.src = '/assets/images/guard_matrix_architecture_1794792845754.jpg';
+                      } else {
+                        setGuardImgError(true);
+                      }
+                    }}
                     className="h-full w-full object-cover opacity-80"
                   />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center font-mono text-xs text-amber-300">
-                    4-LAYER FAIL-CLOSED MATRIX
+                  <div className="flex h-full w-full items-center justify-center p-4 bg-[#030611]">
+                    <svg viewBox="0 0 360 160" className="w-full h-full max-h-40 overflow-visible">
+                      <rect x="20" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#f59e0b" strokeWidth="1.5" />
+                      <text x="55" y="55" textAnchor="middle" fill="#fde68a" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#01</text>
+                      <text x="55" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">REDIS</text>
+                      <text x="55" y="87" textAnchor="middle" fill="#10b981" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">&lt;0.8ms</text>
+
+                      <rect x="105" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#06b6d4" strokeWidth="1.5" />
+                      <text x="140" y="55" textAnchor="middle" fill="#67e8f9" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#02</text>
+                      <text x="140" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">HARD SL</text>
+                      <text x="140" y="87" textAnchor="middle" fill="#06b6d4" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">1R BE</text>
+
+                      <rect x="190" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#eab308" strokeWidth="1.5" />
+                      <text x="225" y="55" textAnchor="middle" fill="#fef08a" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#03</text>
+                      <text x="225" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">NEWS</text>
+                      <text x="225" y="87" textAnchor="middle" fill="#eab308" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">±30m</text>
+
+                      <rect x="275" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#10b981" strokeWidth="1.5" />
+                      <text x="310" y="55" textAnchor="middle" fill="#a7f3d0" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#04</text>
+                      <text x="310" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">PROP DD</text>
+                      <text x="310" y="87" textAnchor="middle" fill="#10b981" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">4.5% MAX</text>
+
+                      <line x1="20" y1="130" x2="345" y2="130" stroke="rgba(245,158,11,0.4)" strokeWidth="1.5" strokeDasharray="4 3" />
+                      <circle cx="55" cy="130" r="3" fill="#f59e0b" />
+                      <circle cx="140" cy="130" r="3" fill="#06b6d4" />
+                      <circle cx="225" cy="130" r="3" fill="#eab308" />
+                      <circle cx="310" cy="130" r="3" fill="#10b981" />
+                    </svg>
                   </div>
                 )}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#050914] via-[#050914]/40 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#050914] via-[#050914]/40 to-transparent pointer-events-none" />
                 <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between font-mono text-xs">
                   <span className="font-bold text-amber-300">LỚP ĐANG CHỌN: #{activeGuard.id}</span>
                   <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-emerald-300 font-bold">

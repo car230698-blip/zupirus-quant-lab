@@ -88,6 +88,15 @@ class MetaApiClient:
                 await client.post(f"{PROVISIONING_API_BASE}/users/current/accounts/{acc_id}/deploy", headers=self._headers())
             return data
 
+    async def deploy_account(self, metaapi_account_id: str) -> bool:
+        """Deploy cloud MT5 terminal to start hosting."""
+        if self.is_mock:
+            return True
+        url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}/deploy"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(url, headers=self._headers())
+            return resp.status_code in (200, 202, 204)
+
     async def undeploy_account(self, metaapi_account_id: str) -> bool:
         """Undeploy cloud MT5 terminal to stop hosting billing."""
         if self.is_mock:
@@ -357,6 +366,23 @@ async def execute_fan_out_for_signal(
     signal_id = signal.get("id") or str(uuid.uuid4())
     symbol = signal.get("symbol", "XAUUSD")
     action = signal.get("action", "BUY").upper()
+
+    # Global Kill Switch Check (Fail-Closed)
+    from app.db import tx, getkv
+    with tx() as c:
+        halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
+        is_halted = bool(halt_row and str(halt_row[0]).strip() in ("1", "true", "True"))
+    if is_halted:
+        logger.warning(f"execute_fan_out_for_signal aborted: Global Kill Switch is ACTIVE (halted=1). Signal: {signal_id}")
+        return {
+            "signal_id": signal_id,
+            "total_accounts": len(accounts),
+            "executed": 0,
+            "failed": len(accounts),
+            "skipped": len(accounts),
+            "executions": [],
+            "error": "KILL_SWITCH_ACTIVE"
+        }
     entry_price = float(signal.get("entry_price") or signal.get("price") or 2650.0)
     sl = float(signal["sl"]) if signal.get("sl") else None
     tp = float(signal["tp"]) if signal.get("tp") else None
@@ -377,6 +403,13 @@ async def execute_fan_out_for_signal(
     for acc in accounts:
         acc_id = acc["id"]
         meta_id = acc.get("metaapi_account_id") or acc_id
+
+        # 0. Check per-account Prop Drawdown Lock
+        with tx() as c:
+            is_dd_locked = bool(getkv(c, f"drawdown_locked:{acc_id}"))
+        if is_dd_locked:
+            logger.warning(f"Account {acc_id} skipped: Prop drawdown circuit breaker is LOCKED.")
+            continue
 
         # 1. Broker Symbol Auto-Discovery & Mapping check
         broker_sym = resolve_broker_symbol(acc_id, symbol)
@@ -399,7 +432,8 @@ async def execute_fan_out_for_signal(
             except Exception:
                 pass
         if broker_spread <= 0:
-            broker_spread = 2.8
+            logger.warning(f"Account {acc_id} rejected: No live broker spread quote available (Fail-Closed).")
+            continue
 
         ok_spread, spread_err = check_live_spread_guard(symbol, broker_spread)
         if not ok_spread:
@@ -422,8 +456,8 @@ async def execute_fan_out_for_signal(
                 from app.db import tx
                 with tx() as c:
                     existing = c.execute(
-                        "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (ticket = ? OR signal_id = ?)",
-                        (acc_id, signal_id, signal_id)
+                        "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (signal_id = ? OR order_id = ? OR position_id = ?)",
+                        (acc_id, signal_id, signal_id, signal_id)
                     ).fetchone()
                     if existing:
                         is_duplicate = True
@@ -437,7 +471,8 @@ async def execute_fan_out_for_signal(
         # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
         is_comp = bool(acc.get("is_compounding", False))
         balance = float(acc.get("balance") or 0.0)
-        equity = float(acc.get("equity") or balance)
+        raw_eq = acc.get("equity")
+        equity = float(raw_eq) if raw_eq is not None else balance
         if equity <= 0:
             logger.warning(f"Account {acc_id} skipped: zero or negative equity ({equity}).")
             continue

@@ -84,12 +84,12 @@ def calculate_normalized_lot_size(
 
     # If calculated lot is below minimum broker lot
     if step_lots < min_lot:
-        # Check if forcing min_lot would exceed 2x the user's risk budget
+        # Fail-closed: Never force minimum lot if it exceeds the user's allocated risk budget
         min_lot_risk = min_lot * loss_per_lot
-        if min_lot_risk > (2.0 * risk_amount):
+        if min_lot_risk > risk_amount:
             logger.warning(
                 f"Lot sizing rejected: Min lot {min_lot} requires ${min_lot_risk:.2f} risk, "
-                f"exceeding 2x allowed risk budget (${risk_amount:.2f}) for equity ${equity:.2f}"
+                f"exceeding allowed risk budget (${risk_amount:.2f}) for equity ${equity:.2f}"
             )
             return 0.0
         return min_lot

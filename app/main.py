@@ -120,7 +120,7 @@ def register(p: RegisterPayload):
                 c.execute("UPDATE otp_codes SET attempts=attempts+1 WHERE email=?", (email_clean,))
                 fail(400, "Mã OTP xác thực không chính xác")
             c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
-        elif os.environ.get("REQUIRE_REGISTRATION_OTP", "0") == "1" and not os.environ.get("PYTEST_CURRENT_TEST"):
+        elif os.environ.get("REQUIRE_REGISTRATION_OTP", "1") == "1" and not os.environ.get("PYTEST_CURRENT_TEST"):
             fail(400, "Vui lòng nhập mã xác thực OTP gửi qua email")
 
         try:

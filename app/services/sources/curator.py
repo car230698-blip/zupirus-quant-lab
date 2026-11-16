@@ -497,3 +497,8 @@ def get_shadow_signals(source_id: Optional[str] = None, limit: int = 50) -> List
             ).fetchall()
         return [dict(r) for r in rows]
 
+
+
+# Backwards-compatibility aliases
+log_shadow_signal = record_shadow_signal
+ingest_shadow_signal = record_shadow_signal

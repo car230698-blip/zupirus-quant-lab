@@ -139,6 +139,10 @@ class CursorWrapper:
         elif re.search(r'INSERT\s+OR\s+REPLACE\s+INTO\s+kv', translated, re.IGNORECASE):
             translated = re.sub(r'INSERT\s+OR\s+REPLACE\s+INTO\s+kv', 'INSERT INTO kv', translated, flags=re.IGNORECASE)
             translated += " ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value"
+        # Translate INSERT OR REPLACE INTO metaapi_cloud_accounts ... -> ON CONFLICT(login, server) DO UPDATE
+        elif re.search(r'INSERT\s+OR\s+REPLACE\s+INTO\s+metaapi_cloud_accounts', translated, re.IGNORECASE):
+            translated = re.sub(r'INSERT\s+OR\s+REPLACE\s+INTO\s+metaapi_cloud_accounts', 'INSERT INTO metaapi_cloud_accounts', translated, flags=re.IGNORECASE)
+            translated += " ON CONFLICT (login, server) DO UPDATE SET metaapi_account_id=EXCLUDED.metaapi_account_id, metaapi_state=EXCLUDED.metaapi_state, auto_trade=EXCLUDED.auto_trade, encrypted_password=EXCLUDED.encrypted_password, last_sync=EXCLUDED.last_sync"
         return translated
 
     def execute(self, sql: str, params: Optional[Any] = None):

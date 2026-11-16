@@ -172,8 +172,8 @@ async def create_account(
                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 account_id, user_id, p.login, enc_pwd, p.server,
-                meta_id, meta_state, '{"risk_percent": 1.0}', cloud_expiry,
-                cloud_expiry, 1, 10000.0, 10000.0, now_ts, now_ts,
+                meta_id, meta_state, '{"risk_percent": 1.0, "max_lot": 1.0, "multiplier": 1.0}', cloud_expiry,
+                cloud_expiry, 1, 0.0, 0.0, now_ts, now_ts,
                 risk_mult, 1 if is_compounding else 0, 1 if is_prop else 0,
                 p.prop_daily_dd_limit_pct, p.prop_profit_target_pct
             ))
@@ -184,7 +184,7 @@ async def create_account(
                     metaapi_account_id, metaapi_state, disclaimer_id,
                     risk_percent, max_lot, multiplier, auto_trade,
                     balance, equity, currency, encrypted_password, last_sync, created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,10000.0,10000.0,'USD',?,?,?)
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,0.0,0.0,'USD',?,?,?)
             """, (
                 account_id, user_id, p.login, p.server, p.platform, p.account_name,
                 meta_id, meta_state, disc["id"],
@@ -193,6 +193,12 @@ async def create_account(
             ))
         except Exception as e:
             logger.error(f"Failed to save account {p.login} to database: {e}")
+            try:
+                import asyncio
+                if meta_id:
+                    asyncio.create_task(client.delete_account(meta_id))
+            except Exception as rollback_err:
+                logger.warning(f"Failed to rollback MetaApi account {meta_id}: {rollback_err}")
             fail(409, "Tài khoản MT5 trên Server này đã được liên kết hoặc xảy ra xung đột dữ liệu.")
 
         from app.services.account_classifier import detect_account_type
@@ -200,6 +206,18 @@ async def create_account(
         acc_type = detect_account_type(currency="USD", server=p.server, name=p.account_name)
         c.execute("UPDATE trading_accounts SET account_type=?, latency_ms=28 WHERE id=?", (acc_type, account_id))
         discover_and_map_account_symbols(account_id, ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"], db_cursor=c)
+
+        # Attempt immediate live balance synchronization from broker
+        try:
+            acc_info = await client.get_account_information(meta_id)
+            if acc_info and acc_info.get("balance") is not None:
+                real_bal = float(acc_info.get("balance", 0.0))
+                real_eq = float(acc_info.get("equity", real_bal))
+                if real_bal > 0:
+                    c.execute("UPDATE trading_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
+                    c.execute("UPDATE metaapi_cloud_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
+        except Exception:
+            pass
 
         audit(c, user_id, "trading_account_cloud_connected", {
             "account_id": account_id,
@@ -274,6 +292,19 @@ def update_account_risk(
         if updates:
             params.append(account_id)
             c.execute(f"UPDATE trading_accounts SET {', '.join(updates)} WHERE id=?", params)
+
+            # Sync matching fields to metaapi_cloud_accounts
+            cloud_updates = []
+            cloud_params = []
+            if p.risk_multiplier is not None:
+                cloud_updates.append("multiplier=?")
+                cloud_params.append(p.risk_multiplier)
+            if p.auto_trade is not None:
+                cloud_updates.append("auto_trade=?")
+                cloud_params.append(1 if p.auto_trade else 0)
+            if cloud_updates:
+                cloud_params.append(account_id)
+                c.execute(f"UPDATE metaapi_cloud_accounts SET {', '.join(cloud_updates)} WHERE id=?", cloud_params)
             audit(c, user_id, "trading_account_risk_updated", {
                 "account_id": account_id,
                 "updates": p.model_dump(exclude_unset=True)

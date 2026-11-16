@@ -15,6 +15,13 @@ from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.watcher")
 
+def _is_metaapi_success(res: Optional[Dict[str, Any]]) -> bool:
+    if not res or not isinstance(res, dict):
+        return False
+    if "error" in res or "numericCode" in res or "stringCode" in res:
+        return False
+    return True
+
 MAX_PROP_DAILY_DRAWDOWN_PCT = 4.5
 WEEKEND_CLOSE_FRIDAY_HOUR_UTC = 21
 
@@ -134,10 +141,10 @@ class PositionWatcher:
                         pos_comment = str(pos.get("comment") or "").upper()
                         with tx() as c:
                             is_zupirus_trade = c.execute(
-                                "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (ticket = ? OR id = ?)",
-                                (acc_id, pos_id, pos_id)
+                                "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ? OR id = ?)",
+                                (acc_id, pos_id, pos_id, pos_id)
                             ).fetchone()
-                        if not is_zupirus_trade and "ZUPIRUS" not in pos_comment:
+                        if not is_zupirus_trade and "ZUPIRUS" not in pos_comment and "ZP-" not in pos_comment:
                             continue
 
                         # Check if BE already executed for this position
@@ -180,11 +187,13 @@ class PositionWatcher:
                             # Move SL of remaining to BE
                             modify_res = await self.client.modify_position_sl(meta_id, pos_id, new_sl)
 
-                            # Verify that at least one operation succeeded
-                            partial_ok = bool(partial_res and not partial_res.get("error"))
-                            modify_ok = bool(modify_res and not modify_res.get("error"))
+                            # Verify operations with robust MetaApi error checking
+                            partial_ok = _is_metaapi_success(partial_res)
+                            modify_ok = _is_metaapi_success(modify_res)
 
-                            if partial_ok or modify_ok:
+                            # Only mark BE as completed if the Stop-Loss modification was successful
+                            # If partial close succeeded but modify failed, don't lock BE yet so next cycle can retry modify SL
+                            if modify_ok:
                                 with tx() as c:
                                     setkv(c, be_key, "1")
                                     audit(c, "watcher", "auto_be_partial_tp", {

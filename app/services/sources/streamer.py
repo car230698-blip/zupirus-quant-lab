@@ -13,13 +13,14 @@ import httpx
 
 from app.db import tx, audit, is_postgres
 from app.metaapi import MetaApiClient, execute_fan_out_for_signal
-from app.services.sources.curator import log_shadow_signal, list_sources
+from app.services.sources.curator import log_shadow_signal, record_shadow_signal, list_sources
 from app.services.signal_ingestion.sanitizer import (
-    acquire_signal_idempotency_lock,
-    check_mandatory_sl_guard,
-    check_news_shield_guard,
-    check_slippage_guard,
+    check_redis_deduplication,
+    check_mandatory_sl,
+    check_news_shield,
+    check_entry_slippage,
     check_live_spread_guard,
+    sanitize_and_audit_signal,
 )
 
 logger = logging.getLogger("zupirus.streamer")
@@ -30,9 +31,9 @@ FEED_ACCOUNT_ID = os.getenv("METAAPI_SIGNAL_FEED_ACCOUNT_ID", "").strip()
 class MarketDataStreamer:
     """Streams live quotes and copies master feed signals into ZUPIRUS Quant Lab."""
 
-    def __init__(self, metaapi_client: Optional[MetaApiClient] = None):
+    def __init__(self, metaapi_client: Optional[MetaApiClient] = None, feed_account_id: Optional[str] = None):
         self.client = metaapi_client or MetaApiClient()
-        self.feed_account_id = FEED_ACCOUNT_ID
+        self.feed_account_id = (feed_account_id or FEED_ACCOUNT_ID).strip()
         self.known_master_positions = set()
         self.current_m1_bar = None
 

@@ -187,6 +187,23 @@ async def process_successful_payment(
             logger.info(f"Order {order['id']} is already fulfilled (idempotent return).")
             return True
 
+        # Ensure order is in PENDING state and not expired
+        if order["status"] != "PENDING":
+            logger.warning(f"Order {order['id']} cannot be fulfilled: status is '{order['status']}' (must be PENDING).")
+            return False
+
+        if order.get("expires_at") and float(order["expires_at"]) < now_ts:
+            logger.warning(f"Order {order['id']} has expired (expired at {order['expires_at']}).")
+            c.execute("UPDATE orders SET status = 'EXPIRED' WHERE id = ? AND status = 'PENDING'", (order["id"],))
+            return False
+
+        # Ensure SePay transaction id has not been used previously
+        if sepay_trans_id:
+            existing_tx = c.execute("SELECT id FROM payment_transactions WHERE sepay_id = ?", (sepay_trans_id,)).fetchone()
+            if existing_tx:
+                logger.info(f"SePay transaction {sepay_trans_id} was already used in a previous transaction.")
+                return True
+
         # 2. Strict amount verification (allow max 50 VND rounding delta)
         expected_vnd = float(order.get("amount_vnd") or 0.0)
         if amount_received_vnd is not None and amount_received_vnd < (expected_vnd - 50.0):

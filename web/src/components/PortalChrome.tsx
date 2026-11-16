@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent, type ReactNode } from 'react';
 import type { PortalType } from '../App.tsx';
 import authTerminalImg from '../assets/images/auth_terminal_sculpture_1794792847915.jpg';
+import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 
 export type Portal = 'user' | 'admin';
 
@@ -112,49 +113,21 @@ export function PortalShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quantTheme, setQuantTheme] = useState<'gold' | 'cyber'>('gold');
-  const [liveSpot, setLiveSpot] = useState<{
-    bid: number;
-    ask: number;
-    spread: number;
-    latency: number;
-    loaded: boolean;
-  }>({ bid: 0, ask: 0, spread: 0, latency: 24, loaded: false });
+  const { data: telemetryData } = useLiveTopbarTelemetry();
+
+  const liveSpot = {
+    bid: Number(telemetryData?.xauusd?.bid || 0),
+    ask: Number(telemetryData?.xauusd?.ask || telemetryData?.xauusd?.bid || 0),
+    spread: Number(telemetryData?.xauusd?.spread_pips || 0),
+    latency: Number(telemetryData?.metaapi_latency_ms || 24),
+    loaded: Boolean(telemetryData?.xauusd?.bid && telemetryData.xauusd.bid > 0),
+  };
 
   const currentNavLabel = navigation[portal].find(([key]) => key === page)?.[1] || 'Tổng quan';
 
   useEffect(() => {
     document.documentElement.setAttribute('data-quant-theme', quantTheme);
   }, [quantTheme]);
-
-  useEffect(() => {
-    let active = true;
-    const fetchLivePrice = async () => {
-      try {
-        const res = await fetch('/api/v1/telemetry/topbar', { credentials: 'include' });
-        if (res.ok && active) {
-          const data = await res.json();
-          if (data?.xauusd?.bid > 0) {
-            setLiveSpot({
-              bid: Number(data.xauusd.bid),
-              ask: Number(data.xauusd.ask || data.xauusd.bid),
-              spread: Number(data.xauusd.spread_pips || 0),
-              latency: Number(data.metaapi_latency_ms || 24),
-              loaded: true,
-            });
-          }
-        }
-      } catch {
-        // fail silently
-      }
-    };
-
-    fetchLivePrice();
-    const timer = setInterval(fetchLivePrice, 3000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -746,15 +719,46 @@ export function PortalAuth({
                 src={authTerminalImg}
                 alt="Kiến trúc định lượng ZUPIRUS"
                 referrerPolicy="no-referrer"
-                onError={() => setImgError(true)}
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.src.includes('auth_terminal_sculpture_1794792847915.jpg')) {
+                    target.src = '/assets/images/auth_terminal_sculpture_1794792847915.jpg';
+                  } else {
+                    setImgError(true);
+                  }
+                }}
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full h-full bg-gradient-to-br from-amber-950/50 via-slate-900 to-cyan-950/40 flex items-center justify-center font-mono text-xs text-amber-300">
-                ZUPIRUS QUANTUM ARCHITECTURE
+              <div className="w-full h-full bg-[#030611] flex flex-col items-center justify-center p-6 text-center select-none relative overflow-hidden">
+                <svg viewBox="0 0 480 240" className="w-full h-full max-h-52 overflow-visible">
+                  <defs>
+                    <linearGradient id="authCloudGlow" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.8" />
+                      <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.8" />
+                    </linearGradient>
+                    <pattern id="authGridPattern" width="20" height="20" patternUnits="userSpaceOnUse">
+                      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(245,158,11,0.08)" strokeWidth="0.8" />
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#authGridPattern)" />
+                  <circle cx="240" cy="110" r="34" fill="#04091a" stroke="url(#authCloudGlow)" strokeWidth="2" />
+                  <circle cx="240" cy="110" r="44" fill="none" stroke="rgba(6,182,212,0.3)" strokeDasharray="3 4" />
+                  <text x="240" y="106" textAnchor="middle" fill="#fbbf24" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">QUANTUM OS</text>
+                  <text x="240" y="120" textAnchor="middle" fill="#38bdf8" fontSize="8" fontFamily="JetBrains Mono, monospace">LONDON G2</text>
+                  <circle cx="80" cy="80" r="24" fill="#04091a" stroke="#f59e0b" strokeWidth="1.5" />
+                  <text x="80" y="83" textAnchor="middle" fill="#fde68a" fontSize="8.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">SIGNAL FEED</text>
+                  <path d="M104,80 L206,110" stroke="rgba(245,158,11,0.5)" strokeWidth="1.5" strokeDasharray="4 3" />
+                  <circle cx="400" cy="80" r="24" fill="#04091a" stroke="#10b981" strokeWidth="1.5" />
+                  <text x="400" y="83" textAnchor="middle" fill="#6ee7b7" fontSize="8.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">MT5 CLOUD</text>
+                  <path d="M274,110 L376,80" stroke="rgba(16,185,129,0.5)" strokeWidth="1.5" strokeDasharray="4 3" />
+                  <rect x="150" y="172" width="180" height="26" rx="6" fill="#030816" stroke="rgba(6,182,212,0.6)" strokeWidth="1.2" />
+                  <text x="240" y="189" textAnchor="middle" fill="#67e8f9" fontSize="9" fontWeight="700" fontFamily="JetBrains Mono, monospace">4-LAYER FAIL-CLOSED SHIELD</text>
+                  <path d="M240,144 L240,172" stroke="rgba(6,182,212,0.7)" strokeWidth="1.5" />
+                </svg>
               </div>
             )}
-            <div className="absolute inset-0 bg-gradient-to-t from-[#03050a] via-[#03050a]/45 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#03050a] via-[#03050a]/45 to-transparent pointer-events-none" />
             <div className="pointer-events-none absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-amber-400/20 to-transparent border-t border-amber-400/50 animate-laser-scan" />
             <div className="absolute bottom-4 left-4 right-4 grid grid-cols-3 gap-3 text-xs font-mono">
               <div className="p-3 rounded-xl bg-slate-950/85 backdrop-blur-md border border-white/10">

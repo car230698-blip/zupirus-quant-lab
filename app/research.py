@@ -285,10 +285,14 @@ def graph(saver):
         try:
             with tx() as c:
                 candle_rows = c.execute(
-                    "SELECT close FROM candles WHERE symbol = 'XAUUSD' ORDER BY time ASC LIMIT 1000"
+                    "SELECT close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
                 ).fetchall()
+                if not candle_rows:
+                    candle_rows = c.execute(
+                        "SELECT close FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1000"
+                    ).fetchall()
                 if candle_rows and len(candle_rows) >= 180:
-                    prices = [float(r[0]) for r in candle_rows]
+                    prices = [float(row[0]) for row in reversed(candle_rows)]
         except Exception as e:
             logger.warning(f"Error loading candles from DB for WFO: {e}")
 
@@ -324,7 +328,12 @@ def graph(saver):
         try:
             with tx() as c:
                 if cand_id:
-                    new_status = 'APPROVED_FOR_PROD' if approved else 'REJECTED'
+                    # Enforce rigorous validation: Must be approved by admin AND verified production_qualified by WFO
+                    is_prod_qualified = bool(rep.get('production_qualified', False))
+                    if approved:
+                        new_status = 'APPROVED_FOR_PROD' if is_prod_qualified else 'APPROVED_FOR_DEMO'
+                    else:
+                        new_status = 'REJECTED'
                     c.execute(
                         """
                         UPDATE strategy_candidates

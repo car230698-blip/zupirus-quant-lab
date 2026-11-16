@@ -80,18 +80,17 @@ def get_live_xauusd_quote() -> Dict[str, Any]:
                 close_p = float(c_row[0])
                 candle_ts = float(c_row[1]) if c_row[1] else 0.0
                 age_seconds = now_ts - candle_ts
-                is_stale = age_seconds > 3600.0  # Candle older than 1 hour
                 bid = close_p
-                ask = round(close_p + 0.25, 2)
+                ask = close_p
                 return {
                     "bid": bid,
                     "ask": ask,
-                    "mid": round((bid + ask) / 2, 2),
-                    "spread_pips": 2.5,
-                    "live": not is_stale,
+                    "mid": close_p,
+                    "spread_pips": 0.0,
+                    "live": False,
                     "data_available": True,
-                    "stale": is_stale,
-                    "source": "DB_CANDLE",
+                    "stale": True,
+                    "source": "DB_CANDLE_FALLBACK",
                     "age_seconds": round(age_seconds, 1),
                 }
     except Exception as e:

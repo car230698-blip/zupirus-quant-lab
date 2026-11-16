@@ -40,6 +40,10 @@ def send_resend_email(
     Send an email via Resend REST API.
     Does not require external dependencies beyond Python standard library.
     """
+    if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("MOCK_MAILER") == "1":
+        logger.info(f"Mock email suppressed for testing: To={to}, Subject='{subject}'")
+        return {"ok": True, "id": "mock_email_test_id", "mocked": True}
+
     api_key = get_resend_api_key()
     if not api_key:
         logger.warning("Resend API key not configured. Email suppressed.")

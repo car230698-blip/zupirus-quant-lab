@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
+import { ToastNotification } from './ToastNotification.tsx';
 
 export const AdminSourcesTab: React.FC = () => {
   const [data, setData] = useState<any>({
@@ -203,12 +204,6 @@ export const AdminSourcesTab: React.FC = () => {
             );
           })}
         </div>
-
-        {msg && (
-          <div className="rounded-xl border border-cyan-500/35 bg-cyan-950/30 px-4 py-2.5 font-mono text-xs text-cyan-200">
-            {msg}
-          </div>
-        )}
       </div>
 
       {/* Row 2: Sources Leaderboard + Add Sandbox Source */}
@@ -474,6 +469,12 @@ export const AdminSourcesTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ToastNotification
+        message={msg || null}
+        type="info"
+        onClose={() => setMsg('')}
+      />
     </div>
   );
 };

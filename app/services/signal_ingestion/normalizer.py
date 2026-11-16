@@ -7,6 +7,7 @@ from app.schemas.signals import NormalizedSignalSchema, TradingViewWebhookPayloa
 
 def normalize_tradingview_signal(p: TradingViewWebhookPayload) -> NormalizedSignalSchema:
     """Normalize TradingView webhook payload into NormalizedSignalSchema."""
+    import hashlib
     symbol = (p.ticker or p.symbol or "XAUUSD").strip().upper()
     action = p.action.strip().upper()
     if action not in ("BUY", "SELL"):
@@ -14,11 +15,17 @@ def normalize_tradingview_signal(p: TradingViewWebhookPayload) -> NormalizedSign
 
     strategy_tier = "ALPHA" if (p.strategy or "").strip().upper() == "ALPHA" else "STANDARD"
     now_ts = time.time()
-    sid = f"tv_{secrets.token_hex(6)}"
+
+    # Deterministic signal deduplication key over 60s window if no explicit id is supplied
+    source_name = getattr(p, "source", None) or (p.strategy if p.strategy and p.strategy != "STANDARD" else "TRADINGVIEW")
+    time_bucket_60s = int(now_ts // 60)
+    raw_sig_str = f"{source_name}:{symbol}:{action}:{round(float(p.price), 2)}:{p.sl}:{p.tp}:{time_bucket_60s}"
+    sig_hash = hashlib.sha256(raw_sig_str.encode("utf-8")).hexdigest()[:12]
+    sid = f"tv_{sig_hash}"
 
     return NormalizedSignalSchema(
         id=sid,
-        source="TRADINGVIEW",
+        source=source_name,
         strategy_tier=strategy_tier,
         symbol=symbol,
         action=action, # type: ignore

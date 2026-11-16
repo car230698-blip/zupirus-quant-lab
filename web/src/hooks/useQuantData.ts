@@ -145,3 +145,45 @@ export function useMetaApiTelemetry() {
     staleTime: 15_000,
   });
 }
+
+export interface LiveTopbarTelemetry {
+  xauusd: {
+    symbol: string;
+    bid: number | null;
+    ask: number | null;
+    mid: number | null;
+    spread_pips: number | null;
+    live: boolean;
+    data_available: boolean;
+    stale: boolean;
+    source: string;
+  };
+  usd_vnd: {
+    rate: number;
+    source: string;
+  };
+  news_shield: {
+    status: string;
+    distance_mins: number;
+    nearest_title: string | null;
+  };
+  metaapi_latency_ms: number;
+  region: string;
+  active_sources_count: number;
+  shadow_sources_count: number;
+  system_status: string;
+  server_time: number;
+}
+
+export function useLiveTopbarTelemetry() {
+  return useQuery<LiveTopbarTelemetry>({
+    queryKey: ['telemetry', 'topbar'],
+    queryFn: async () => {
+      const res = await fetch('/api/v1/telemetry/topbar', { credentials: 'include' });
+      if (!res.ok) throw new Error('Không thể tải dữ liệu telemetry');
+      return res.json();
+    },
+    staleTime: 2500,
+    refetchInterval: 3000,
+  });
+}

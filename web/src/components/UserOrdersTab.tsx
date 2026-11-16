@@ -242,7 +242,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                         </div>
                       </td>
                       <td className="text-right font-mono text-xs font-bold text-cyan-300 tabular-nums">
-                        {fmtNum(o.quantity || o.volume || 0.1, 2)} lot
+                        {fmtNum(o.volume ?? o.quantity ?? 0, 2)} lot
                       </td>
                       <td className="text-right font-mono text-xs text-slate-200 tabular-nums">
                         {fmtNum(price, 2)}
@@ -296,7 +296,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               <div className="flex items-center justify-between">
                 <div className="font-mono text-xs font-bold text-white">
                   <span className={isBuy ? 'text-emerald-400' : 'text-rose-400'}>{o.side}</span> ·{' '}
-                  {fmtNum(o.quantity || o.volume || 0.1, 2)} lot · {o.symbol || 'XAUUSD'}
+                  {fmtNum(o.volume ?? o.quantity ?? 0, 2)} lot · {o.symbol || 'XAUUSD'}
                 </div>
                 <div
                   className={`font-mono text-sm font-bold tabular-nums ${
@@ -353,7 +353,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               <div>
                 <div className="text-[10px] text-slate-500">KHỐI LƯỢNG</div>
                 <div className="mt-0.5 font-bold text-cyan-300">
-                  {fmtNum(selectedOrder.quantity || selectedOrder.volume || 0.1, 2)} lot
+                  {fmtNum(selectedOrder.volume ?? selectedOrder.quantity ?? 0, 2)} lot
                 </div>
               </div>
               <div>

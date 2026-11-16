@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { fmtNum, fmtTime } from '../utils/strategyDecision';
+import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 
 export interface AdminOverviewTabProps {
   monitorData?: any;
@@ -67,9 +68,17 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
   const [testSignalMsg, setTestSignalMsg] = useState('');
   const [testBusy, setTestBusy] = useState(false);
   const [localKillReason, setLocalKillReason] = useState('');
+  const { data: telemetryData } = useLiveTopbarTelemetry();
+  const livePrice = Number(telemetryData?.xauusd?.bid || 0);
   const [customSignalText, setCustomSignalText] = useState('BUY XAUUSD @ 2908.50 SL 2898.00 TP 2928.00');
   const [logStatusFilter, setLogStatusFilter] = useState<'ALL' | 'EXECUTED' | 'BLOCKED'>('ALL');
   const [logSearchQuery, setLogSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (livePrice > 0) {
+      setCustomSignalText(`BUY XAUUSD @ ${livePrice.toFixed(2)} SL ${(livePrice - 10).toFixed(2)} TP ${(livePrice + 20).toFixed(2)}`);
+    }
+  }, [livePrice]);
 
   const accounts = externalAccounts ?? monitorData?.accounts ?? [];
   const killSwitchActive = externalKillSwitchActive ?? Boolean(monitorData?.halted);
@@ -79,7 +88,7 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
   const computedTotalAccounts = totalAccountsCount ?? accounts.length;
   const computedActiveAccounts =
     activeAccountsCount ?? accounts.filter((a: any) => a.is_active !== false && a.copy_enabled !== false).length;
-  const computedUsersCount = allUsersCount ?? Math.max(accounts.length, 2);
+  const computedUsersCount = allUsersCount ?? accounts.length;
 
   const fetchSignalAudit = async () => {
     try {
@@ -314,7 +323,8 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
               type="button"
               disabled={testBusy}
               onClick={() => {
-                const msg = 'BUY XAUUSD @ 2905.50 SL 2895.00 TP 2925.00';
+                const p = livePrice > 0 ? livePrice : 3870.0;
+                const msg = `BUY XAUUSD @ ${p.toFixed(2)} SL ${(p - 10).toFixed(2)} TP ${(p + 20).toFixed(2)}`;
                 setCustomSignalText(msg);
                 handleTestSignal(msg);
               }}

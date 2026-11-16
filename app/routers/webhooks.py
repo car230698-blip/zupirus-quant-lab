@@ -39,6 +39,14 @@ async def handle_tradingview_webhook(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Signal normalization error: {e}")
 
+    # 2b. Global Kill Switch Check (Fail-Closed)
+    with tx() as c:
+        halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
+        is_halted = bool(halt_row and str(halt_row[0]).strip() in ("1", "true", "True"))
+    if is_halted:
+        logger.warning(f"TradingView signal {norm_signal.id} rejected: Kill switch is ACTIVE (halted=1)")
+        return {"status": "REJECTED", "signal_id": norm_signal.id, "reason": "KILL_SWITCH_ACTIVE", "executed": 0}
+
     # 3. Determine live reference price for symbol with strict freshness check (<120s)
     live_price = None
     with tx() as c:
@@ -75,7 +83,8 @@ async def handle_tradingview_webhook(
             "SELECT status FROM signal_sources WHERE id = ? OR name = ?",
             (norm_signal.source, norm_signal.source)
         ).fetchone()
-        src_status = (src_row["status"] if src_row else "ACTIVE_LIVE").upper()
+        # Unknown/unregistered sources fail-closed to SHADOW_ONLY (never auto-promoted to ACTIVE_LIVE)
+        src_status = (src_row["status"] if src_row else "SHADOW_ONLY").upper()
 
     if src_status == "SUSPENDED":
         logger.warning(f"Signal rejected: Source '{norm_signal.source}' is SUSPENDED.")
@@ -83,15 +92,18 @@ async def handle_tradingview_webhook(
 
     if src_status == "SHADOW_ONLY":
         logger.info(f"Signal from SHADOW_ONLY source '{norm_signal.source}' recorded for observation.")
-        from app.services.sources.curator import ingest_shadow_signal
+        from app.services.sources.curator import record_shadow_signal
+        is_buy = norm_signal.action == "BUY"
+        def_sl = round(norm_signal.entry_price - 3.5 if is_buy else norm_signal.entry_price + 3.5, 2)
+        def_tp = round(norm_signal.entry_price + 7.0 if is_buy else norm_signal.entry_price - 7.0, 2)
         with tx() as c:
-            ingest_shadow_signal(
+            record_shadow_signal(
                 source_id=norm_signal.source,
                 symbol=norm_signal.symbol,
                 side=norm_signal.action,
                 entry_price=norm_signal.entry_price,
-                sl=norm_signal.stop_loss or (norm_signal.entry_price - 3.5),
-                tp=norm_signal.take_profit or (norm_signal.entry_price + 7.0),
+                sl=norm_signal.stop_loss or def_sl,
+                tp=norm_signal.take_profit or def_tp,
                 db_cursor=c
             )
         return {
@@ -126,7 +138,7 @@ async def handle_tradingview_webhook(
         query = """
             SELECT
                 a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
-                a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
+                a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
                 a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
                 a.account_type, a.contract_size,
                 s.plan_tier, s.allow_alpha_strategies
@@ -141,11 +153,20 @@ async def handle_tradingview_webhook(
         rows = c.execute(query, (now_ts, now_ts)).fetchall()
 
     eligible_accounts = []
+    import json
     for r in rows:
         d = dict(r)
         # If strategy is ALPHA, verify user subscription permits ALPHA strategies
         if sanitized_signal.strategy_tier == "ALPHA" and not d.get("allow_alpha_strategies"):
             continue
+        raw_cfg = d.get("risk_config")
+        if raw_cfg:
+            try:
+                cfg_obj = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
+                d["risk_percent"] = float(cfg_obj.get("risk_percent", 1.0))
+                d["max_lot"] = float(cfg_obj.get("max_lot", 5.0))
+            except Exception:
+                pass
         eligible_accounts.append(d)
 
     if not eligible_accounts:
@@ -249,9 +270,13 @@ async def handle_sepay_webhook(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    # 2. Verify transfer direction: MUST BE INBOUND ("in")
-    transfer_type = str(payload.get("transferType") or "in").lower().strip()
-    if transfer_type != "in":
+    # 2. Verify transfer direction: MUST BE EXPLICIT INBOUND ("in")
+    raw_type = payload.get("transferType")
+    if not raw_type:
+        logger.warning("SePay webhook rejected: missing transferType in payload")
+        return {"success": False, "message": "Missing transferType"}
+    transfer_type = str(raw_type).lower().strip()
+    if transfer_type not in ("in", "inbound"):
         logger.warning(f"SePay webhook rejected debit/outbound transaction (transferType='{transfer_type}')")
         return {"success": False, "message": f"Rejected non-inbound transaction (type={transfer_type})"}
 

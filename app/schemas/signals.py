@@ -23,6 +23,7 @@ class TradingViewWebhookPayload(BaseModel):
     price: float
     sl: Optional[float] = None
     tp: Optional[float] = None
+    source: Optional[str] = None
     strategy: Optional[str] = "STANDARD"
     secret: Optional[str] = None
 

@@ -76,6 +76,11 @@ MIGRATIONS = [
         "version": 14,
         "name": "014_dynamic_agent_skill_registry",
         "description": "Dynamic agent skill registry, core analytical skills, and self-learned skills persistence"
+    },
+    {
+        "version": 15,
+        "name": "015_add_ticket_to_executions",
+        "description": "Ensure ticket column exists in metaapi_trade_executions"
     }
 ]
 
@@ -854,6 +859,7 @@ def apply_migration_011(c, is_pg: bool):
         ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS is_prop_firm_mode INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS prop_daily_dd_limit_pct DOUBLE PRECISION NOT NULL DEFAULT 4.5;
         ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS prop_profit_target_pct DOUBLE PRECISION NOT NULL DEFAULT 8.0;
+        ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS ticket TEXT;
         """)
     else:
         c.executescript("""
@@ -917,12 +923,17 @@ def apply_migration_011(c, is_pg: bool):
             ("is_compounding", "INTEGER NOT NULL DEFAULT 0"),
             ("is_prop_firm_mode", "INTEGER NOT NULL DEFAULT 0"),
             ("prop_daily_dd_limit_pct", "REAL NOT NULL DEFAULT 4.5"),
-            ("prop_profit_target_pct", "REAL NOT NULL DEFAULT 8.0")
+            ("prop_profit_target_pct", "REAL NOT NULL DEFAULT 8.0"),
+            ("ticket", "TEXT")
         ]:
             try:
                 c.execute(f"ALTER TABLE trading_accounts ADD COLUMN {col} {col_def}")
             except Exception:
                 pass
+        try:
+            c.execute("ALTER TABLE metaapi_trade_executions ADD COLUMN ticket TEXT")
+        except Exception:
+            pass
 
 
 def apply_migration_012(c, is_pg: bool):
@@ -1252,6 +1263,17 @@ def apply_migration_014(c, is_pg: bool):
                 pass
 
 
+def apply_migration_015(c, is_pg: bool):
+    """Migration 015: Ensure ticket column exists in metaapi_trade_executions."""
+    if is_pg:
+        c.execute("ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS ticket TEXT;")
+    else:
+        try:
+            c.execute("ALTER TABLE metaapi_trade_executions ADD COLUMN ticket TEXT")
+        except Exception:
+            pass
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -1272,6 +1294,7 @@ def run_all_migrations(c, is_pg: bool):
         12: apply_migration_012,
         13: apply_migration_013,
         14: apply_migration_014,
+        15: apply_migration_015,
     }
 
     for m in MIGRATIONS:
