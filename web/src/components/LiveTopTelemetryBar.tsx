@@ -3,10 +3,14 @@ import { useEffect, useState } from 'react';
 export interface TelemetryData {
   xauusd: {
     symbol: string;
-    bid: number;
-    ask: number;
-    mid: number;
-    spread_pips: number;
+    bid: number | null;
+    ask: number | null;
+    mid: number | null;
+    spread_pips: number | null;
+    live?: boolean;
+    data_available?: boolean;
+    stale?: boolean;
+    source?: string;
   };
   usd_vnd: {
     rate: number;
@@ -20,6 +24,7 @@ export interface TelemetryData {
   metaapi_latency_ms: number;
   region: string;
   active_sources_count: number;
+  shadow_sources_count?: number;
   system_status: string;
 }
 
@@ -49,26 +54,41 @@ export function LiveTopTelemetryBar() {
     };
   }, []);
 
-  const midPrice = data?.xauusd?.mid 
+  const hasData = Boolean(data?.xauusd?.data_available && data?.xauusd?.mid !== null);
+  const midPrice = hasData && data?.xauusd?.mid !== null && data?.xauusd?.mid !== undefined
     ? Number(data.xauusd.mid).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
     : '---';
-  const spread = data?.xauusd?.spread_pips !== undefined ? data.xauusd.spread_pips.toFixed(1) : '---';
+  const spread = data?.xauusd?.spread_pips !== null && data?.xauusd?.spread_pips !== undefined
+    ? data.xauusd.spread_pips.toFixed(1)
+    : '---';
+  const isLive = Boolean(data?.xauusd?.live && !data?.xauusd?.stale);
+  const isStale = Boolean(data?.xauusd?.stale);
+
   const fxRate = data?.usd_vnd?.rate ? Number(data.usd_vnd.rate).toLocaleString('vi-VN') : '---';
   const newsStatus = data?.news_shield?.status || 'CLEAR';
   const newsDist = data?.news_shield?.distance_mins !== undefined ? data.news_shield.distance_mins : 999;
   const latency = data?.metaapi_latency_ms || 28;
-  const activeSources = data?.active_sources_count || 2;
+  const activeSources = data?.active_sources_count ?? 0;
+  const shadowSources = data?.shadow_sources_count ?? 0;
 
   return (
     <div className="bg-slate-950/95 border-b border-slate-800/80 px-4 py-1.5 text-xs font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2 shadow-sm z-40">
       {/* Left: Market Data & Symbol Quote */}
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Live Feed Active" />
+          {isLive ? (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Live Feed Active" />
+          ) : isStale && hasData ? (
+            <span className="w-2 h-2 rounded-full bg-amber-400" title="Dữ liệu phiên đóng cửa hoặc cũ" />
+          ) : (
+            <span className="w-2 h-2 rounded-full bg-slate-500" title="Chờ dữ liệu từ broker" />
+          )}
           <span className="font-bold text-amber-400">XAUUSD</span>
           <span className="font-semibold text-slate-100">${midPrice}</span>
           <span className="text-slate-400 text-[11px] bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded">
-            Spread: <strong className="text-emerald-400">{spread} pips</strong>
+            Spread: <strong className={spread !== '---' ? 'text-emerald-400' : 'text-slate-500'}>
+              {spread !== '---' ? `${spread} pips` : 'N/A'}
+            </strong>
           </span>
         </div>
 
@@ -103,7 +123,7 @@ export function LiveTopTelemetryBar() {
           <span>Phễu nguồn:</span>
           <strong className="text-emerald-400">{activeSources} Live</strong>
           <span className="text-slate-600">/</span>
-          <span>4 Giám sát</span>
+          <span className="text-slate-300">{shadowSources} Giám sát</span>
         </div>
 
         {/* London G2 Terminal Latency */}

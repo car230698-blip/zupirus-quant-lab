@@ -377,9 +377,10 @@ def flush_outbox(c):
 
 
 _last_watcher_ts = 0.0
+_last_master_ts = 0.0
 
 def tick():
-    global _last_watcher_ts
+    global _last_watcher_ts, _last_master_ts
     with tx() as c:
         now = time.time()
         flush_outbox(c)
@@ -400,6 +401,18 @@ def tick():
             asyncio.run(get_position_watcher().run_cycle())
         except Exception as e:
             logger.debug(f"Position watcher cycle error: {e}")
+
+    # Periodically poll master signal feed every 5s if METAAPI_SIGNAL_FEED_ACCOUNT_ID is configured
+    if now - _last_master_ts >= 5.0:
+        _last_master_ts = now
+        try:
+            from app.config import METAAPI_SIGNAL_FEED_ACCOUNT_ID
+            if METAAPI_SIGNAL_FEED_ACCOUNT_ID:
+                import asyncio
+                from app.services.sources.streamer import get_streamer
+                asyncio.run(get_streamer().poll_master_feed_signals())
+        except Exception as e:
+            logger.debug(f"Master feed polling error: {e}")
 
 def main():
     init()

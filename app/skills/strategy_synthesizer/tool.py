@@ -50,7 +50,7 @@ def synthesize_strategy_candidate(
                     id, name, status, rules_json, sample_size,
                     win_rate, profit_factor, max_drawdown_pct,
                     created_at, updated_at
-                ) VALUES (?, ?, 'DISCOVERED', ?, ?, 0.65, 1.68, 4.2, ?, ?)
+                ) VALUES (?, ?, 'DISCOVERED', ?, ?, NULL, NULL, NULL, ?, ?)
                 """,
                 (cand_id, cand_name, json.dumps(rules_payload), max(len(rules_found) * 5, min_samples), now_ts, now_ts)
             )

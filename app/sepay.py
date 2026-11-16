@@ -14,28 +14,22 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger("zupirus.sepay")
 
-_DEFAULT_SEPAY_SECRET_B64 = "d2hzZWNfNWQ1ODM2ODRiZjhiNGY5ZDM3ZDg0ZDYxMTJiNzIwNmRiODY1ZGU1OGQ1N2M4ZGUy"
-
 def get_sepay_secret() -> str:
-    """Load SePay Webhook Secret with priority from dynamic DB settings, env var, or fallback."""
+    """Load SePay Webhook Secret strictly from dynamic DB settings or env var.
+    Fails closed (returns empty string) if unconfigured — never defaults to hardcoded fallback."""
     try:
         from app.db import tx
         with tx() as c:
-            row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
+            row = c.execute("SELECT value FROM kv WHERE key IN ('billing:settings', 'billing_settings')").fetchone()
             if row and row[0]:
                 d = json.loads(row[0])
-                if d.get("webhook_secret"):
-                    return str(d["webhook_secret"]).strip()
+                sec = d.get("webhook_secret") or d.get("sepay_webhook_secret")
+                if sec:
+                    return str(sec).strip()
     except Exception:
         pass
 
-    key = os.getenv("SEPAY_WEBHOOK_SECRET", "").strip()
-    if key:
-        return key
-    try:
-        return base64.b64decode(_DEFAULT_SEPAY_SECRET_B64).decode("utf-8").strip()
-    except Exception:
-        return ""
+    return os.getenv("SEPAY_WEBHOOK_SECRET", "").strip()
 
 def verify_sepay_signature(raw_body: bytes, signature_header: Optional[str], secret: str = None) -> bool:
     """

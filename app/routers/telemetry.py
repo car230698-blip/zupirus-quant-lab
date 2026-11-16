@@ -7,44 +7,23 @@ from fastapi import APIRouter
 from app.db import tx
 from app.services.fx_rate import get_usd_vnd_rate
 from app.services.signal_ingestion.context import get_nearest_news_info
-from app.services.sources.curator import count_active_sources
+from app.services.sources.curator import count_active_sources, get_sources_counts
 
 logger = logging.getLogger("zupirus.telemetry")
 
 router = APIRouter(prefix="/api/v1/telemetry", tags=["Telemetry"])
 
 
-def get_live_xauusd_quote() -> Dict[str, float]:
-    """Retrieve real-time XAUUSD quote:
-    1. Check latest quote or M1 candle in TimescaleDB
-    2. Check Redis cached quote
-    3. Query live Gold market feed (PAXGUSDT backing physical gold / COMEX) and persist to TimescaleDB
+def get_live_xauusd_quote() -> Dict[str, Any]:
+    """Retrieve real-time XAUUSD quote strictly from authentic market sources:
+    1. Redis live quote cache (updated by MetaApi streamer)
+    2. TimescaleDB/Postgres latest quote tick
+    3. TimescaleDB/Postgres latest M1/M15 candle
+    Returns data_available=False if no authentic market data is reachable (no synthetic PAXG or fake constants).
     """
     now_ts = time.time()
-    # 1. Database check
-    try:
-        with tx() as c:
-            q_row = c.execute(
-                "SELECT bid, ask, ts FROM quotes WHERE symbol = 'XAUUSD' ORDER BY ts DESC LIMIT 1"
-            ).fetchone()
-            if q_row and q_row[0] and q_row[1] and (now_ts - float(q_row[2])) < 120:
-                bid = float(q_row[0])
-                ask = float(q_row[1])
-                spread_pips = round(max(abs(ask - bid), 0.20) * 10, 1)
-                return {"bid": bid, "ask": ask, "mid": round((bid + ask) / 2, 2), "spread_pips": spread_pips}
 
-            c_row = c.execute(
-                "SELECT close, time FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1"
-            ).fetchone()
-            if c_row and c_row[0]:
-                close_p = float(c_row[0])
-                bid = close_p
-                ask = round(close_p + 0.25, 2)
-                return {"bid": bid, "ask": ask, "mid": round((bid + ask) / 2, 2), "spread_pips": 2.5}
-    except Exception as e:
-        logger.debug(f"DB quote read error: {e}")
-
-    # 2. Redis check
+    # 1. Redis live stream quote check
     try:
         from app.redis_client import get_redis_client
         rc = get_redis_client()
@@ -52,49 +31,83 @@ def get_live_xauusd_quote() -> Dict[str, float]:
         if cached:
             val_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
             parts = val_str.split(":")
-            bid, ask = float(parts[0]), float(parts[1])
-            spread_pips = round(max(abs(ask - bid), 0.20) * 10, 1)
-            return {"bid": bid, "ask": ask, "mid": round((bid + ask) / 2, 2), "spread_pips": spread_pips}
+            if len(parts) >= 2:
+                bid, ask = float(parts[0]), float(parts[1])
+                spread_pips = round(max(abs(ask - bid), 0.10) * 10, 1)
+                return {
+                    "bid": bid,
+                    "ask": ask,
+                    "mid": round((bid + ask) / 2, 2),
+                    "spread_pips": spread_pips,
+                    "live": True,
+                    "data_available": True,
+                    "stale": False,
+                    "source": "REDIS_STREAM",
+                }
     except Exception:
         pass
 
-    # 3. Live real market feed
+    # 2. Database quotes check (from MetaApi real quotes stream)
     try:
-        import httpx
-        with httpx.Client(timeout=3) as client:
-            r = client.get("https://api.binance.com/api/v3/ticker/bookTicker?symbol=PAXGUSDT")
-            if r.status_code == 200:
-                data = r.json()
-                raw_bid = float(data.get("bidPrice", 3887.50))
-                raw_ask = float(data.get("askPrice", 3887.75))
-                mid = round((raw_bid + raw_ask) / 2, 2)
-                # Standard retail broker spread for XAUUSD (~$0.25 - $0.35/oz)
-                spread_dollars = 0.28
-                bid = round(mid - (spread_dollars / 2), 2)
-                ask = round(mid + (spread_dollars / 2), 2)
-                spread_pips = round(spread_dollars * 10, 1)
+        with tx() as c:
+            q_row = c.execute(
+                "SELECT bid, ask, ts FROM quotes WHERE symbol = 'XAUUSD' ORDER BY ts DESC LIMIT 1"
+            ).fetchone()
+            if q_row and q_row[0] and q_row[1]:
+                bid = float(q_row[0])
+                ask = float(q_row[1])
+                quote_ts = float(q_row[2]) if q_row[2] else 0.0
+                age_seconds = now_ts - quote_ts
+                is_stale = age_seconds > 180.0  # Older than 3 minutes
+                spread_pips = round(max(abs(ask - bid), 0.10) * 10, 1)
+                return {
+                    "bid": bid,
+                    "ask": ask,
+                    "mid": round((bid + ask) / 2, 2),
+                    "spread_pips": spread_pips,
+                    "live": not is_stale,
+                    "data_available": True,
+                    "stale": is_stale,
+                    "source": "DB_QUOTES",
+                    "age_seconds": round(age_seconds, 1),
+                }
 
-                # Cache in Redis for 10s
-                try:
-                    from app.redis_client import get_redis_client
-                    rc = get_redis_client()
-                    rc.set("quote:XAUUSD:live", f"{bid}:{ask}", ex=10)
-                except Exception:
-                    pass
-
-                # Record tick to TimescaleDB
-                try:
-                    from app.db import insert_timescale_quote
-                    insert_timescale_quote("LIVE_FEED", now_ts, bid, ask, "XAUUSD")
-                except Exception:
-                    pass
-
-                return {"bid": bid, "ask": ask, "mid": mid, "spread_pips": spread_pips}
+            # 3. Fallback to latest closed candle
+            c_row = c.execute(
+                "SELECT close, time FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1"
+            ).fetchone()
+            if c_row and c_row[0]:
+                close_p = float(c_row[0])
+                candle_ts = float(c_row[1]) if c_row[1] else 0.0
+                age_seconds = now_ts - candle_ts
+                is_stale = age_seconds > 3600.0  # Candle older than 1 hour
+                bid = close_p
+                ask = round(close_p + 0.25, 2)
+                return {
+                    "bid": bid,
+                    "ask": ask,
+                    "mid": round((bid + ask) / 2, 2),
+                    "spread_pips": 2.5,
+                    "live": not is_stale,
+                    "data_available": True,
+                    "stale": is_stale,
+                    "source": "DB_CANDLE",
+                    "age_seconds": round(age_seconds, 1),
+                }
     except Exception as e:
-        logger.debug(f"Live market quote fetch error: {e}")
+        logger.debug(f"DB quote read error: {e}")
 
-    # Fallback to realistic current baseline if completely offline
-    return {"bid": 3887.20, "ask": 3887.55, "mid": 3887.38, "spread_pips": 3.5}
+    # No authentic quote available
+    return {
+        "bid": None,
+        "ask": None,
+        "mid": None,
+        "spread_pips": None,
+        "live": False,
+        "data_available": False,
+        "stale": True,
+        "source": "NONE",
+    }
 
 
 @router.get("/topbar")
@@ -102,9 +115,9 @@ def get_topbar_telemetry():
     """Retrieve unified telemetry for the live header bar:
     - Live XAUUSD price and spread from TimescaleDB / MetaApi / Market Stream
     - USD/VND rate
-    - High-impact USD News Shield countdown & state
+    - High-impact USD News Shield countdown & state (aligned with 15m blackout)
     - MetaApi London G2 terminal latency
-    - Active live signal sources count
+    - Active live and shadow signal sources count
     """
     now_ts = time.time()
 
@@ -114,7 +127,7 @@ def get_topbar_telemetry():
     # 2. XAUUSD Live Market Quote
     quote = get_live_xauusd_quote()
 
-    # 3. News Shield info
+    # 3. News Shield info (Blackout threshold 15 minutes, Warning 60 minutes)
     news_dist_mins, nearest_title = 999.0, None
     try:
         with tx() as c:
@@ -124,17 +137,20 @@ def get_topbar_telemetry():
 
     # Determine News Shield state
     news_status = "CLEAR"
-    if news_dist_mins <= 30.0:
+    if news_dist_mins <= 15.0:
         news_status = "BLACKOUT"
     elif news_dist_mins <= 60.0:
         news_status = "WARNING"
 
-    # Active live signal sources
-    active_sources = 2
+    # Signal sources counts
+    sources_counts = {"active_live": 0, "shadow_only": 0}
     try:
-        active_sources = count_active_sources()
+        sources_counts = get_sources_counts()
     except Exception:
-        pass
+        try:
+            sources_counts["active_live"] = count_active_sources()
+        except Exception:
+            pass
 
     return {
         "xauusd": {
@@ -143,6 +159,10 @@ def get_topbar_telemetry():
             "ask": quote["ask"],
             "mid": quote["mid"],
             "spread_pips": quote["spread_pips"],
+            "live": quote.get("live", False),
+            "data_available": quote.get("data_available", False),
+            "stale": quote.get("stale", True),
+            "source": quote.get("source", "NONE"),
         },
         "usd_vnd": {
             "rate": rate,
@@ -155,7 +175,8 @@ def get_topbar_telemetry():
         },
         "metaapi_latency_ms": 28,
         "region": "London G2",
-        "active_sources_count": active_sources,
+        "active_sources_count": sources_counts.get("active_live", 0),
+        "shadow_sources_count": sources_counts.get("shadow_only", 0),
         "system_status": "OPERATIONAL",
         "server_time": now_ts,
     }

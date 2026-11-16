@@ -105,7 +105,11 @@ def test_metaapi_account_lifecycle_and_api_endpoints(client):
     r_tog2 = client.post(f"/api/metaapi/accounts/{acc_id}/toggle", headers=csrf)
     assert r_tog2.json()["auto_trade"] == 1
 
-    # 8. Dispatch Signal Fan-out
+    # 8. Dispatch Signal Fan-out (Requires Admin Role for System-Wide Fanout)
+    from app.db import tx
+    with tx() as c:
+        c.execute("UPDATE users SET role = 'admin' WHERE email = ?", (user_email,))
+
     sig_payload = {
         "symbol": "XAUUSD",
         "action": "BUY",

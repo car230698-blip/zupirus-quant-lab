@@ -289,6 +289,10 @@ def test_sepay_webhook_verification_and_recording(client):
     """Verify SePay HMAC-SHA256 webhook validation, transaction idempotency, and admin listing."""
     import hmac, hashlib
     from app.sepay import get_sepay_secret
+    from app.db import tx, setkv
+
+    with tx() as c:
+        setkv(c, 'billing:settings', json.dumps({'webhook_secret': 'test_sepay_webhook_secret_123'}))
 
     secret = get_sepay_secret()
     payload = {

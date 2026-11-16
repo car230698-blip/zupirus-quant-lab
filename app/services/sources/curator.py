@@ -79,6 +79,19 @@ def count_active_sources() -> int:
         return int(row[0] if row else 0)
 
 
+def get_sources_counts() -> Dict[str, int]:
+    """Return real-time counts of signal sources grouped by status."""
+    with tx() as c:
+        rows = c.execute("SELECT status, COUNT(*) FROM signal_sources GROUP BY status").fetchall()
+        counts = {r[0]: int(r[1]) for r in rows}
+        return {
+            "active_live": counts.get("ACTIVE_LIVE", 0),
+            "shadow_only": counts.get("SHADOW_ONLY", 0),
+            "suspended": counts.get("SUSPENDED", 0),
+            "retired": counts.get("RETIRED", 0),
+        }
+
+
 def promote_source_to_live(source_id: str) -> Tuple[bool, str]:
     """Promote a SHADOW_ONLY source to ACTIVE_LIVE if eligible.
     Enforces maximum MAX_ACTIVE_LIVE_SOURCES (2-3) active sources.

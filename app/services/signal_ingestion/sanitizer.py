@@ -43,7 +43,21 @@ def check_redis_deduplication(signal: NormalizedSignalSchema) -> Tuple[bool, Opt
             logger.warning(reason)
             return False, reason
     except Exception as e:
-        logger.warning(f"Redis unavailable for signal deduplication check: {e}")
+        logger.warning(f"Redis unavailable for signal deduplication check ({e}), checking DB fallback")
+        with tx() as c:
+            now_sec = time.time()
+            recent_dup = c.execute(
+                """
+                SELECT id FROM signals
+                WHERE source = ? AND side = ? AND ABS(price - ?) < 0.05 AND (? - created) < 60
+                LIMIT 1
+                """,
+                (signal.source, signal.action, signal.entry_price, now_sec)
+            ).fetchone()
+            if recent_dup:
+                reason = f"REJECTED_DUPLICATE_SIGNAL: Identical signal found in DB within 60s window (id={recent_dup[0]})"
+                logger.warning(reason)
+                return False, reason
 
     return True, None
 

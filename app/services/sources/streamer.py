@@ -131,8 +131,8 @@ class MarketDataStreamer:
                 break
 
         if not target_source:
-            # Default to active live feed
-            target_source = {"id": "src_metaapi_master", "status": "ACTIVE_LIVE", "name": "MetaApi Master Feed"}
+            # Default to shadow observation only (0 broker cost)
+            target_source = {"id": "src_metaapi_master", "status": "SHADOW_ONLY", "name": "MetaApi Master Feed"}
 
         source_id = target_source["id"]
         source_status = target_source.get("status", "SHADOW_ONLY")
@@ -172,11 +172,16 @@ class MarketDataStreamer:
             logger.warning(f"Master signal rejected by News Shield Guard: {news_err}")
             return
 
-        # 4. Entry Slippage Guard
-        current_market_price = entry_price  # In live, query current tick
+        # 4. Entry Slippage Guard: Query actual latest tick quote from database
+        current_market_price = entry_price
+        with tx() as c:
+            q_row = c.execute("SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1", (symbol,)).fetchone()
+            if q_row and q_row[0] and q_row[1]:
+                current_market_price = round((float(q_row[0]) + float(q_row[1])) / 2.0, 2)
+
         ok_slip, slip_err = check_slippage_guard(symbol, entry_price, current_market_price)
         if not ok_slip:
-            logger.warning(f"Master signal rejected by Slippage Guard: {slip_err}")
+            logger.warning(f"Master signal rejected by Slippage Guard: {slip_err} (Live: {current_market_price}, Entry: {entry_price})")
             return
 
         # Execute fan-out to all deployed active accounts
@@ -207,5 +212,6 @@ _streamer_instance: Optional[MarketDataStreamer] = None
 def get_streamer() -> MarketDataStreamer:
     global _streamer_instance
     if _streamer_instance is None:
-        _streamer_instance = MarketDataStreamer()
+        from app.config import METAAPI_SIGNAL_FEED_ACCOUNT_ID
+        _streamer_instance = MarketDataStreamer(feed_account_id=METAAPI_SIGNAL_FEED_ACCOUNT_ID)
     return _streamer_instance

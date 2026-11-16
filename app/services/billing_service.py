@@ -153,30 +153,83 @@ def create_checkout_order(
     }
 
 
-async def process_successful_payment(order_id: str, sepay_trans_id: str) -> bool:
-    """Process paid webhook from SePay: activate subscription, extend cloud slots, and deploy MetaApi."""
+async def process_successful_payment(
+    order_id: str,
+    sepay_trans_id: str,
+    amount_received_vnd: Optional[float] = None,
+    raw_payload: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Process paid webhook from SePay:
+    - Verifies received amount >= order expected amount
+    - Atomically transitions order status PENDING -> PAID (concurrency & idempotency safe)
+    - Persists audit record to payment_transactions
+    - Activates / extends subscription and unlocks features
+    """
     now_ts = time.time()
     order = None
 
     with tx() as c:
+        # 1. Exact match first
         row = c.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-        if not row:
-            # Check by payment memo if order_id was a suffix
-            row = c.execute("SELECT * FROM orders WHERE id LIKE ? ORDER BY created_at DESC LIMIT 1", (f"%{order_id}%",)).fetchone()
+        if not row and len(order_id) >= 6:
+            # Fallback to suffix search with exact boundary if not found
+            row = c.execute(
+                "SELECT * FROM orders WHERE id LIKE ? ORDER BY created_at DESC LIMIT 1",
+                (f"%{order_id}",)
+            ).fetchone()
+
         if not row:
             logger.error(f"Order {order_id} not found for SePay fulfillment.")
             return False
 
         order = dict(row)
         if order["status"] == "PAID":
-            logger.info(f"Order {order['id']} is already fulfilled.")
+            logger.info(f"Order {order['id']} is already fulfilled (idempotent return).")
             return True
 
-        # Mark Order PAID
+        # 2. Strict amount verification (allow max 50 VND rounding delta)
+        expected_vnd = float(order.get("amount_vnd") or 0.0)
+        if amount_received_vnd is not None and amount_received_vnd < (expected_vnd - 50.0):
+            logger.error(
+                f"REJECTED_UNDERPAID: Order {order['id']} expected {expected_vnd} VND, "
+                f"received {amount_received_vnd} VND."
+            )
+            c.execute("UPDATE orders SET status = 'UNDERPAID' WHERE id = ?", (order["id"],))
+            return False
+
+        # 3. Atomic state transition: Ensure one transaction fulfill once
         c.execute(
-            "UPDATE orders SET status = 'PAID', sepay_transaction_id = ?, paid_at = ? WHERE id = ?",
+            """
+            UPDATE orders SET status = 'PAID', sepay_transaction_id = ?, paid_at = ?
+            WHERE id = ? AND status != 'PAID'
+            """,
             (sepay_trans_id, now_ts, order["id"])
         )
+        if c.rowcount <= 0:
+            logger.info(f"Order {order['id']} was already processed by another concurrent worker.")
+            return True
+
+        # 4. Record to payment_transactions ledger
+        tx_id = f"tx_{secrets.token_hex(8)}"
+        try:
+            c.execute(
+                """
+                INSERT INTO payment_transactions (
+                    id, sepay_id, user_id, amount, currency, gateway, content, status, created_at
+                ) VALUES (?, ?, ?, ?, 'VND', 'SEPAY', ?, 'completed', ?)
+                ON CONFLICT DO NOTHING
+                """,
+                (
+                    tx_id,
+                    sepay_trans_id,
+                    order["user_id"],
+                    amount_received_vnd if amount_received_vnd is not None else expected_vnd,
+                    f"Order {order['id']}",
+                    now_ts
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Error recording payment transaction: {e}")
 
         user_id = order["user_id"]
         tier = order["plan_tier"].lower()

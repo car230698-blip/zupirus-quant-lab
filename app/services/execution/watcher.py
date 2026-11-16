@@ -10,7 +10,7 @@ import json
 import logging
 import datetime
 from typing import Dict, Any, List, Optional
-from app.db import tx, audit
+from app.db import tx, audit, setkv, getkv
 from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.watcher")
@@ -69,14 +69,14 @@ class PositionWatcher:
                 day_start_balance = current_balance
                 with tx() as c:
                     day_key = f"daily_start_bal:{acc_id}:{date_str}"
-                    row = c.execute("SELECT value FROM kv WHERE key = ?", (day_key,)).fetchone()
-                    if row and row[0]:
+                    val = getkv(c, day_key)
+                    if val:
                         try:
-                            day_start_balance = float(row[0])
+                            day_start_balance = float(val)
                         except Exception:
                             day_start_balance = current_balance
                     else:
-                        c.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (day_key, str(current_balance)))
+                        setkv(c, day_key, str(current_balance))
 
                 # 2. Prop Firm Daily Drawdown Check (Circuit Breaker at 4.5%)
                 if is_prop and day_start_balance > 0:
@@ -89,6 +89,7 @@ class PositionWatcher:
                         close_res = await self.client.close_all_positions(meta_id)
                         with tx() as c:
                             c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
+                            setkv(c, f"prop_dd_halt:{acc_id}:{date_str}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
                             audit(c, "prop_guard", "circuit_breaker_triggered", {
                                 "account_id": acc_id,
                                 "drawdown_pct": round(drawdown_pct, 2),
@@ -126,10 +127,20 @@ class PositionWatcher:
                         if not pos_id:
                             continue
 
+                        # Check origin: only touch ZUPIRUS automated orders
+                        pos_comment = str(pos.get("comment") or "").upper()
+                        with tx() as c:
+                            is_zupirus_trade = c.execute(
+                                "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (ticket = ? OR id = ?)",
+                                (acc_id, pos_id, pos_id)
+                            ).fetchone()
+                        if not is_zupirus_trade and "ZUPIRUS" not in pos_comment:
+                            continue
+
                         # Check if BE already executed for this position
                         be_key = f"be_executed:{acc_id}:{pos_id}"
                         with tx() as c:
-                            already_done = c.execute("SELECT value FROM kv WHERE key = ?", (be_key,)).fetchone()
+                            already_done = getkv(c, be_key)
                         if already_done:
                             continue
 
@@ -167,7 +178,16 @@ class PositionWatcher:
                             modify_res = await self.client.modify_position_sl(meta_id, pos_id, new_sl)
 
                             with tx() as c:
-                                c.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (be_key, "1"))
+                                setkv(c, be_key, "1")
+                                audit(c, "watcher", "auto_be_partial_tp", {
+                                    "account_id": acc_id,
+                                    "position_id": pos_id,
+                                    "open_price": open_price,
+                                    "close_50_volume": half_volume,
+                                    "new_sl": new_sl,
+                                    "partial_res": partial_res,
+                                    "modify_res": modify_res
+                                })
                                 audit(c, "watcher", "auto_be_partial_tp", {
                                     "account_id": acc_id,
                                     "position_id": pos_id,

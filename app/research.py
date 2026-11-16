@@ -42,64 +42,76 @@ class State(TypedDict, total=False):
 
 def discover_candidate_from_observations(c=None) -> Dict[str, Any]:
     """Tabula Rasa induction: Analyzes real observed external signals from signal_audit_logs
-    and discovers rule candidates from profitable clusters."""
+    and discovers rule candidates from profitable clusters.
+    Returns status='insufficient_data' if real concluded trades with pnl are insufficient.
+    """
     if c is None:
         with tx() as conn:
             return discover_candidate_from_observations(conn)
 
-    # 1. Query observed signals with real market context snapshots
+    # 1. Query observed signals with real market context snapshots and realized PnL
     rows = []
     try:
         rows = c.execute(
             """
             SELECT side, entry_price, pnl, context_snapshot
             FROM signal_audit_logs
-            WHERE context_snapshot IS NOT NULL
+            WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
             ORDER BY created_at DESC LIMIT 200
             """
         ).fetchall()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Query signal_audit_logs error: {e}")
 
-    # Extract winning patterns
-    preferred_session = "London"
-    target_action = "BUY"
-    min_slope = 0.20
-    win_rate = 0.65
-    sample_size = len(rows)
+    # Require at least 5 realized trades to induce candidate rules
+    if not rows or len(rows) < 5:
+        return {
+            "status": "insufficient_data",
+            "name": "TabulaRasa-Alpha-Observing",
+            "sample_size": len(rows),
+            "empirical_win_rate": None,
+            "message": "Chưa đủ dữ liệu tín hiệu đã đóng có PnL để tổng hợp chiến lược Tabula Rasa.",
+            "rules": {
+                "preferred_session": "London",
+                "action": "STAND_ASIDE",
+                "min_slope": 0.20,
+                "sl_points": DEFAULT_SL_POINTS,
+                "tp_points": DEFAULT_TP_POINTS,
+            }
+        }
 
-    if rows and len(rows) >= 5:
-        session_wins: Dict[str, List[float]] = {}
-        for r in rows:
-            side = r["side"] if hasattr(r, 'keys') else r[0]
-            pnl = float(r["pnl"] if hasattr(r, 'keys') and r["pnl"] is not None else 1.0)
-            ctx_str = r["context_snapshot"] if hasattr(r, 'keys') else r[3]
-            sess = "London"
-            if ctx_str:
-                try:
-                    sess = json.loads(ctx_str).get("session", "London")
-                except Exception:
-                    pass
-            session_wins.setdefault(sess, []).append(pnl)
+    # Extract winning patterns from real trades
+    session_wins: Dict[str, List[float]] = {}
+    for r in rows:
+        side = r["side"] if hasattr(r, 'keys') else r[0]
+        pnl = float(r["pnl"] if hasattr(r, 'keys') else r[2])
+        ctx_str = r["context_snapshot"] if hasattr(r, 'keys') else r[3]
+        sess = "London"
+        if ctx_str:
+            try:
+                sess = json.loads(ctx_str).get("session", "London")
+            except Exception:
+                pass
+        session_wins.setdefault(sess, []).append(pnl)
 
-        # Pick session with highest positive expectancy
-        best_sess = max(session_wins.keys(), key=lambda k: sum(session_wins[k]))
-        pnls = session_wins[best_sess]
-        preferred_session = best_sess
-        win_rate = round(sum(1 for p in pnls if p > 0) / max(len(pnls), 1), 2)
-        sample_size = len(pnls)
+    # Pick session with highest positive expectancy
+    best_sess = max(session_wins.keys(), key=lambda k: sum(session_wins[k]))
+    pnls = session_wins[best_sess]
+    preferred_session = best_sess
+    win_rate = round(sum(1 for p in pnls if p > 0) / max(len(pnls), 1), 2)
+    sample_size = len(pnls)
 
     candidate_id = f"cand_{uuid.uuid4().hex[:8]}"
     candidate_name = f"TabulaRasa-Alpha-{preferred_session}"
     rules = {
         "preferred_session": preferred_session,
-        "action": target_action,
-        "min_slope": min_slope,
+        "action": "BUY" if sum(pnls) > 0 else "SELL",
+        "min_slope": 0.20,
         "sl_points": DEFAULT_SL_POINTS,
         "tp_points": DEFAULT_TP_POINTS,
     }
 
-    # Record candidate in strategy_candidates table
+    # Record candidate in strategy_candidates table with unmeasured WFO metrics (NULL)
     now_ts = time.time()
     try:
         c.execute(
@@ -108,7 +120,7 @@ def discover_candidate_from_observations(c=None) -> Dict[str, Any]:
                 id, name, status, rules_json, sample_size, win_rate,
                 profit_factor, sharpe_ratio, max_drawdown_pct, oos_net_units,
                 created_at, updated_at
-            ) VALUES (?, ?, 'DISCOVERED', ?, ?, ?, 1.65, 1.82, 3.2, 28.5, ?, ?)
+            ) VALUES (?, ?, 'DISCOVERED', ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
             ON CONFLICT(id) DO UPDATE SET updated_at = ?
             """,
             (
@@ -212,7 +224,23 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         2
     )
 
-    is_qualified = bool(net_oos > 0 and max_dd <= 12.0 and win_rate >= 0.50)
+    # Calculate Sharpe ratio if trades exist
+    if trades_count > 1:
+        mean_ret = sum(all_returns) / trades_count
+        var_ret = sum((r - mean_ret) ** 2 for r in all_returns) / (trades_count - 1)
+        std_ret = math.sqrt(var_ret) if var_ret > 0 else 0.001
+        sharpe_ratio = round((mean_ret / std_ret) * math.sqrt(252), 2)
+    else:
+        sharpe_ratio = 0.0
+
+    is_qualified = bool(
+        trades_count >= 10
+        and net_oos > 0
+        and max_dd <= 10.0
+        and win_rate >= 0.52
+        and profit_factor >= 1.2
+        and sharpe_ratio >= 1.2
+    )
 
     return {
         'candidate_id': candidate.get("id"),
@@ -225,8 +253,9 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         'max_drawdown_price_units': max_dd,
         'win_rate': win_rate,
         'profit_factor': profit_factor,
+        'sharpe_ratio': sharpe_ratio,
         'trades': trades_count,
-        'production_qualified': False,
+        'production_qualified': is_qualified,
     }
 
 def get_checkpointer():
@@ -252,7 +281,26 @@ def get_checkpointer():
 def graph(saver):
     def evaluate(s):
         t0 = time.perf_counter()
-        prices = [x['close'] for x in json.loads((ROOT / 'data/replay.json').read_text())]
+        prices = []
+        try:
+            with tx() as c:
+                candle_rows = c.execute(
+                    "SELECT close FROM candles WHERE symbol = 'XAUUSD' ORDER BY time ASC LIMIT 1000"
+                ).fetchall()
+                if candle_rows and len(candle_rows) >= 180:
+                    prices = [float(r[0]) for r in candle_rows]
+        except Exception as e:
+            logger.warning(f"Error loading candles from DB for WFO: {e}")
+
+        # Fallback to historical replay dataset only if live DB candles are insufficient (<180 bars)
+        if len(prices) < 180:
+            replay_file = ROOT / 'data/replay.json'
+            if replay_file.exists():
+                try:
+                    prices = [x['close'] for x in json.loads(replay_file.read_text())]
+                except Exception as e:
+                    logger.warning(f"Replay file read error: {e}")
+
         report = walk_forward(prices)
         trace_langgraph_step("walk_forward", {"data_len": len(prices)}, report, (time.perf_counter() - t0) * 1000)
         return {'report': report}
@@ -268,18 +316,35 @@ def graph(saver):
         return {'approved': is_app}
 
     def finish(s):
-        disp = 'approved_for_demo_review' if s['approved'] else 'rejected'
-        cand_id = s.get('report', {}).get('candidate_id')
-        trace_langgraph_step("archive", {"approved": s['approved']}, {"disposition": disp})
+        rep = s.get('report', {})
+        cand_id = rep.get('candidate_id')
+        approved = s.get('approved', False)
+        disp = 'approved_for_demo_review' if approved else 'rejected'
+        trace_langgraph_step("archive", {"approved": approved}, {"disposition": disp})
         try:
             with tx() as c:
                 if cand_id:
-                    new_status = 'APPROVED_FOR_PROD' if s['approved'] else 'REJECTED'
+                    new_status = 'APPROVED_FOR_PROD' if approved else 'REJECTED'
                     c.execute(
-                        "UPDATE strategy_candidates SET status = ?, updated_at = ? WHERE id = ?",
-                        (new_status, time.time(), cand_id)
+                        """
+                        UPDATE strategy_candidates
+                        SET status = ?, win_rate = ?, profit_factor = ?,
+                            sharpe_ratio = ?, max_drawdown_pct = ?,
+                            oos_net_units = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            new_status,
+                            rep.get('win_rate'),
+                            rep.get('profit_factor'),
+                            rep.get('sharpe_ratio'),
+                            rep.get('max_drawdown_price_units'),
+                            rep.get('oos_net_price_units'),
+                            time.time(),
+                            cand_id
+                        )
                     )
-                reflect_on_policy_approval(c, cand_id or s.get('job_id', 'wfo_candidate'), s.get('approved', False), s.get('report', {}))
+                reflect_on_policy_approval(c, cand_id or s.get('job_id', 'wfo_candidate'), approved, rep)
         except Exception as e:
             logger.warning(f"Error archiving strategy candidate decision: {e}")
         return {'disposition': disp}

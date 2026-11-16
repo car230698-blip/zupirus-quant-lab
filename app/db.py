@@ -135,6 +135,10 @@ class CursorWrapper:
         if re.search(r'INSERT\s+OR\s+REPLACE\s+INTO\s+login_limits', translated, re.IGNORECASE):
             translated = re.sub(r'INSERT\s+OR\s+REPLACE\s+INTO\s+login_limits', 'INSERT INTO login_limits', translated, flags=re.IGNORECASE)
             translated += " ON CONFLICT(key) DO UPDATE SET attempts=EXCLUDED.attempts, until=EXCLUDED.until"
+        # Translate INSERT OR REPLACE INTO kv ... -> ON CONFLICT(key) DO UPDATE
+        elif re.search(r'INSERT\s+OR\s+REPLACE\s+INTO\s+kv', translated, re.IGNORECASE):
+            translated = re.sub(r'INSERT\s+OR\s+REPLACE\s+INTO\s+kv', 'INSERT INTO kv', translated, flags=re.IGNORECASE)
+            translated += " ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value"
         return translated
 
     def execute(self, sql: str, params: Optional[Any] = None):
@@ -201,7 +205,12 @@ class ConnectionWrapper:
     def execute(self, sql: str, params: Optional[Any] = None):
         cur = self.cursor()
         cur.execute(sql, params)
+        self._cur = cur
         return cur
+
+    @property
+    def rowcount(self) -> int:
+        return self._cur.rowcount if self._cur is not None else -1
 
     def executescript(self, script: str):
         cur = self.cursor()

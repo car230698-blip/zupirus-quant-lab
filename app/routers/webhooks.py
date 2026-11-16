@@ -39,14 +39,70 @@ async def handle_tradingview_webhook(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Signal normalization error: {e}")
 
-    # 3. Determine live reference price for Gold
-    live_price = norm_signal.entry_price
+    # 3. Determine live reference price for symbol with strict freshness check (<120s)
+    live_price = None
     with tx() as c:
-        q = c.execute("SELECT bid, ask FROM quotes ORDER BY ts DESC LIMIT 1").fetchone()
-        if q:
+        q = c.execute(
+            "SELECT bid, ask, ts FROM quotes WHERE symbol = ? AND (? - ts) < 120 ORDER BY ts DESC LIMIT 1",
+            (norm_signal.symbol, now_ts)
+        ).fetchone()
+        if q and q["bid"] and q["ask"]:
             live_price = round((float(q["bid"]) + float(q["ask"])) / 2.0, 2)
 
-    # 4. Pass through 4 Mandatory Safety Guards
+    if live_price is None:
+        try:
+            rc = get_redis_client()
+            cached = rc.get(f"quote:{norm_signal.symbol}:live")
+            if cached:
+                val = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
+                parts = val.split(":")
+                live_price = round((float(parts[0]) + float(parts[1])) / 2.0, 2)
+        except Exception:
+            pass
+
+    if live_price is None:
+        logger.warning(f"Signal {norm_signal.id} rejected: No fresh live quote available for {norm_signal.symbol}")
+        return {
+            "status": "REJECTED",
+            "signal_id": norm_signal.id,
+            "reason": "REJECTED_STALE_MARKET_DATA: No fresh tick quote (<120s) available to verify slippage",
+            "executed": 0,
+        }
+
+    # 4. Check Signal Source Registry Status (ACTIVE_LIVE vs SHADOW_ONLY vs SUSPENDED)
+    with tx() as c:
+        src_row = c.execute(
+            "SELECT status FROM signal_sources WHERE id = ? OR name = ?",
+            (norm_signal.source, norm_signal.source)
+        ).fetchone()
+        src_status = (src_row["status"] if src_row else "ACTIVE_LIVE").upper()
+
+    if src_status == "SUSPENDED":
+        logger.warning(f"Signal rejected: Source '{norm_signal.source}' is SUSPENDED.")
+        return {"status": "REJECTED", "reason": "SOURCE_SUSPENDED", "executed": 0}
+
+    if src_status == "SHADOW_ONLY":
+        logger.info(f"Signal from SHADOW_ONLY source '{norm_signal.source}' recorded for observation.")
+        from app.services.sources.curator import ingest_shadow_signal
+        with tx() as c:
+            ingest_shadow_signal(
+                source_id=norm_signal.source,
+                symbol=norm_signal.symbol,
+                side=norm_signal.action,
+                entry_price=norm_signal.entry_price,
+                sl=norm_signal.stop_loss or (norm_signal.entry_price - 3.5),
+                tp=norm_signal.take_profit or (norm_signal.entry_price + 7.0),
+                db_cursor=c
+            )
+        return {
+            "status": "RECORDED_SHADOW",
+            "signal_id": norm_signal.id,
+            "source": norm_signal.source,
+            "message": "Signal recorded into shadow_signals ledger for Tabula Rasa EOD grading. Zero broker executions.",
+            "executed": 0
+        }
+
+    # 5. Pass through 4 Mandatory Safety Guards
     approved, reject_reason, sanitized_signal = sanitize_and_audit_signal(
         signal=norm_signal,
         live_price=live_price,
@@ -64,7 +120,7 @@ async def handle_tradingview_webhook(
             "executed": 0,
         }
 
-    # 5. Query active accounts entitled to receive this signal
+    # 6. Query active accounts entitled to receive this signal
     with tx() as c:
         # Accounts must have active service subscription AND active cloud slot
         query = """
@@ -72,11 +128,13 @@ async def handle_tradingview_webhook(
                 a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
                 a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
                 a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
+                a.account_type, a.contract_size,
                 s.plan_tier, s.allow_alpha_strategies
             FROM trading_accounts a
             JOIN subscriptions s ON s.user_id = a.user_id
             WHERE a.auto_trade = 1
               AND a.deployment_state = 'DEPLOYED'
+              AND a.equity > 0
               AND s.service_expires_at > ?
               AND (a.cloud_expires_at IS NULL OR a.cloud_expires_at > ?)
         """
@@ -137,37 +195,131 @@ async def handle_tradingview_webhook(
 
 
 @router.post("/api/sepay/webhook")
+@router.post("/api/webhooks/sepay")
 async def handle_sepay_webhook(
     request: Request,
     authorization: str = Header(default=""),
 ):
-    """Handle SePay VietQR payment webhook and automatically fulfill order."""
-    # Check SePay secret authorization if configured
-    if SEPAY_WEBHOOK_SECRET:
+    """Handle SePay VietQR payment webhook and automatically fulfill order.
+    Strictly secured: requires valid secret, verifies transferType=='in' and full amount.
+    """
+    # 1. Check SePay secret authorization: fail-closed if not configured or token mismatch
+    raw_body = await request.body()
+    expected_secret = SEPAY_WEBHOOK_SECRET
+    try:
+        with tx() as c:
+            row = c.execute("SELECT value FROM kv WHERE key IN ('billing:settings', 'billing_settings')").fetchone()
+            if row and row[0]:
+                import json
+                b_settings = json.loads(row[0])
+                if b_settings.get("sepay_webhook_secret"):
+                    expected_secret = b_settings["sepay_webhook_secret"]
+    except Exception:
+        pass
+
+    if not expected_secret:
+        from app.sepay import get_sepay_secret
+        expected_secret = get_sepay_secret()
+
+    if not expected_secret:
+        logger.error("SePay webhook rejected: SEPAY_WEBHOOK_SECRET is not configured.")
+        raise HTTPException(status_code=503, detail="Payment webhook secret not configured")
+
+    # Support either Authorization header (Apikey <secret>) or x-sepay-signature header (HMAC-SHA256)
+    sig_header = request.headers.get("x-sepay-signature")
+    auth_valid = False
+
+    if sig_header:
+        from app.sepay import verify_sepay_signature
+        if verify_sepay_signature(raw_body, sig_header, expected_secret):
+            auth_valid = True
+
+    if not auth_valid and authorization:
         token = authorization.replace("Apikey ", "").strip()
-        if token != SEPAY_WEBHOOK_SECRET:
-            logger.warning("Invalid SePay webhook authorization token")
-            raise HTTPException(status_code=401, detail="Unauthorized")
+        if token == expected_secret:
+            auth_valid = True
+
+    if not auth_valid:
+        logger.warning("Invalid SePay webhook authorization: bad signature or token mismatch")
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
-        payload = await request.json()
+        import json
+        payload = json.loads(raw_body.decode("utf-8"))
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
+    # 2. Verify transfer direction: MUST BE INBOUND ("in")
+    transfer_type = str(payload.get("transferType") or "in").lower().strip()
+    if transfer_type != "in":
+        logger.warning(f"SePay webhook rejected debit/outbound transaction (transferType='{transfer_type}')")
+        return {"success": False, "message": f"Rejected non-inbound transaction (type={transfer_type})"}
+
+    amount_in = float(payload.get("transferAmount") or payload.get("amount") or 0.0)
+    if amount_in <= 0:
+        logger.warning(f"SePay webhook rejected invalid transferAmount: {amount_in}")
+        return {"success": False, "message": "Invalid transfer amount"}
+
     content = payload.get("content") or payload.get("description") or ""
-    trans_id = str(payload.get("id") or payload.get("transaction_id") or time.time())
-    logger.info(f"Received SePay transaction: ID={trans_id}, Content='{content}'")
+    trans_id = str(payload.get("id") or payload.get("transaction_id") or "")
+    logger.info(f"Received SePay transaction: ID={trans_id}, Amount={amount_in} VND, Content='{content}'")
 
-    # Match order pattern: "ZP <order_suffix>" or "ORD_<suffix>"
-    match = re.search(r"ZP\s*([A-F0-9]{6})", content.upper())
+    # Deduplication check
+    if trans_id:
+        with tx() as c:
+            existing = c.execute("SELECT id FROM payment_transactions WHERE sepay_id = ?", (trans_id,)).fetchone()
+            if existing:
+                return {"success": True, "amount": amount_in, "message": "Transaction already recorded"}
+
+    # 3. Match order pattern: strictly match token "ZP <order_suffix>" or "ORD_<suffix>"
+    match = re.search(r"\bZP\s*([A-F0-9]{6,12})\b", content.upper())
     if not match:
-        match = re.search(r"ORD_([A-F0-9]+)", content.upper())
+        match = re.search(r"\bORD_([A-F0-9]{6,16})\b", content.upper())
 
-    if not match:
-        logger.warning(f"Could not extract order code from SePay memo: '{content}'")
-        return {"success": False, "message": "No matching order code pattern found"}
+    if match:
+        order_suffix = match.group(1).lower()
+        success = await process_successful_payment(
+            order_suffix,
+            sepay_trans_id=trans_id or str(time.time()),
+            amount_received_vnd=amount_in,
+            raw_payload=payload
+        )
+        return {"success": success, "order_key": order_suffix, "amount": amount_in, "amount_vnd": amount_in}
 
-    order_suffix = match.group(1).lower()
-    success = await process_successful_payment(order_suffix, sepay_trans_id=trans_id)
+    # 4. Fallback: match by customer email or user identifier in memo
+    from app.sepay import extract_user_identifier
+    import secrets
 
-    return {"success": success, "order_key": order_suffix}
+    user_identifier = extract_user_identifier(content)
+    matched_user_id = None
+    matched_email = None
+    tx_id = f"pay_{secrets.token_hex(8)}"
+
+    with tx() as c:
+        if user_identifier:
+            if "@" in user_identifier:
+                u_row = c.execute("SELECT id, email FROM users WHERE email = ?", (user_identifier.lower(),)).fetchone()
+            else:
+                u_row = c.execute("SELECT id, email FROM users WHERE id = ?", (user_identifier,)).fetchone()
+            if u_row:
+                matched_user_id = u_row["id"]
+                matched_email = u_row["email"]
+
+        ref_code = str(payload.get("referenceCode") or "")
+        gateway = str(payload.get("gateway") or "SEPAY")
+        now_ts = time.time()
+        c.execute(
+            """
+            INSERT INTO payment_transactions(id, sepay_id, user_id, amount, currency, gateway, content, reference_code, status, created_at)
+            VALUES(?, ?, ?, ?, 'VND', ?, ?, ?, 'completed', ?)
+            """,
+            (tx_id, trans_id or None, matched_user_id, amount_in, gateway, content, ref_code, now_ts)
+        )
+
+    return {
+        "success": True,
+        "transaction_id": tx_id,
+        "amount": amount_in,
+        "matched_user": matched_email or matched_user_id,
+        "message": "Payment verified and recorded successfully"
+    }

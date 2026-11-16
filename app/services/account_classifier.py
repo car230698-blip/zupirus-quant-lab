@@ -64,24 +64,36 @@ def calculate_normalized_lot_size(
     Raw Lots = Risk Amount / Value Per Lot
     """
     if equity <= 0 or sl_distance_points <= 0 or contract_size <= 0:
-        return min_lot
+        return 0.0
 
     eff_multiplier = max(0.5, min(risk_multiplier, 3.0))
     risk_amount = equity * (risk_pct * eff_multiplier / 100.0)
 
-    # If Cent account, equity is in cents (1 USD = 100 USC), contract size is 1
-    loss_per_lot = sl_distance_points * contract_size * tick_value
+    # For XAUUSD: 1 point = 0.01 USD. 1 standard lot = 100 oz.
+    # Price difference in USD = sl_distance_points * 0.01.
+    # Loss per lot = (sl_distance_points * 0.01) * contract_size * tick_value.
+    loss_per_lot = (sl_distance_points / 100.0) * contract_size * tick_value
     if loss_per_lot <= 0:
-        return min_lot
+        return 0.0
 
+    # If Cent account with contract_size 1.0 (USC), scaling is automatic via contract_size
     raw_lot = risk_amount / loss_per_lot
 
     # Round to 0.01 step
     step_lots = math.floor(raw_lot * 100.0) / 100.0
 
-    # Bounds check
+    # If calculated lot is below minimum broker lot
     if step_lots < min_lot:
+        # Check if forcing min_lot would exceed 2x the user's risk budget
+        min_lot_risk = min_lot * loss_per_lot
+        if min_lot_risk > (2.0 * risk_amount):
+            logger.warning(
+                f"Lot sizing rejected: Min lot {min_lot} requires ${min_lot_risk:.2f} risk, "
+                f"exceeding 2x allowed risk budget (${risk_amount:.2f}) for equity ${equity:.2f}"
+            )
+            return 0.0
         return min_lot
+
     if step_lots > max_lot:
         return max_lot
 

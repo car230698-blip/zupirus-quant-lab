@@ -385,7 +385,22 @@ async def execute_fan_out_for_signal(
             continue
 
         # 2. Broker Live Spread Guard (Lớp 2: Kiểm tra riêng theo sàn của khách)
-        broker_spread = float(acc.get("live_spread_pips") or 1.5)
+        broker_spread = float(acc.get("live_spread_pips") or 0.0)
+        if broker_spread <= 0:
+            try:
+                from app.db import tx
+                with tx() as c:
+                    q_row = c.execute(
+                        "SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
+                        (symbol,)
+                    ).fetchone()
+                    if q_row and q_row[0] and q_row[1]:
+                        broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * 10, 1)
+            except Exception:
+                pass
+        if broker_spread <= 0:
+            broker_spread = 2.8
+
         ok_spread, spread_err = check_live_spread_guard(symbol, broker_spread)
         if not ok_spread:
             logger.warning(f"Account {acc_id} rejected due to high spread: {spread_err}")
@@ -404,16 +419,20 @@ async def execute_fan_out_for_signal(
 
         # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
         is_comp = bool(acc.get("is_compounding", False))
-        balance = float(acc.get("balance") or 10000.0)
+        balance = float(acc.get("balance") or 0.0)
         equity = float(acc.get("equity") or balance)
-        base_capital = equity if is_comp else balance
+        if equity <= 0:
+            logger.warning(f"Account {acc_id} skipped: zero or negative equity ({equity}).")
+            continue
+
+        base_capital = balance if (not is_comp and balance > 0) else equity
 
         risk_pct = float(acc.get("risk_percent", 1.0))
         max_lot = float(acc.get("max_lot", 5.0))
         mult = float(acc.get("risk_multiplier") or acc.get("multiplier") or 1.0)
         c_size = float(acc.get("contract_size") or 100.0)
         t_val = float(acc.get("tick_value") or 1.0)
-        is_cent_acc = acc.get("account_type") == "CENT" or acc.get("currency") in ("USC", "EUC")
+        is_cent_acc = acc.get("account_type") == "CENT" or acc.get("currency") in ("USC", "EUC") or c_size <= 1.0
 
         volume = calculate_normalized_lot_size(
             equity=base_capital,
@@ -425,6 +444,10 @@ async def execute_fan_out_for_signal(
             max_lot=max_lot,
             is_cent=is_cent_acc
         )
+
+        if volume <= 0:
+            logger.warning(f"Account {acc_id} skipped: calculated lot size is 0 (risk budget insufficient for min lot).")
+            continue
 
         account_metas.append({
             "account_id": acc_id,
