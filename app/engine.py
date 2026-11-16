@@ -377,9 +377,159 @@ def flush_outbox(c):
 
 
 _last_watcher_ts = 0.0
+_last_market_feed_ts = 0.0
+_last_agent_eval_ts = 0.0
+
+
+async def autonomous_agent_step_async(force_side: Optional[str] = None) -> Dict[str, Any]:
+    """Async implementation of Autonomous AI Agent Decision & Direct Fan-Out Loop.
+    Active when `signal_mode` in `kv` is `ZUPIRUS_AGENT` (and `halted != 1`).
+    Invokes AI Swarm (`Sentinel` + `Alpha` + `Risk Guardian`) + MCP Bridge on new closed M15 candles,
+    loads `APPROVED_FOR_PROD` strategy parameters, sanitizes via 4-Layer Guards,
+    and dispatches directly to eligible Cloud MT5 accounts.
+    """
+    now = time.time()
+    with tx() as c:
+        halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
+        if halt_row and str(halt_row[0]).strip() in ("1", "true", "True"):
+            return {"status": "SKIPPED", "reason": "KILL_SWITCH_ACTIVE"}
+
+        mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+        active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "HYBRID"
+        if active_mode != "ZUPIRUS_AGENT":
+            return {"status": "SKIPPED", "reason": f"MODE_IS_{active_mode}"}
+
+        # Load latest Admin-approved strategy candidate (APPROVED_FOR_PROD)
+        cand = c.execute(
+            "SELECT id, name, rules_json FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC LIMIT 1"
+        ).fetchone()
+        if not cand:
+            return {"status": "SKIPPED", "reason": "NO_APPROVED_FOR_PROD_STRATEGY"}
+
+        cand_d = dict(cand)
+        try:
+            rules = json.loads(cand_d.get("rules_json") or "{}")
+        except Exception:
+            rules = {}
+
+        bars = c.execute(
+            "SELECT time, close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 40"
+        ).fetchall()
+        if not bars or len(bars) < 25:
+            return {"status": "SKIPPED", "reason": "INSUFFICIENT_M15_CANDLES"}
+
+        bars_asc = list(reversed([dict(b) for b in bars]))
+        latest_bar_ts = float(bars_asc[-1]["time"])
+        last_eval_row = c.execute("SELECT value FROM kv WHERE key = 'agent_last_candle_ts'").fetchone()
+        if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:
+            return {"status": "SKIPPED", "reason": "CANDLE_ALREADY_EVALUATED"}
+        setkv(c, "agent_last_candle_ts", str(latest_bar_ts))
+
+        prices = [float(b["close"]) for b in bars_asc]
+        decision = coordinate_strategies(prices, timeframe="M15")
+        side = force_side or decision.get("side")
+        if not side:
+            setkv(c, "strategy_last_decision", json.dumps(decision, ensure_ascii=False))
+            return {"status": "STAND_ASIDE", "reason": decision.get("reason", "NO_SIGNAL")}
+
+        # Fetch live price
+        q_row = c.execute(
+            "SELECT bid, ask, ts FROM quotes WHERE symbol = 'XAUUSD' ORDER BY ts DESC LIMIT 1"
+        ).fetchone()
+        if not q_row or (now - float(q_row["ts"])) > 180:
+            return {"status": "SKIPPED", "reason": "STALE_QUOTE"}
+        entry_price = round((float(q_row["bid"]) + float(q_row["ask"])) / 2.0, 2)
+
+    # Trigger AI Swarm (Sentinel + Alpha + Risk Guardian) & MCP cross-asset context check
+    swarm_report = {}
+    try:
+        from app.swarm import trigger_swarm_cycle
+        swarm_report = trigger_swarm_cycle()
+        if swarm_report.get("sentinel", {}).get("blackout"):
+            return {"status": "BLOCKED", "reason": "SWARM_SENTINEL_NEWS_BLACKOUT"}
+    except Exception as sw_err:
+        logger.debug(f"Swarm cycle note: {sw_err}")
+
+    # Run 4-Layer Safety Sanitizer + Fan-Out Execution outside the short DB tx
+    try:
+        import asyncio
+        from app.schemas.signals import NormalizedSignalSchema
+        from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
+        from app.metaapi import MetaApiClient, execute_fan_out_for_signal
+        from app.redis_client import get_redis_client
+
+        sl_pts = float(rules.get("sl_points", 5.0))
+        tp_pts = float(rules.get("tp_points", 10.0))
+        is_buy = side.upper() == "BUY"
+        sig_id = f"ag_{int(latest_bar_ts)}_{side.lower()}"
+        norm_sig = NormalizedSignalSchema(
+            id=sig_id,
+            source="src_zupirus_agent",
+            strategy_tier="ALPHA",
+            symbol="XAUUSD",
+            action=side.upper(),
+            entry_price=entry_price,
+            stop_loss=round(entry_price - sl_pts if is_buy else entry_price + sl_pts, 2),
+            take_profit=round(entry_price + tp_pts if is_buy else entry_price - tp_pts, 2),
+            raw_payload={"candidate": cand_d["name"], "decision": decision, "swarm": swarm_report.get("cycle")},
+            created_at=now,
+        )
+        approved, reason, sanitized = sanitize_and_audit_signal(norm_sig, live_price=entry_price, current_time=now)
+        if not approved:
+            logger.info(f"Autonomous Agent signal {sig_id} blocked by 4-Layer Shield: {reason}")
+            return {"status": "REJECTED_BY_SHIELD", "reason": reason, "signal_id": sig_id}
+
+        with tx() as c:
+            rows = c.execute(
+                """
+                SELECT a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
+                       a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
+                       a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
+                       a.account_type, a.contract_size
+                FROM trading_accounts a
+                JOIN subscriptions s ON s.user_id = a.user_id
+                WHERE a.auto_trade = 1 AND a.deployment_state = 'DEPLOYED'
+                  AND a.equity > 0 AND s.service_expires_at > ?
+                  AND (a.cloud_expires_at IS NULL OR a.cloud_expires_at > ?)
+                """,
+                (now, now),
+            ).fetchall()
+            eligible = [dict(r) for r in rows]
+
+        if eligible:
+            redis_cli = None
+            try:
+                redis_cli = get_redis_client()
+            except Exception:
+                pass
+            report = await execute_fan_out_for_signal(
+                signal={
+                    "id": sanitized.id,
+                    "symbol": sanitized.symbol,
+                    "action": sanitized.action,
+                    "entry_price": sanitized.entry_price,
+                    "sl": sanitized.stop_loss,
+                    "tp": sanitized.take_profit,
+                },
+                accounts=eligible,
+                metaapi_client=MetaApiClient(),
+                redis_client=redis_cli,
+            )
+            return {"status": "DISPATCHED", "signal_id": sanitized.id, "report": report}
+        return {"status": "APPROVED_NO_ACCOUNTS", "signal_id": sanitized.id}
+    except Exception as e:
+        logger.warning(f"Autonomous agent dispatch error: {e}")
+        return {"status": "ERROR", "error": str(e)}
+
+
+def autonomous_agent_step(force_side: Optional[str] = None) -> Dict[str, Any]:
+    """Sync wrapper for autonomous_agent_step_async used by engine tick()."""
+    import asyncio
+    return asyncio.run(autonomous_agent_step_async(force_side=force_side))
+
 
 def tick():
-    global _last_watcher_ts
+    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts
     with tx() as c:
         now = time.time()
         flush_outbox(c)
@@ -391,7 +541,16 @@ def tick():
         c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 7,))
         c.execute('DELETE FROM quotes WHERE ts<?', (now - 86400 * 2,))
 
-    # Periodically run Position Watcher (Auto-BE, Partial TP, Prop DD Guard) every 5s
+    # 1. Fetch live market XAU/USD quotes & M1/M15 candles every 3s (outside pytest)
+    if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_market_feed_ts >= 3.0:
+        _last_market_feed_ts = now
+        try:
+            from app.services.sources.streamer import fetch_and_ingest_live_market_data
+            fetch_and_ingest_live_market_data("XAUUSD")
+        except Exception as e:
+            logger.debug(f"Live market feed cycle note: {e}")
+
+    # 2. Run Position Watcher (Auto-BE, Partial TP, Prop DD Guard) every 5s
     if now - _last_watcher_ts >= 5.0:
         _last_watcher_ts = now
         try:
@@ -400,6 +559,11 @@ def tick():
             asyncio.run(get_position_watcher().run_cycle())
         except Exception as e:
             logger.debug(f"Position watcher cycle error: {e}")
+
+    # 3. Run Autonomous AI Agent Signal Evaluation every 30s (outside pytest)
+    if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_agent_eval_ts >= 30.0:
+        _last_agent_eval_ts = now
+        autonomous_agent_step()
 
 def main():
     init()

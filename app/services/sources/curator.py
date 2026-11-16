@@ -248,6 +248,61 @@ def record_shadow_signal(
     return sig_id
 
 
+def _recompute_source_metrics(c, source_id: str) -> None:
+    """Recompute win_rate, profit_factor, max_drawdown_pips, and trust_score from shadow_signals."""
+    rows = c.execute(
+        "SELECT eval_status, pnl_pips FROM shadow_signals WHERE source_id = ? ORDER BY signal_time ASC",
+        (source_id,),
+    ).fetchall()
+    total_signals = len(rows)
+    eval_rows = [dict(r) for r in rows if str(r["eval_status"]) in ("WIN_TP", "LOSS_SL", "EXPIRED")]
+    evaluated_signals = len(eval_rows)
+    if evaluated_signals == 0:
+        c.execute(
+            "UPDATE signal_sources SET total_signals = ?, evaluated_signals = 0, updated_at = ? WHERE id = ?",
+            (total_signals, time.time(), source_id),
+        )
+        return
+
+    wins = 0
+    gross_profit = 0.0
+    gross_loss = 0.0
+    cum_pnl = 0.0
+    peak_pnl = 0.0
+    max_dd = 0.0
+    for r in eval_rows:
+        pnl = float(r.get("pnl_pips") or 0.0)
+        if r["eval_status"] == "WIN_TP" or pnl > 0:
+            wins += 1
+        if pnl > 0:
+            gross_profit += pnl
+        elif pnl < 0:
+            gross_loss += abs(pnl)
+        cum_pnl += pnl
+        if cum_pnl > peak_pnl:
+            peak_pnl = cum_pnl
+        dd = peak_pnl - cum_pnl
+        if dd > max_dd:
+            max_dd = dd
+
+    win_rate = round(wins / evaluated_signals, 4)
+    profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (round(min(5.0, max(1.0, gross_profit / 10.0)), 2) if gross_profit > 0 else 1.0)
+    # Trust score (0-100): combines win rate (45%), profit factor (40%), and drawdown discipline (15%)
+    pf_score = min(1.0, profit_factor / 2.5)
+    dd_penalty = min(1.0, max_dd / 200.0)
+    trust_score = round(max(0.0, min(100.0, (win_rate * 45.0) + (pf_score * 40.0) + ((1.0 - dd_penalty) * 15.0))), 1)
+
+    c.execute(
+        """
+        UPDATE signal_sources
+        SET trust_score = ?, profit_factor = ?, win_rate = ?, max_drawdown_pips = ?,
+            total_signals = ?, evaluated_signals = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (trust_score, profit_factor, win_rate, round(max_dd, 1), total_signals, evaluated_signals, time.time(), source_id),
+    )
+
+
 def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, Any]:
     """End-of-Day (EOD) or periodic M1 candle grader:
     Matches all PENDING shadow signals against historical M1 candles.

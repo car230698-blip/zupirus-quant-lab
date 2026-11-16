@@ -479,23 +479,133 @@ def ai_text(prompt, image=None):
     return {'available': False, 'text': None}
 
 _last_eod_eval_ts = 0.0
+_last_eod_utc_date = ""
+_last_calendar_sync_ts = 0.0
+_last_induction_ts = 0.0
 
-def run_eod_shadow_evaluation_cycle():
-    """Periodic & End-of-Day Shadow Signal Grader Scheduler.
-    Runs every 4 hours and evaluates pending shadow signals against M1 candles,
-    updating Trust Scores and recommending promotion when shadow signals >= 30.
-    """
-    global _last_eod_eval_ts
+
+def run_periodic_calendar_sync():
+    """Automatically sync USD High-Impact economic calendar every 6 hours (or immediately if empty)."""
+    global _last_calendar_sync_ts
     now = time.time()
-    # Check every 4 hours
-    if now - _last_eod_eval_ts < 14400.0:
+    if now - _last_calendar_sync_ts < 21600.0:
+        return
+    _last_calendar_sync_ts = now
+    try:
+        from app.calendar_sync import sync_economic_calendar
+        with tx() as c:
+            added, existing = sync_economic_calendar(c)
+            if added > 0:
+                audit(c, "research_worker", "auto_calendar_synced", {"added": added, "existing": existing})
+    except Exception as e:
+        logger.warning(f"Periodic calendar sync error: {e}")
+
+
+def run_autonomous_induction_and_wfo(force: bool = False):
+    """Synthesize inductive rules from Hindsight Memory (PENDING_APPROVAL skills),
+    generate Strategy Candidates via Research Graph Walk-Forward, and optionally auto-promote
+    when `AUTO_PROMOTE_QUALIFIED_STRATEGIES` is enabled in `kv`."""
+    global _last_induction_ts
+    now = time.time()
+    if not force and now - _last_induction_ts < 1800.0:
+        return
+    _last_induction_ts = now
+    try:
+        from app.hindsight import synthesize_inductive_rules, CATEGORY_REFLECTIVE
+        with tx() as c:
+            synthesize_inductive_rules(c, min_samples=5)
+
+            cand = discover_candidate_from_observations(c)
+            if cand and cand.get("id"):
+                candle_rows = c.execute(
+                    "SELECT close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
+                ).fetchall()
+                prices = [float(r[0]) for r in reversed(candle_rows)] if candle_rows else []
+                if len(prices) >= 180:
+                    rep = walk_forward(prices, candidate=cand)
+                    win_rate = float(rep.get("win_rate") or 0.0)
+                    pf = float(rep.get("profit_factor") or 0.0)
+                    trades_cnt = int(rep.get("trades") or 0)
+                    sample_sz = max(int(cand.get("sample_size") or 0), trades_cnt)
+
+                    auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
+                    auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
+                    qualifies = bool(win_rate >= 0.55 and pf >= 1.4 and sample_sz >= 30)
+
+                    new_status = "APPROVED_FOR_PROD" if (auto_promote and qualifies) else "WAITING_APPROVAL"
+                    c.execute(
+                        """
+                        UPDATE strategy_candidates
+                        SET status = ?, rules_json = ?, win_rate = ?, profit_factor = ?,
+                            sharpe_ratio = ?, max_drawdown_pct = ?, oos_net_units = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            new_status,
+                            json.dumps(rep.get("rules", {})),
+                            win_rate,
+                            pf,
+                            rep.get("sharpe_ratio"),
+                            rep.get("max_drawdown_pct"),
+                            rep.get("oos_net_price_units"),
+                            now,
+                            cand["id"],
+                        ),
+                    )
+                    store_memory(
+                        c,
+                        category=CATEGORY_REFLECTIVE,
+                        title=f"WFO Evaluation: {cand['name']} ({new_status})",
+                        content=f"WinRate={win_rate*100:.1f}%, PF={pf}, Trades={trades_cnt}, NetOOS={rep.get('oos_net_price_units')}",
+                        entity_id=cand["id"],
+                        tags=["wfo", new_status.lower()],
+                        scope="system",
+                    )
+
+                    if auto_promote and qualifies:
+                        mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+                        curr_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "EXTERNAL_FEED"
+                        next_mode = "HYBRID" if curr_mode == "EXTERNAL_FEED" else "ZUPIRUS_AGENT"
+                        c.execute(
+                            "INSERT INTO kv (key, value) VALUES ('signal_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            (next_mode,),
+                        )
+                        audit(c, "research_worker", "auto_promoted_strategy_and_upgraded_mode", {
+                            "candidate_id": cand["id"],
+                            "win_rate": win_rate,
+                            "profit_factor": pf,
+                            "next_signal_mode": next_mode,
+                        })
+    except Exception as e:
+        logger.debug(f"Autonomous induction/WFO cycle note: {e}")
+
+
+def run_eod_shadow_evaluation_cycle(force: bool = False):
+    """Periodic & End-of-Day Shadow Signal Grader Scheduler.
+    Runs every 4 hours and at 00:05 UTC daily, evaluates pending shadow signals against M1 candles,
+    updating Trust Scores, storing lessons in Hindsight, and triggering Strategy Candidate induction.
+    """
+    global _last_eod_eval_ts, _last_eod_utc_date
+    import datetime as _dt
+    now = time.time()
+    now_utc = _dt.datetime.now(_dt.timezone.utc)
+    today_str = now_utc.strftime("%Y-%m-%d")
+    is_daily_eod_window = (now_utc.hour == 0 and now_utc.minute >= 5 and _last_eod_utc_date != today_str)
+
+    if not force and not is_daily_eod_window and (now - _last_eod_eval_ts < 14400.0):
         return
 
     _last_eod_eval_ts = now
+    if is_daily_eod_window:
+        _last_eod_utc_date = today_str
+
     try:
         from app.services.sources.curator import evaluate_shadow_signals_eod, list_sources
         eval_res = evaluate_shadow_signals_eod()
         logger.info(f"EOD Shadow Evaluation completed: {eval_res}")
+
+        if int(eval_res.get("evaluated", 0)) > 0:
+            run_autonomous_induction_and_wfo(force=True)
 
         # Check if any SHADOW_ONLY source qualifies to surpass live sources
         sources = list_sources()
@@ -524,7 +634,9 @@ def main():
     while True:
         try:
             process_once()
+            run_periodic_calendar_sync()
             run_eod_shadow_evaluation_cycle()
+            run_autonomous_induction_and_wfo()
         except Exception as e: print('research error', type(e).__name__, flush=True)
         time.sleep(3)
 
