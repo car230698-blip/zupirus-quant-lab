@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fmtTime } from '../utils/strategyDecision';
+import { formatApiError } from '../utils/formatError.ts';
 
 export interface AdminRiskShieldUsersTabProps {
   killSwitchActive?: boolean;
@@ -209,7 +210,7 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
           fetchUsers();
         } else {
           const err = await res.json().catch(() => ({}));
-          setLocalUserMsg(`Lỗi tạo thành viên: ${err.detail || res.status}`);
+          setLocalUserMsg(`Lỗi tạo thành viên: ${formatApiError(err, res.status)}`);
         }
       } catch (e: any) {
         setLocalUserMsg(`Lỗi kết nối: ${e.message}`);
@@ -231,7 +232,7 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
         fetchUsers();
       } else {
         const err = await res.json().catch(() => ({}));
-        setLocalUserMsg(`Lỗi xoá thành viên: ${err.detail || res.status}`);
+        setLocalUserMsg(`Lỗi xoá thành viên: ${formatApiError(err, res.status)}`);
       }
     } catch (e: any) {
       setLocalUserMsg(`Lỗi kết nối: ${e.message}`);
@@ -252,7 +253,7 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
         fetchUsers();
       } else {
         const err = await res.json().catch(() => ({}));
-        setLocalUserMsg(`Lỗi đổi vai trò: ${err.detail || res.status}`);
+        setLocalUserMsg(`Lỗi đổi vai trò: ${formatApiError(err, res.status)}`);
       }
     } catch (e: any) {
       setLocalUserMsg(`Lỗi kết nối: ${e.message}`);

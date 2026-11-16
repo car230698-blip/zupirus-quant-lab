@@ -122,7 +122,16 @@ async def create_account(
             (user_id,)
         ).fetchone()
         if not disc:
-            fail(403, "Yêu cầu đọc và ký Điều khoản Miễn trừ trách nhiệm pháp lý trước khi kết nối Cloud MT5.")
+            if p.disclaimer_accepted:
+                disc_id = f"disc_{secrets.token_hex(6)}"
+                client_ip = request.client.host if request.client else "127.0.0.1"
+                c.execute(
+                    "INSERT INTO legal_disclaimers(id, user_id, terms_version, accepted_at, ip_address, signature_text, status) VALUES(?,?,?,?,?,?,?)",
+                    (disc_id, user_id, "v1.0", now_ts, client_ip, u.get("email", "trader"), "active")
+                )
+                disc = {"id": disc_id}
+            else:
+                fail(403, "Yêu cầu đọc và ký Điều khoản Miễn trừ trách nhiệm pháp lý trước khi kết nối Cloud MT5.")
 
     # 2. Check maximum account limit according to subscription
     with tx() as c:

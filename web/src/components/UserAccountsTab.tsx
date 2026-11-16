@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCloudAccounts } from '../hooks/useQuantData';
 import { fmtNum } from '../utils/strategyDecision';
+import { formatApiError } from '../utils/formatError.ts';
 
 export interface UserAccountsTabProps {
   accounts?: any[];
@@ -180,7 +181,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         setCheckoutOrder(orderData);
         setCheckoutModalOpen(true);
       } else {
-        setCloudMsg(`Lỗi khởi tạo đơn thanh toán: ${data.detail || res.status}`);
+        setCloudMsg(`Lỗi khởi tạo đơn thanh toán: ${formatApiError(data, res.status)}`);
       }
     } catch (e: any) {
       setCloudMsg(`Lỗi kết nối: ${e.message}`);
@@ -204,19 +205,26 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     setCloudBusy(true);
     setCloudMsg('Đang mã hóa thông tin và khởi tạo trạm Cloud MT5...');
     try {
+      const mult = Number(cloudForm.lot_multiplier) || 1.0;
+      const dd = Number(cloudForm.max_daily_dd_pct) || 4.0;
       const res = await fetch('/api/v1/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({
+          login: cloudForm.mt5_login,
+          mt5_login: cloudForm.mt5_login,
+          password: cloudForm.mt5_password,
+          mt5_password: cloudForm.mt5_password,
+          server: cloudForm.mt5_server,
+          mt5_server: cloudForm.mt5_server,
           account_id: cloudForm.mt5_login,
           account_name: cloudForm.account_name || `Cloud MT5 #${cloudForm.mt5_login}`,
           connection_type: 'CLOUD_METAAPI',
-          mt5_login: cloudForm.mt5_login,
-          mt5_password: cloudForm.mt5_password,
-          mt5_server: cloudForm.mt5_server,
-          lot_multiplier: Number(cloudForm.lot_multiplier) || 1.0,
-          max_daily_dd_pct: Number(cloudForm.max_daily_dd_pct) || 4.0,
+          risk_multiplier: mult,
+          lot_multiplier: mult,
+          prop_daily_dd_limit_pct: dd,
+          max_daily_dd_pct: dd,
           disclaimer_accepted: true,
         }),
       });
@@ -234,7 +242,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         refetchAccounts();
         fetchCloudSub();
       } else {
-        setCloudMsg(`Lỗi: ${data.detail || res.status}`);
+        setCloudMsg(`Lỗi: ${formatApiError(data, res.status)}`);
       }
     } catch (e: any) {
       setCloudMsg(`Lỗi mạng: ${e.message}`);
@@ -295,7 +303,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         fetchCloudSub();
       } else {
         const d = await res.json().catch(() => ({}));
-        setCloudMsg(`Lỗi xoá tài khoản: ${d.detail || res.status}`);
+        setCloudMsg(`Lỗi xoá tài khoản: ${formatApiError(d, res.status)}`);
       }
     } catch (e: any) {
       setCloudMsg(`Lỗi kết nối: ${e.message}`);
@@ -936,40 +944,118 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               </button>
             </div>
 
-            {checkoutOrder.qr_url && (
-              <div className="mx-auto w-56 overflow-hidden rounded-2xl border border-cyan-500/30 bg-white p-3 shadow-[0_0_35px_rgba(6,182,212,0.25)]">
-                <img
-                  src={checkoutOrder.qr_url}
-                  alt="VietQR SePay"
-                  className="h-full w-full object-contain"
-                />
-              </div>
-            )}
+            {(() => {
+              const displayOrderId = checkoutOrder.order_code || checkoutOrder.order_id || checkoutOrder.id || '';
+              const displayBank = checkoutOrder.bank_name || 'VietinBank';
+              const displayAccNum = checkoutOrder.account_number || '102873839291';
+              const displayHolder = checkoutOrder.account_holder || 'CTCP ZUPIRUS QUANT LAB';
+              const displayMemo = checkoutOrder.payment_content || `ZP ${displayOrderId.slice(-6).toUpperCase()}`;
+              const displayAmountVnd = Number(checkoutOrder.amount_vnd || estimatedVnd || 0);
+              const qrCodeUrl =
+                checkoutOrder.qr_code_url ||
+                checkoutOrder.qr_url ||
+                `https://qr.sepay.vn/img?acc=${encodeURIComponent(displayAccNum)}&bank=${encodeURIComponent(displayBank)}&amount=${encodeURIComponent(displayAmountVnd)}&des=${encodeURIComponent(displayMemo)}`;
 
-            <div className="space-y-1.5 rounded-xl border border-white/[0.07] bg-[#040710] p-3.5 text-left font-mono text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Mã đơn hàng:</span>
-                <strong className="text-cyan-300">{checkoutOrder.order_code}</strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Số tiền VND:</span>
-                <strong className="text-emerald-400 tabular-nums">
-                  {Number(checkoutOrder.amount_vnd || estimatedVnd).toLocaleString('vi-VN')} VND
-                </strong>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Trạng thái:</span>
-                <strong className={checkoutOrder.status === 'PAID' ? 'text-emerald-400' : 'text-amber-300'}>
-                  {checkoutOrder.status === 'PAID' ? 'ĐÃ THANH TOÁN' : 'ĐANG CHỜ WEBHOOK SEPAY...'}
-                </strong>
-              </div>
-            </div>
+              return (
+                <>
+                  <div className="mx-auto w-64 overflow-hidden rounded-2xl border border-cyan-500/40 bg-white p-3 shadow-[0_0_35px_rgba(6,182,212,0.25)]">
+                    <img
+                      src={qrCodeUrl}
+                      alt="VietQR SePay"
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
 
-            {pollingPaid && checkoutOrder.status !== 'PAID' && (
-              <div className="text-[11px] font-mono text-slate-400">
-                Hệ thống tự động kiểm tra giao dịch mỗi 3 giây...
-              </div>
-            )}
+                  <div className="space-y-2 rounded-xl border border-white/[0.07] bg-[#040710] p-3.5 text-left font-mono text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">Mã đơn hàng:</span>
+                      <strong className="text-cyan-300 select-all">{displayOrderId}</strong>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">Số tiền thanh toán:</span>
+                      <strong className="text-emerald-400 tabular-nums font-bold">
+                        {displayAmountVnd.toLocaleString('vi-VN')} VND
+                      </strong>
+                    </div>
+                    <div className="flex justify-between items-center border-t border-white/[0.05] pt-1.5">
+                      <span className="text-slate-400">Ngân hàng:</span>
+                      <span className="text-white font-bold">{displayBank}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">Số tài khoản:</span>
+                      <span className="text-amber-300 font-bold select-all flex items-center gap-1.5">
+                        {displayAccNum}
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(displayAccNum)}
+                          className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-slate-300 hover:text-white"
+                          title="Sao chép số tài khoản"
+                        >
+                          Copy
+                        </button>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400">Chủ tài khoản:</span>
+                      <span className="text-slate-200">{displayHolder}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-t border-white/[0.05] pt-1.5">
+                      <span className="text-slate-400">Nội dung CK:</span>
+                      <span className="text-cyan-300 font-bold select-all flex items-center gap-1.5">
+                        {displayMemo}
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(displayMemo)}
+                          className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-slate-300 hover:text-white"
+                          title="Sao chép nội dung"
+                        >
+                          Copy
+                        </button>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center border-t border-white/[0.05] pt-1.5">
+                      <span className="text-slate-400">Trạng thái:</span>
+                      <strong className={checkoutOrder.status === 'PAID' ? 'text-emerald-400' : 'text-amber-300'}>
+                        {checkoutOrder.status === 'PAID' ? '✓ ĐÃ THANH TOÁN (KÍCH HOẠT CLOUD)' : '⏳ ĐANG CHỜ WEBHOOK SEPAY...'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {checkoutOrder.status !== 'PAID' && (
+                    <div className="flex flex-col gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(`/api/v1/billing/simulate-pay/${encodeURIComponent(displayOrderId)}`, {
+                              method: 'POST',
+                              headers: { 'X-Zupirus': '1' },
+                              credentials: 'include',
+                            });
+                            if (res.ok) {
+                              setCheckoutOrder((prev: any) => ({ ...prev, status: 'PAID' }));
+                              setPollingPaid(false);
+                              fetchCloudSub();
+                              refetchAccounts();
+                            }
+                          } catch {
+                            // ignore
+                          }
+                        }}
+                        className="quant-btn-secondary w-full py-2 text-[11px] border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/15"
+                      >
+                        ⚡ Kích Hoạt Nhanh Bằng Sandbox (Mô phỏng SePay đã nhận tiền)
+                      </button>
+                      {pollingPaid && (
+                        <div className="text-[11px] font-mono text-slate-400">
+                          Hệ thống tự động kiểm tra giao dịch mỗi 3 giây...
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

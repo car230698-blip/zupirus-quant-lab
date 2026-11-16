@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { ToastNotification } from './ToastNotification.tsx';
+import { formatApiError } from '../utils/formatError.ts';
 
 export const AdminSourcesTab: React.FC = () => {
   const [data, setData] = useState<any>({
@@ -85,7 +86,7 @@ export const AdminSourcesTab: React.FC = () => {
         fetchAiSettings();
       } else {
         const d = await res.json().catch(() => ({}));
-        setMsg(`Lỗi lưu cấu hình: ${d.detail || res.status}`);
+        setMsg(`Lỗi lưu cấu hình: ${formatApiError(d, res.status)}`);
       }
     } catch (e: any) {
       setMsg(`Lỗi kết nối: ${e.message}`);
@@ -103,7 +104,13 @@ export const AdminSourcesTab: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
-        body: JSON.stringify({ prompt: aiTestPrompt.trim() }),
+        body: JSON.stringify({
+          prompt: aiTestPrompt.trim(),
+          provider: aiProvider,
+          model: aiModel,
+          base_url: aiBaseUrlInput.trim(),
+          api_key: aiApiKeyInput.trim(),
+        }),
       });
       if (res.ok) {
         const d = await res.json();
@@ -111,11 +118,12 @@ export const AdminSourcesTab: React.FC = () => {
         setMsg(`Kiểm thử AI thành công (${d.latency_ms}ms, ${d.provider}).`);
       } else {
         const d = await res.json().catch(() => ({}));
+        const errText = formatApiError(d, res.status);
         setAiTestResult({
           success: false,
-          error: d.detail || `Lỗi HTTP ${res.status}`,
+          error: errText,
         });
-        setMsg(`Lỗi kiểm thử AI: ${d.detail || res.status}`);
+        setMsg(`Lỗi kiểm thử AI: ${errText}`);
       }
     } catch (e: any) {
       setAiTestResult({ success: false, error: e.message });

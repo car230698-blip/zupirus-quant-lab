@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useCloudAccounts } from '../hooks/useQuantData';
 import { fmtNum, fmtTime } from '../utils/strategyDecision';
+import { formatApiError } from '../utils/formatError.ts';
 
 export interface AdminCloudInfrastructureTabProps {
   accounts?: any[];
@@ -94,7 +95,7 @@ export const AdminCloudInfrastructureTab: React.FC<AdminCloudInfrastructureTabPr
         triggerRefetch();
       } else {
         const d = await res.json().catch(() => ({}));
-        setMsg(`Lỗi: ${d.detail || d.message || res.status}`);
+        setMsg(`Lỗi: ${formatApiError(d, res.status)}`);
       }
     } catch (e: any) {
       setMsg(`Lỗi kết nối: ${e.message}`);

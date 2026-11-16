@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatApiError } from '../utils/formatError.ts';
 
 export const AdminBillingSettingsTab: React.FC = () => {
   const [settings, setSettings] = useState({
@@ -64,7 +65,7 @@ export const AdminBillingSettingsTab: React.FC = () => {
         setWebhookSecretInput('');
         if (data.settings) setSettings(data.settings);
       } else {
-        setMsg(`Lỗi: ${data.detail || res.status}`);
+        setMsg(`Lỗi: ${formatApiError(data, res.status)}`);
       }
     } catch (e: any) {
       setMsg(`Lỗi mạng: ${e.message}`);

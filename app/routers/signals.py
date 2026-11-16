@@ -11,7 +11,9 @@ from app.config import (
     MAX_ENTRY_SLIPPAGE_PIPS,
     NEWS_SHIELD_MINUTES,
 )
-from app.schemas.signals import TradingViewWebhookPayload
+import re
+import secrets
+from app.schemas.signals import TradingViewWebhookPayload, TestIngestPayload, NormalizedSignalSchema
 from app.services.signal_ingestion.normalizer import normalize_tradingview_signal
 from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
 
@@ -109,17 +111,94 @@ def get_signal_stats(admin=Depends(get_current_admin)):
         }
 
 
+def _parse_raw_signal_text(text: str, default_price: float = 2900.0):
+    t = text.strip()
+    upper_t = t.upper()
+
+    action = "BUY"
+    if "SELL" in upper_t:
+        action = "SELL"
+    elif "BUY" in upper_t:
+        action = "BUY"
+
+    symbol = "XAUUSD"
+    if "GOLD" in upper_t or "XAU" in upper_t:
+        symbol = "XAUUSD"
+
+    # Match price: e.g. "BUY 2900.5" or "@ 2900" or "ENTRY 2900" or "NOW 2900"
+    price = default_price
+    m_price = re.search(r"(?:BUY|SELL|ENTRY|AT|PRICE|NOW)\s*([0-9]{4}(?:\.[0-9]+)?)", upper_t)
+    if m_price:
+        try:
+            price = float(m_price.group(1))
+        except ValueError:
+            pass
+
+    # Match TP: e.g. "TP 2880" or "TP1 2880" or "TP: 2880"
+    tp = None
+    m_tp = re.search(r"TP[1-3]?\s*[:=]?\s*([0-9]{4}(?:\.[0-9]+)?)", upper_t)
+    if m_tp:
+        try:
+            tp = float(m_tp.group(1))
+        except ValueError:
+            pass
+
+    # Match SL: e.g. "SL 2915" or "SL: 2915"
+    sl = None
+    m_sl = re.search(r"SL\s*[:=]?\s*([0-9]{4}(?:\.[0-9]+)?)", upper_t)
+    if m_sl:
+        try:
+            sl = float(m_sl.group(1))
+        except ValueError:
+            pass
+
+    return action, symbol, price, sl, tp
+
+
 @router.post("/test-ingest")
-def test_ingest_signal(p: TradingViewWebhookPayload, admin=Depends(get_current_admin)):
+def test_ingest_signal(p: TestIngestPayload, admin=Depends(get_current_admin)):
     """Admin & CLI: Test signal ingestion through all 4 safety guards without executing real trades."""
     now_ts = time.time()
-    norm_signal = normalize_tradingview_signal(p)
-    live_price = norm_signal.entry_price
 
+    # Get fresh market price from quotes table
+    live_price = 2900.0
     with tx() as c:
         q = c.execute("SELECT bid, ask FROM quotes ORDER BY ts DESC LIMIT 1").fetchone()
         if q:
             live_price = round((float(q["bid"]) + float(q["ask"])) / 2.0, 2)
+
+    if p.raw_message:
+        action, symbol, entry_p, sl, tp = _parse_raw_signal_text(p.raw_message, default_price=live_price)
+        norm_signal = NormalizedSignalSchema(
+            id=f"test_{secrets.token_hex(4)}",
+            source=p.source or "ADMIN_TEST_BENCH",
+            strategy_tier=p.strategy or "STANDARD",
+            symbol=symbol,
+            action=action,
+            entry_price=entry_p,
+            stop_loss=sl,
+            take_profit=tp,
+            created_at=now_ts,
+            raw_payload={"raw_message": p.raw_message},
+        )
+    else:
+        # Fall back to structured parameters
+        action = (p.action or "BUY").upper()
+        if action not in ("BUY", "SELL"):
+            action = "BUY"
+        entry_price = float(p.price or p.entry_price or live_price)
+        norm_signal = NormalizedSignalSchema(
+            id=f"test_{secrets.token_hex(4)}",
+            source=p.source or "ADMIN_TEST_BENCH",
+            strategy_tier=p.strategy or "STANDARD",
+            symbol=p.symbol or p.ticker or "XAUUSD",
+            action=action,
+            entry_price=entry_price,
+            stop_loss=p.sl or p.stop_loss,
+            take_profit=p.tp or p.take_profit,
+            created_at=now_ts,
+            raw_payload={"source": p.source},
+        )
 
     approved, reject_reason, sanitized = sanitize_and_audit_signal(
         signal=norm_signal,
@@ -138,4 +217,5 @@ def test_ingest_signal(p: TradingViewWebhookPayload, admin=Depends(get_current_a
         "live_price": live_price,
         "reject_reason": reject_reason,
     }
+
 

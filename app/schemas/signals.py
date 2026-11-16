@@ -27,3 +27,16 @@ class TradingViewWebhookPayload(BaseModel):
     strategy: Optional[str] = "STANDARD"
     secret: Optional[str] = None
 
+
+class TestIngestPayload(BaseModel):
+    raw_message: Optional[str] = None
+    action: Optional[str] = None
+    price: Optional[float] = None
+    symbol: Optional[str] = "XAUUSD"
+    ticker: Optional[str] = None
+    sl: Optional[float] = None
+    tp: Optional[float] = None
+    source: Optional[str] = "ADMIN_TEST_BENCH"
+    strategy: Optional[str] = "STANDARD"
+
+

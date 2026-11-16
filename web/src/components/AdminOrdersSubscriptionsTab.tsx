@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fmtNum, fmtTime } from '../utils/strategyDecision';
+import { formatApiError } from '../utils/formatError.ts';
 
 export const AdminOrdersSubscriptionsTab: React.FC = () => {
   const [summary, setSummary] = useState<any>(null);
@@ -52,7 +53,7 @@ export const AdminOrdersSubscriptionsTab: React.FC = () => {
         setActionMsg(data.message || `Đã duyệt đơn ${orderCode} và cấp phát khe cắm Cloud MT5 thành công.`);
         fetchData();
       } else {
-        setActionMsg(`Lỗi duyệt đơn: ${data.detail || res.status}`);
+        setActionMsg(`Lỗi duyệt đơn: ${formatApiError(data, res.status)}`);
       }
     } catch (e: any) {
       setActionMsg(`Lỗi kết nối: ${e.message}`);
@@ -85,7 +86,7 @@ export const AdminOrdersSubscriptionsTab: React.FC = () => {
         fetchData();
       } else {
         const d = await res.json().catch(() => ({}));
-        setActionMsg(`Lỗi: ${d.detail || res.status}`);
+        setActionMsg(`Lỗi: ${formatApiError(d, res.status)}`);
       }
     } catch (e: any) {
       setActionMsg(`Lỗi: ${e.message}`);

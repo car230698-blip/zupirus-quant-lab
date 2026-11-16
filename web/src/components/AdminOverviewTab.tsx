@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { fmtNum, fmtTime } from '../utils/strategyDecision';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
+import { formatApiError } from '../utils/formatError.ts';
 
 export interface AdminOverviewTabProps {
   monitorData?: any;
@@ -136,7 +137,7 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
         fetchSignalAudit();
         if (refetchAll) refetchAll();
       } else {
-        setTestSignalMsg(`Lỗi: ${data.detail || res.status}`);
+        setTestSignalMsg(`Lỗi: ${formatApiError(data, res.status)}`);
       }
     } catch (e: any) {
       setTestSignalMsg(`Lỗi mạng: ${e.message}`);
