@@ -70,7 +70,6 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
-      METAAPI_TOKEN: ${METAAPI_TOKEN:-}
     ports: ["127.0.0.1:8080:8000"]
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz',timeout=3)"]
