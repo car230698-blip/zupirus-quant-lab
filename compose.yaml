@@ -71,6 +71,11 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
     ports: ["127.0.0.1:8080:8000"]
+    networks:
+      private:
+      npm_default:
+        aliases:
+          - zupirus-api
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz',timeout=3)"]
       interval: 10s
@@ -161,3 +166,5 @@ volumes:
 
 networks:
   private:
+  npm_default:
+    external: true
