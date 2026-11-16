@@ -71,7 +71,6 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
     ports: ["127.0.0.1:8080:8000"]
     networks:
       private:
