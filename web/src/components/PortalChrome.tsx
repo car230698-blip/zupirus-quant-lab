@@ -9,30 +9,24 @@ const navigation = {
     ['orders', 'Lịch sử lệnh', '≡'], ['assistant', 'Trợ lý AI', '✦'],
   ],
   admin: [
-    ['overview', 'Điều hành', '◫'],
-    ['sources', 'Nguồn & Phễu Agent', '⚡'],
-    ['billing', 'Cổng thanh toán & Tỷ giá', '💳'],
-    ['approvals', 'Phê duyệt', '◇'],
-    ['activity', 'Hoạt động agent', '⌁'],
-    ['tracing', 'Truy vết AI', '⊙'],
-    ['news', 'Lịch rủi ro', '≡'],
-    ['users', 'Người dùng', '👥'],
-    ['ai', 'Bộ nhớ & Gemini', '🧠'],
+    ['overview', 'Tổng quan điều hành', '◫'],
+    ['billing', 'Cấu hình thanh toán & Tỷ giá', '💳'],
+    ['sources', 'Nguồn tín hiệu & Phễu AI', '⚡'],
+    ['orders', 'Quản lý đơn hàng & Gói cước', '≡'],
+    ['infrastructure', 'Hạ tầng Cloud MT5', '⌁'],
+    ['risk_users', 'Lá chắn rủi ro & Người dùng', '🛡️'],
   ],
 };
 
 const pageTitles: Record<Portal, Record<string, string>> = {
   user: { overview: 'Tổng quan danh mục', accounts: 'Tài khoản MT5', orders: 'Lịch sử lệnh', assistant: 'Trợ lý định lượng' },
   admin: {
-    overview: 'Điều hành hệ thống',
-    sources: 'Phễu Tuyển Chọn Nguồn & Chế Độ Agent',
-    billing: 'Cổng Thanh Toán SePay & Quản Lý Tỷ Giá',
-    approvals: 'Phê duyệt chiến lược',
-    activity: 'Hoạt động agent',
-    tracing: 'Truy vết AI',
-    news: 'Lịch rủi ro',
-    users: 'Quản trị người dùng',
-    ai: 'Bộ nhớ Hindsight & Gemini API',
+    overview: 'Tổng Quan Điều Hành (Executive Overview)',
+    billing: 'Cấu Hình Thanh Toán SePay & Quản Lý Tỷ Giá',
+    sources: 'Nguồn Tín Hiệu, Phễu Cào & Kho Kỹ Năng AI Agent',
+    orders: 'Quản Lý Đơn Hàng & Kích Hoạt Gói Cước',
+    infrastructure: 'Quản Trị Hạ Tầng Cloud MT5 & Kết Nối MetaApi',
+    risk_users: 'Lá Chắn Rủi Ro Toàn Hệ Thống & Quản Trị Người Dùng',
   },
 };
 
@@ -64,7 +58,7 @@ export function PortalShell({ portal, page, onNavigate, email, switchPortal, log
         <div className="quant-sidebar-end"><span aria-hidden="true">↘</span> XAU/USD <small>·</small> MT5</div>
       </div>
       <div className="quant-stage">
-        <LiveTopTelemetryBar />
+        {portal === 'admin' && <LiveTopTelemetryBar />}
         <div className="quant-topbar">
           <span className="quant-context">{portal === 'admin' ? 'Quản trị' : 'Danh mục'} <span aria-hidden="true">/</span> {navigation[portal].find(([key]) => key === page)?.[1]}</span>
           <div className="quant-session">

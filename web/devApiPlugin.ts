@@ -1213,6 +1213,54 @@ export function zupirusApiPlugin(): Plugin {
       });
     }
 
+    if (pathname === '/api/v1/billing/admin/revenue' && method === 'GET') {
+      return sendJson(res, 200, {
+        total_orders: 12,
+        total_revenue_usd: 540.0,
+        total_revenue_vnd: 13890000,
+        pending_orders: 2,
+        paid_orders: 10,
+        current_fx_rate: 25729.33,
+        fx_source: 'API',
+      });
+    }
+
+    if (pathname === '/api/v1/billing/admin/orders' && method === 'GET') {
+      return sendJson(res, 200, {
+        total: 2,
+        orders: [
+          {
+            id: 'ord_15e8e3467903',
+            user_id: 'usr_001',
+            user_email: 'car230698@gmail.com',
+            amount_usd: 30.0,
+            amount_vnd: 772000,
+            locked_exchange_rate: 25729.33,
+            plan_tier: 'starter',
+            cloud_slots_count: 1,
+            status: 'PAID',
+            payment_gateway: 'SEPAY',
+            created_at: nowSec() - 1800,
+            expires_at: nowSec() + 1800,
+          },
+          {
+            id: 'ord_b3432835ec32',
+            user_id: 'usr_002',
+            user_email: 'trader@propfirm.vn',
+            amount_usd: 45.0,
+            amount_vnd: 1158000,
+            locked_exchange_rate: 25729.33,
+            plan_tier: 'growth',
+            cloud_slots_count: 2,
+            status: 'PENDING',
+            payment_gateway: 'SEPAY',
+            created_at: nowSec() - 600,
+            expires_at: nowSec() + 600,
+          }
+        ]
+      });
+    }
+
     if (pathname === '/api/admin/payments' && method === 'GET') {
       return sendJson(res, 200, {
         total_revenue_vnd: 24500000.0,

@@ -1,5 +1,6 @@
 """Billing, real-time exchange rates, and checkout endpoints."""
 import time
+from typing import Optional
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException
 from app.db import tx
@@ -15,6 +16,7 @@ from app.services.billing_service import (
     create_checkout_order,
     get_user_subscription,
     process_successful_payment,
+    get_effective_sepay_config,
     TIER_PRICES,
 )
 from app.config import (
@@ -86,11 +88,12 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
 
         content_memo = f"ZP {d['id'][-6:].upper()}"
         encoded_memo = quote(content_memo)
-        qr_url = f"https://qr.sepay.vn/img?acc={SEPAY_ACCOUNT_NUMBER}&bank={SEPAY_BANK_NAME}&amount={d['amount_vnd']}&des={encoded_memo}"
+        bank_name, bank_acc, bank_holder = get_effective_sepay_config()
+        qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={d['amount_vnd']}&des={encoded_memo}"
         d["qr_code_url"] = qr_url
-        d["account_number"] = SEPAY_ACCOUNT_NUMBER
-        d["bank_name"] = SEPAY_BANK_NAME
-        d["account_holder"] = SEPAY_ACCOUNT_HOLDER
+        d["account_number"] = bank_acc
+        d["bank_name"] = bank_name
+        d["account_holder"] = bank_holder
         d["payment_content"] = content_memo
         return OrderResponse(**d)
 
@@ -137,4 +140,40 @@ def get_admin_revenue_stats(admin=Depends(get_current_admin)):
             "current_fx_rate": rate,
             "fx_source": source,
         }
+
+
+@router.get("/admin/orders")
+def get_admin_orders(
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    admin=Depends(get_current_admin)
+):
+    """Admin endpoint: Retrieve list of SePay orders with customer email, status and FX rate."""
+    with tx() as c:
+        query = """
+            SELECT o.*, u.email as user_email
+            FROM orders o
+            LEFT JOIN users u ON u.id = o.user_id
+        """
+        params = []
+        if status and status.upper() != "ALL":
+            query += " WHERE o.status = ?"
+            params.append(status.upper())
+        query += " ORDER BY o.created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        rows = c.execute(query, tuple(params)).fetchall()
+
+        count_sql = "SELECT count(*) FROM orders" + (" WHERE status = ?" if status and status.upper() != "ALL" else "")
+        count_params = (status.upper(),) if status and status.upper() != "ALL" else ()
+        total_row = c.execute(count_sql, count_params).fetchone()
+        total = total_row[0] if total_row else len(rows)
+
+        orders = []
+        for r in rows:
+            d = dict(r)
+            orders.append(d)
+
+    return {"total": total, "orders": orders}
 

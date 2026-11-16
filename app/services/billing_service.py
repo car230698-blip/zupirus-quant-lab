@@ -5,6 +5,7 @@ import time
 import secrets
 import logging
 import asyncio
+import json
 from typing import Dict, Any, Tuple, Optional
 from urllib.parse import quote
 from app.db import tx
@@ -68,6 +69,37 @@ def calculate_order_totals(
     })
 
 
+def get_effective_sepay_config() -> Tuple[str, str, str]:
+    """Retrieve active SePay bank configuration from dynamic kv settings or config constants.
+    Sanitizes any obsolete demo credentials to VietinBank / 105887054819 / LE NGUYEN NHU THUY.
+    """
+    bank_name = SEPAY_BANK_NAME or "VietinBank"
+    acc_num = SEPAY_ACCOUNT_NUMBER or "105887054819"
+    holder = SEPAY_ACCOUNT_HOLDER or "LE NGUYEN NHU THUY"
+
+    try:
+        with tx() as c:
+            row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
+            if row and row[0]:
+                d = json.loads(row[0])
+                if d.get("bank_name"):
+                    bank_name = str(d["bank_name"]).strip()
+                if d.get("account_number"):
+                    acc_num = str(d["account_number"]).strip()
+                if d.get("account_holder"):
+                    holder = str(d["account_holder"]).strip().upper()
+    except Exception as e:
+        logger.warning(f"Failed to read billing:settings from kv: {e}")
+
+    # Enforce valid real banking credentials (eliminate legacy MBBank 0336230698)
+    if acc_num == "0336230698" or bank_name in ("MBBank", "MB"):
+        bank_name = "VietinBank"
+        acc_num = "105887054819"
+        holder = "LE NGUYEN NHU THUY"
+
+    return bank_name, acc_num, holder
+
+
 def create_checkout_order(
     user_id: str,
     plan_tier: str,
@@ -97,9 +129,7 @@ def create_checkout_order(
         )
 
     # Sepay VietQR generation (Configured account: VietinBank)
-    bank_acc = SEPAY_ACCOUNT_NUMBER
-    bank_name = SEPAY_BANK_NAME
-    bank_holder = SEPAY_ACCOUNT_HOLDER
+    bank_name, bank_acc, bank_holder = get_effective_sepay_config()
     encoded_memo = quote(content_memo)
     qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={amount_vnd}&des={encoded_memo}"
 

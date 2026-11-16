@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient.ts';
-import { readStrategyDecision } from './utils/strategyDecision.ts';
 import { useOrderQuery } from './hooks/useOrderQuery.ts';
 import { PortalAuth, PortalShell } from './components/PortalChrome.tsx';
 import { UserOverviewTab } from './components/UserOverviewTab.tsx';
@@ -10,22 +9,17 @@ import { UserOrdersTab } from './components/UserOrdersTab.tsx';
 import { AdminOverviewTab } from './components/AdminOverviewTab.tsx';
 import { AdminSourcesTab } from './components/AdminSourcesTab.tsx';
 import { AdminBillingSettingsTab } from './components/AdminBillingSettingsTab.tsx';
-import { AdminActivityTab } from './components/AdminActivityTab.tsx';
-import { AdminTracingTab } from './components/AdminTracingTab.tsx';
-import { AdminRiskCalendarTab } from './components/AdminRiskCalendarTab.tsx';
-import { AdminUsersTab, type AdminUser } from './components/AdminUsersTab.tsx';
-import { AdminAITab, type GeminiKeyItem, type HindsightMemoryItem } from './components/AdminAITab.tsx';
+import { AdminOrdersSubscriptionsTab } from './components/AdminOrdersSubscriptionsTab.tsx';
+import { AdminCloudInfrastructureTab } from './components/AdminCloudInfrastructureTab.tsx';
+import { AdminRiskShieldUsersTab } from './components/AdminRiskShieldUsersTab.tsx';
 import { LandingPage } from './components/LandingPage.tsx';
 
 const CustomerAssistant = lazy(() =>
   import('./components/CustomerAssistant.tsx').then((module) => ({ default: module.CustomerAssistant }))
 );
-const AdminApprovalQueue = lazy(() =>
-  import('./components/AdminApprovalQueue.tsx').then((module) => ({ default: module.AdminApprovalQueue }))
-);
 
 type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
-type AdminTabKey = 'overview' | 'sources' | 'billing' | 'approvals' | 'activity' | 'tracing' | 'news' | 'users' | 'ai';
+type AdminTabKey = 'overview' | 'billing' | 'sources' | 'orders' | 'infrastructure' | 'risk_users';
 export type PortalType = 'landing' | 'user' | 'admin';
 
 interface UserInfo {
@@ -80,49 +74,15 @@ const AppContent: React.FC = () => {
 
   // Admin & Monitoring state
   const [monitorData, setMonitorData] = useState<any>({ accounts: [], audit: [], jobs: [], news: [], halted: null });
-  const [tracingData, setTracingData] = useState<any>(null);
   const [readyData, setReadyData] = useState<any>(null);
-
-  // Activity filter state
-  const [activityTeamFilter, setActivityTeamFilter] = useState<'all' | 'execution' | 'research' | 'security'>('all');
-  const [activityStatusFilter, setActivityStatusFilter] = useState('all');
-  const [activitySearchQuery, setActivitySearchQuery] = useState<string>('');
 
   // User Order Filters
   const [orderAccountFilter, setOrderAccountFilter] = useState<string>('all');
   const [orderStateFilter, setOrderStateFilter] = useState<string>('all');
 
-  // Admin Orders state (from /api/admin/orders)
-  const [adminOrderPage, setAdminOrderPage] = useState<number>(0);
-  const [adminAccountFilter, setAdminAccountFilter] = useState<string>('all');
-  const [adminOrderState, setAdminOrderState] = useState('all');
-  const [adminOrderSource, setAdminOrderSource] = useState('all');
-  const [adminOrderSearch, setAdminOrderSearch] = useState('');
-  const [adminViewMode, setAdminViewMode] = useState<'orders' | 'activity'>('orders');
-
-  // Risk Calendar state
-  const [editingNews, setEditingNews] = useState<any | null>(null);
-  const [editNewsTitle, setEditNewsTitle] = useState<string>('');
-  const [editNewsWhen, setEditNewsWhen] = useState<string>('');
-  const [editNewsImpact, setEditNewsImpact] = useState<'high' | 'medium' | 'low'>('high');
-  const [editNewsCurrency, setEditNewsCurrency] = useState<'USD' | 'ALL' | 'EUR' | 'OTHER'>('USD');
-
   // Forms & notices
   const [notice, setNotice] = useState<string | null>(null);
-  const [newsTitle, setNewsTitle] = useState('');
-  const [newsWhen, setNewsWhen] = useState('');
   const [killSwitchLoading, setKillSwitchLoading] = useState(false);
-
-  // User Management state
-  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-
-  // Gemini & Memory state
-  const [geminiKeys, setGeminiKeys] = useState<GeminiKeyItem[]>([]);
-  const [loadingGeminiKeys, setLoadingGeminiKeys] = useState(false);
-  const [hindsightMemories, setHindsightMemories] = useState<HindsightMemoryItem[]>([]);
-  const [loadingMemories, setLoadingMemories] = useState(false);
-  const [syncingCalendar, setSyncingCalendar] = useState(false);
 
   // Check auth session
   const checkAuth = useCallback(async () => {
@@ -173,9 +133,8 @@ const AppContent: React.FC = () => {
 
   const loadAdminMonitor = useCallback(async () => {
     try {
-      const [mRes, tRes, rRes] = await Promise.all([
+      const [mRes, rRes] = await Promise.all([
         fetch('/api/admin/monitor'),
-        fetch('/api/admin/tracing'),
         fetch('/readyz'),
       ]);
       if (mRes.ok) {
@@ -184,30 +143,18 @@ const AppContent: React.FC = () => {
       } else {
         setMonitorStatus('offline');
       }
-      setTracingData(tRes.ok ? await tRes.json() : null);
       if (rRes.ok || rRes.status === 503) setReadyData(await rRes.json());
     } catch {
       setMonitorStatus('offline');
-      setTracingData(null);
     }
   }, []);
 
   const userOrderParams = new URLSearchParams();
   if (orderAccountFilter !== 'all') userOrderParams.set('account_id', orderAccountFilter);
   if (orderStateFilter !== 'all') userOrderParams.set('state', orderStateFilter);
-  const systemOrderParams = new URLSearchParams({ limit: '50', offset: String(adminOrderPage * 50) });
-  if (adminAccountFilter !== 'all') systemOrderParams.set('account_id', adminAccountFilter);
-  if (adminOrderState !== 'all') systemOrderParams.set('state', adminOrderState);
-  if (adminOrderSource !== 'all') systemOrderParams.set('team', adminOrderSource);
-  if (adminOrderSearch.trim()) systemOrderParams.set('search', adminOrderSearch.trim());
   const sessionKey = currentUser?.email ?? null;
   const userOrderQuery = useOrderQuery(portal === 'user' && userTab === 'orders' && currentUser
     ? `/api/dashboard?${userOrderParams}` : null, sessionKey);
-  const systemOrders = useOrderQuery(
-    portal === 'admin' && adminTab === 'activity' && adminViewMode === 'orders' && currentUser?.role === 'admin'
-      ? `/api/admin/orders?${systemOrderParams}` : null,
-    sessionKey,
-  );
 
   useEffect(() => {
     checkAuth();
@@ -301,396 +248,6 @@ const AppContent: React.FC = () => {
       setKillSwitchLoading(false);
     }
   };
-
-  const handleAddNews = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newsTitle.trim()) return;
-    const ts = newsWhen ? new Date(newsWhen).getTime() / 1000 : NaN;
-    if (!Number.isFinite(ts) || ts <= 0) return showNotice('Hãy nhập thời điểm sự kiện hợp lệ.');
-    const res = await fetch('/api/admin/news', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({
-        currency: 'USD',
-        impact: 'high',
-        title: newsTitle.trim(),
-        ts,
-      }),
-    });
-    if (res.ok) {
-      setNewsTitle('');
-      setNewsWhen('');
-      showNotice('Đã thêm sự kiện tin tức USD High Impact (bảo vệ tài khoản: chặn lệnh mới ±15 phút).');
-      await loadAdminMonitor();
-    } else {
-      showNotice('Không thể thêm sự kiện. Vui lòng kiểm tra thời điểm sự kiện.');
-    }
-  };
-
-  const handleUpdateNews = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingNews || !editNewsTitle.trim()) return;
-    const ts = editNewsWhen ? new Date(editNewsWhen).getTime() / 1000 : NaN;
-    if (!Number.isFinite(ts) || ts <= 0) return showNotice('Hãy nhập thời điểm sự kiện hợp lệ.');
-    const res = await fetch(`/api/admin/news/${editingNews.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({
-        title: editNewsTitle.trim(),
-        currency: editNewsCurrency,
-        impact: editNewsImpact,
-        ts,
-      }),
-    });
-    if (res.ok) {
-      setEditingNews(null);
-      showNotice('Đã cập nhật sự kiện lịch rủi ro và ghi nhật ký audit.');
-      await loadAdminMonitor();
-    } else {
-      showNotice('Không thể cập nhật sự kiện.');
-    }
-  };
-
-  const handleDeleteNews = async (nid: string) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa sự kiện rủi ro này? Thao tác sẽ được ghi vào nhật ký audit.')) return;
-    const res = await fetch(`/api/admin/news/${nid}`, {
-      method: 'DELETE',
-      headers: { 'X-Zupirus': '1' },
-    });
-    if (res.ok) {
-      showNotice('Đã xóa sự kiện lịch rủi ro và ghi nhật ký audit.');
-      await loadAdminMonitor();
-    } else {
-      showNotice('Không thể xóa sự kiện.');
-    }
-  };
-
-  const handleSyncCalendar = async () => {
-    setSyncingCalendar(true);
-    try {
-      const res = await fetch('/api/admin/news/sync', { method: 'POST', headers: { 'X-Zupirus': '1' } });
-      if (res.ok) {
-        const d = await res.json();
-        showNotice(`Đã tự động đồng bộ ${d.synced_count || 0} sự kiện kinh tế quan trọng`);
-        await loadAdminMonitor();
-      } else {
-        showNotice('Không thể đồng bộ lịch kinh tế tự động.');
-      }
-    } catch {
-      showNotice('Lỗi kết nối khi đồng bộ lịch kinh tế.');
-    } finally {
-      setSyncingCalendar(false);
-    }
-  };
-
-  // User Management Handlers
-  const loadAdminUsers = useCallback(async () => {
-    if (!currentUser || currentUser.role !== 'admin') return;
-    setLoadingUsers(true);
-    try {
-      const res = await fetch('/api/admin/users');
-      if (res.ok) {
-        const d = await res.json();
-        setAdminUsers(d.users || []);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoadingUsers(false);
-    }
-  }, [currentUser]);
-
-  const handleCreateUser = async (email: string, pass: string, role: string) => {
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ email, password: pass, role }),
-      });
-      if (res.ok) {
-        showNotice(`Đã tạo thành công tài khoản ${email}`);
-        await loadAdminUsers();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        showNotice(`Lỗi: ${err.detail || 'Không thể tạo tài khoản'}`);
-      }
-    } catch {
-      showNotice('Lỗi kết nối khi tạo tài khoản');
-    }
-  };
-
-  const handleToggleUserRole = async (uid: string, newRole: string) => {
-    try {
-      const res = await fetch(`/api/admin/users/${uid}/role`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ role: newRole }),
-      });
-      if (res.ok) {
-        showNotice(`Đã cập nhật vai trò thành ${newRole}`);
-        await loadAdminUsers();
-      }
-    } catch {
-      showNotice('Lỗi khi cập nhật vai trò người dùng');
-    }
-  };
-
-  const handleResetUserPassword = async (uid: string, newPass: string) => {
-    try {
-      const res = await fetch(`/api/admin/users/${uid}/password`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ password: newPass }),
-      });
-      if (res.ok) {
-        showNotice('Đã đặt lại mật khẩu thành công');
-      }
-    } catch {
-      showNotice('Lỗi khi đặt lại mật khẩu');
-    }
-  };
-
-  const handleDeleteUser = async (uid: string) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xoá người dùng này?')) return;
-    try {
-      const res = await fetch(`/api/admin/users/${uid}`, { method: 'DELETE', headers: { 'X-Zupirus': '1' } });
-      if (res.ok) {
-        showNotice('Đã xoá người dùng');
-        await loadAdminUsers();
-      }
-    } catch {
-      showNotice('Lỗi khi xoá người dùng');
-    }
-  };
-
-  // Gemini & Memory Handlers
-  const loadGeminiKeys = useCallback(async () => {
-    if (!currentUser || currentUser.role !== 'admin') return;
-    setLoadingGeminiKeys(true);
-    try {
-      const res = await fetch('/api/admin/gemini/keys');
-      if (res.ok) {
-        const d = await res.json();
-        setGeminiKeys(d.keys || []);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoadingGeminiKeys(false);
-    }
-  }, [currentUser]);
-
-  const handleAddGeminiKey = async (key: string, name?: string) => {
-    try {
-      const res = await fetch('/api/admin/gemini/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ key, name }),
-      });
-      if (res.ok) {
-        showNotice('Đã thêm API Key Gemini vào bể xoay vòng');
-        await loadGeminiKeys();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        showNotice(`Lỗi: ${err.detail || 'Không thể thêm API Key'}`);
-      }
-    } catch {
-      showNotice('Lỗi kết nối khi thêm API Key');
-    }
-  };
-
-  const handleToggleGeminiKey = async (kid: string) => {
-    try {
-      const res = await fetch(`/api/admin/gemini/keys/${kid}/toggle`, { method: 'PUT', headers: { 'X-Zupirus': '1' } });
-      if (res.ok) {
-        await loadGeminiKeys();
-      }
-    } catch {
-      showNotice('Lỗi khi cập nhật trạng thái khóa');
-    }
-  };
-
-  const handleDeleteGeminiKey = async (kid: string) => {
-    if (!window.confirm('Bạn có chắc muốn xoá khóa Gemini này khỏi bể?')) return;
-    try {
-      const res = await fetch(`/api/admin/gemini/keys/${kid}`, { method: 'DELETE', headers: { 'X-Zupirus': '1' } });
-      if (res.ok) {
-        showNotice('Đã xoá API Key khỏi bể');
-        await loadGeminiKeys();
-      }
-    } catch {
-      showNotice('Lỗi khi xoá API Key');
-    }
-  };
-
-  const handleTestGemini = async (prompt: string) => {
-    try {
-      const res = await fetch('/api/admin/gemini/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ prompt }),
-      });
-      return await res.json();
-    } catch (e: any) {
-      return { success: false, error: e.message || 'Lỗi kết nối máy chủ' };
-    }
-  };
-
-  const loadHindsightMemories = useCallback(async () => {
-    if (!currentUser || currentUser.role !== 'admin') return;
-    setLoadingMemories(true);
-    try {
-      const res = await fetch('/api/admin/memory');
-      if (res.ok) {
-        const d = await res.json();
-        setHindsightMemories(d.memories || []);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoadingMemories(false);
-    }
-  }, [currentUser]);
-
-  const handleAddMemory = async (category: 'episodic' | 'semantic' | 'reflective', content: string) => {
-    try {
-      const res = await fetch('/api/admin/memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ category, content }),
-      });
-      if (res.ok) {
-        showNotice('Đã lưu ký ức vào bộ nhớ Hindsight');
-        await loadHindsightMemories();
-      }
-    } catch {
-      showNotice('Lỗi khi ghi nhớ vào Hindsight');
-    }
-  };
-
-  const handleDeleteMemory = async (mid: string) => {
-    try {
-      const res = await fetch(`/api/admin/memory/${mid}`, { method: 'DELETE', headers: { 'X-Zupirus': '1' } });
-      if (res.ok) {
-        await loadHindsightMemories();
-      }
-    } catch {
-      showNotice('Lỗi khi xoá ký ức');
-    }
-  };
-
-  // Swarm state
-  const [swarmStatus, setSwarmStatus] = useState<any>(null);
-
-  const loadSwarmStatus = useCallback(async () => {
-    if (!currentUser || currentUser.role !== 'admin') return;
-    try {
-      const res = await fetch('/api/admin/swarm/status');
-      if (res.ok) setSwarmStatus(await res.json());
-    } catch {
-      // ignore
-    }
-  }, [currentUser]);
-
-  const handleTriggerSwarm = async () => {
-    try {
-      const res = await fetch('/api/admin/swarm/cycle', { method: 'POST', headers: { 'X-Zupirus': '1' } });
-      if (res.ok) {
-        showNotice('Đã kích hoạt chu kỳ điều phối Swarm thành công');
-        await loadSwarmStatus();
-      }
-    } catch {
-      showNotice('Lỗi khi kích hoạt chu kỳ Swarm');
-    }
-  };
-
-  const handleRunMonteCarlo = async () => {
-    try {
-      const res = await fetch('/api/quant/monte-carlo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ iterations: 10000, ruin_drawdown_pct: 20.0 }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        showNotice(`Mô phỏng Monte Carlo hoàn tất: VaR 95% = ${d.var_95_max_drawdown_pct}%, Ruin = ${d.risk_of_ruin_pct}%`);
-        return d;
-      }
-    } catch {
-      showNotice('Lỗi khi chạy mô phỏng Monte Carlo');
-    }
-    return null;
-  };
-
-  useEffect(() => {
-    if (currentUser?.role === 'admin') {
-      if (adminTab === 'users') {
-        loadAdminUsers();
-      } else if (adminTab === 'ai') {
-        loadGeminiKeys();
-        loadHindsightMemories();
-        loadSwarmStatus();
-      }
-    }
-  }, [currentUser, adminTab, loadAdminUsers, loadGeminiKeys, loadHindsightMemories, loadSwarmStatus]);
-
-  // Consolidated activity items
-  const consolidatedActivities = useMemo(() => {
-    const list: any[] = [];
-    // From audit logs
-    (monitorData.audit || []).forEach((a: any) => {
-      let team = 'security';
-      if (a.event.includes('replay') || a.event.includes('signal') || a.event.includes('dispatch') || a.event.includes('deal')) {
-        team = 'execution';
-      } else if (a.event.includes('research') || a.event.includes('walk_forward') || a.event.includes('approval')) {
-        team = 'research';
-      }
-      list.push({
-        id: `audit_${a.id}`,
-        ts: a.ts,
-        team,
-        type: 'audit',
-        event: a.event,
-        actor: a.actor,
-        status: 'completed',
-        detail: typeof a.detail === 'string' ? a.detail : JSON.stringify(a.detail),
-      });
-    });
-
-    // From jobs (Research Walk-Forward)
-    (monitorData.jobs || []).forEach((j: any) => {
-      list.push({
-        id: `job_${j.id}`,
-        ts: j.created || Date.now() / 1000,
-        team: 'research',
-        type: 'job',
-        event: 'walk_forward_evaluation',
-        actor: 'langgraph_worker',
-        status: j.state,
-        detail: `Mã kiểm định: ${j.id} · ${j.decision == null ? 'Chưa có quyết định' : j.decision ? 'Đã duyệt' : 'Đã từ chối'}`,
-      });
-    });
-
-    // Sort descending by timestamp
-    return list.sort((a, b) => b.ts - a.ts);
-  }, [monitorData]);
-
-  const filteredActivities = useMemo(() => {
-    return consolidatedActivities.filter((item) => {
-      if (activityTeamFilter !== 'all' && item.team !== activityTeamFilter) return false;
-      if (activityStatusFilter !== 'all' && item.status !== activityStatusFilter) return false;
-      if (activitySearchQuery.trim()) {
-        const q = activitySearchQuery.toLowerCase();
-        const matches =
-          item.id.toLowerCase().includes(q) ||
-          item.event.toLowerCase().includes(q) ||
-          item.detail.toLowerCase().includes(q) ||
-          item.actor.toLowerCase().includes(q);
-        if (!matches) return false;
-      }
-      return true;
-    });
-  }, [consolidatedActivities, activityTeamFilter, activityStatusFilter, activitySearchQuery]);
 
   // Calculations for User Dashboard
   const accounts = dashboard.accounts || [];
@@ -842,107 +399,19 @@ const AppContent: React.FC = () => {
               researchActive={researchActive}
               lastResearchJob={lastResearchJob}
               formatHeartbeat={formatHeartbeat}
-              onNavigateApprovals={() => setAdminTab('approvals')}
+              onNavigateApprovals={() => setAdminTab('sources')}
             />
           )}
-
-          {adminTab === 'sources' && <AdminSourcesTab />}
 
           {adminTab === 'billing' && <AdminBillingSettingsTab />}
 
-          {adminTab === 'approvals' && (
-            <div className="space-y-6">
-              <Suspense fallback={<div className="quant-status" role="status">Đang tải hàng đợi…</div>}>
-                <AdminApprovalQueue decision={readStrategyDecision(dashboard.health?.strategy_last_decision)} />
-              </Suspense>
-            </div>
-          )}
+          {adminTab === 'sources' && <AdminSourcesTab />}
 
-          {adminTab === 'activity' && (
-            <AdminActivityTab
-              adminViewMode={adminViewMode}
-              setAdminViewMode={setAdminViewMode}
-              adminOrdersTotal={systemOrders.data?.total ?? 0}
-              filteredActivities={filteredActivities}
-              adminAccountFilter={adminAccountFilter}
-              setAdminAccountFilter={setAdminAccountFilter}
-              adminOrderPage={adminOrderPage}
-              setAdminOrderPage={setAdminOrderPage}
-              activityStatusFilter={activityStatusFilter}
-              setActivityStatusFilter={setActivityStatusFilter}
-              activityTeamFilter={activityTeamFilter}
-              setActivityTeamFilter={setActivityTeamFilter}
-              activitySearchQuery={activitySearchQuery}
-              setActivitySearchQuery={setActivitySearchQuery}
-              accounts={monitorData.accounts || []}
-              adminOrders={systemOrders.data?.orders ?? []}
-              ordersStatus={systemOrders.status}
-              adminOrderState={adminOrderState}
-              setAdminOrderState={setAdminOrderState}
-              adminOrderSource={adminOrderSource}
-              setAdminOrderSource={setAdminOrderSource}
-              adminOrderSearch={adminOrderSearch}
-              setAdminOrderSearch={setAdminOrderSearch}
-            />
-          )}
+          {adminTab === 'orders' && <AdminOrdersSubscriptionsTab />}
 
-          {adminTab === 'tracing' && (
-            <AdminTracingTab tracingData={tracingData} />
-          )}
+          {adminTab === 'infrastructure' && <AdminCloudInfrastructureTab />}
 
-          {adminTab === 'news' && (
-            <AdminRiskCalendarTab
-              monitorData={monitorData}
-              newsTitle={newsTitle}
-              setNewsTitle={setNewsTitle}
-              newsWhen={newsWhen}
-              setNewsWhen={setNewsWhen}
-              handleAddNews={handleAddNews}
-              editingNews={editingNews}
-              setEditingNews={setEditingNews}
-              editNewsTitle={editNewsTitle}
-              setEditNewsTitle={setEditNewsTitle}
-              editNewsWhen={editNewsWhen}
-              setEditNewsWhen={setEditNewsWhen}
-              editNewsCurrency={editNewsCurrency}
-              setEditNewsCurrency={setEditNewsCurrency}
-              editNewsImpact={editNewsImpact}
-              setEditNewsImpact={setEditNewsImpact}
-              handleUpdateNews={handleUpdateNews}
-              handleDeleteNews={handleDeleteNews}
-              onSyncCalendar={handleSyncCalendar}
-              syncing={syncingCalendar}
-            />
-          )}
-
-          {adminTab === 'users' && (
-            <AdminUsersTab
-              users={adminUsers}
-              loading={loadingUsers}
-              onCreateUser={handleCreateUser}
-              onToggleRole={handleToggleUserRole}
-              onResetPassword={handleResetUserPassword}
-              onDeleteUser={handleDeleteUser}
-            />
-          )}
-
-          {adminTab === 'ai' && (
-            <AdminAITab
-              keys={geminiKeys}
-              memories={hindsightMemories}
-              loadingKeys={loadingGeminiKeys}
-              loadingMemories={loadingMemories}
-              onAddKey={handleAddGeminiKey}
-              onToggleKey={handleToggleGeminiKey}
-              onDeleteKey={handleDeleteGeminiKey}
-              onTestGemini={handleTestGemini}
-              onAddMemory={handleAddMemory}
-              onDeleteMemory={handleDeleteMemory}
-              swarmStatus={swarmStatus}
-              onTriggerSwarm={handleTriggerSwarm}
-              onRunMonteCarlo={handleRunMonteCarlo}
-            />
-          )}
+          {adminTab === 'risk_users' && <AdminRiskShieldUsersTab />}
         </>
       )}
     </PortalShell>

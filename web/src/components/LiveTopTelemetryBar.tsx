@@ -49,9 +49,11 @@ export function LiveTopTelemetryBar() {
     };
   }, []);
 
-  const midPrice = data?.xauusd?.mid ? data.xauusd.mid.toFixed(2) : '2,684.50';
-  const spread = data?.xauusd?.spread_pips !== undefined ? data.xauusd.spread_pips.toFixed(1) : '3.5';
-  const fxRate = data?.usd_vnd?.rate ? Number(data.usd_vnd.rate).toLocaleString('vi-VN') : '25.600';
+  const midPrice = data?.xauusd?.mid 
+    ? Number(data.xauusd.mid).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
+    : '---';
+  const spread = data?.xauusd?.spread_pips !== undefined ? data.xauusd.spread_pips.toFixed(1) : '---';
+  const fxRate = data?.usd_vnd?.rate ? Number(data.usd_vnd.rate).toLocaleString('vi-VN') : '---';
   const newsStatus = data?.news_shield?.status || 'CLEAR';
   const newsDist = data?.news_shield?.distance_mins !== undefined ? data.news_shield.distance_mins : 999;
   const latency = data?.metaapi_latency_ms || 28;

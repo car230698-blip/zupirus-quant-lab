@@ -924,24 +924,34 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
 
                   return (
                     <>
-                      <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white max-w-[260px] mx-auto shadow-2xl relative min-h-[260px] border border-cyan-500/20">
+                      <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white max-w-[270px] mx-auto shadow-2xl relative min-h-[270px] border border-cyan-500/20">
                         <img
                           src={sepayQr}
-                          alt="SePay VietQR"
-                          width={220}
-                          height={220}
-                          className="w-[220px] h-[220px] object-contain rounded-lg"
+                          alt="VietinBank VietQR"
+                          width={230}
+                          height={230}
+                          className="w-[230px] h-[230px] object-contain rounded-lg"
                           loading="eager"
                           onError={(e) => {
                             const target = e.currentTarget;
                             if (target.src !== fallbackQr) {
                               target.src = fallbackQr;
+                            } else {
+                              target.style.display = 'none';
+                              const fallbackEl = document.getElementById('qr-fallback-card');
+                              if (fallbackEl) fallbackEl.style.display = 'block';
                             }
                           }}
                         />
+                        <div id="qr-fallback-card" style={{ display: 'none' }} className="p-4 text-center text-slate-800">
+                          <div className="text-2xl mb-1">🏦</div>
+                          <div className="font-bold text-xs text-blue-900">VietinBank (ICB)</div>
+                          <div className="text-[11px] text-slate-600 font-mono mt-1 font-bold">{displayAcc}</div>
+                          <div className="text-[10px] text-slate-500 mt-2">Chuyển khoản theo số tài khoản bên dưới để tự động kích hoạt</div>
+                        </div>
                         <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-sans font-medium text-slate-700">
                           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                          <span>Quét mã trên App Ngân hàng bất kỳ</span>
+                          <span>Quét mã trên App VietinBank / App Ngân hàng bất kỳ</span>
                         </div>
                       </div>
 
@@ -959,7 +969,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                       <div className="space-y-2 text-left bg-slate-950/70 p-3.5 rounded-xl border border-slate-800">
                         <div className="flex justify-between items-center">
                           <span className="text-slate-400">Ngân hàng:</span>
-                          <span className="font-bold text-slate-200">{displayBank}</span>
+                          <span className="font-bold text-slate-200">{displayBank} (ICB)</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="text-slate-400">Chủ tài khoản:</span>
@@ -968,14 +978,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                         <div className="flex justify-between items-center">
                           <span className="text-slate-400">Số tài khoản:</span>
                           <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-cyan-300 select-all">{displayAcc}</span>
+                            <span className="font-bold text-cyan-300 select-all font-mono">{displayAcc}</span>
                             <button
                               type="button"
                               onClick={() => {
                                 void navigator.clipboard.writeText(displayAcc);
-                                alert('Đã sao chép số tài khoản!');
+                                alert('Đã sao chép số tài khoản: ' + displayAcc);
                               }}
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400"
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400 font-mono"
                               title="Sao chép số tài khoản"
                             >
                               Copy
@@ -985,14 +995,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                         <div className="flex justify-between items-center">
                           <span className="text-slate-400">Số tiền:</span>
                           <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-emerald-400 text-sm">{activeOrder.amount_vnd.toLocaleString('vi-VN')}₫</span>
+                            <span className="font-bold text-emerald-400 text-sm font-mono">{activeOrder.amount_vnd.toLocaleString('vi-VN')}₫</span>
                             <button
                               type="button"
                               onClick={() => {
                                 void navigator.clipboard.writeText(String(activeOrder.amount_vnd));
-                                alert('Đã sao chép số tiền!');
+                                alert('Đã sao chép số tiền: ' + activeOrder.amount_vnd.toLocaleString('vi-VN') + 'đ');
                               }}
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400"
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-mono"
                               title="Sao chép số tiền"
                             >
                               Copy
@@ -1002,14 +1012,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = () => {
                         <div className="flex justify-between items-center">
                           <span className="text-slate-400">Nội dung chuyển:</span>
                           <div className="flex items-center gap-1.5">
-                            <span className="font-black text-amber-400 text-sm select-all">{activeOrder.payment_content}</span>
+                            <span className="font-black text-amber-400 text-sm select-all font-mono">{paymentMemo}</span>
                             <button
                               type="button"
                               onClick={() => {
-                                void navigator.clipboard.writeText(activeOrder.payment_content);
-                                alert('Đã sao chép nội dung chuyển khoản!');
+                                void navigator.clipboard.writeText(paymentMemo);
+                                alert('Đã sao chép nội dung chuyển khoản: ' + paymentMemo);
                               }}
-                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-400"
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-400 font-mono"
                               title="Sao chép nội dung chuyển"
                             >
                               Copy
