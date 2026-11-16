@@ -211,7 +211,7 @@ class MetaApiClient:
             data["latency_ms"] = latency_ms
             return data
 
-    async def get_open_positions(self, metaapi_account_id: str) -> List[Dict[str, Any]]:
+    async def get_open_positions(self, metaapi_account_id: str, raise_on_error: bool = False) -> List[Dict[str, Any]]:
         """Retrieve all currently active open positions on MT5 via MetaApi."""
         if self.is_mock:
             return []
@@ -222,6 +222,8 @@ class MetaApiClient:
             if resp.status_code == 200:
                 data = resp.json()
                 return data if isinstance(data, list) else []
+            if raise_on_error:
+                raise RuntimeError(f"MetaApi get_open_positions HTTP {resp.status_code}: {resp.text[:160]}")
             return []
 
     async def modify_position_sl(

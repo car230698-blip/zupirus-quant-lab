@@ -62,13 +62,8 @@ def fail(code: int, message: str):
     raise HTTPException(code, message)
 
 def user(request: Request):
-    with tx() as c:
-        row = c.execute(
-            'SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.token=? AND s.expires>?',
-            (digest(request.cookies.get('session', '')), time.time())
-        ).fetchone()
-        if not row: fail(401, 'Đăng nhập để tiếp tục')
-        return dict(row)
+    from app.routers.deps import get_current_user
+    return get_current_user(request)
 
 def admin(u=Depends(user)):
     if u['role'] != 'admin': fail(403, 'Admin only')

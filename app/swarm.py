@@ -121,7 +121,9 @@ def run_alpha_cycle(c) -> Dict[str, Any]:
 
     active_source = SIGNAL_SOURCE
     try:
-        row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
+        row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+        if not row:
+            row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
         if row:
             active_source = row["value"] if hasattr(row, 'keys') else row[0]
     except Exception:

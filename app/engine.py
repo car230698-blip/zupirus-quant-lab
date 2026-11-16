@@ -27,16 +27,20 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
     """
     from app.config import SIGNAL_SOURCE
 
-    # Check active signal source from database or environment
+    # Check active signal mode/source from database or environment
     active_source = SIGNAL_SOURCE
     try:
         if db_cursor is not None:
-            row = db_cursor.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
+            row = db_cursor.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+            if not row:
+                row = db_cursor.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
             if row:
                 active_source = row["value"] if hasattr(row, 'keys') else row[0]
         else:
             with tx() as c:
-                row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
+                row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+                if not row:
+                    row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
                 if row:
                     active_source = row["value"] if hasattr(row, 'keys') else row[0]
     except Exception:
@@ -493,7 +497,8 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 SELECT a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
                        a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
                        a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
-                       a.account_type, a.contract_size
+                       a.account_type, a.contract_size,
+                       s.allow_alpha_strategies
                 FROM trading_accounts a
                 JOIN subscriptions s ON s.user_id = a.user_id
                 WHERE a.auto_trade = 1 AND a.deployment_state = 'DEPLOYED'
@@ -502,7 +507,20 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 """,
                 (now, now),
             ).fetchall()
-            eligible = [dict(r) for r in rows]
+            eligible = []
+            for r in rows:
+                d = dict(r)
+                if sanitized.strategy_tier == "ALPHA" and not d.get("allow_alpha_strategies"):
+                    continue
+                raw_cfg = d.get("risk_config")
+                if raw_cfg:
+                    try:
+                        cfg_obj = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
+                        d["risk_percent"] = float(cfg_obj.get("risk_percent", 1.0))
+                        d["max_lot"] = float(cfg_obj.get("max_lot", 5.0))
+                    except Exception:
+                        pass
+                eligible.append(d)
 
         if eligible:
             redis_cli = None
@@ -530,16 +548,35 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         return {"status": "ERROR", "error": str(e)}
 
 
+_ENGINE_LOOP = None
+
+
+def _run_coro(coro):
+    """Run an async coroutine on a persistent worker event loop to avoid repeated loop creation."""
+    import asyncio
+    global _ENGINE_LOOP
+    try:
+        asyncio.get_running_loop()
+        return asyncio.run(coro)
+    except RuntimeError:
+        if _ENGINE_LOOP is None or _ENGINE_LOOP.is_closed():
+            _ENGINE_LOOP = asyncio.new_event_loop()
+        return _ENGINE_LOOP.run_until_complete(coro)
+
+
 def autonomous_agent_step(force_side: Optional[str] = None, symbol: Optional[str] = None) -> Dict[str, Any]:
     """Sync wrapper for autonomous_agent_step_async used by engine tick() across supported pairs."""
-    import asyncio
     if symbol:
-        return asyncio.run(autonomous_agent_step_async(force_side=force_side, symbol=symbol))
-    from app.services.sources.streamer import SUPPORTED_SYMBOLS
-    last_res: Dict[str, Any] = {"status": "SKIPPED"}
-    for sym in SUPPORTED_SYMBOLS:
-        last_res = asyncio.run(autonomous_agent_step_async(force_side=force_side, symbol=sym))
-    return last_res
+        return _run_coro(autonomous_agent_step_async(force_side=force_side, symbol=symbol))
+
+    async def _run_all_pairs():
+        from app.services.sources.streamer import SUPPORTED_SYMBOLS
+        last_res: Dict[str, Any] = {"status": "SKIPPED"}
+        for sym in SUPPORTED_SYMBOLS:
+            last_res = await autonomous_agent_step_async(force_side=force_side, symbol=sym)
+        return last_res
+
+    return _run_coro(_run_all_pairs())
 
 
 _last_sub_lifecycle_ts = 0.0
@@ -571,9 +608,8 @@ def tick():
     if now - _last_watcher_ts >= 5.0:
         _last_watcher_ts = now
         try:
-            import asyncio
             from app.services.execution.watcher import get_position_watcher
-            asyncio.run(get_position_watcher().run_cycle())
+            _run_coro(get_position_watcher().run_cycle())
         except Exception as e:
             logger.debug(f"Position watcher cycle error: {e}")
 
@@ -586,9 +622,8 @@ def tick():
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_sub_lifecycle_ts >= 3600.0:
         _last_sub_lifecycle_ts = now
         try:
-            import asyncio
             from app.services.subscription_lifecycle import run_subscription_lifecycle_cycle
-            asyncio.run(run_subscription_lifecycle_cycle(now_ts=now))
+            _run_coro(run_subscription_lifecycle_cycle(now_ts=now))
         except Exception as e:
             logger.debug(f"Subscription lifecycle cycle error: {e}")
 

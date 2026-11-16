@@ -570,6 +570,10 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                             "INSERT INTO kv (key, value) VALUES ('signal_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                             (next_mode,),
                         )
+                        c.execute(
+                            "INSERT INTO kv (key, value) VALUES ('signal_source', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            (next_mode,),
+                        )
                         audit(c, "research_worker", "auto_promoted_strategy_and_upgraded_mode", {
                             "candidate_id": cand["id"],
                             "win_rate": win_rate,

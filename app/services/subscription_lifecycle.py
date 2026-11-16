@@ -125,7 +125,10 @@ async def run_subscription_lifecycle_cycle(
 
                 open_positions = []
                 try:
-                    open_positions = await meta_client.get_open_positions(meta_id) or []
+                    try:
+                        open_positions = await meta_client.get_open_positions(meta_id, raise_on_error=True) or []
+                    except TypeError:
+                        open_positions = await meta_client.get_open_positions(meta_id) or []
                 except Exception as e:
                     logger.debug(f"Could not check positions before undeploy for {acc['id']}: {e}")
                     open_positions = [{"id": "unknown_keep_safe"}]
