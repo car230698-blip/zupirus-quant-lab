@@ -271,3 +271,79 @@ async def test_phase_3_risk_persistence_cloud_502_and_underpaid_topup(client: Te
     assert r_ord2.status_code == 200
     assert r_ord2.json()["status"] == "PAID"
     assert r_ord2.json()["entitlement_status"] == "GRANTED"
+
+
+def test_unpaid_user_cannot_link_mt5_and_calendar_sync_works(client: TestClient, monkeypatch):
+    """Unpaid user with 0 slots must get 403 when linking MT5; ForexFactory calendar sync must succeed."""
+    monkeypatch.setenv("ENFORCE_PAID_SUBSCRIPTION_IN_TEST", "1")
+    pwd = "password12345678"
+    email = f"unpaid_{secrets.token_hex(4)}@example.com"
+    csrf = {"x-zupirus": "1"}
+
+    client.post("/api/register", json={"email": email, "password": pwd})
+    client.post("/api/login", json={"email": email, "password": pwd})
+
+    r_sub = client.get("/api/v1/billing/subscription", headers=csrf)
+    assert r_sub.status_code == 200
+    assert r_sub.json()["is_active"] is False
+    assert r_sub.json()["max_cloud_accounts"] == 0
+
+    r_link = client.post(
+        "/api/v1/accounts",
+        headers=csrf,
+        json={
+            "login": str(secrets.randbelow(80000000) + 10000000),
+            "password": "MasterPassword1!",
+            "server": "Exness-MT5Real",
+            "disclaimer_accepted": True,
+        },
+    )
+    assert r_link.status_code == 403
+
+    # Admin calendar sync must not raise 500 (Optional import fix)
+    monkeypatch.delenv("ENFORCE_PAID_SUBSCRIPTION_IN_TEST", raising=False)
+    client.post("/api/login", json={"email": "admin@zupirus.local", "password": "test-only-admin-password-123"})
+    r_sync = client.post("/api/admin/news/sync", headers=csrf)
+    assert r_sync.status_code == 200
+    assert r_sync.json()["ok"] is True
+
+
+def test_mcp_bridge_and_self_evolving_skills_approval_workflow(client: TestClient):
+    """Verify MCP Bridge endpoints and Self-Evolving Skills PENDING_APPROVAL -> Approve/Reject flow."""
+    client.post("/api/login", json={"email": "admin@zupirus.local", "password": "test-only-admin-password-123"})
+    csrf = {"x-zupirus": "1"}
+
+    # 1. List MCP servers
+    r_mcp = client.get("/api/admin/skills/mcp/servers", headers=csrf)
+    assert r_mcp.status_code == 200
+    servers = r_mcp.json()["mcp_servers"]
+    assert len(servers) >= 4
+    assert any(s["server_id"] == "mcp_yahoo_gold" for s in servers)
+
+    # 2. Toggle MCP server off & back on
+    r_off = client.put("/api/admin/skills/mcp/servers/mcp_web_fetch", json={"enabled": False}, headers=csrf)
+    assert r_off.status_code == 200
+    assert r_off.json()["server"]["enabled"] is False
+
+    r_on = client.put("/api/admin/skills/mcp/servers/mcp_web_fetch", json={"enabled": True}, headers=csrf)
+    assert r_on.status_code == 200
+    assert r_on.json()["server"]["enabled"] is True
+
+    # 3. Synthesize a self-learned skill -> defaults to PENDING_APPROVAL
+    r_synth = client.post("/api/admin/skills/synthesize-learned", headers=csrf)
+    assert r_synth.status_code == 200
+    created_skills = r_synth.json()["skills"]
+    assert len(created_skills) >= 1
+    sid = created_skills[0]["skill_id"]
+    assert created_skills[0]["status"] == "PENDING_APPROVAL"
+
+    # 4. Approve the learned skill -> ACTIVE
+    r_app = client.post(f"/api/admin/skills/{sid}/approve", headers=csrf)
+    assert r_app.status_code == 200
+    assert r_app.json()["status"] == "ACTIVE"
+
+    # 5. Clean up via reject endpoint
+    r_rej = client.post(f"/api/admin/skills/{sid}/reject", headers=csrf)
+    assert r_rej.status_code == 200
+    assert r_rej.json()["status"] == "REJECTED"
+

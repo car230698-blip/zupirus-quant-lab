@@ -118,15 +118,21 @@ class MetaApiClient:
     async def get_account_information(self, metaapi_account_id: str) -> Dict[str, Any]:
         """Retrieve real-time account metrics (balance, equity, margin, freeMargin)."""
         if self.is_mock:
-            if "unfunded" in str(metaapi_account_id).lower() or "zero" in str(metaapi_account_id).lower():
+            # In real production (outside pytest), NEVER fabricate fake $10,000 balance/equity
+            if (
+                not os.getenv("PYTEST_CURRENT_TEST")
+                or "unfunded" in str(metaapi_account_id).lower()
+                or "zero" in str(metaapi_account_id).lower()
+            ):
                 return {
                     "balance": 0.0,
                     "equity": 0.0,
                     "margin": 0.0,
                     "freeMargin": 0.0,
                     "currency": "USD",
-                    "server": "Demo-Server",
-                    "connected": True
+                    "server": "Unverified",
+                    "connected": False,
+                    "simulated": True,
                 }
             return {
                 "balance": 10000.0,

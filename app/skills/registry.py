@@ -10,8 +10,9 @@ from app.db import tx
 
 logger = logging.getLogger("zupirus.skills")
 
-# Base directory for built-in filesystem skills
+# Base directory for built-in and self-learned filesystem skills
 SKILLS_DIR = os.path.dirname(os.path.abspath(__file__))
+LEARNED_SKILLS_DIR = os.path.join(SKILLS_DIR, "learned")
 
 CORE_SKILL_IDS = [
     "market_regime_scanner",
@@ -23,22 +24,55 @@ CORE_SKILL_IDS = [
 
 
 def _read_builtin_skill_md(skill_id: str) -> Optional[str]:
-    """Read SKILL.md file from local filesystem."""
-    skill_path = os.path.join(SKILLS_DIR, skill_id, "SKILL.md")
-    if os.path.isfile(skill_path):
-        try:
-            with open(skill_path, "r", encoding="utf-8") as f:
-                return f.read()
-        except Exception as e:
-            logger.warning(f"Could not read SKILL.md for {skill_id}: {e}")
+    """Read SKILL.md file from local filesystem (builtin or learned)."""
+    safe_id = os.path.basename(skill_id)
+    for base_folder in (SKILLS_DIR, LEARNED_SKILLS_DIR):
+        skill_path = os.path.join(base_folder, safe_id, "SKILL.md")
+        if os.path.isfile(skill_path):
+            try:
+                with open(skill_path, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception as e:
+                logger.warning(f"Could not read SKILL.md for {skill_id}: {e}")
     return None
 
 
-def get_skill_index(enabled_only: bool = True) -> List[Dict[str, Any]]:
+def _write_learned_skill_md(skill_id: str, skill_md: str) -> Optional[str]:
+    """Export self-evolved analytical skill to app/skills/learned/<skill_id>/SKILL.md."""
+    safe_id = os.path.basename(skill_id)
+    target_dir = os.path.join(LEARNED_SKILLS_DIR, safe_id)
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+        skill_file = os.path.join(target_dir, "SKILL.md")
+        with open(skill_file, "w", encoding="utf-8") as f:
+            f.write(skill_md)
+        return skill_file
+    except Exception as e:
+        logger.warning(f"Could not write learned SKILL.md to disk for {skill_id}: {e}")
+        return None
+
+
+def _enrich_skill_item(d: Dict[str, Any]) -> Dict[str, Any]:
+    is_b = int(d.get("is_builtin") or 0)
+    en = int(d.get("enabled") or 0)
+    if is_b == 1:
+        status = "ACTIVE" if en == 1 else "DISABLED"
+    else:
+        status = "ACTIVE" if en == 1 else "PENDING_APPROVAL"
+    return {
+        **d,
+        "is_builtin": is_b,
+        "enabled": en,
+        "status": status,
+    }
+
+
+def get_skill_index(enabled_only: bool = True, include_mcp: bool = False) -> List[Dict[str, Any]]:
     """Progressive Disclosure:
     Returns lightweight index of skills (name, 1-line description, trigger condition).
     Suitable for inclusion in LangGraph / Swarm prompts with minimal token overhead (~200 tokens).
     """
+    items: List[Dict[str, Any]] = []
     try:
         with tx() as c:
             if enabled_only:
@@ -58,12 +92,14 @@ def get_skill_index(enabled_only: bool = True) -> List[Dict[str, Any]]:
                     ORDER BY is_builtin DESC, usage_count DESC, name ASC
                     """
                 ).fetchall()
-            return [dict(r) for r in rows]
+            items = [_enrich_skill_item(dict(r)) for r in rows]
     except Exception as e:
         logger.debug(f"DB agent_skills query fallback to core list: {e}")
+
+    if not items:
         # Fallback to core list if DB table not yet ready
-        return [
-            {
+        items = [
+            _enrich_skill_item({
                 "skill_id": "market_regime_scanner",
                 "name": "Market Regime Scanner",
                 "description": "Đo lường biến độ ATR(14) và xác định phiên giao dịch (Á/Âu/Mỹ).",
@@ -71,8 +107,8 @@ def get_skill_index(enabled_only: bool = True) -> List[Dict[str, Any]]:
                 "is_builtin": 1,
                 "usage_count": 0,
                 "enabled": 1,
-            },
-            {
+            }),
+            _enrich_skill_item({
                 "skill_id": "liquidity_spread_auditor",
                 "name": "Liquidity & Spread Auditor",
                 "description": "Phân tích nguyên nhân lệnh chạm SL: sai xu hướng vs giãn spread hay quét thanh khoản.",
@@ -80,8 +116,8 @@ def get_skill_index(enabled_only: bool = True) -> List[Dict[str, Any]]:
                 "is_builtin": 1,
                 "usage_count": 0,
                 "enabled": 1,
-            },
-            {
+            }),
+            _enrich_skill_item({
                 "skill_id": "macro_news_interpreter",
                 "name": "Macro News Interpreter",
                 "description": "Đối chiếu lịch tin tức USD và tính khoảng cách tới tin tác động mạnh.",
@@ -89,8 +125,8 @@ def get_skill_index(enabled_only: bool = True) -> List[Dict[str, Any]]:
                 "is_builtin": 1,
                 "usage_count": 0,
                 "enabled": 1,
-            },
-            {
+            }),
+            _enrich_skill_item({
                 "skill_id": "source_grading_analyst",
                 "name": "Source Grading Analyst",
                 "description": "Chấm điểm EOD M1 Candle Grader cho kho SHADOW_ONLY và tính Source Trust Score.",
@@ -98,8 +134,8 @@ def get_skill_index(enabled_only: bool = True) -> List[Dict[str, Any]]:
                 "is_builtin": 1,
                 "usage_count": 0,
                 "enabled": 1,
-            },
-            {
+            }),
+            _enrich_skill_item({
                 "skill_id": "strategy_synthesizer",
                 "name": "Strategy Synthesizer",
                 "description": "Tổng hợp Ứng viên Chiến lược từ Hindsight Memory và kiểm định Walk-Forward OOS.",
@@ -107,8 +143,28 @@ def get_skill_index(enabled_only: bool = True) -> List[Dict[str, Any]]:
                 "is_builtin": 1,
                 "usage_count": 0,
                 "enabled": 1,
-            },
+            }),
         ]
+
+    if include_mcp:
+        try:
+            from app.skills.mcp_bridge import list_mcp_servers
+            for m in list_mcp_servers(enabled_only=enabled_only):
+                items.append({
+                    "skill_id": m["server_id"],
+                    "name": m["name"],
+                    "description": m["description"],
+                    "trigger_condition": m["trigger_condition"],
+                    "is_builtin": 1,
+                    "is_mcp": True,
+                    "usage_count": 0,
+                    "enabled": 1 if m.get("enabled") else 0,
+                    "status": "ACTIVE" if m.get("enabled") else "DISABLED",
+                })
+        except Exception:
+            pass
+
+    return items
 
 
 def load_skill_spec(skill_id: str) -> Optional[str]:
@@ -116,11 +172,7 @@ def load_skill_spec(skill_id: str) -> Optional[str]:
     Loads full markdown instructions of SKILL.md when the Agent decides to activate it.
     Increments usage_count.
     """
-    skill_md = None
-
-    # For builtin skills, always prefer rich SKILL.md documentation from filesystem
-    if skill_id in CORE_SKILL_IDS:
-        skill_md = _read_builtin_skill_md(skill_id)
+    skill_md = _read_builtin_skill_md(skill_id)
 
     # Check database if not loaded from filesystem or if custom learned skill
     if not skill_md:
@@ -131,6 +183,24 @@ def load_skill_spec(skill_id: str) -> Optional[str]:
                     skill_md = row[0]
         except Exception as e:
             logger.debug(f"Database error loading skill {skill_id}: {e}")
+
+    # Check if MCP Server
+    if not skill_md and skill_id.startswith("mcp_"):
+        try:
+            from app.skills.mcp_bridge import list_mcp_servers
+            for m in list_mcp_servers(enabled_only=False):
+                if m["server_id"] == skill_id:
+                    skill_md = (
+                        f"---\nname: {m['server_id']}\ndescription: {m['description']}\n---\n\n"
+                        f"# {m['name']} (MCP Connector)\n\n"
+                        f"- **Transport**: `{m['transport']}`\n"
+                        f"- **Endpoint**: `{m['endpoint_url']}`\n"
+                        f"- **Trigger**: {m['trigger_condition']}\n"
+                        f"- **Safety**: Read-only external data connector. Zero access to MetaApi or trading accounts.\n"
+                    )
+                    break
+        except Exception:
+            pass
 
     # Track usage count
     try:
@@ -146,7 +216,7 @@ def load_skill_spec(skill_id: str) -> Optional[str]:
 
 
 def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
-    """Execute the Python tool corresponding to the requested skill.
+    """Execute the Python tool or MCP connector corresponding to the requested skill.
     Increments usage_count and returns structured observation for Agent reasoning.
     """
     # Track usage in DB
@@ -158,6 +228,10 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
             )
     except Exception:
         pass
+
+    if skill_id.startswith("mcp_"):
+        from app.skills.mcp_bridge import execute_mcp_tool
+        return execute_mcp_tool(skill_id, **kwargs)
 
     if skill_id == "market_regime_scanner":
         from app.skills.market_regime_scanner.tool import scan_market_regime
@@ -184,16 +258,18 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
         try:
             with tx() as c:
                 row = c.execute(
-                    "SELECT name, description, trigger_condition, skill_md FROM agent_skills WHERE skill_id = ?",
+                    "SELECT name, description, trigger_condition, skill_md, enabled FROM agent_skills WHERE skill_id = ?",
                     (skill_id,)
                 ).fetchone()
                 if row:
+                    r_d = dict(row)
                     return {
                         "skill_id": skill_id,
-                        "name": row[0] if hasattr(row, '__getitem__') else row["name"],
+                        "name": r_d.get("name"),
                         "status": "executed",
+                        "approval_state": "ACTIVE" if r_d.get("enabled") else "PENDING_APPROVAL",
                         "type": "self_learned_rule_filter",
-                        "result": "Quy tắc tự học đã được kiểm tra trên bối cảnh hiện tại.",
+                        "result": "Quy tắc phân tích tự học (Read-Only Filter) đã được đối chiếu trên bối cảnh thị trường hiện tại.",
                         "parameters": kwargs,
                     }
         except Exception:
@@ -225,6 +301,27 @@ def toggle_skill(skill_id: str, enabled: bool) -> bool:
         return False
 
 
+def approve_learned_skill(skill_id: str) -> bool:
+    """Approve a PENDING_APPROVAL self-learned skill so Agents can load and use it."""
+    return toggle_skill(skill_id, True)
+
+
+def reject_learned_skill(skill_id: str) -> bool:
+    """Reject and remove a self-learned skill candidate."""
+    import shutil
+    try:
+        with tx() as c:
+            c.execute("DELETE FROM agent_skills WHERE skill_id = ? AND is_builtin = 0", (skill_id,))
+        safe_id = os.path.basename(skill_id)
+        skill_folder = os.path.join(LEARNED_SKILLS_DIR, safe_id)
+        if os.path.isdir(skill_folder):
+            shutil.rmtree(skill_folder, ignore_errors=True)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to reject learned skill {skill_id}: {e}")
+        return False
+
+
 def register_learned_skill(
     skill_id: str,
     name: str,
@@ -232,10 +329,15 @@ def register_learned_skill(
     trigger_condition: str,
     skill_md: str,
     db_cursor: Optional[Any] = None,
+    auto_approve: bool = False,
 ) -> Dict[str, Any]:
-    """Persist a newly synthesized inductive skill into database from Reflective Memory."""
+    """Persist a newly synthesized inductive skill to app/skills/learned/<skill_id>/SKILL.md
+    and register in agent_skills in PENDING_APPROVAL (enabled=0) state until Admin approves.
+    """
     now_ts = time.time()
     skill_record_id = f"sk_{skill_id}"
+    enabled_val = 1 if auto_approve else 0
+    file_path = _write_learned_skill_md(skill_id, skill_md)
 
     def _do_register(c):
         try:
@@ -244,7 +346,7 @@ def register_learned_skill(
                 INSERT INTO agent_skills (
                     id, skill_id, name, description, trigger_condition,
                     skill_md, is_builtin, usage_count, enabled, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
                 ON CONFLICT(skill_id) DO UPDATE SET
                     name = excluded.name,
                     description = excluded.description,
@@ -252,10 +354,9 @@ def register_learned_skill(
                     skill_md = excluded.skill_md,
                     updated_at = excluded.updated_at
                 """,
-                (skill_record_id, skill_id, name, description, trigger_condition, skill_md, now_ts, now_ts)
+                (skill_record_id, skill_id, name, description, trigger_condition, skill_md, enabled_val, now_ts, now_ts)
             )
         except Exception:
-            # SQLite fallback without ON CONFLICT
             try:
                 c.execute("DELETE FROM agent_skills WHERE skill_id = ?", (skill_id,))
                 c.execute(
@@ -263,9 +364,9 @@ def register_learned_skill(
                     INSERT INTO agent_skills (
                         id, skill_id, name, description, trigger_condition,
                         skill_md, is_builtin, usage_count, enabled, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
                     """,
-                    (skill_record_id, skill_id, name, description, trigger_condition, skill_md, now_ts, now_ts)
+                    (skill_record_id, skill_id, name, description, trigger_condition, skill_md, enabled_val, now_ts, now_ts)
                 )
             except Exception as e:
                 logger.error(f"Error registering learned skill {skill_id}: {e}")
@@ -276,11 +377,13 @@ def register_learned_skill(
         with tx() as c:
             _do_register(c)
 
-    logger.info(f"Registered dynamic self-learned skill: {skill_id} ({name})")
+    logger.info(f"Registered dynamic self-learned skill: {skill_id} ({name}) [status={'ACTIVE' if enabled_val else 'PENDING_APPROVAL'}]")
     return {
         "skill_id": skill_id,
         "name": name,
         "is_builtin": 0,
-        "enabled": 1,
+        "enabled": enabled_val,
+        "status": "ACTIVE" if enabled_val else "PENDING_APPROVAL",
+        "file_path": file_path,
         "created_at": now_ts,
     }

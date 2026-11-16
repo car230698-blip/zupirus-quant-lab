@@ -18,9 +18,36 @@ MAX_SPREAD_XAUUSD_PIPS = 4.5
 MAX_SPREAD_FOREX_PIPS = 2.5
 
 
+def _enrich_source_row(r: dict) -> Dict[str, Any]:
+    d = dict(r)
+    sid = d.get("id") or d.get("source_id") or ""
+    d["id"] = sid
+    d["source_id"] = sid
+    stype = d.get("source_type") or d.get("channel_type") or "WEBHOOK"
+    d["source_type"] = stype
+    d["channel_type"] = stype
+    t_score = float(d.get("trust_score") if d.get("trust_score") is not None else (d.get("score") or 50.0))
+    d["trust_score"] = round(t_score, 1)
+    d["score"] = round(t_score, 1)
+    wr = float(d.get("win_rate") if d.get("win_rate") is not None else 0.0)
+    wr_pct = wr * 100.0 if wr <= 1.0 else wr
+    d["win_rate"] = round(wr if wr <= 1.0 else wr / 100.0, 4)
+    d["win_rate_pct"] = round(wr_pct, 1)
+    d["profit_factor"] = round(float(d.get("profit_factor") or 1.0), 2)
+    d["total_signals"] = int(d.get("total_signals") or 0)
+    return d
+
+
 def list_sources(status: Optional[str] = None) -> List[Dict[str, Any]]:
     """List all registered signal sources with performance metrics."""
     with tx() as c:
+        # Clean up any legacy master account copy feed entry if present
+        try:
+            c.execute(
+                "DELETE FROM signal_sources WHERE id = 'src_metaapi_feed' OR source_type = 'metaapi_feed' OR name LIKE '%MetaApi Demo Signal Feed%'"
+            )
+        except Exception:
+            pass
         if status:
             rows = c.execute(
                 "SELECT * FROM signal_sources WHERE status = ? ORDER BY trust_score DESC",
@@ -30,14 +57,14 @@ def list_sources(status: Optional[str] = None) -> List[Dict[str, Any]]:
             rows = c.execute(
                 "SELECT * FROM signal_sources ORDER BY trust_score DESC, total_signals DESC"
             ).fetchall()
-        return [dict(r) for r in rows]
+        return [_enrich_source_row(dict(r)) for r in rows]
 
 
 def get_source(source_id: str) -> Optional[Dict[str, Any]]:
     """Get single source by ID."""
     with tx() as c:
         row = c.execute("SELECT * FROM signal_sources WHERE id = ?", (source_id,)).fetchone()
-        return dict(row) if row else None
+        return _enrich_source_row(dict(row)) if row else None
 
 
 def create_source(
@@ -46,17 +73,21 @@ def create_source(
     status: str = "SHADOW_ONLY",
     symbol_universe: str = "XAUUSD,EURUSD,GBPUSD,USDJPY",
     config_json: Optional[dict] = None,
+    source_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Register a new signal source in SHADOW_ONLY or ACTIVE_LIVE status."""
-    source_id = f"src_{uuid.uuid4().hex[:8]}"
+    resolved_id = (source_id or "").strip() or f"src_{uuid.uuid4().hex[:8]}"
     now_ts = time.time()
     cfg_str = json.dumps(config_json or {})
+    norm_status = "SHADOW_ONLY" if status.upper() in ("SANDBOX", "SHADOW", "SHADOW_ONLY") else (
+        "ACTIVE_LIVE" if status.upper() in ("TRUSTED", "ACTIVE", "ACTIVE_LIVE") else status.upper()
+    )
 
     # Check active limit if requesting ACTIVE_LIVE directly
-    if status == "ACTIVE_LIVE":
+    if norm_status == "ACTIVE_LIVE":
         active_count = count_active_sources()
         if active_count >= MAX_ACTIVE_LIVE_SOURCES:
-            status = "SHADOW_ONLY"
+            norm_status = "SHADOW_ONLY"
 
     with tx() as c:
         c.execute(
@@ -66,10 +97,14 @@ def create_source(
                 trust_score, profit_factor, win_rate, max_drawdown_pips,
                 total_signals, evaluated_signals, config_json, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, 50.0, 1.0, 0.5, 0.0, 0, 0, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                name = excluded.name,
+                source_type = excluded.source_type,
+                updated_at = excluded.updated_at
             """,
-            (source_id, name, source_type, status, symbol_universe, cfg_str, now_ts, now_ts)
+            (resolved_id, name or resolved_id, source_type, norm_status, symbol_universe, cfg_str, now_ts, now_ts)
         )
-    return get_source(source_id) or {}
+    return get_source(resolved_id) or {}
 
 
 def count_active_sources() -> int:
@@ -496,17 +531,7 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
 
 def get_source_leaderboard() -> List[Dict[str, Any]]:
     """Return sources ranked by trust score and performance for Admin Leaderboard."""
-    with tx() as c:
-        rows = c.execute(
-            """
-            SELECT id, name, source_type, status, symbol_universe,
-                   trust_score, profit_factor, win_rate, max_drawdown_pips,
-                   total_signals, evaluated_signals, updated_at
-            FROM signal_sources
-            ORDER BY trust_score DESC, win_rate DESC, profit_factor DESC
-            """
-        ).fetchall()
-        return [dict(r) for r in rows]
+    return list_sources()
 
 
 def get_shadow_signals(source_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
@@ -533,7 +558,15 @@ def get_shadow_signals(source_id: Optional[str] = None, limit: int = 50) -> List
                 """,
                 (limit,)
             ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["action"] = d.get("side") or d.get("action") or "BUY"
+            pnl_val = float(d.get("pnl_pips") if d.get("pnl_pips") is not None else (d.get("pnl") or 0.0))
+            d["simulated_pnl_pips"] = round(pnl_val, 1)
+            d["outcome"] = d.get("eval_status") or d.get("outcome") or "PENDING"
+            result.append(d)
+        return result
 
 
 

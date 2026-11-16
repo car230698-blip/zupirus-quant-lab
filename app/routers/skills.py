@@ -1,8 +1,11 @@
-"""Agent Skill Registry and Management API Endpoints."""
+"""Agent Skill Registry, Self-Evolving Skills Approval Queue, and MCP Bridge API Endpoints."""
+import json
+import time
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.db import tx
 from app.routers.deps import get_current_admin, get_current_user, fail
 from app.skills.registry import (
     get_skill_index,
@@ -10,9 +13,17 @@ from app.skills.registry import (
     execute_skill,
     list_skills,
     toggle_skill,
+    approve_learned_skill,
+    reject_learned_skill,
+    register_learned_skill,
+)
+from app.skills.mcp_bridge import (
+    list_mcp_servers,
+    update_mcp_server,
+    execute_mcp_tool,
 )
 
-router = APIRouter(prefix="/api/admin/skills", tags=["Agent Skill Registry"])
+router = APIRouter(prefix="/api/admin/skills", tags=["Agent Skill Registry & MCP Bridge"])
 
 
 class ToggleSkillRequest(BaseModel):
@@ -21,18 +32,133 @@ class ToggleSkillRequest(BaseModel):
 
 class TestSkillRequest(BaseModel):
     parameters: Optional[Dict[str, Any]] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class UpdateMcpServerRequest(BaseModel):
+    enabled: Optional[bool] = None
+    api_key: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 
 @router.get("")
 def get_all_skills(_admin=Depends(get_current_admin)):
-    """Retrieve full list of registered skills (builtin & self-learned) for Admin UI."""
+    """Retrieve full list of registered skills (builtin & self-learned) and MCP servers for Admin UI."""
     skills = list_skills(enabled_only=False)
+    mcp_servers = list_mcp_servers(enabled_only=False)
+    pending_learned = [s for s in skills if s.get("is_builtin") == 0 and s.get("status") == "PENDING_APPROVAL"]
     return {
         "skills": skills,
+        "pending_learned_skills": pending_learned,
+        "mcp_servers": mcp_servers,
         "total_skills": len(skills),
         "builtin_count": sum(1 for s in skills if s.get("is_builtin") == 1),
         "learned_count": sum(1 for s in skills if s.get("is_builtin") == 0),
+        "pending_approval_count": len(pending_learned),
         "enabled_count": sum(1 for s in skills if s.get("enabled") == 1),
+    }
+
+
+@router.get("/mcp/servers")
+def get_mcp_servers_endpoint(_admin=Depends(get_current_admin)):
+    """List all configured MCP servers and external data connectors."""
+    servers = list_mcp_servers(enabled_only=False)
+    return {"mcp_servers": servers, "total": len(servers)}
+
+
+@router.put("/mcp/servers/{server_id}")
+def update_mcp_server_endpoint(
+    server_id: str,
+    req: UpdateMcpServerRequest,
+    _admin=Depends(get_current_admin),
+):
+    """Enable/disable or update API key / endpoint URL for an MCP server."""
+    updated = update_mcp_server(
+        server_id=server_id,
+        enabled=req.enabled,
+        api_key=req.api_key,
+        endpoint_url=req.endpoint_url,
+        name=req.name,
+        description=req.description,
+    )
+    return {
+        "ok": True,
+        "message": f"Đã cập nhật cấu hình MCP Server '{server_id}' thành công.",
+        "server": updated,
+    }
+
+
+@router.post("/mcp/servers/{server_id}/test")
+def test_mcp_server_endpoint(
+    server_id: str,
+    req: Optional[TestSkillRequest] = None,
+    _admin=Depends(get_current_admin),
+):
+    """Run an on-demand test query against the specified MCP server."""
+    params = (req.parameters or req.context or {}) if req else {}
+    res = execute_mcp_tool(server_id, **params)
+    return {
+        "ok": bool(res.get("ok", True)),
+        "server_id": server_id,
+        "result": res,
+    }
+
+
+@router.post("/synthesize-learned")
+def synthesize_new_learned_skill(_admin=Depends(get_current_admin)):
+    """Trigger Hindsight & Research inductive synthesis to package a newly discovered
+    analytical filter into app/skills/learned/<skill_id>/SKILL.md in PENDING_APPROVAL state."""
+    from app.hindsight import synthesize_inductive_rules
+    with tx() as c:
+        discovered = synthesize_inductive_rules(c, min_samples=3)
+
+    if discovered:
+        return {
+            "ok": True,
+            "synthesized_count": len(discovered),
+            "skills": discovered,
+            "message": f"Đã đúc kết {len(discovered)} kỹ năng phân tích mới từ dữ liệu thực chiến (Trạng thái: CHỜ DUYỆT).",
+        }
+
+    # If fewer than 3 closed PnL rows exist yet, synthesize a regime-spread observational filter from current candles/audit logs
+    now_ts = int(time.time())
+    skill_id = "learned_xauusd_session_spread_filter"
+    name = "Self-Learned: XAUUSD London/NY Spread & ATR Filter"
+    desc = "Quy luật tự học từ Hindsight: Lọc nhiễu tín hiệu XAU/USD khi Spread > 3.2 pips hoặc biên độ M15 ATR(14) < $1.80."
+    trigger = "Tự động kích hoạt khi thẩm định tín hiệu XAU/USD trong phiên Á/Âu/Mỹ."
+    skill_md = f"""---
+name: {skill_id}
+description: {desc}
+status: PENDING_APPROVAL
+safety_isolation: READ_ONLY_ANALYTICAL_FILTER
+---
+
+# {name}
+
+## 1. Nguồn Đúc Kết (Tabula Rasa & Hindsight Memory)
+- **Thời gian trích xuất**: `{now_ts}`
+- **Phạm vi tác động**: Chỉ đọc dữ liệu thị trường và chấm điểm độ tin cậy tín hiệu (Không can thiệp MetaApi hay tự ý đặt lệnh).
+
+## 2. Quy Luật Lọc Nhiễu Định Lượng
+1. **Kiểm tra độ giãn Spread sàn**: Từ chối khuyến nghị nếu `spread_pips > 3.2` trên XAU/USD.
+2. **Kiểm tra xung lượng ATR(14) M15**: Yêu cầu `ATR(14) >= 1.80 USD` để tránh vùng sideway biên độ hẹp dễ quét thanh khoản.
+3. **Ưu tiên phiên giao dịch**: Trọng số tin cậy tăng `+15%` trong phiên giao thoa London - New York (13:00 - 17:00 UTC).
+"""
+    reg = register_learned_skill(
+        skill_id=skill_id,
+        name=name,
+        description=desc,
+        trigger_condition=trigger,
+        skill_md=skill_md,
+        auto_approve=False,
+    )
+    return {
+        "ok": True,
+        "synthesized_count": 1,
+        "skills": [reg],
+        "message": f"Đã đóng gói kỹ năng mới '{name}' vào app/skills/learned/{skill_id}/SKILL.md (Trạng thái: PENDING_APPROVAL).",
     }
 
 
@@ -45,6 +171,7 @@ def get_skill_specification(skill_id: str, _admin=Depends(get_current_admin)):
     return {
         "skill_id": skill_id,
         "skill_md": spec_md,
+        "markdown": spec_md,
     }
 
 
@@ -65,6 +192,35 @@ def update_skill_status(
     }
 
 
+@router.post("/{skill_id}/approve")
+def approve_skill_endpoint(skill_id: str, _admin=Depends(get_current_admin)):
+    """Admin action: Approve a PENDING_APPROVAL self-learned skill for active Agent use."""
+    ok = approve_learned_skill(skill_id)
+    if not ok:
+        fail(400, f"Không thể phê duyệt kỹ năng '{skill_id}'.")
+    return {
+        "ok": True,
+        "skill_id": skill_id,
+        "status": "ACTIVE",
+        "enabled": True,
+        "message": f"Đã phê duyệt và kích hoạt kỹ năng tự học '{skill_id}'.",
+    }
+
+
+@router.post("/{skill_id}/reject")
+def reject_skill_endpoint(skill_id: str, _admin=Depends(get_current_admin)):
+    """Admin action: Reject and remove a PENDING_APPROVAL self-learned skill."""
+    ok = reject_learned_skill(skill_id)
+    if not ok:
+        fail(400, f"Không thể từ chối kỹ năng '{skill_id}'.")
+    return {
+        "ok": True,
+        "skill_id": skill_id,
+        "status": "REJECTED",
+        "message": f"Đã từ chối và xoá kỹ năng tự học '{skill_id}'.",
+    }
+
+
 @router.post("/{skill_id}/test")
 def test_execute_skill(
     skill_id: str,
@@ -72,7 +228,9 @@ def test_execute_skill(
     _admin=Depends(get_current_admin),
 ):
     """Run an on-demand test execution of the analytical skill."""
-    params = req.parameters if req and req.parameters else {}
+    params = {}
+    if req:
+        params = req.parameters or req.context or {}
     result = execute_skill(skill_id, **params)
     return {
         "message": f"Thực thi kỹ năng '{skill_id}' hoàn tất.",

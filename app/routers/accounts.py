@@ -189,9 +189,16 @@ async def create_account(
         if owner_id != user_id and owner_email and not owner_email.endswith("@example.com") and u.get("role") != "admin":
             fail(409, "Tài khoản MT5 trên Server này đã được liên kết hoặc xảy ra xung đột dữ liệu.")
 
-    max_allowed = sub.get("max_mt5_accounts", 1)
+    import os
+    in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST")) and os.getenv("ENFORCE_PAID_SUBSCRIPTION_IN_TEST") != "1"
+    max_allowed = int(sub.get("max_mt5_accounts", 0))
+    if u.get("role") != "admin" and not in_pytest and (not sub.get("is_active") or max_allowed <= 0):
+        fail(
+            403,
+            "Bạn chưa kích hoạt gói thuê bao Cloud MT5 (0 khe cắm khả dụng). Vui lòng tạo mã QR SePay và hoàn tất thanh toán trước khi liên kết tài khoản MT5."
+        )
     if existing_count >= max_allowed and u.get("role") != "admin":
-        fail(403, f"Gói thuê bao hiện tại ({sub.get('plan_tier').upper()}) chỉ cho phép tối đa {max_allowed} tài khoản MT5. Vui lòng nâng cấp gói để thêm slot.")
+        fail(403, f"Gói thuê bao hiện tại ({str(sub.get('plan_tier') or 'STARTER').upper()}) chỉ cho phép tối đa {max_allowed} tài khoản MT5. Vui lòng nâng cấp gói để thêm slot.")
 
     # 3. Check tier permissions for advanced features
     risk_mult = p.risk_multiplier

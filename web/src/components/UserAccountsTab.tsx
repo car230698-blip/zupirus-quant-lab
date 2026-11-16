@@ -195,6 +195,12 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 
   const handleOpenCloudConnectDisclaimer = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!cloudSub?.is_active || Number(cloudSub?.max_cloud_accounts ?? 0) <= 0) {
+      setCloudMsg(
+        'Bạn chưa kích hoạt gói thuê bao Cloud MT5 (0 khe cắm khả dụng). Vui lòng bấm "Tạo Mã QR SePay" ở khung bên trái và hoàn tất thanh toán trước khi liên kết tài khoản MT5.'
+      );
+      return;
+    }
     if (!cloudForm.mt5_login || !cloudForm.mt5_password || !cloudForm.mt5_server) {
       setCloudMsg('Vui lòng điền đầy đủ mã tài khoản MT5 Login, Mật khẩu và Máy chủ Broker.');
       return;
@@ -407,8 +413,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                 </span>
                 <h3 className="mt-0.5 text-lg font-bold text-white">Gói Cloud MT5 & Cổng SePay</h3>
               </div>
-              <span className="font-mono text-xs font-bold text-emerald-300 tabular-nums">
-                {cloudSub?.status || 'ACTIVE'} · {cloudSub?.plan_tier || 'PRO'}
+              <span
+                className={`font-mono text-xs font-bold tabular-nums ${
+                  cloudSub?.is_active ? 'text-emerald-300' : 'text-amber-400'
+                }`}
+              >
+                {cloudSub?.is_active
+                  ? `ACTIVE · ${String(cloudSub?.plan_tier || 'STARTER').toUpperCase()}`
+                  : `${cloudSub?.status || 'CHƯA KÍCH HOẠT'} · 0 KHE CẮM`}
               </span>
             </div>
 
@@ -416,17 +428,18 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Hạn mức khe cắm Cloud MT5</span>
                 <strong className="font-mono text-sm text-cyan-300 tabular-nums">
-                  {accounts.length} / {cloudSub?.max_cloud_accounts || 2} KHE CẮM
+                  {accounts.length} / {cloudSub?.is_active ? Number(cloudSub?.max_cloud_accounts ?? 1) : 0} KHE CẮM
                 </strong>
               </div>
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-500"
                   style={{
-                    width: `${Math.min(
-                      (accounts.length / Math.max(cloudSub?.max_cloud_accounts || 2, 1)) * 100,
-                      100
-                    )}%`,
+                    width: `${
+                      cloudSub?.is_active && Number(cloudSub?.max_cloud_accounts ?? 0) > 0
+                        ? Math.min((accounts.length / Math.max(Number(cloudSub?.max_cloud_accounts ?? 1), 1)) * 100, 100)
+                        : 0
+                    }%`,
                   }}
                 />
               </div>

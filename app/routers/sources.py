@@ -22,8 +22,10 @@ router = APIRouter(prefix="/api/admin/sources", tags=["Signal Sources & Curator"
 
 
 class CreateSourceRequest(BaseModel):
-    name: str = Field(..., min_length=2, max_length=100)
-    source_type: str = Field(..., description="TRADINGVIEW, METAAPI_FEED, TELEGRAM_SCRAPER, AGENT_INDUCTIVE")
+    source_id: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=100)
+    source_type: Optional[str] = Field(default=None, description="TRADINGVIEW, TELEGRAM_SCRAPER, AI_AGENT")
+    channel_type: Optional[str] = None
     status: str = Field("SHADOW_ONLY", description="SHADOW_ONLY or ACTIVE_LIVE")
     symbol_universe: str = Field("XAUUSD,EURUSD,GBPUSD,USDJPY")
     config_json: Optional[Dict[str, Any]] = None
@@ -85,12 +87,15 @@ def set_signal_mode(req: SetSignalModeRequest, _admin=Depends(get_current_admin)
 @router.post("")
 def add_source(req: CreateSourceRequest, _admin=Depends(get_current_admin)):
     """Create a new signal source."""
+    eff_name = (req.name or req.source_id or "Custom Source").strip()
+    eff_type = (req.source_type or req.channel_type or "TRADINGVIEW").strip().upper()
     src = create_source(
-        name=req.name,
-        source_type=req.source_type,
+        name=eff_name,
+        source_type=eff_type,
         status=req.status,
         symbol_universe=req.symbol_universe,
         config_json=req.config_json,
+        source_id=req.source_id,
     )
     return {"message": "Tạo nguồn tín hiệu thành công.", "source": src}
 
@@ -110,7 +115,7 @@ def get_shadow_ledger(
 ):
     """Retrieve recent shadow signal audit entries."""
     signals = get_shadow_signals(source_id=source_id, limit=limit)
-    return {"signals": signals}
+    return {"signals": signals, "shadow_signals": signals}
 
 
 @router.post("/{source_id}/promote")
@@ -139,7 +144,14 @@ def trigger_historical_replay(
 ):
     """Run instant 90-day M1 candle replay evaluation."""
     result = run_instant_historical_replay(source_id=source_id, days=days)
-    return {"message": "Kiểm định lịch sử tức thì hoàn tất.", "result": result}
+    wr = float(result.get("win_rate") or 0.0)
+    wr_pct = round(wr * 100.0 if wr <= 1.0 else wr, 1)
+    return {
+        "message": "Kiểm định lịch sử tức thì hoàn tất.",
+        "score": round(float(result.get("trust_score") or 70.0), 1),
+        "win_rate_pct": wr_pct,
+        "result": result,
+    }
 
 
 @router.post("/evaluate-eod")
@@ -149,5 +161,6 @@ def trigger_eod_evaluation(
 ):
     """Trigger End-of-Day dual-touch M1 candle grading."""
     res = evaluate_shadow_signals_eod(source_id=source_id)
-    return {"message": "Chấm điểm EOD hoàn tất.", "evaluated_count": res.get("evaluated_count", 0), "details": res}
+    eval_cnt = res.get("evaluated", res.get("evaluated_count", 0))
+    return {"message": "Chấm điểm EOD hoàn tất.", "evaluated_count": eval_cnt, "details": res}
 

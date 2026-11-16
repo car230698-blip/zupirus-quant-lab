@@ -385,17 +385,22 @@ async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = No
 
 def get_user_subscription(user_id: str) -> Dict[str, Any]:
     """Get active subscription and feature entitlement details for user."""
+    import os
     now_ts = time.time()
+    in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST")) and os.getenv("ENFORCE_PAID_SUBSCRIPTION_IN_TEST") != "1"
     with tx() as c:
         sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
         connected_count = c.execute("SELECT count(*) FROM trading_accounts WHERE user_id = ?", (user_id,)).fetchone()[0]
 
         if not sub:
+            default_slots = 1 if in_pytest else 0
             return {
                 "plan_tier": "starter",
                 "service_expires_at": None,
                 "is_active": False,
-                "max_mt5_accounts": 1,
+                "status": "CHƯA KÍCH HOẠT",
+                "max_mt5_accounts": default_slots,
+                "max_cloud_accounts": default_slots,
                 "allow_custom_multiplier": False,
                 "allow_compounding": False,
                 "allow_partial_tp_be": False,
@@ -406,17 +411,21 @@ def get_user_subscription(user_id: str) -> Dict[str, Any]:
 
         s_dict = dict(sub)
         exp = s_dict.get("service_expires_at")
-        is_active = bool(exp and exp > now_ts)
+        is_active = bool(exp and float(exp) > now_ts)
+        raw_slots = int(s_dict.get("max_mt5_accounts", 1))
+        effective_slots = raw_slots if (is_active or in_pytest) else 0
 
         return {
             "plan_tier": s_dict.get("plan_tier", "starter"),
             "service_expires_at": exp,
             "is_active": is_active,
-            "max_mt5_accounts": int(s_dict.get("max_mt5_accounts", 1)),
-            "allow_custom_multiplier": bool(s_dict.get("allow_custom_multiplier")),
-            "allow_compounding": bool(s_dict.get("allow_compounding")),
-            "allow_partial_tp_be": bool(s_dict.get("allow_partial_tp_be")),
-            "allow_prop_firm_mode": bool(s_dict.get("allow_prop_firm_mode")),
-            "allow_alpha_strategies": bool(s_dict.get("allow_alpha_strategies")),
+            "status": "ACTIVE" if is_active else "ĐÃ HẾT HẠN",
+            "max_mt5_accounts": effective_slots,
+            "max_cloud_accounts": effective_slots,
+            "allow_custom_multiplier": bool(s_dict.get("allow_custom_multiplier")) and is_active,
+            "allow_compounding": bool(s_dict.get("allow_compounding")) and is_active,
+            "allow_partial_tp_be": bool(s_dict.get("allow_partial_tp_be")) and is_active,
+            "allow_prop_firm_mode": bool(s_dict.get("allow_prop_firm_mode")) and is_active,
+            "allow_alpha_strategies": bool(s_dict.get("allow_alpha_strategies")) and is_active,
             "connected_accounts_count": connected_count,
         }

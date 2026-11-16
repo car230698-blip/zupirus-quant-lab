@@ -8,7 +8,7 @@ import logging
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 logger = logging.getLogger("zupirus.calendar_sync")
 

@@ -116,9 +116,13 @@ class SubscriptionResponse(BaseModel):
         if isinstance(values, dict):
             if "plan_tier" in values:
                 values["plan_tier"] = normalize_plan_tier(values["plan_tier"])
-            max_acc = values.get("max_mt5_accounts") or values.get("max_cloud_accounts") or 1
-            values["max_mt5_accounts"] = int(max_acc)
-            values["max_cloud_accounts"] = int(max_acc)
-            values["status"] = "ACTIVE" if values.get("is_active", True) else "EXPIRED"
+            raw_m = values.get("max_mt5_accounts")
+            if raw_m is None:
+                raw_m = values.get("max_cloud_accounts")
+            max_acc = int(raw_m) if raw_m is not None else 0
+            values["max_mt5_accounts"] = max_acc
+            values["max_cloud_accounts"] = max_acc
+            if not values.get("status"):
+                values["status"] = "ACTIVE" if values.get("is_active", False) else "CHƯA KÍCH HOẠT"
         return values
 

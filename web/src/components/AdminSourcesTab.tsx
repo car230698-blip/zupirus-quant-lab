@@ -16,6 +16,9 @@ export const AdminSourcesTab: React.FC = () => {
   });
   const [shadows, setShadows] = useState<any[]>([]);
   const [skills, setSkills] = useState<any[]>([]);
+  const [pendingLearnedSkills, setPendingLearnedSkills] = useState<any[]>([]);
+  const [mcpServers, setMcpServers] = useState<any[]>([]);
+  const [mcpTestResult, setMcpTestResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [newSourceForm, setNewSourceForm] = useState({
@@ -150,6 +153,8 @@ export const AdminSourcesTab: React.FC = () => {
       if (skRes.ok) {
         const sk = await skRes.json();
         setSkills(sk.skills || []);
+        setPendingLearnedSkills(sk.pending_learned_skills || []);
+        setMcpServers(sk.mcp_servers || []);
       }
       await fetchAiSettings();
     } catch {
@@ -249,6 +254,64 @@ export const AdminSourcesTab: React.FC = () => {
     }
   };
 
+  const handleToggleMcpServer = async (serverId: string, currentEnabled: boolean) => {
+    const res = await fetch(`/api/admin/skills/mcp/servers/${encodeURIComponent(serverId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+      credentials: 'include',
+      body: JSON.stringify({ enabled: !currentEnabled }),
+    });
+    if (res.ok) {
+      setMsg(`Đã ${!currentEnabled ? 'bật' : 'tắt'} nguồn MCP ${serverId}.`);
+      fetchAll();
+    }
+  };
+
+  const handleTestMcpServer = async (serverId: string) => {
+    setMsg(`Đang kiểm thử kết nối MCP ${serverId}...`);
+    const res = await fetch(`/api/admin/skills/mcp/servers/${encodeURIComponent(serverId)}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+      credentials: 'include',
+      body: JSON.stringify({ parameters: { query: 'XAUUSD Gold Federal Reserve' } }),
+    });
+    const d = await res.json().catch(() => ({}));
+    setMcpTestResult(d);
+    if (res.ok && d.ok) {
+      setMsg(`Kết nối MCP ${serverId} thành công.`);
+    } else {
+      setMsg(`MCP ${serverId}: ${d.result?.error || 'Thất bại'}`);
+    }
+  };
+
+  const handleSynthesizeLearnedSkill = async () => {
+    setMsg('Đang trích xuất quy luật từ Hindsight Memory để đóng gói kỹ năng mới...');
+    const res = await fetch('/api/admin/skills/synthesize-learned', {
+      method: 'POST',
+      headers: { 'X-Zupirus': '1' },
+      credentials: 'include',
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setMsg(d.message || 'Đã đúc kết kỹ năng mới ở trạng thái chờ duyệt.');
+      fetchAll();
+    }
+  };
+
+  const handleApproveLearnedSkill = async (skillId: string, approve: boolean) => {
+    const action = approve ? 'approve' : 'reject';
+    const res = await fetch(`/api/admin/skills/${encodeURIComponent(skillId)}/${action}`, {
+      method: 'POST',
+      headers: { 'X-Zupirus': '1' },
+      credentials: 'include',
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setMsg(d.message || (approve ? 'Đã duyệt kích hoạt kỹ năng mới.' : 'Đã từ chối kỹ năng.'));
+      fetchAll();
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Row 1: 3-Mode Agent Architecture Switcher */}
@@ -331,13 +394,22 @@ export const AdminSourcesTab: React.FC = () => {
               Chỉ định nhà cung cấp AI (OpenAI / OpenRouter / DeepSeek / Google Gemini), lựa chọn mô hình suy luận và kiểm thử trực tiếp độ trễ phản hồi trước khi cấp quyền phân tích danh mục.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 font-mono text-xs text-amber-300">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>Pool Gemini: <strong>{aiSettings.gemini_keys_count || 0} keys</strong></span>
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 font-mono text-xs text-cyan-300">
               <span>Đang chạy: <strong>{aiSettings.model}</strong></span>
+            </span>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 font-mono text-xs ${
+                aiSettings.has_api_key
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                  : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+              }`}
+            >
+              <span>API đang kết nối: <strong>{aiSettings.connected_api || aiSettings.api_key_masked || 'Chưa cấu hình'}</strong></span>
             </span>
           </div>
         </div>
@@ -513,16 +585,21 @@ export const AdminSourcesTab: React.FC = () => {
                   : 'border-rose-500/35 bg-rose-950/20 text-rose-200'
               }`}
             >
-              <div className="flex items-center justify-between border-b border-white/[0.08] pb-2 text-[11px]">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-2 text-[11px]">
                 <span className="font-bold">
                   {aiTestResult.success ? '✓ KẾT NỐI AI THÀNH CÔNG' : '✕ KẾT NỐI THẤT BẠI'}
                 </span>
                 {aiTestResult.success && (
                   <span className="text-emerald-400 tabular-nums font-bold">
-                    {aiTestResult.provider} · {aiTestResult.model} · {aiTestResult.latency_ms}ms
+                    {aiTestResult.provider} · {aiTestResult.model} · {aiTestResult.connected_api || ''} · {aiTestResult.latency_ms}ms
                   </span>
                 )}
               </div>
+              {aiTestResult.live_market_snapshot && (
+                <div className="rounded-lg border border-cyan-500/25 bg-cyan-950/20 px-3 py-1.5 text-[11px] text-cyan-200">
+                  Dữ liệu thị trường thực tế truyền vào AI: <strong>XAUUSD Bid {aiTestResult.live_market_snapshot.bid ?? 'N/A'}</strong> · M15 Range {aiTestResult.live_market_snapshot.m15_range} · ATR(14) = ${aiTestResult.live_market_snapshot.atr_14} · News: {aiTestResult.live_market_snapshot.news_status}
+                </div>
+              )}
               <div className="leading-relaxed whitespace-pre-wrap font-sans text-xs pt-1 text-slate-200">
                 {aiTestResult.response || aiTestResult.error}
               </div>
@@ -718,6 +795,73 @@ export const AdminSourcesTab: React.FC = () => {
               </pre>
             </div>
           )}
+
+          {/* Self-Evolving Skills Approval Queue */}
+          <div className="pt-4 border-t border-white/[0.08] space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-amber-400">
+                  Self-Evolving Skills (Cách ly an toàn)
+                </span>
+                <h4 className="text-sm font-bold text-white">
+                  Hàng Đợi Phê Duyệt Kỹ Năng Tự Học ({pendingLearnedSkills.length})
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={handleSynthesizeLearnedSkill}
+                className="quant-btn-secondary px-3 py-1.5 text-[11px] border-amber-500/40 text-amber-300"
+              >
+                + Đúc Kết Kỹ Năng Mới
+              </button>
+            </div>
+            {pendingLearnedSkills.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                Không có kỹ năng tự sinh nào đang chờ phê duyệt.
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {pendingLearnedSkills.map((sk: any) => (
+                  <div
+                    key={sk.skill_id}
+                    className="rounded-xl border border-amber-500/30 bg-amber-950/10 p-3.5 space-y-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-mono text-xs font-bold text-amber-300">
+                          {sk.name} <span className="text-[10px] text-amber-400">[{sk.status}]</span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-300">{sk.description}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleViewSkillSpec(sk.skill_id)}
+                          className="quant-btn-secondary px-2 py-1 text-[11px]"
+                        >
+                          SKILL.md
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveLearnedSkill(sk.skill_id, true)}
+                          className="rounded-lg bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-1 font-mono text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/30"
+                        >
+                          Duyệt
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveLearnedSkill(sk.skill_id, false)}
+                          className="rounded-lg bg-rose-500/20 border border-rose-500/40 px-2.5 py-1 font-mono text-[11px] font-bold text-rose-300 hover:bg-rose-500/30"
+                        >
+                          Từ chối
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right 6 Cols: Shadow Signals Ledger */}
@@ -770,6 +914,80 @@ export const AdminSourcesTab: React.FC = () => {
             </table>
           </div>
         </div>
+      </div>
+
+      {/* Row 3b: MCP External Data Connectors */}
+      <div className="quant-panel p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
+              Model Context Protocol (MCP Bridge)
+            </span>
+            <h3 className="mt-0.5 text-base font-bold text-white">
+              Quản Lý Nguồn Dữ Liệu MCP Mở Rộng ({mcpServers.length})
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Kết nối chỉ đọc tới tin tức tài chính, Yahoo Finance (GC=F, DXY, US10Y), lịch vĩ mô FRED và trình đọc Web sạch — cách ly hoàn toàn với luồng đặt lệnh MT5.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {mcpServers.map((srv: any) => (
+            <div
+              key={srv.server_id}
+              className="rounded-xl border border-white/[0.08] bg-[#040710]/85 p-4 flex flex-col justify-between gap-3"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-bold text-cyan-300">{srv.name}</span>
+                  <span
+                    className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold ${
+                      srv.enabled
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/35'
+                        : 'bg-slate-800 text-slate-400 border border-white/10'
+                    }`}
+                  >
+                    {srv.enabled ? 'ACTIVE' : 'DISABLED'}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">{srv.description}</p>
+                <div className="mt-1.5 font-mono text-[10px] text-slate-500 truncate">
+                  {srv.transport} · {srv.endpoint_url}
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleTestMcpServer(srv.server_id)}
+                  className="quant-btn-secondary px-3 py-1 text-[11px]"
+                >
+                  Chạy Thử MCP
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleMcpServer(srv.server_id, Boolean(srv.enabled))}
+                  className={`px-3 py-1 rounded-lg font-mono text-[11px] font-bold border ${
+                    srv.enabled
+                      ? 'border-amber-500/35 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
+                      : 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                  }`}
+                >
+                  {srv.enabled ? 'Tắt Nguồn' : 'Bật Nguồn'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {mcpTestResult && (
+          <div className="rounded-xl border border-cyan-500/30 bg-[#040710] p-4 font-mono text-xs text-cyan-200">
+            <div className="mb-1 font-bold text-cyan-400">KẾT QUẢ KIỂM THỬ MCP ({mcpTestResult.server_id}):</div>
+            <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] text-slate-300">
+              {JSON.stringify(mcpTestResult.result, null, 2)}
+            </pre>
+          </div>
+        )}
       </div>
 
       {/* Row 4: Walk-Forward Strategy Approval Queue */}

@@ -4,7 +4,7 @@ import json
 import time
 import httpx
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -48,16 +48,78 @@ class AddGeminiKeyReq(BaseModel):
     key: str = Field(..., min_length=20, max_length=150)
 
 
+def _build_live_market_system_instruction() -> Tuple[str, Dict[str, Any]]:
+    """Fetch real-time XAU/USD quote, M15 range, and ATR(14) from DB/Telemetry to ground AI responses."""
+    from app.routers.telemetry import get_topbar_telemetry
+    from app.services.signal_ingestion.context import get_market_atr14
+    tele = get_topbar_telemetry()
+    xau = tele.get("xauusd") or {}
+    bid = xau.get("bid")
+    ask = xau.get("ask")
+    mid = xau.get("mid")
+    spread_pips = xau.get("spread_pips")
+    q_source = xau.get("source", "DB_QUOTES")
+    news_info = tele.get("news_shield") or {}
+
+    m15_low = None
+    m15_high = None
+    atr_14 = 3.50
+    try:
+        with tx() as c:
+            atr_14 = get_market_atr14(c, "XAUUSD", "M15")
+            c_rows = c.execute(
+                "SELECT high, low, close FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 14"
+            ).fetchall()
+            if c_rows:
+                highs = [float(r[0]) for r in c_rows if r[0] is not None]
+                lows = [float(r[1]) for r in c_rows if r[1] is not None]
+                if highs and lows:
+                    m15_high = round(max(highs), 2)
+                    m15_low = round(min(lows), 2)
+                if mid is None and c_rows[0][2] is not None:
+                    mid = round(float(c_rows[0][2]), 2)
+                    bid = mid
+                    ask = mid
+    except Exception:
+        pass
+
+    snapshot = {
+        "symbol": "XAUUSD",
+        "bid": bid,
+        "ask": ask,
+        "mid": mid,
+        "spread_pips": spread_pips,
+        "m15_range": f"{m15_low} - {m15_high}" if (m15_low and m15_high) else "Đang đồng bộ",
+        "atr_14": round(float(atr_14 or 3.5), 2),
+        "news_status": news_info.get("status", "CLEAR"),
+        "source": q_source,
+    }
+
+    sys_text = (
+        "Bạn là trợ lý AI định lượng ZUPIRUS Quant Lab. Trả lời chuyên nghiệp, súc tích bằng tiếng Việt.\n"
+        "DỮ LIỆU THỊ TRƯỜNG XAU/USD THỰC TẾ TRỰC TIẾP TỪ HỆ THỐNG NGAY LÚC NÀY:\n"
+        f"- Giá XAU/USD hiện tại: Bid = {bid or 'N/A'}, Ask = {ask or 'N/A'}, Mid = {mid or 'N/A'}, Spread = {spread_pips if spread_pips is not None else 'N/A'} pips (Nguồn: {q_source})\n"
+        f"- Biên độ 14 nến M15 gần nhất: {snapshot['m15_range']}, ATR(14) = {snapshot['atr_14']} USD\n"
+        f"- Lá chắn tin tức USD (News Shield): {snapshot['news_status']} (Khoảng cách: {news_info.get('distance_mins', 999)} phút)\n"
+        "BẮT BUỘC sử dụng chính xác mức giá XAU/USD và số liệu thực tế ở trên trong câu trả lời, tuyệt đối không tự bịa mức giá cũ."
+    )
+    return sys_text, snapshot
+
+
 @router.get("/settings")
 def get_ai_settings(_admin=Depends(get_current_admin)):
-    """Retrieve active AI model, API key status, and provider configuration."""
+    """Retrieve active AI model, API key status, connected endpoint, and provider configuration."""
     with tx() as c:
         row = c.execute("SELECT value FROM kv WHERE key = 'ai:settings'").fetchone()
         saved = json.loads(row[0]) if row else {}
 
-        # Count active Gemini keys
         seed_default_keys(c)
-        gem_keys_count = c.execute("SELECT count(*) FROM gemini_keys WHERE is_active=1").fetchone()[0]
+        gem_rows = c.execute(
+            "SELECT id, key_masked, is_active, calls_count, status FROM gemini_keys ORDER BY created DESC"
+        ).fetchall()
+        gem_list = [dict(r) for r in gem_rows]
+        active_gem = [g for g in gem_list if g.get("is_active") == 1]
+        gem_keys_count = len(active_gem)
 
     provider = saved.get("provider") or "HYBRID"
     raw_key = saved.get("api_key") or os.getenv("AI_API_KEY", "")
@@ -65,16 +127,33 @@ def get_ai_settings(_admin=Depends(get_current_admin)):
     model = saved.get("model") or os.getenv("AI_MODEL", "gpt-4o-mini")
     gemini_model = saved.get("gemini_model") or "gemini-2.0-flash"
 
-    masked_key = f"{raw_key[:7]}***{raw_key[-4:]}" if len(raw_key) >= 12 else ("***" if raw_key else "CHƯA_CẤU_HÌNH")
+    if raw_key and len(raw_key) >= 12:
+        masked_key = f"{raw_key[:7]}***{raw_key[-4:]}"
+    elif raw_key:
+        masked_key = "***"
+    elif active_gem:
+        masked_key = f"Gemini Pool ({active_gem[0]['key_masked']})"
+    else:
+        masked_key = "CHƯA_CẤU_HÌNH"
+
+    has_any_key = bool(raw_key) or (gem_keys_count > 0 and provider in ("GEMINI", "HYBRID"))
+    if raw_key:
+        connected_api = f"{provider} · {base_url} · Key: {masked_key}"
+    elif gem_keys_count > 0 and provider in ("GEMINI", "HYBRID"):
+        connected_api = f"Google Gemini API · {gem_keys_count} Active Key(s) ({active_gem[0]['key_masked']})"
+    else:
+        connected_api = "Chưa có khóa API nào được kết nối"
 
     return {
         "provider": provider,
         "api_key_masked": masked_key,
-        "has_api_key": bool(raw_key),
+        "connected_api": connected_api,
+        "has_api_key": has_any_key,
         "base_url": base_url,
         "model": model,
         "gemini_model": gemini_model,
         "gemini_keys_count": gem_keys_count,
+        "gemini_keys": gem_list,
         "available_models": AVAILABLE_MODELS,
     }
 
@@ -90,13 +169,14 @@ def _save_ai_settings(req: AISettingsUpdate):
     provider = (req.provider or existing.get("provider", "OPENAI")).strip().upper()
     gemini_model = (req.gemini_model or existing.get("gemini_model", "gemini-2.0-flash")).strip()
 
+    now_ts = time.time()
     payload = {
         "provider": provider,
         "api_key": api_key,
         "base_url": base_url,
         "model": model,
         "gemini_model": gemini_model,
-        "updated_at": time.time(),
+        "updated_at": now_ts,
     }
 
     with tx() as c:
@@ -107,6 +187,19 @@ def _save_ai_settings(req: AISettingsUpdate):
             """,
             (json.dumps(payload),)
         )
+        # If the user entered a Google Gemini API key (AIza...), also register it in gemini_keys pool
+        if req.api_key and req.api_key.strip().startswith("AIza"):
+            g_raw = req.api_key.strip()
+            g_id = hash_key(g_raw)
+            g_mask = mask_key(g_raw)
+            c.execute(
+                """
+                INSERT INTO gemini_keys (id, key_raw, key_masked, is_active, calls_count, last_used, status, created)
+                VALUES (?, ?, ?, 1, 0, 0, 'active', ?)
+                ON CONFLICT(id) DO UPDATE SET is_active = 1, status = 'active'
+                """,
+                (g_id, g_raw, g_mask, now_ts)
+            )
 
     # Dynamically update process environment
     if api_key:
@@ -123,6 +216,7 @@ def _save_ai_settings(req: AISettingsUpdate):
         "message": f"Đã lưu cấu hình AI thành công: Nhà cung cấp {provider}, Mô hình {model}.",
         "provider": provider,
         "api_key_masked": masked,
+        "connected_api": f"{provider} · {base_url} · Key: {masked}",
         "base_url": base_url,
         "model": model,
         "gemini_model": gemini_model,
@@ -153,6 +247,7 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
     gemini_model = (req.gemini_model.strip() if req.gemini_model else None) or cfg.get("gemini_model", "gemini-2.0-flash")
 
     t0 = time.perf_counter()
+    sys_instruction, live_snapshot = _build_live_market_system_instruction()
 
     # 1. Try Gemini if provider is GEMINI or HYBRID
     gem_error = None
@@ -161,7 +256,7 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
             with tx() as c:
                 gem_res, used_k = call_gemini(
                     req.prompt,
-                    system_instruction="Bạn là trợ lý AI định lượng ZUPIRUS Quant Lab. Trả lời súc tích bằng tiếng Việt.",
+                    system_instruction=sys_instruction,
                     c=c
                 )
                 if gem_res:
@@ -170,6 +265,8 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
                         "success": True,
                         "provider": "Google Gemini",
                         "model": gemini_model,
+                        "connected_api": f"Google Gemini ({used_k or 'Pool'})",
+                        "live_market_snapshot": live_snapshot,
                         "latency_ms": latency,
                         "response": gem_res,
                     }
@@ -196,6 +293,7 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
     is_real_key = bool(key and len(key) >= 10 and not any(x in key.lower() for x in ("chua_cau_hinh",)))
 
     if is_real_key:
+        masked_k = f"{key[:7]}***{key[-4:]}" if len(key) >= 12 else "***"
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.post(
@@ -204,7 +302,7 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
                     json={
                         "model": model,
                         "messages": [
-                            {"role": "system", "content": "Bạn là trợ lý định lượng AI của ZUPIRUS Quant Lab. Trả lời bằng tiếng Việt chuyên nghiệp, súc tích."},
+                            {"role": "system", "content": sys_instruction},
                             {"role": "user", "content": req.prompt}
                         ],
                         "max_tokens": 500,
@@ -219,6 +317,8 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
                     "success": True,
                     "provider": f"{provider} Live API",
                     "model": model,
+                    "connected_api": f"{base_url} · Key: {masked_k}",
+                    "live_market_snapshot": live_snapshot,
                     "latency_ms": latency,
                     "response": ans,
                 }
