@@ -135,7 +135,7 @@ def call_gemini(
             break
         api_key = k_item.get("key_cipher", "")
         kid = k_item.get("id", "unknown")
-        if not api_key:
+        if not api_key or api_key.startswith("AQ.Ab8RN"):
             continue
         attempt += 1
 

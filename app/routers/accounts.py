@@ -30,6 +30,8 @@ def _row_to_account_response(row: dict) -> dict:
 
     return {
         "id": row["id"],
+        "user_id": row.get("user_id"),
+        "email": row.get("email") or row.get("user_email"),
         "login": login_val,
         "server": server_val,
         "mt5_login": login_val,
@@ -70,16 +72,18 @@ def list_accounts(u: dict = Depends(get_current_user)):
     with tx() as c:
         if u.get("role") == "admin":
             query = """
-                SELECT a.*, s.plan_tier, s.service_expires_at, s.allow_compounding, s.allow_prop_firm_mode
+                SELECT a.*, u.email AS email, s.plan_tier, s.service_expires_at, s.allow_compounding, s.allow_prop_firm_mode
                 FROM trading_accounts a
+                LEFT JOIN users u ON u.id = a.user_id
                 LEFT JOIN subscriptions s ON s.user_id = a.user_id
                 ORDER BY a.created_at DESC
             """
             rows = c.execute(query).fetchall()
         else:
             query = """
-                SELECT a.*, s.plan_tier, s.service_expires_at, s.allow_compounding, s.allow_prop_firm_mode
+                SELECT a.*, u.email AS email, s.plan_tier, s.service_expires_at, s.allow_compounding, s.allow_prop_firm_mode
                 FROM trading_accounts a
+                LEFT JOIN users u ON u.id = a.user_id
                 LEFT JOIN subscriptions s ON s.user_id = a.user_id
                 WHERE a.user_id = ?
                 ORDER BY a.created_at DESC
@@ -265,9 +269,11 @@ def update_account_risk(
     sub = get_user_subscription(user_id)
 
     with tx() as c:
-        acc = c.execute("SELECT * FROM trading_accounts WHERE id=?", (account_id,)).fetchone()
-        if not acc:
+        acc_row = c.execute("SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id)).fetchone()
+        if not acc_row:
             fail(404, "Tài khoản không tồn tại.")
+        acc = dict(acc_row)
+        real_id = acc["id"]
         if u.get("role") != "admin" and acc["user_id"] != user_id:
             fail(403, "Không có quyền chỉnh sửa tài khoản này.")
 
@@ -309,7 +315,7 @@ def update_account_risk(
             params.append(1 if p.auto_trade else 0)
 
         if updates:
-            params.append(account_id)
+            params.append(real_id)
             c.execute(f"UPDATE trading_accounts SET {', '.join(updates)} WHERE id=?", params)
 
             # Sync matching fields to metaapi_cloud_accounts
@@ -318,18 +324,21 @@ def update_account_risk(
             if p.risk_multiplier is not None:
                 cloud_updates.append("multiplier=?")
                 cloud_params.append(p.risk_multiplier)
+            if p.max_lot is not None:
+                cloud_updates.append("max_lot=?")
+                cloud_params.append(p.max_lot)
             if p.auto_trade is not None:
                 cloud_updates.append("auto_trade=?")
                 cloud_params.append(1 if p.auto_trade else 0)
             if cloud_updates:
-                cloud_params.append(account_id)
+                cloud_params.append(real_id)
                 c.execute(f"UPDATE metaapi_cloud_accounts SET {', '.join(cloud_updates)} WHERE id=?", cloud_params)
             audit(c, user_id, "trading_account_risk_updated", {
-                "account_id": account_id,
+                "account_id": real_id,
                 "updates": p.model_dump(exclude_unset=True)
             })
 
-    return {"id": account_id, "status": "UPDATED", "message": "Đã cập nhật cấu hình rủi ro thành công."}
+    return {"id": real_id, "status": "UPDATED", "message": "Đã cập nhật cấu hình rủi ro thành công."}
 
 
 @router.post("/api/v1/accounts/{account_id}/toggle")
@@ -337,25 +346,27 @@ def update_account_risk(
 def toggle_account(account_id: str, u: dict = Depends(get_current_user)):
     """Toggle auto-trading state for a cloud MT5 terminal."""
     with tx() as c:
-        acc = c.execute("SELECT * FROM trading_accounts WHERE id=?", (account_id,)).fetchone()
+        acc = c.execute("SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id)).fetchone()
         if not acc:
             fail(404, "Tài khoản không tồn tại.")
-        if u.get("role") != "admin" and acc["user_id"] != u["id"]:
+        acc_d = dict(acc)
+        if u.get("role") != "admin" and acc_d["user_id"] != u["id"]:
             fail(403, "Không có quyền.")
 
-        new_state = 1 if acc["auto_trade"] == 0 else 0
-        c.execute("UPDATE trading_accounts SET auto_trade=? WHERE id=?", (new_state, account_id))
+        real_id = acc_d["id"]
+        new_state = 1 if acc_d["auto_trade"] == 0 else 0
+        c.execute("UPDATE trading_accounts SET auto_trade=? WHERE id=?", (new_state, real_id))
         try:
-            c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=?", (new_state, account_id))
+            c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=?", (new_state, real_id))
         except Exception:
             pass
         audit(c, u["id"], "trading_account_toggle_auto_trade", {
-            "account_id": account_id,
+            "account_id": real_id,
             "auto_trade": new_state
         })
 
     return {
-        "id": account_id,
+        "id": real_id,
         "auto_trade": new_state,
         "status": "ACTIVE" if new_state else "PAUSED"
     }
@@ -409,26 +420,38 @@ async def cloud_deploy_action(account_id: str, action: str, u: dict = Depends(ge
 async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     """Sync real-time equity & balance from MetaApi Cloud terminal."""
     with tx() as c:
-        acc = c.execute("SELECT * FROM trading_accounts WHERE id=?", (account_id,)).fetchone()
-        if not acc:
+        acc_row = c.execute("SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id)).fetchone()
+        if not acc_row:
             fail(404, "Tài khoản không tồn tại.")
+        acc = dict(acc_row)
         if u.get("role") != "admin" and acc["user_id"] != u["id"]:
             fail(403, "Không có quyền.")
 
     client = MetaApiClient()
-    meta_id = acc.get("metaapi_account_id") or account_id
-    info = await client.get_account_information(meta_id)
-    eq = float(info.get("equity", acc["equity"]))
-    bal = float(info.get("balance", acc["balance"]))
+    real_id = acc["id"]
+    meta_id = acc.get("metaapi_account_id") or real_id
+    eq = float(acc.get("equity") or 0.0)
+    bal = float(acc.get("balance") or 0.0)
+    if not client.is_mock:
+        info = await client.get_account_information(meta_id)
+        eq = float(info.get("equity", eq))
+        bal = float(info.get("balance", bal))
     now_ts = time.time()
 
     with tx() as c:
         c.execute(
             "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
-            (eq, bal, now_ts, account_id)
+            (eq, bal, now_ts, real_id)
         )
+        try:
+            c.execute(
+                "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
+                (eq, bal, now_ts, real_id)
+            )
+        except Exception:
+            pass
 
-    return {"id": account_id, "equity": eq, "balance": bal, "last_sync": now_ts}
+    return {"id": real_id, "equity": eq, "balance": bal, "last_sync": now_ts}
 
 
 @router.delete("/api/v1/accounts/{account_id}")

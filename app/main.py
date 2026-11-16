@@ -456,6 +456,48 @@ def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional
         query += ' ORDER BY d.id DESC LIMIT 100'
         orders = [dict(r) for r in c.execute(query, tuple(params))]
         for d in orders: d.pop('nonce', None)
+        try:
+            cloud_exec_rows = c.execute(
+                """
+                SELECT e.*, ta.mt5_login AS account_login, ta.broker_server AS account_server
+                FROM metaapi_trade_executions e
+                JOIN trading_accounts ta ON e.account_id = ta.id
+                WHERE ta.user_id = ?
+                ORDER BY e.executed_at DESC LIMIT 100
+                """,
+                (u['id'],)
+            ).fetchall()
+            for r in cloud_exec_rows:
+                rd = dict(r)
+                mapped_state = 'filled' if str(rd.get('status', '')).upper() == 'FILLED' else 'rejected'
+                if account_id and rd.get('account_id') != account_id:
+                    continue
+                if state and mapped_state != state:
+                    continue
+                orders.append({
+                    'id': rd.get('id'),
+                    'signal_id': rd.get('signal_id'),
+                    'account_id': rd.get('account_id'),
+                    'account_login': rd.get('account_login'),
+                    'account_server': rd.get('account_server'),
+                    'symbol': rd.get('symbol') or 'XAUUSD',
+                    'side': rd.get('action') or 'BUY',
+                    'volume': rd.get('volume') or 0.01,
+                    'price': rd.get('entry_price') or 0.0,
+                    'fill_price': rd.get('entry_price') or 0.0,
+                    'sl': rd.get('stop_loss'),
+                    'tp': rd.get('take_profit'),
+                    'ticket': rd.get('position_id') or '',
+                    'deal': rd.get('order_id') or '',
+                    'state': mapped_state,
+                    'status': rd.get('status') or 'FILLED',
+                    'source': 'CLOUD_MT5',
+                    'created': rd.get('executed_at'),
+                    'created_at': rd.get('executed_at'),
+                    'updated': rd.get('executed_at'),
+                })
+        except Exception:
+            pass
         series = [dict(r) for r in c.execute('SELECT s.* FROM snapshots s JOIN accounts a ON a.id=s.account_id WHERE a.user_id=? ORDER BY s.id DESC LIMIT 400', (u['id'],))][::-1]
         health = dict(c.execute("SELECT key,value FROM kv WHERE key IN ('execution_heartbeat','research_heartbeat','replay_price','strategy_last_decision','halted')").fetchall())
         return {'accounts': accounts, 'orders': orders, 'series': series, 'health': health, 'real_trading': False}
@@ -527,12 +569,37 @@ def admin_orders(
 @app.get('/api/admin/monitor')
 def monitor(u=Depends(admin)):
     with tx() as c:
-        accs = [dict(r) for r in c.execute("SELECT a.*,u.email FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.server != 'ZUPIRUS-SYNTHETIC'")]
+        accs = []
+        try:
+            cloud_accs = [dict(r) for r in c.execute('SELECT t.*, u.email FROM trading_accounts t JOIN users u ON u.id=t.user_id')]
+            for ca in cloud_accs:
+                ca['login'] = ca.get('mt5_login', ca.get('login'))
+                ca['server'] = ca.get('broker_server', ca.get('server'))
+                ca['mode'] = 'REAL'
+                ca['enabled'] = ca.get('auto_trade', 1)
+            accs.extend(cloud_accs)
+        except Exception:
+            pass
         try:
             real_accs = [dict(r) for r in c.execute('SELECT r.*,u.email FROM real_accounts r JOIN users u ON u.id=r.user_id')]
             accs.extend(real_accs)
         except Exception:
             pass
+        try:
+            legacy_accs = [dict(r) for r in c.execute("SELECT a.*,u.email FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.server != 'ZUPIRUS-SYNTHETIC'")]
+            accs.extend(legacy_accs)
+        except Exception:
+            pass
+
+        seen_m = set()
+        dedup_accs = []
+        for a in accs:
+            k = (str(a.get('login') or a.get('id')), str(a.get('server') or '').lower())
+            if k not in seen_m:
+                seen_m.add(k)
+                dedup_accs.append(a)
+        accs = dedup_accs
+
         return {
             'accounts': accs,
             'audit': [dict(r) for r in c.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')],
@@ -541,7 +608,9 @@ def monitor(u=Depends(admin)):
             'halted': getkv(c, 'halted') == '1'
         }
 
-class Safety(Model): halted: bool
+class Safety(Model):
+    halted: bool
+    reason: Optional[str] = None
 @app.post('/api/admin/safety')
 def safety(p: Safety, u=Depends(admin)):
     with tx() as c:
@@ -618,10 +687,11 @@ def sync_news(u=Depends(admin)):
 class CreateUser(Model):
     email: str = Field(min_length=3, max_length=150)
     password: str = Field(min_length=8, max_length=128)
-    role: Literal['customer', 'admin'] = 'customer'
+    role: Literal['customer', 'admin', 'user'] = 'customer'
+    name: Optional[str] = None
 
 class UpdateUserRole(Model):
-    role: Literal['customer', 'admin']
+    role: Literal['customer', 'admin', 'user']
 
 class UpdateUserPassword(Model):
     password: str = Field(min_length=8, max_length=128)
@@ -631,7 +701,8 @@ def list_admin_users(u=Depends(admin)):
     with tx() as c:
         rows = c.execute("""
             SELECT u.id, u.email, u.role,
-                   (SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) as accounts_count,
+                   ((SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) +
+                    (SELECT COUNT(*) FROM trading_accounts ta WHERE ta.user_id = u.id)) as accounts_count,
                    (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires > ?) as active_sessions
             FROM users u
             ORDER BY u.email ASC
@@ -652,24 +723,26 @@ def create_admin_user(p: CreateUser, u=Depends(admin)):
     email = p.email.strip().lower()
     if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
         fail(422, 'Email không hợp lệ')
+    db_role = 'admin' if p.role == 'admin' else 'customer'
     with tx() as c:
         if c.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone():
             fail(409, 'Email đã tồn tại')
         uid = f"usr_{secrets.token_hex(8)}"
-        c.execute('INSERT INTO users VALUES(?,?,?,?)', (uid, email, password_hash(p.password), p.role))
-        audit(c, u['id'], 'user_created', {'target_user_id': uid, 'email': email, 'role': p.role})
-    return {'ok': True, 'id': uid, 'email': email, 'role': p.role}
+        c.execute('INSERT INTO users VALUES(?,?,?,?)', (uid, email, password_hash(p.password), db_role))
+        audit(c, u['id'], 'user_created', {'target_user_id': uid, 'email': email, 'role': db_role})
+    return {'ok': True, 'id': uid, 'email': email, 'role': db_role}
 
 @app.put('/api/admin/users/{target_uid}/role')
 def update_user_role(target_uid: str, p: UpdateUserRole, u=Depends(admin)):
-    if target_uid == u['id'] and p.role != 'admin':
+    db_role = 'admin' if p.role == 'admin' else 'customer'
+    if target_uid == u['id'] and db_role != 'admin':
         fail(400, 'Không thể tự hạ quyền quản trị của chính mình')
     with tx() as c:
         row = c.execute('SELECT id, email, role FROM users WHERE id=?', (target_uid,)).fetchone()
         if not row:
             fail(404, 'Không tìm thấy người dùng')
-        c.execute('UPDATE users SET role=? WHERE id=?', (p.role, target_uid))
-        audit(c, u['id'], 'user_role_changed', {'target_user_id': target_uid, 'email': row[1], 'new_role': p.role})
+        c.execute('UPDATE users SET role=? WHERE id=?', (db_role, target_uid))
+        audit(c, u['id'], 'user_role_changed', {'target_user_id': target_uid, 'email': row[1], 'new_role': db_role})
     return {'ok': True}
 
 @app.put('/api/admin/users/{target_uid}/password')

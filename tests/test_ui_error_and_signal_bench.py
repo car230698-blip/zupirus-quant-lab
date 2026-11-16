@@ -110,3 +110,97 @@ def test_vietqr_checkout_order_response_fields(client: TestClient):
     assert "amount_vnd" in d
     assert "payment_content" in d
     assert d["qr_code_url"] is not None
+
+
+def test_full_admin_and_user_e2e_flows(client: TestClient):
+    """Verify newly audited flows: PRO/INSTITUTIONAL checkout, manual order approval, grant sub, user role='user', safety reason, and PATCH account config."""
+    admin_email = f"admin_e2e_{secrets.token_hex(4)}@example.com"
+    pwd = "password12345678"
+    client.post("/api/register", json={"email": admin_email, "password": pwd})
+    client.post("/api/login", json={"email": admin_email, "password": pwd})
+    with tx() as c:
+        c.execute("UPDATE users SET role = 'admin' WHERE email = ?", (admin_email,))
+
+    csrf = {"x-zupirus": "1"}
+
+    # 1. Admin creates user with role='user' and name
+    new_u_email = f"member_{secrets.token_hex(4)}@example.com"
+    r_create_u = client.post(
+        "/api/admin/users",
+        headers=csrf,
+        json={"email": new_u_email, "password": pwd, "role": "user", "name": "Test Trader"}
+    )
+    assert r_create_u.status_code == 200
+    assert r_create_u.json()["role"] == "customer"
+
+    # 2. Admin toggles safety with reason field
+    r_safe = client.post(
+        "/api/admin/safety",
+        headers=csrf,
+        json={"halted": False, "reason": "Routine test"}
+    )
+    assert r_safe.status_code == 200
+
+    # 3. Admin grants INSTITUTIONAL subscription to new user
+    r_grant = client.post(
+        "/api/admin/billing/grant-subscription",
+        headers=csrf,
+        json={
+            "user_id": new_u_email,
+            "plan_tier": "INSTITUTIONAL",
+            "slots": 5,
+            "days": 60,
+        }
+    )
+    assert r_grant.status_code == 200
+    assert r_grant.json()["plan_tier"] == "alpha"
+
+    # 4. Login as the new user and verify /api/v1/billing/subscription
+    client.post("/api/login", headers=csrf, json={"email": new_u_email, "password": pwd})
+    r_sub = client.get("/api/v1/billing/subscription")
+    assert r_sub.status_code == 200
+    sub_d = r_sub.json()
+    assert sub_d["plan_tier"] == "alpha"
+    assert sub_d["max_cloud_accounts"] == 5
+
+    # 5. User creates checkout order with uppercase 'PRO'
+    r_pro_ord = client.post(
+        "/api/v1/billing/checkout",
+        headers=csrf,
+        json={"plan_tier": "PRO", "cloud_accounts_count": 2, "billing_cycle": "MONTHLY"}
+    )
+    assert r_pro_ord.status_code == 200
+    order_id = r_pro_ord.json()["id"]
+
+    # 6. User connects MT5 account and updates its risk config via PATCH
+    r_acc = client.post(
+        "/api/v1/accounts",
+        headers=csrf,
+        json={
+            "mt5_login": "88991122",
+            "mt5_password": "TradePassword123!",
+            "mt5_server": "Exness-MT5Real",
+            "lot_multiplier": 0.05,
+            "max_daily_dd_pct": 4.0,
+            "disclaimer_accepted": True,
+        }
+    )
+    assert r_acc.status_code == 200
+    acc_id = r_acc.json()["id"]
+
+    r_patch = client.patch(
+        f"/api/v1/accounts/{acc_id}",
+        headers=csrf,
+        json={"lot_multiplier": 0.02, "max_daily_dd_pct": 3.5, "max_lot": 2.5}
+    )
+    assert r_patch.status_code == 200
+
+    # 7. Admin manually approves the pending order
+    client.post("/api/login", headers=csrf, json={"email": admin_email, "password": pwd})
+    r_app = client.post(
+        f"/api/admin/billing/orders/{order_id}/approve",
+        headers=csrf,
+    )
+    assert r_app.status_code == 200
+    assert r_app.json()["status"] == "SUCCESS"
+

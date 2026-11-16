@@ -69,20 +69,21 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
     }
   };
 
-  useEffect(() => {
-    const loadMonitor = async () => {
-      try {
-        const res = await fetch('/api/admin/monitor', { credentials: 'include' });
-        if (res.ok) {
-          const d = await res.json();
-          setLocalHalted(Boolean(d.halted));
-          if (Array.isArray(d.news)) setLocalNews(d.news);
-        }
-      } catch {
-        // ignore
+  const fetchMonitorData = async () => {
+    try {
+      const res = await fetch('/api/admin/monitor', { credentials: 'include' });
+      if (res.ok) {
+        const d = await res.json();
+        setLocalHalted(Boolean(d.halted));
+        if (Array.isArray(d.news)) setLocalNews(d.news);
       }
-    };
-    loadMonitor();
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    fetchMonitorData();
     fetchUsers();
   }, []);
 
@@ -98,6 +99,7 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
         const res = await fetch('/api/admin/safety', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+          credentials: 'include',
           body: JSON.stringify({ halted: activate, reason: killReason }),
         });
         if (res.ok) {
@@ -107,9 +109,13 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
               ? 'Đã kích hoạt cầu dao khẩn cấp toàn hệ thống.'
               : 'Đã mở lại quyền thực thi lệnh trên toàn hệ thống.'
           );
+          fetchMonitorData();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setLocalKillMsg(`Lỗi cầu dao: ${formatApiError(err, res.status)}`);
         }
-      } catch {
-        // ignore
+      } catch (e: any) {
+        setLocalKillMsg(`Lỗi kết nối: ${e.message}`);
       }
     });
 
@@ -131,48 +137,76 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
     (async (e: React.FormEvent) => {
       e.preventDefault();
       if (!newsTitle.trim()) return;
-      const newEv = {
-        id: `news-${Date.now()}`,
-        title: newsTitle,
-        impact: newsImpact,
-        event_time: newsTime || new Date().toISOString(),
-        pre_window_minutes: Number(newsPreMin) || 30,
-        post_window_minutes: Number(newsPostMin) || 30,
-      };
-      setLocalNews((prev) => [newEv, ...prev]);
-      setLocalNewsTitle('');
-      setLocalNewsMsg(`Đã thêm bản tin "${newEv.title}" vào lịch chắn rủi ro.`);
+      try {
+        const parsedTime = newsTime ? Date.parse(newsTime) : Date.now() + 1800_000;
+        const tsSeconds = Number.isFinite(parsedTime) && parsedTime > 0 ? parsedTime / 1000 : Date.now() / 1000 + 1800;
+        const impactNorm = (newsImpact || 'high').toLowerCase();
+        const validImpact = ['high', 'medium', 'low'].includes(impactNorm) ? impactNorm : 'high';
+        const res = await fetch('/api/admin/news', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+          credentials: 'include',
+          body: JSON.stringify({
+            title: newsTitle.trim(),
+            currency: 'USD',
+            impact: validImpact,
+            ts: tsSeconds,
+          }),
+        });
+        if (res.ok) {
+          setLocalNewsTitle('');
+          setLocalNewsMsg(`Đã thêm bản tin "${newsTitle.trim()}" vào lịch chắn rủi ro.`);
+          fetchMonitorData();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setLocalNewsMsg(`Lỗi thêm tin: ${formatApiError(err, res.status)}`);
+        }
+      } catch (err: any) {
+        setLocalNewsMsg(`Lỗi kết nối: ${err.message}`);
+      }
     });
 
   const handleSyncCalendar =
     props.handleSyncCalendar ??
     (async () => {
-      setLocalNewsMsg('Đã đồng bộ lịch tin tức USD High-Impact từ ForexFactory.');
-      setLocalNews([
-        {
-          id: 'ff-cpi',
-          title: 'US Core CPI (m/m)',
-          impact: 'HIGH',
-          event_time: new Date(Date.now() + 3600_000 * 4).toISOString(),
-          pre_window_minutes: 30,
-          post_window_minutes: 30,
-        },
-        {
-          id: 'ff-fomc',
-          title: 'FOMC Statement & Federal Funds Rate',
-          impact: 'HIGH',
-          event_time: new Date(Date.now() + 3600_000 * 28).toISOString(),
-          pre_window_minutes: 30,
-          post_window_minutes: 30,
-        },
-      ]);
+      try {
+        const res = await fetch('/api/admin/news/sync', {
+          method: 'POST',
+          headers: { 'X-Zupirus': '1' },
+          credentials: 'include',
+        });
+        if (res.ok) {
+          const d = await res.json().catch(() => ({}));
+          setLocalNewsMsg(`Đã đồng bộ lịch tin tức USD High-Impact (${d.added ?? 0} tin mới, ${d.existing ?? 0} hiện có).`);
+          fetchMonitorData();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setLocalNewsMsg(`Lỗi đồng bộ lịch: ${formatApiError(err, res.status)}`);
+        }
+      } catch (err: any) {
+        setLocalNewsMsg(`Lỗi kết nối: ${err.message}`);
+      }
     });
 
   const handleClearNews =
     props.handleClearNews ??
-    (() => {
-      setLocalNews([]);
-      setLocalNewsMsg('Đã xoá danh sách sự kiện tin tức.');
+    (async () => {
+      try {
+        for (const ev of localNews) {
+          if (ev.id) {
+            await fetch(`/api/admin/news/${encodeURIComponent(ev.id)}`, {
+              method: 'DELETE',
+              headers: { 'X-Zupirus': '1' },
+              credentials: 'include',
+            });
+          }
+        }
+        setLocalNews([]);
+        setLocalNewsMsg('Đã xoá danh sách sự kiện tin tức khỏi hệ thống.');
+        fetchMonitorData();
+      } catch {
+        setLocalNews([]);
+      }
     });
 
   const allUsers = props.allUsers ?? localUsers;
@@ -427,7 +461,7 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
                       <td className="font-semibold text-white">{ev.title}</td>
                       <td className="font-mono text-xs text-amber-300">{ev.impact || 'HIGH'}</td>
                       <td className="font-mono text-xs text-slate-300 tabular-nums">
-                        {fmtTime(ev.event_time || ev.timestamp || ev.starts_at)}
+                        {fmtTime(ev.ts || ev.event_time || ev.timestamp || ev.starts_at)}
                       </td>
                       <td className="text-right font-mono text-xs text-cyan-300 tabular-nums">
                         -{ev.pre_window_minutes || 30}m / +{ev.post_window_minutes || 30}m

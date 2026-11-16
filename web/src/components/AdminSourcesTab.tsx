@@ -106,8 +106,8 @@ export const AdminSourcesTab: React.FC = () => {
         credentials: 'include',
         body: JSON.stringify({
           prompt: aiTestPrompt.trim(),
-          provider: aiProvider,
-          model: aiModel,
+          provider: aiProviderInput,
+          model: aiModelInput.trim(),
           base_url: aiBaseUrlInput.trim(),
           api_key: aiApiKeyInput.trim(),
         }),

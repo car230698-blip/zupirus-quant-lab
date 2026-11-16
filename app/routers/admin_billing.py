@@ -340,7 +340,17 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
             fail(404, f"Không tìm thấy người dùng có ID hoặc Email: '{target_ident}'.")
 
         uid = user_row["id"]
-        tier = req.plan_tier.lower().strip()
+        raw_tier = req.plan_tier.lower().strip()
+        tier_map = {
+            "starter": "starter",
+            "growth": "growth",
+            "pro": "growth",
+            "quant_pro": "growth",
+            "alpha": "alpha",
+            "institutional": "alpha",
+            "vip": "alpha",
+        }
+        tier = tier_map.get(raw_tier, "starter")
         effective_slots = req.slots or req.max_cloud_accounts or 2
         effective_days = req.days or req.duration_days or 30
         duration_sec = effective_days * 86400
@@ -350,8 +360,8 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
         current_exp = float(sub["service_expires_at"] or 0) if sub and sub["service_expires_at"] else 0.0
         new_exp = max(current_exp, now_ts) + duration_sec
 
-        is_growth = tier in ("growth", "pro", "alpha")
-        is_alpha = tier in ("alpha", "pro")
+        is_growth = tier in ("growth", "alpha")
+        is_alpha = tier == "alpha"
 
         if sub:
             c.execute("""
@@ -405,7 +415,7 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
 
 
 @router.post("/orders/{order_id}/approve")
-def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_admin)):
+async def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_admin)):
     """Admin manual override to approve an order and activate its subscription."""
     from app.services.billing_service import process_successful_payment
     with tx() as c:
@@ -416,20 +426,12 @@ def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_admin))
         if order.get("status") == "PAID":
             return {"status": "ALREADY_PAID", "message": f"Đơn hàng {order_id} đã được thanh toán trước đó."}
 
-    fake_gateway_data = {
-        "transaction_id": f"adm_{secrets.token_hex(6)}",
-        "order_id": order_id,
-        "amount_vnd": order.get("amount_vnd", 0),
-        "transfer_type": "in",
-        "description": f"MANUAL_ADMIN_APPROVAL {order_id}",
-        "raw_payload": {"approved_by_admin": _admin.get("email") if isinstance(_admin, dict) else "admin"}
-    }
-    success, msg = process_successful_payment(
-        gateway_name="MANUAL_ADMIN",
-        gateway_transaction_id=fake_gateway_data["transaction_id"],
-        gateway_data=fake_gateway_data,
-        matched_order_id=order_id
+    success = await process_successful_payment(
+        order_id=order_id,
+        sepay_trans_id=f"adm_{secrets.token_hex(6)}",
+        amount_received_vnd=float(order.get("amount_vnd") or 0),
+        raw_payload={"approved_by_admin": _admin.get("email") if isinstance(_admin, dict) else "admin"}
     )
     if not success:
-        fail(400, f"Không thể duyệt đơn hàng: {msg}")
+        fail(400, f"Không thể duyệt đơn hàng {order_id}.")
     return {"status": "SUCCESS", "message": f"Đã duyệt và kích hoạt đơn hàng {order_id} thành công."}

@@ -85,13 +85,27 @@ class TradingAccountCreate(BaseModel):
 
 
 class TradingAccountUpdate(BaseModel):
-    risk_multiplier: Optional[float] = Field(default=None, ge=0.1, le=5.0)
+    risk_multiplier: Optional[float] = Field(default=None, ge=0.01, le=10.0)
+    lot_multiplier: Optional[float] = Field(default=None, ge=0.01, le=10.0)
+    max_lot: Optional[float] = Field(default=None, ge=0.01, le=50.0)
     is_compounding: Optional[bool] = None
     is_prop_firm_mode: Optional[bool] = None
     auto_be_partial_tp: Optional[bool] = None
-    prop_daily_dd_limit_pct: Optional[float] = Field(default=None, ge=1.0, le=10.0)
-    prop_profit_target_pct: Optional[float] = Field(default=None, ge=2.0, le=20.0)
+    prop_daily_dd_limit_pct: Optional[float] = Field(default=None, ge=0.5, le=20.0)
+    max_daily_dd_pct: Optional[float] = Field(default=None, ge=0.5, le=20.0)
+    prop_profit_target_pct: Optional[float] = Field(default=None, ge=1.0, le=50.0)
+    daily_profit_target_usd: Optional[float] = None
+    symbol_mapping_custom: Optional[str] = None
     auto_trade: Optional[bool] = None
+
+    @model_validator(mode="before")
+    def resolve_update_fields(cls, values):
+        if isinstance(values, dict):
+            if values.get("risk_multiplier") is None and values.get("lot_multiplier") is not None:
+                values["risk_multiplier"] = values["lot_multiplier"]
+            if values.get("prop_daily_dd_limit_pct") is None and values.get("max_daily_dd_pct") is not None:
+                values["prop_daily_dd_limit_pct"] = values["max_daily_dd_pct"]
+        return values
 
 
 class TradingAccountResponse(BaseModel):

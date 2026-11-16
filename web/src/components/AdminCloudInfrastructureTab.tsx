@@ -13,7 +13,10 @@ export const AdminCloudInfrastructureTab: React.FC<AdminCloudInfrastructureTabPr
   refetchAll,
 }) => {
   const { data: cloudData, refetch: queryRefetch } = useCloudAccounts();
-  const rawAccounts = externalAccounts ?? cloudData?.accounts ?? [];
+  const rawAccounts = React.useMemo(
+    () => [...(cloudData?.accounts ?? []), ...(externalAccounts ?? [])],
+    [cloudData?.accounts, externalAccounts]
+  );
 
   // Deduplicate accounts by (login, server)
   const accounts = React.useMemo(() => {
@@ -214,7 +217,9 @@ export const AdminCloudInfrastructureTab: React.FC<AdminCloudInfrastructureTabPr
                           #{id} · {acc.mt5_server || acc.broker_server || 'MT5'}
                         </div>
                       </td>
-                      <td className="font-mono text-xs text-slate-300">{acc.user_id || 'admin'}</td>
+                      <td className="font-mono text-xs text-slate-300">
+                        {acc.email || acc.user_email || acc.user_id || 'admin'}
+                      </td>
                       <td className="text-right font-mono text-xs tabular-nums">
                         <div className="font-bold text-white">${fmtNum(acc.balance, 2)}</div>
                         <div className="text-cyan-300">${fmtNum(acc.equity, 2)}</div>

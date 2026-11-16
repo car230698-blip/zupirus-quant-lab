@@ -329,22 +329,20 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   };
 
   const handleSaveAccountConfig = async (acc: any) => {
-    const id = acc.account_id || acc.id || acc.login;
+    const id = acc.id || acc.account_id || acc.login;
     setCloudBusy(true);
     try {
-      const res = await fetch('/api/v1/accounts', {
-        method: 'POST',
+      const mult = Number(editConfigForm.lot_multiplier) || 1.0;
+      const dd = Number(editConfigForm.max_daily_dd_pct) || 4.0;
+      const res = await fetch(`/api/v1/accounts/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({
-          account_id: id,
-          account_name: acc.account_name || acc.login || id,
-          broker_server: acc.broker_server || acc.mt5_server || 'MetaTrader5',
-          connection_type: acc.connection_type || 'CLOUD_METAAPI',
-          mt5_login: acc.mt5_login || acc.login || id,
-          mt5_server: acc.mt5_server || acc.broker_server || '',
-          lot_multiplier: Number(editConfigForm.lot_multiplier) || 1.0,
-          max_daily_dd_pct: Number(editConfigForm.max_daily_dd_pct) || 4.0,
+          risk_multiplier: mult,
+          lot_multiplier: mult,
+          prop_daily_dd_limit_pct: dd,
+          max_daily_dd_pct: dd,
           max_lot: Number(editConfigForm.max_lot) || 5.0,
           daily_profit_target_usd: Number(editConfigForm.daily_profit_target_usd) || 0,
           symbol_mapping_custom: editConfigForm.symbol_mapping_custom.trim(),
@@ -354,7 +352,12 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         setExpandedConfigId(null);
         setCloudMsg(`Đã lưu cấu hình quản trị rủi ro cho tài khoản #${id}`);
         refetchAccounts();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setCloudMsg(`Lỗi lưu cấu hình: ${formatApiError(d, res.status)}`);
       }
+    } catch (e: any) {
+      setCloudMsg(`Lỗi kết nối: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
