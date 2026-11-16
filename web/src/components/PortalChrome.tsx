@@ -89,7 +89,6 @@ export function PortalShell({
   onNavigate,
   email,
   switchPortal,
-  onOpenLanding,
   logout,
   children,
 }: {
@@ -98,7 +97,6 @@ export function PortalShell({
   onNavigate: (page: string) => void;
   email: string;
   switchPortal?: () => void;
-  onOpenLanding?: () => void;
   logout: () => void;
   children: ReactNode;
 }) {
@@ -149,7 +147,7 @@ export function PortalShell({
         }`}
       >
         <div className={`flex items-center ${sidebarCollapsed ? 'flex-col gap-3' : 'justify-between gap-2'}`}>
-          <Brand onClick={onOpenLanding} collapsed={sidebarCollapsed} />
+          <Brand collapsed={sidebarCollapsed} />
           <button
             type="button"
             onClick={handleToggleSidebar}
@@ -203,16 +201,6 @@ export function PortalShell({
                   <span>Bảng Lệnh Nhanh</span>
                   <kbd className="text-[10px] text-cyan-300">⌘K</kbd>
                 </button>
-                {onOpenLanding && (
-                  <button
-                    type="button"
-                    onClick={onOpenLanding}
-                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-slate-300 hover:text-cyan-300 hover:bg-slate-800/60 transition-colors flex items-center justify-between cursor-pointer"
-                  >
-                    <span>Trang chủ Landing Page</span>
-                    <span aria-hidden="true">↗</span>
-                  </button>
-                )}
                 {portal === 'admin' && switchPortal && (
                   <button
                     type="button"
@@ -235,16 +223,6 @@ export function PortalShell({
               >
                 ⌘
               </button>
-              {onOpenLanding && (
-                <button
-                  type="button"
-                  onClick={onOpenLanding}
-                  title="Trang chủ Landing Page"
-                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-300 hover:border-cyan-400/50 hover:text-cyan-300 transition cursor-pointer"
-                >
-                  🌐
-                </button>
-              )}
               {portal === 'admin' && switchPortal && (
                 <button
                   type="button"
@@ -281,18 +259,9 @@ export function PortalShell({
             <span className="text-slate-100 font-semibold">{currentNavLabel}</span>
           </div>
 
-          {/* Zone 2: Interactive Mode Switcher Bar */}
-          <div className="hidden xl:flex items-center gap-1 p-1 rounded-xl bg-slate-950/90 border border-cyan-500/20">
-            {onOpenLanding && (
-              <button
-                type="button"
-                onClick={onOpenLanding}
-                className="px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                🌐 Landing Page
-              </button>
-            )}
-            {portal === 'admin' && switchPortal && (
+          {/* Zone 2: Optional Cross-Portal Switcher */}
+          {portal === 'admin' && switchPortal && (
+            <div className="hidden xl:flex items-center gap-1 p-1 rounded-xl bg-slate-950/90 border border-cyan-500/20">
               <button
                 type="button"
                 onClick={switchPortal}
@@ -300,8 +269,8 @@ export function PortalShell({
               >
                 📊 Xem Cổng Khách Hàng ↗
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Zone 3: Session Identity & Primary Action */}
           <div className="quant-session">
@@ -346,33 +315,6 @@ export function PortalShell({
         </main>
       </div>
 
-      {/* Floating Dock (Only on Admin) */}
-      {portal === 'admin' && (
-        <div className="fixed bottom-5 right-5 z-40 flex items-center gap-1.5 rounded-2xl border border-cyan-400/40 bg-[#030714]/90 p-1.5 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_25px_rgba(6,182,212,0.25)] font-mono text-xs">
-          {onOpenLanding && (
-            <button
-              type="button"
-              onClick={onOpenLanding}
-              className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
-            >
-              🌐 Landing
-            </button>
-          )}
-          {switchPortal && (
-            <button
-              type="button"
-              onClick={switchPortal}
-              className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
-            >
-              📊 Cổng User ↗
-            </button>
-          )}
-          <span className="px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 font-bold whitespace-nowrap">
-            ⚡ Admin
-          </span>
-        </div>
-      )}
-
       {/* Quick Command Palette Modal (⌘K) */}
       {cmdOpen && (
         <div
@@ -397,35 +339,25 @@ export function PortalShell({
             </div>
 
             <div className="space-y-3">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
-                1. Chuyển Đổi Cổng Giao Diện
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {onOpenLanding && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCmdOpen(false);
-                      onOpenLanding();
-                    }}
-                    className="quant-btn-secondary py-2.5 px-3 text-xs justify-start"
-                  >
-                    🌐 Trang Chủ Landing
-                  </button>
-                )}
-                {portal === 'admin' && switchPortal && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCmdOpen(false);
-                      switchPortal();
-                    }}
-                    className="quant-btn-secondary py-2.5 px-3 text-xs justify-start"
-                  >
-                    📊 Xem Cổng Khách Hàng ↗
-                  </button>
-                )}
-              </div>
+              {portal === 'admin' && switchPortal && (
+                <>
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
+                    1. Chuyển Đổi Cổng Giao Diện
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCmdOpen(false);
+                        switchPortal();
+                      }}
+                      className="quant-btn-secondary py-2.5 px-3 text-xs justify-start"
+                    >
+                      📊 Xem Cổng Khách Hàng ↗
+                    </button>
+                  </div>
+                </>
+              )}
 
               <div className="text-[10px] font-mono uppercase tracking-widest text-slate-400 pt-2">
                 2. Điều Hướng Phân Hệ Hiện Tại ({portal.toUpperCase()})

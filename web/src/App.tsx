@@ -46,8 +46,6 @@ const AppContent: React.FC = () => {
     return 'landing';
   });
 
-  const [previewAuth, setPreviewAuth] = useState(false);
-
   // Auth state
   const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
@@ -212,7 +210,6 @@ const AppContent: React.FC = () => {
       setDashboardStatus('loading');
       setMonitorStatus('loading');
       setNotice(null);
-      setPreviewAuth(false);
       setCurrentUser(await session.json());
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Không thể kết nối máy chủ.');
@@ -271,7 +268,6 @@ const AppContent: React.FC = () => {
   const totalPnl = totalEquity - totalBalance;
 
   const navigateToPortal = (target: PortalType) => {
-    setPreviewAuth(false);
     if (
       typeof window !== 'undefined' &&
       ['zupirus.com', 'www.zupirus.com', 'adm.zupirus.com', 'app.zupirus.com'].includes(window.location.hostname)
@@ -311,7 +307,7 @@ const AppContent: React.FC = () => {
     );
   }
 
-  if (!currentUser || previewAuth) {
+  if (!currentUser) {
     return (
       <PortalAuth
         portal={portal}
@@ -319,7 +315,6 @@ const AppContent: React.FC = () => {
         error={authError}
         onSubmit={authenticate}
         onSwitchPortal={navigateToPortal}
-        onClosePreview={currentUser ? () => setPreviewAuth(false) : undefined}
       />
     );
   }
@@ -364,7 +359,6 @@ const AppContent: React.FC = () => {
       onNavigate={(page) => (portal === 'admin' ? setAdminTab(page as AdminTabKey) : setUserTab(page as UserTabKey))}
       logout={handleLogout}
       switchPortal={portal === 'admin' && isAdmin ? switchPortal : undefined}
-      onOpenLanding={() => navigateToPortal('landing')}
     >
       {status === 'loading' && (
         <div className="quant-status" role="status">

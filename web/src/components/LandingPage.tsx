@@ -923,17 +923,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
           </div>
         </div>
       </footer>
-
-      {/* Floating Action Button */}
-      <div className="fixed bottom-5 right-5 z-50 flex items-center gap-1.5 rounded-2xl border border-cyan-400/40 bg-[#030714]/90 p-1.5 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_25px_rgba(6,182,212,0.25)] font-mono text-xs">
-        <button
-          type="button"
-          onClick={onEnterApp}
-          className="px-3.5 py-2 rounded-xl bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 hover:bg-cyan-500/30 transition whitespace-nowrap font-bold cursor-pointer"
-        >
-          📊 Vào Không Gian Giao Dịch ↗
-        </button>
-      </div>
     </div>
   );
 };
