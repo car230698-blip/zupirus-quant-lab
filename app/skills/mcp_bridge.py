@@ -8,13 +8,46 @@ import json
 import time
 import logging
 import re
+import ipaddress
 import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
 from typing import Dict, Any, List, Optional
 import httpx
 
 from app.db import tx
+from app.security import encrypt_secret, decrypt_secret
 
 logger = logging.getLogger("zupirus.mcp_bridge")
+
+
+def _decrypt_mcp_key(raw: str) -> str:
+    val = str(raw or "").strip()
+    if not val:
+        return ""
+    try:
+        dec = decrypt_secret(val)
+        return dec if dec else val
+    except Exception:
+        return val
+
+
+def _is_safe_external_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return False
+        host = parsed.hostname.lower()
+        if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            return False
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
+        except ValueError:
+            pass
+        return True
+    except Exception:
+        return False
 
 DEFAULT_MCP_SERVERS: List[Dict[str, Any]] = [
     {
@@ -92,7 +125,7 @@ def list_mcp_servers(enabled_only: bool = False) -> List[Dict[str, Any]]:
         seen_ids.add(sid)
         ovr = saved_map.get(sid, {})
         enabled = bool(ovr.get("enabled", base["enabled"]))
-        raw_key = str(ovr.get("api_key") or "").strip()
+        raw_key = _decrypt_mcp_key(ovr.get("api_key") or "")
         if raw_key and len(raw_key) >= 10:
             masked = f"{raw_key[:5]}***{raw_key[-3:]}"
             has_key = True
@@ -120,7 +153,7 @@ def list_mcp_servers(enabled_only: bool = False) -> List[Dict[str, Any]]:
         enabled = bool(ovr.get("enabled", True))
         if enabled_only and not enabled:
             continue
-        raw_key = str(ovr.get("api_key") or "").strip()
+        raw_key = _decrypt_mcp_key(ovr.get("api_key") or "")
         masked = f"{raw_key[:5]}***{raw_key[-3:]}" if len(raw_key) >= 10 else ("***" if raw_key else "NONE")
         result.append({
             "server_id": sid,
@@ -154,7 +187,7 @@ def update_mcp_server(
     if enabled is not None:
         curr["enabled"] = bool(enabled)
     if api_key is not None and api_key.strip():
-        curr["api_key"] = api_key.strip()
+        curr["api_key"] = encrypt_secret(api_key.strip())
     if endpoint_url is not None and endpoint_url.strip():
         curr["endpoint_url"] = endpoint_url.strip()
     if name is not None and name.strip():
@@ -189,7 +222,7 @@ def execute_mcp_tool(server_id: str, **kwargs) -> Dict[str, Any]:
         return {"ok": False, "server_id": server_id, "error": f"MCP Server '{server_id}' đang bị tắt bởi Admin."}
 
     raw_cfg = saved_map.get(server_id, {})
-    api_key = str(raw_cfg.get("api_key") or "").strip()
+    api_key = _decrypt_mcp_key(raw_cfg.get("api_key") or "")
     headers = {"User-Agent": "ZUPIRUS-QuantLab-MCP/0.2.0 (+https://zupirus.com)"}
 
     try:
@@ -292,18 +325,34 @@ def execute_mcp_tool(server_id: str, **kwargs) -> Dict[str, Any]:
                     "excerpt": clean_text,
                 }
 
-        # Custom MCP Server HTTP check
-        target_url = srv.get("endpoint_url")
+        # Custom MCP Server HTTP / JSON-RPC execution
+        target_url = str(srv.get("endpoint_url") or "").strip()
         if target_url:
-            with httpx.Client(timeout=6.0, headers=headers) as client:
-                r = client.get(target_url)
+            if not _is_safe_external_url(target_url):
+                return {"ok": False, "server_id": server_id, "error": "URL MCP không hợp lệ hoặc bị chặn (SSRF protection)."}
+            req_headers = {**headers}
+            if api_key:
+                req_headers["Authorization"] = f"Bearer {api_key}"
+            with httpx.Client(timeout=8.0, headers=req_headers) as client:
+                if kwargs:
+                    payload = {"tool": kwargs.get("tool") or server_id, "arguments": kwargs}
+                    r = client.post(target_url, json=payload)
+                    if r.status_code == 405:
+                        r = client.get(target_url, params={k: str(v) for k, v in kwargs.items()})
+                else:
+                    r = client.get(target_url)
+                parsed_data = None
+                try:
+                    parsed_data = r.json()
+                except Exception:
+                    pass
                 return {
                     "ok": r.status_code < 400,
                     "server_id": server_id,
                     "url": target_url,
                     "status_code": r.status_code,
                     "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
-                    "preview": r.text[:400],
+                    "data": parsed_data if parsed_data is not None else r.text[:800],
                 }
     except Exception as e:
         logger.warning(f"MCP tool execution fallback for {server_id}: {e}")

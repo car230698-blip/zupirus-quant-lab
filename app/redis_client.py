@@ -118,15 +118,22 @@ class InMemoryRedisMock:
 
 
 _redis_instance = None
+_redis_last_retry_ts: float = 0.0
+_REDIS_RETRY_INTERVAL_SEC: float = 15.0
 
 
 def get_redis_client():
-    """Return live Redis client if REDIS_URL is configured, otherwise fallback to InMemoryRedisMock."""
-    global _redis_instance
+    """Return live Redis client if REDIS_URL is configured, retrying periodically if previously fallen back to mock."""
+    global _redis_instance, _redis_last_retry_ts
+    now = time.time()
     if _redis_instance is not None:
-        return _redis_instance
+        if not isinstance(_redis_instance, InMemoryRedisMock) or not REDIS_URL:
+            return _redis_instance
+        if (now - _redis_last_retry_ts) < _REDIS_RETRY_INTERVAL_SEC:
+            return _redis_instance
 
     if REDIS_URL:
+        _redis_last_retry_ts = now
         try:
             import redis
             client = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=3, socket_connect_timeout=3)
@@ -137,7 +144,8 @@ def get_redis_client():
         except Exception as e:
             logger.warning("Could not connect to Redis (%s). Falling back to resilient in-memory mock.", e)
 
-    _redis_instance = InMemoryRedisMock()
+    if _redis_instance is None:
+        _redis_instance = InMemoryRedisMock()
     return _redis_instance
 
 

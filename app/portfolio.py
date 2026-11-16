@@ -124,21 +124,29 @@ def calculate_position_size(
     method: str = "atr_volatility",
     win_rate: float = 0.55,
     win_loss_ratio: float = 2.0,
+    sl_unit: str = "auto",
 ) -> Dict[str, Any]:
     """Calculates optimal lot size using ATR Volatility or Half-Kelly scaling
-    with fail-closed safety clamps."""
+    with fail-closed safety clamps. Normalizes MT5 points vs price distance."""
     if equity <= 0:
         return {"lot": 0.01, "error": "Invalid equity"}
 
     spec = ASSET_UNIVERSE.get(symbol, ASSET_UNIVERSE["XAUUSD"])
-    sl_points = custom_sl_points or (spec["typical_atr_m15"] * spec["recommended_sl_atr"])
+    point_size = float(spec.get("point_size") or 0.01)
+    if custom_sl_points is not None and custom_sl_points > 0:
+        if sl_unit == "points" or (sl_unit == "auto" and symbol != "BTCUSD" and custom_sl_points >= 20.0):
+            sl_price_dist = float(custom_sl_points) * point_size
+        else:
+            sl_price_dist = float(custom_sl_points)
+    else:
+        sl_price_dist = spec["typical_atr_m15"] * spec["recommended_sl_atr"]
 
     # Monetary risk target
     risk_dollars = equity * (max(0.1, min(risk_percent, 3.0)) / 100.0)
 
     # 1. Base ATR Volatility Sizing
     # Loss per 1.0 standard lot if SL is hit
-    loss_per_lot = sl_points * spec["contract_multiplier"]
+    loss_per_lot = sl_price_dist * spec["contract_multiplier"]
     if loss_per_lot <= 0:
         loss_per_lot = 1.0
 
@@ -164,7 +172,8 @@ def calculate_position_size(
         "method": method,
         "recommended_lot": clamped_lot,
         "dollar_risk": dollar_exposure,
-        "sl_points": round(sl_points, 4),
+        "sl_price_distance": round(sl_price_dist, 5),
+        "sl_points": round(sl_price_dist / point_size, 1) if point_size > 0 else round(sl_price_dist, 4),
         "contract_multiplier": spec["contract_multiplier"],
         "is_clamped": clamped_lot != raw_lot,
     }
@@ -173,16 +182,32 @@ def calculate_position_size(
 def run_monte_carlo_simulation(
     trades: Optional[List[float]] = None,
     initial_equity: float = 10000.0,
-    iterations: int = 10000,
+    iterations: int = 2000,
     horizon_trades: int = 100,
     ruin_drawdown_pct: float = 20.0,
 ) -> Dict[str, Any]:
-    """Simulates 10,000 portfolio paths using bootstrap resampling of trade returns
+    """Simulates portfolio paths using bootstrap resampling of real trade returns
     to compute Value-at-Risk (VaR), Drawdown Confidence Intervals, and Risk of Ruin."""
-    # Default representative sample if fewer than 10 trades provided
+    iterations = min(2000, max(100, int(iterations)))
+    horizon_trades = min(250, max(10, int(horizon_trades)))
+    initial_equity = max(100.0, float(initial_equity))
+
     if not trades or len(trades) < 5:
-        # Balanced quant distribution: 55% win rate, 2:1 profit factor
-        trades = [12.0, -6.0, 12.0, -6.0, 12.0, -6.0, -6.0, 12.0, -6.0, 12.0, 12.0, -6.0]
+        return {
+            "insufficient_data": True,
+            "error": "Cần ít nhất 5 lệnh lịch sử để chạy mô phỏng Monte Carlo chính xác.",
+            "trades_provided": len(trades or []),
+            "iterations": 0,
+            "horizon_trades": horizon_trades,
+            "initial_equity": initial_equity,
+            "ruin_threshold_pct": ruin_drawdown_pct,
+            "risk_of_ruin_pct": 0.0,
+            "median_max_drawdown_pct": 0.0,
+            "var_95_max_drawdown_pct": 0.0,
+            "var_99_max_drawdown_pct": 0.0,
+            "median_final_equity": initial_equity,
+            "robustness_score": 0.0,
+        }
 
     max_drawdowns: List[float] = []
     final_equities: List[float] = []
@@ -195,16 +220,16 @@ def run_monte_carlo_simulation(
         ruined = False
 
         for _ in range(horizon_trades):
-            # Resample random trade return
-            ret = random.choice(trades)
-            eq += ret
+            # Geometric compounding of trade return relative to initial equity
+            ret = float(random.choice(trades))
+            eq = max(0.0, eq * (1.0 + (ret / initial_equity)))
             if eq > peak:
                 peak = eq
-            dd = ((peak - eq) / peak) * 100.0 if peak > 0 else 0.0
+            dd = ((peak - eq) / peak) * 100.0 if peak > 0 else 100.0
             if dd > max_dd:
                 max_dd = dd
 
-            if dd >= ruin_drawdown_pct:
+            if dd >= ruin_drawdown_pct or eq <= 0.0:
                 ruined = True
 
         max_drawdowns.append(max_dd)

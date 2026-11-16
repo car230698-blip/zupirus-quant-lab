@@ -179,13 +179,20 @@ def run_risk_guardian_cycle(c) -> Dict[str, Any]:
     total_equity = sum(float(a["equity"] or 0.0) for a in accounts)
     total_positions = sum(int(a["positions"] or 0) for a in accounts)
 
-    # Run Monte Carlo for portfolio risk
-    mc = run_monte_carlo_simulation(initial_equity=max(1000.0, total_equity), iterations=1000)
+    # Run Monte Carlo for portfolio risk using real closed trades if available
+    with tx() as c:
+        pnl_rows = c.execute(
+            "SELECT pnl FROM signal_audit_logs WHERE pnl IS NOT NULL ORDER BY id DESC LIMIT 100"
+        ).fetchall()
+    real_trades = [float(r[0]) for r in pnl_rows] if pnl_rows else []
+    mc = run_monte_carlo_simulation(trades=real_trades, initial_equity=max(1000.0, total_equity), iterations=1000)
     var_99 = mc["var_99_max_drawdown_pct"]
     risk_of_ruin = mc["risk_of_ruin_pct"]
 
     status = "normal"
-    if var_99 > 5.0 or risk_of_ruin > 1.0:
+    if mc.get("insufficient_data"):
+        action_text = f"Danh mục ổn định ({len(accounts)} tài khoản, {total_positions} vị thế). Chưa đủ >=5 lệnh đóng để chạy Monte Carlo."
+    elif var_99 > 5.0 or risk_of_ruin > 1.0:
         status = "warning"
         action_text = f"Cảnh báo rủi ro: VaR 99% đạt {var_99}%. Khuyến nghị siết chặt SL/TP."
     else:

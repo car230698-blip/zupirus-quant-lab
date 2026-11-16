@@ -123,10 +123,35 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
       ? Math.max(0, ((totalBalance - totalEquity) / totalBalance) * 100)
       : 0.0);
 
-  // Compute real ATR(14) from OHLC candles
-  const validCandlesForAtr = candles
-    .slice(-48)
-    .filter((c) => [c.open, c.high, c.low, c.close].every((v) => Number.isFinite(Number(v))));
+  // Compute real ATR(14) from OHLC candles (sanitizing extreme >10% outlier spikes)
+  const validCandlesForAtr = React.useMemo(() => {
+    const raw = candles
+      .slice(-48)
+      .filter((c) => [c.open, c.high, c.low, c.close].every((v) => Number.isFinite(Number(v)) && Number(v) > 0));
+    if (raw.length < 3) return raw;
+    const sortedCloses = raw.map((c) => Number(c.close)).sort((a, b) => a - b);
+    const med = sortedCloses[Math.floor(sortedCloses.length / 2)];
+    if (!med) return raw;
+    const loBound = med * 0.9;
+    const hiBound = med * 1.1;
+    return raw
+      .filter((c) => {
+        const o = Number(c.open);
+        const cl = Number(c.close);
+        return o >= loBound && o <= hiBound && cl >= loBound && cl <= hiBound;
+      })
+      .map((c) => {
+        const o = Number(c.open);
+        const cl = Number(c.close);
+        const h = Number(c.high);
+        const l = Number(c.low);
+        return {
+          ...c,
+          high: h > hiBound ? Math.max(o, cl) : h,
+          low: l < loBound ? Math.min(o, cl) : l,
+        };
+      });
+  }, [candles]);
   const liveAtr14 = React.useMemo(() => {
     if (validCandlesForAtr.length < 2) return 0;
     const trs: number[] = [];
@@ -167,8 +192,12 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
 
     const highs = valid.map((c) => Number(c.high));
     const lows = valid.map((c) => Number(c.low));
-    const min = Math.min(...lows);
-    const max = Math.max(...highs);
+    const rawMin = Math.min(...lows);
+    const rawMax = Math.max(...highs);
+    const rawSpan = rawMax - rawMin || 1;
+    const pad = rawSpan * 0.08;
+    const min = rawMin - pad;
+    const max = rawMax + pad;
     const span = max - min || 1;
     const lastCandle = valid[valid.length - 1];
     const inspectedCandle =

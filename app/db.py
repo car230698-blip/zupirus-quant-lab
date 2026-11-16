@@ -421,6 +421,40 @@ def insert_timescale_candle(
             )
 
 
+def _sanitize_candle_outliers(candles: List[Dict[str, Any]], max_dev_pct: float = 0.10) -> List[Dict[str, Any]]:
+    """Filter/clamp corrupt single-bar spike outliers (>10% from median close) so one bad tick doesn't squash charts or inflate ATR."""
+    if len(candles) < 3:
+        return candles
+    closes = sorted(float(c["close"]) for c in candles if c.get("close") is not None and float(c["close"]) > 0)
+    if not closes:
+        return candles
+    med = closes[len(closes) // 2]
+    if med <= 0:
+        return candles
+    lo_bound = med * (1.0 - max_dev_pct)
+    hi_bound = med * (1.0 + max_dev_pct)
+    cleaned: List[Dict[str, Any]] = []
+    for item in candles:
+        try:
+            o = float(item["open"])
+            h = float(item["high"])
+            l = float(item["low"])
+            cl = float(item["close"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if o < lo_bound or o > hi_bound or cl < lo_bound or cl > hi_bound:
+            continue
+        body_lo = min(o, cl)
+        body_hi = max(o, cl)
+        fixed = dict(item)
+        if l < lo_bound:
+            fixed["low"] = body_lo
+        if h > hi_bound:
+            fixed["high"] = body_hi
+        cleaned.append(fixed)
+    return cleaned or candles
+
+
 def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", source: str = "ALL", limit: int = 100) -> List[Dict[str, Any]]:
     """Query recent aggregated OHLCV candles from TimescaleDB or snapshots.
     Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO, REPLAY, LIVE_FEED, ALL)."""
@@ -463,7 +497,7 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
                     ORDER BY bucket DESC
                     LIMIT ?
                 """, (symbol, source, limit)).fetchall()
-            return [dict(r) for r in rows]
+            return _sanitize_candle_outliers([dict(r) for r in rows])
         else:
             # SQLite fallback aggregation
             rows = c.execute("""
@@ -480,7 +514,7 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
                 LIMIT ?
             """, (symbol, source, timeframe, limit)).fetchall()
             if rows:
-                return [dict(r) for r in rows]
+                return _sanitize_candle_outliers([dict(r) for r in rows])
 
             # Aggregate from quotes if candles table is empty
             tf_seconds = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600, "D1": 86400}.get(timeframe, 900)
@@ -506,7 +540,7 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
                     "close": p_list[-1],
                     "volume": len(p_list)
                 })
-            return result
+            return _sanitize_candle_outliers(result)
 
 
 def run_with_timeout(fn, timeout: float = 2.0):

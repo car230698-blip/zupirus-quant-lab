@@ -786,8 +786,12 @@ def safety(p: Safety, u=Depends(admin)):
         setkv(c, 'halted', int(p.halted))
         if p.halted:
             c.execute('UPDATE accounts SET enabled=0')
+            try:
+                c.execute('UPDATE trading_accounts SET auto_trade=0')
+            except Exception:
+                pass
             c.execute("UPDATE dispatches SET state='cancelled',updated=? WHERE state='queued'", (time.time(),))
-        audit(c, u['id'], 'system_halt', p.model_dump())
+        audit(c, u['id'], 'kill_switch_toggled', p.model_dump())
     return {'halted': p.halted, 'note': 'Existing broker positions retain SL/TP; outstanding intents remain reconcilable.'}
 
 @app.post('/api/admin/research')
@@ -1470,8 +1474,8 @@ def quant_monte_carlo(req: MonteCarloRequest, u=Depends(user)):
     return run_monte_carlo_simulation(
         trades=req.trades,
         initial_equity=req.initial_equity,
-        iterations=min(10000, max(100, req.iterations)),
-        horizon_trades=min(500, max(10, req.horizon_trades)),
+        iterations=min(2000, max(100, req.iterations)),
+        horizon_trades=min(250, max(10, req.horizon_trades)),
         ruin_drawdown_pct=req.ruin_drawdown_pct,
     )
 
