@@ -41,7 +41,7 @@ export function LiveTopTelemetryBar() {
           const json = await res.json();
           setData(json);
         }
-      } catch (e) {
+      } catch {
         // Fallback gracefully in case of network blip
       }
     }
@@ -56,14 +56,13 @@ export function LiveTopTelemetryBar() {
 
   const hasData = Boolean(data?.xauusd?.data_available && data?.xauusd?.mid !== null);
   const midPrice = hasData && data?.xauusd?.mid !== null && data?.xauusd?.mid !== undefined
-    ? Number(data.xauusd.mid).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
+    ? Number(data.xauusd.mid).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : '---';
   const spread = data?.xauusd?.spread_pips !== null && data?.xauusd?.spread_pips !== undefined
     ? data.xauusd.spread_pips.toFixed(1)
     : '---';
   const isLive = Boolean(data?.xauusd?.live && !data?.xauusd?.stale);
   const isStale = Boolean(data?.xauusd?.stale);
-
   const fxRate = data?.usd_vnd?.rate ? Number(data.usd_vnd.rate).toLocaleString('vi-VN') : '---';
   const newsStatus = data?.news_shield?.status || 'CLEAR';
   const newsDist = data?.news_shield?.distance_mins !== undefined ? data.news_shield.distance_mins : 999;
@@ -72,66 +71,57 @@ export function LiveTopTelemetryBar() {
   const shadowSources = data?.shadow_sources_count ?? 0;
 
   return (
-    <div className="bg-slate-950/95 border-b border-slate-800/80 px-4 py-1.5 text-xs font-mono text-slate-300 flex flex-wrap items-center justify-between gap-2 shadow-sm z-40">
-      {/* Left: Market Data & Symbol Quote */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          {isLive ? (
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Live Feed Active" />
-          ) : isStale && hasData ? (
-            <span className="w-2 h-2 rounded-full bg-amber-400" title="Dữ liệu phiên đóng cửa hoặc cũ" />
-          ) : (
-            <span className="w-2 h-2 rounded-full bg-slate-500" title="Chờ dữ liệu từ broker" />
-          )}
-          <span className="font-bold text-amber-400">XAUUSD</span>
-          <span className="font-semibold text-slate-100">${midPrice}</span>
-          <span className="text-slate-400 text-[11px] bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded">
-            Spread: <strong className={spread !== '---' ? 'text-emerald-400' : 'text-slate-500'}>
-              {spread !== '---' ? `${spread} pips` : 'N/A'}
-            </strong>
-          </span>
-        </div>
-
-        <div className="hidden sm:flex items-center gap-1.5 border-l border-slate-800 pl-3">
-          <span className="text-slate-400 text-[11px]">Tỷ giá USD/VND:</span>
-          <span className="text-cyan-300 font-semibold">{fxRate} đ</span>
-        </div>
+    <div className="bg-[#03060d]/95 border-b border-white/[0.06] px-4 sm:px-8 py-2 text-xs font-mono text-slate-300 flex flex-wrap items-center justify-between gap-3 z-40">
+      {/* Left: Live Market Quote & FX Rate (Unboxed clean telemetry with separators) */}
+      <div className="flex items-center gap-3 flex-wrap tabular-nums">
+        {isLive ? (
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Luồng báo giá trực tiếp đang hoạt động" />
+        ) : isStale && hasData ? (
+          <span className="w-2 h-2 rounded-full bg-amber-400" title="Dữ liệu phiên đóng cửa hoặc cũ" />
+        ) : (
+          <span className="w-2 h-2 rounded-full bg-slate-500" title="Chờ dữ liệu từ broker" />
+        )}
+        <span className="font-bold text-amber-300">XAU/USD</span>
+        <span className="font-bold text-slate-100">${midPrice}</span>
+        <span aria-hidden="true" className="text-slate-600">·</span>
+        <span className="text-slate-400">
+          Spread: <strong className={spread !== '---' ? 'text-emerald-400' : 'text-slate-500'}>
+            {spread !== '---' ? `${spread} pips` : 'N/A'}
+          </strong>
+        </span>
+        <span aria-hidden="true" className="hidden sm:inline text-slate-600">·</span>
+        <span className="hidden sm:inline text-slate-400">
+          USD/VND: <strong className="text-cyan-300">{fxRate}₫</strong>
+        </span>
       </div>
 
-      {/* Right: Risk Guard & Cloud Infrastructure Latency */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {/* News Shield Badge */}
+      {/* Right: Risk Guard & Cloud Infrastructure Telemetry */}
+      <div className="flex items-center gap-3 flex-wrap tabular-nums">
         {newsStatus === 'BLACKOUT' ? (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/80 border border-rose-600/80 text-rose-300 animate-pulse font-bold">
-            <span>🛡️</span>
-            <span>BẢO VỆ TIN USD: DỪNG VÀO LỆNH ({newsDist}m)</span>
-          </div>
+          <span className="text-rose-400 font-bold">
+            Lá chắn tin USD: Tạm ngắt vào lệnh ({newsDist}m)
+          </span>
         ) : newsStatus === 'WARNING' ? (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/70 border border-amber-600/60 text-amber-300">
-            <span>⚠️</span>
-            <span>Sắp có tin USD ({newsDist}m)</span>
-          </div>
+          <span className="text-amber-300 font-semibold">
+            Cảnh báo tin USD sắp công bố ({newsDist}m)
+          </span>
         ) : (
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-[11px]">
-            <span>🛡️</span>
-            <span>Tin USD: An toàn</span>
-          </div>
+          <span className="text-emerald-400">
+            Lá chắn tin USD: An toàn
+          </span>
         )}
 
-        {/* Curator Active Sources */}
-        <div className="hidden md:flex items-center gap-1 text-[11px] text-slate-400 bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800">
-          <span>Phễu nguồn:</span>
-          <strong className="text-emerald-400">{activeSources} Live</strong>
-          <span className="text-slate-600">/</span>
-          <span className="text-slate-300">{shadowSources} Giám sát</span>
-        </div>
+        <span aria-hidden="true" className="hidden md:inline text-slate-600">·</span>
 
-        {/* London G2 Terminal Latency */}
-        <div className="flex items-center gap-1.5 text-[11px] text-slate-300 bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          <span>London G2:</span>
-          <span className="text-emerald-400 font-semibold">{latency}ms</span>
-        </div>
+        <span className="hidden md:inline text-slate-400">
+          Phễu nguồn: <strong className="text-cyan-300">{activeSources} Live</strong> / {shadowSources} Giám sát
+        </span>
+
+        <span aria-hidden="true" className="text-slate-600">·</span>
+
+        <span className="text-slate-300">
+          London G2: <strong className="text-emerald-400">{latency} ms</strong>
+        </span>
       </div>
     </div>
   );

@@ -1604,6 +1604,514 @@ export function zupirusApiPlugin(): Plugin {
       return;
     }
 
+    // Live Topbar Telemetry
+    if (pathname === '/api/v1/telemetry/topbar' && method === 'GET') {
+      const mid = prices[replayIdx] || 2656.45;
+      return sendJson(res, 200, {
+        xauusd: {
+          symbol: 'XAUUSD',
+          bid: Number((mid - 0.14).toFixed(2)),
+          ask: Number((mid + 0.14).toFixed(2)),
+          mid: Number(mid.toFixed(2)),
+          spread_pips: 2.8,
+        },
+        usd_vnd: {
+          rate: 25730,
+          source: 'Vietcombank Live',
+        },
+        news_shield: {
+          status: 'CLEAR',
+          distance_mins: 185,
+          nearest_title: 'US Core CPI (MoM)',
+        },
+        metaapi_latency_ms: 28,
+        region: 'london-g2',
+        active_sources_count: 2,
+        system_status: halted ? 'HALTED' : 'NOMINAL',
+      });
+    }
+
+    // Exchange Rate & Billing Settings
+    if (pathname === '/api/v1/billing/exchange-rate' && method === 'GET') {
+      return sendJson(res, 200, {
+        base: 'USD',
+        target: 'VND',
+        rate: 25730,
+        source: 'Vietcombank / OpenER',
+        is_cached: true,
+        updated_at: nowSec() - 45,
+      });
+    }
+
+    if (pathname === '/api/v1/billing/refresh-exchange-rate' && method === 'POST') {
+      return sendJson(res, 200, {
+        base: 'USD',
+        target: 'VND',
+        rate: 25735,
+        source: 'Live Fetch',
+        is_cached: false,
+        updated_at: nowSec(),
+      });
+    }
+
+    if (pathname === '/api/v1/billing/subscription' && method === 'GET') {
+      return sendJson(res, 200, {
+        plan_tier: 'alpha',
+        service_expires_at: nowSec() + 86400 * 26,
+        max_mt5_accounts: 5,
+        allow_custom_multiplier: true,
+        allow_compounding: true,
+        allow_prop_firm_mode: true,
+      });
+    }
+
+    if (pathname === '/api/v1/billing/checkout' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const tier = body.plan_tier || 'growth';
+      const slots = Number(body.cloud_slots || 1);
+      const baseUsd = tier === 'alpha' ? 49 : tier === 'growth' ? 35 : 20;
+      const totalUsd = baseUsd + slots * 10;
+      const rate = 25730;
+      const vnd = Math.ceil((totalUsd * rate) / 1000) * 1000;
+      const ordId = 'ord_' + crypto.randomBytes(5).toString('hex');
+      const memo = `ZP ${ordId.slice(-6).toUpperCase()}`;
+      return sendJson(res, 200, {
+        id: ordId,
+        plan_tier: tier,
+        cloud_slots_count: slots,
+        amount_usd: totalUsd,
+        amount_vnd: vnd,
+        locked_exchange_rate: rate,
+        bank_name: 'VietinBank',
+        account_number: '105887054819',
+        account_holder: 'LE NGUYEN NHU THUY',
+        payment_content: memo,
+        status: 'PENDING',
+        expires_at: nowSec() + 1200,
+      });
+    }
+
+    if (pathname.startsWith('/api/v1/billing/orders/') && method === 'GET') {
+      const ordId = pathname.split('/').pop() || 'ord_demo';
+      return sendJson(res, 200, {
+        id: ordId,
+        status: 'PAID',
+        paid_at: nowSec(),
+      });
+    }
+
+    if (pathname === '/api/admin/billing/settings' && method === 'GET') {
+      return sendJson(res, 200, {
+        bank_name: 'VietinBank',
+        account_number: '105887054819',
+        account_holder: 'LE NGUYEN NHU THUY',
+        content_prefix: 'ZP',
+        fx_mode: 'AUTO',
+        manual_fx_rate: 25730,
+        current_fx_rate: 25730,
+        fx_source: 'Vietcombank Live',
+        supported_banks: [
+          { shortName: 'VietinBank', name: 'Ngân hàng TMCP Công Thương Việt Nam (ICB)' },
+          { shortName: 'Vietcombank', name: 'Ngân hàng TMCP Ngoại Thương Việt Nam (VCB)' },
+          { shortName: 'MBBank', name: 'Ngân hàng TMCP Quân Đội (MB)' },
+          { shortName: 'Techcombank', name: 'Ngân hàng TMCP Kỹ Thương Việt Nam (TCB)' },
+        ],
+      });
+    }
+
+    if (pathname === '/api/admin/billing/settings' && method === 'POST') {
+      return sendJson(res, 200, {
+        ok: true,
+        message: 'Đã lưu cấu hình cổng thanh toán SePay VietQR & Tỷ giá thành công.',
+      });
+    }
+
+    if (pathname === '/api/admin/billing/flush-fx-cache' && method === 'POST') {
+      return sendJson(res, 200, {
+        ok: true,
+        message: 'Đã làm mới bộ nhớ đệm tỷ giá Redis.',
+        new_rate: 25735,
+        source: 'Vietcombank API',
+      });
+    }
+
+    // Cloud MT5 Accounts v1
+    if (pathname === '/api/v1/accounts' && method === 'GET') {
+      const mapped = accounts.map((a, idx) => ({
+        id: a.id,
+        login: a.login,
+        mt5_login: a.login,
+        server: a.server === 'ZUPIRUS-SYNTHETIC' ? 'Exness-MT5Real24' : a.server,
+        broker_server: a.server === 'ZUPIRUS-SYNTHETIC' ? 'Exness-MT5Real24' : a.server,
+        account_name: idx === 0 ? 'Alpha Gold Vault #1' : 'FTMO Challenge 100K',
+        account_type: idx === 0 ? 'RAW_ECN' : 'PROP_FIRM',
+        balance: a.balance,
+        equity: a.equity,
+        auto_trade: a.enabled ? 1 : 0,
+        risk_multiplier: idx === 0 ? 1.2 : 1.0,
+        is_compounding: idx === 0,
+        is_prop_firm_mode: idx !== 0,
+        prop_daily_dd_limit_pct: 4.5,
+        prop_profit_target_pct: 8.0,
+        auto_be_partial_tp: true,
+        deployment_state: 'DEPLOYED',
+        is_active: true,
+      }));
+      return sendJson(res, 200, { accounts: mapped, total: mapped.length });
+    }
+
+    if (pathname === '/api/v1/accounts' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const id = `acc_cloud_${crypto.randomBytes(4).toString('hex')}`;
+      const ts = nowSec();
+      accounts.unshift({
+        id,
+        user_id: 'usr_admin',
+        email: 'admin@zupirus.local',
+        login: String(body.login || '88991122'),
+        server: String(body.server || 'Exness-MT5Real'),
+        mode: 'DEMO',
+        enabled: 1,
+        risk: 1.0,
+        max_spread: 0.8,
+        max_positions: 2,
+        max_dd: 10,
+        balance: 15000,
+        equity: 15000,
+        peak: 15000,
+        seen: ts,
+        positions: 0,
+      });
+      return sendJson(res, 200, {
+        id,
+        metaapi_account_id: `meta_${id}`,
+        state: 'DEPLOYED',
+      });
+    }
+
+    const v1AccToggle = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/toggle$/);
+    if (v1AccToggle && method === 'POST') {
+      const acc = accounts.find((a) => a.id === v1AccToggle[1]);
+      if (acc) acc.enabled = acc.enabled ? 0 : 1;
+      return sendJson(res, 200, { ok: true, auto_trade: acc ? acc.enabled : 1 });
+    }
+
+    const v1AccSync = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/sync$/);
+    if (v1AccSync && method === 'POST') {
+      return sendJson(res, 200, { ok: true, synced_at: nowSec() });
+    }
+
+    const v1AccCloudDeploy = pathname.match(/^\/api\/v1\/accounts\/cloud\/([^/]+)\/(deploy|undeploy)$/);
+    if (v1AccCloudDeploy && method === 'POST') {
+      return sendJson(res, 200, { ok: true, action: v1AccCloudDeploy[2] });
+    }
+
+    const v1AccItem = pathname.match(/^\/api\/v1\/accounts\/([^/]+)$/);
+    if (v1AccItem && (method === 'PATCH' || method === 'DELETE')) {
+      if (method === 'DELETE') {
+        const idx = accounts.findIndex((a) => a.id === v1AccItem[1]);
+        if (idx !== -1) accounts.splice(idx, 1);
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // Signals v1 Audit & Stats
+    if (pathname === '/api/v1/signals/audit-logs' && method === 'GET') {
+      return sendJson(res, 200, {
+        audit_logs: [
+          {
+            id: 'aud_01',
+            signal_id: 'sig_xau_london_901',
+            source_name: 'London Institutional Feed',
+            strategy_tier: 'ALPHA',
+            side: 'BUY',
+            symbol: 'XAUUSD',
+            entry_price: 2654.2,
+            stop_loss: 2648.5,
+            status: 'APPROVED',
+            reject_reason: 'Passed all 4 safety guards (Idempotency, Mandatory SL, News Shield, Spread 2.6p)',
+            pnl: 142.5,
+            mae: -1.4,
+            mfe: 9.8,
+            context_snapshot: {
+              session: 'LONDON_NY_OVERLAP',
+              atr_14: 4.15,
+              spread_pips: 2.6,
+              news_distance_mins: 185,
+            },
+          },
+          {
+            id: 'aud_02',
+            signal_id: 'sig_xau_tv_884',
+            source_name: 'TradingView Webhook Pro',
+            strategy_tier: 'GROWTH',
+            side: 'SELL',
+            symbol: 'XAUUSD',
+            entry_price: 2661.8,
+            stop_loss: 2667.8,
+            status: 'APPROVED',
+            reject_reason: 'Passed all 4 safety guards · Auto Break-Even armed at 1R',
+            pnl: 96.0,
+            mae: -0.9,
+            mfe: 6.4,
+            context_snapshot: {
+              session: 'LONDON_OPEN',
+              atr_14: 3.85,
+              spread_pips: 2.4,
+              news_distance_mins: 240,
+            },
+          },
+          {
+            id: 'aud_03',
+            signal_id: 'sig_ext_unverified_402',
+            source_name: 'Shadow Candidate #04',
+            strategy_tier: 'SHADOW',
+            side: 'BUY',
+            symbol: 'XAUUSD',
+            entry_price: 2659.0,
+            stop_loss: null,
+            status: 'REJECTED',
+            reject_reason: 'Guard #02 Triggered: Missing Mandatory Hard Stop-Loss',
+            pnl: null,
+            context_snapshot: {
+              session: 'ASIAN_RANGE',
+              atr_14: 2.4,
+              spread_pips: 3.1,
+              news_distance_mins: 410,
+            },
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/v1/signals/stats' && method === 'GET') {
+      return sendJson(res, 200, {
+        total_audited: 128,
+        approved_count: 114,
+        rejected_count: 14,
+      });
+    }
+
+    if (pathname === '/api/v1/signals/test-ingest' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, {
+        ok: true,
+        signal_id: 'sig_test_' + crypto.randomBytes(3).toString('hex'),
+        symbol: body.symbol || 'XAUUSD',
+        action: body.action || 'BUY',
+        guards_evaluated: {
+          redis_idempotency_lock: 'PASS (<0.8ms)',
+          mandatory_sl_guard: 'AUTO_ATTACHED_ATR_SL ($2,674.80)',
+          live_news_shield: 'PASS (No USD Red News within ±15m)',
+          spread_slippage_guard: 'PASS (2.7 pips <= 4.5 pips max)',
+        },
+        status: 'APPROVED_FOR_DISPATCH',
+      });
+    }
+
+    // Admin Sources & Skills
+    if (pathname === '/api/admin/sources' && method === 'GET') {
+      return sendJson(res, 200, {
+        sources: [
+          {
+            id: 'src_london_alpha',
+            name: 'London Institutional Orderflow',
+            source_type: 'METAAPI_STREAM',
+            status: 'ACTIVE_LIVE',
+            trust_score: 91.4,
+            profit_factor: 2.34,
+            win_rate: 0.74,
+            max_drawdown_pips: 42,
+            evaluated_signals: 86,
+          },
+          {
+            id: 'src_tv_quant_m15',
+            name: 'ZUPIRUS M15 Volatility Breakout',
+            source_type: 'TRADINGVIEW_WEBHOOK',
+            status: 'ACTIVE_LIVE',
+            trust_score: 86.8,
+            profit_factor: 1.98,
+            win_rate: 0.68,
+            max_drawdown_pips: 55,
+            evaluated_signals: 112,
+          },
+          {
+            id: 'src_tokyo_meanrev',
+            name: 'Asian Session Liquidity Sweep',
+            source_type: 'SHADOW_FEED',
+            status: 'SHADOW_ONLY',
+            trust_score: 72.5,
+            profit_factor: 1.54,
+            win_rate: 0.61,
+            max_drawdown_pips: 68,
+            evaluated_signals: 44,
+          },
+        ],
+      });
+    }
+
+    if (pathname === '/api/admin/sources/shadow-signals' && method === 'GET') {
+      return sendJson(res, 200, {
+        signals: [
+          {
+            id: 'shd_99201a8b',
+            source_id: 'src_london_alpha',
+            source_name: 'London Institutional Orderflow',
+            side: 'BUY',
+            symbol: 'XAUUSD',
+            entry_price: 2652.4,
+            stop_loss: 2646.4,
+            take_profit: 2664.4,
+            eval_status: 'HIT_TP',
+            pnl_pips: 120.0,
+            mae_pips: 18.5,
+            mfe_pips: 134.0,
+          },
+          {
+            id: 'shd_88412c9e',
+            source_id: 'src_tv_quant_m15',
+            source_name: 'ZUPIRUS M15 Volatility Breakout',
+            side: 'SELL',
+            symbol: 'XAUUSD',
+            entry_price: 2661.0,
+            stop_loss: 2667.0,
+            take_profit: 2649.0,
+            eval_status: 'HIT_TP',
+            pnl_pips: 120.0,
+            mae_pips: 22.0,
+            mfe_pips: 128.5,
+          },
+          {
+            id: 'shd_77104f2d',
+            source_id: 'src_tokyo_meanrev',
+            source_name: 'Asian Session Liquidity Sweep',
+            side: 'BUY',
+            symbol: 'XAUUSD',
+            entry_price: 2656.2,
+            stop_loss: 2651.2,
+            take_profit: 2666.2,
+            eval_status: 'PENDING',
+            pnl_pips: 14.5,
+            mae_pips: 6.0,
+            mfe_pips: 21.0,
+          },
+        ],
+      });
+    }
+
+    const srcActionMatch = pathname.match(/^\/api\/admin\/sources\/([^/]+)\/(promote|demote|replay)$/);
+    if (srcActionMatch && method === 'POST') {
+      const action = srcActionMatch[2];
+      if (action === 'replay') {
+        return sendJson(res, 200, {
+          ok: true,
+          result: {
+            simulated_trades: 94,
+            profit_factor: 2.18,
+            win_rate: 0.71,
+            trust_score: 89.2,
+          },
+        });
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        message: action === 'promote' ? 'Đã thăng hạng nguồn lên ACTIVE_LIVE.' : 'Đã chuyển nguồn về chế độ SHADOW_ONLY.',
+      });
+    }
+
+    if (pathname === '/api/admin/sources/evaluate-eod' && method === 'POST') {
+      return sendJson(res, 200, {
+        ok: true,
+        evaluated_count: 18,
+      });
+    }
+
+    if (pathname === '/api/admin/skills' && method === 'GET') {
+      return sendJson(res, 200, {
+        skills: [
+          {
+            skill_id: 'market_regime_scanner',
+            name: 'Market Regime & ATR Volatility Scanner',
+            is_builtin: 1,
+            enabled: 1,
+            usage_count: 342,
+            trigger_condition: 'Khi có tín hiệu mới hoặc định kỳ mỗi đóng nến M15',
+            description: 'Phân loại cấu trúc thị trường (Trend, Mean-Reversion, Breakout) và đo lường biên độ ATR(14).',
+          },
+          {
+            skill_id: 'liquidity_spread_auditor',
+            name: 'Liquidity & Real-Time Spread Auditor',
+            is_builtin: 1,
+            enabled: 1,
+            usage_count: 518,
+            trigger_condition: 'Trước khi kích hoạt lệnh xuống cụm tài khoản Cloud MT5',
+            description: 'Kiểm toán độ giãn Spread và độ trượt giá thực tế trên thanh khoản London G2.',
+          },
+          {
+            skill_id: 'macro_news_interpreter',
+            name: 'Macro High-Impact News Shield',
+            is_builtin: 1,
+            enabled: 1,
+            usage_count: 210,
+            trigger_condition: 'Khi phát hiện sự kiện USD High-Impact trong bán kính ±30 phút',
+            description: 'Đóng băng cấp lệnh tự động quanh thời điểm công bố CPI, Non-Farm Payrolls và FOMC.',
+          },
+          {
+            skill_id: 'source_grading_analyst',
+            name: 'Shadow Source Trust-Score Analyst',
+            is_builtin: 1,
+            enabled: 1,
+            usage_count: 89,
+            trigger_condition: 'Chấm điểm EOD dựa trên dữ liệu nến M1 TimescaleDB',
+            description: 'Đánh giá MAE/MFE, Profit Factor và tự động thăng/hạ cấp nguồn tín hiệu.',
+          },
+          {
+            skill_id: 'strategy_synthesizer',
+            name: 'Tabula Rasa Inductive Strategy Synthesizer',
+            is_builtin: 0,
+            enabled: 1,
+            usage_count: 47,
+            trigger_condition: 'Khi tích lũy đủ ≥50 mẫu Context Snapshot có lợi nhuận kỳ vọng dương',
+            description: 'Tự đúc kết quy tắc giao dịch quy nạp từ lịch sử bối cảnh thị trường.',
+          },
+        ],
+      });
+    }
+
+    const skillPatchMatch = pathname.match(/^\/api\/admin\/skills\/([^/]+)$/);
+    if (skillPatchMatch && method === 'PATCH') {
+      return sendJson(res, 200, { ok: true, message: 'Đã cập nhật trạng thái kích hoạt kỹ năng AI Agent.' });
+    }
+
+    const skillSpecMatch = pathname.match(/^\/api\/admin\/skills\/([^/]+)\/spec$/);
+    if (skillSpecMatch && method === 'GET') {
+      const sid = skillSpecMatch[1];
+      return sendJson(res, 200, {
+        skill_id: sid,
+        skill_md: `# Skill Specification: ${sid}\n\n- **Architecture**: Progressive Disclosure (On-Demand Context Loading)\n- **Execution Environment**: ZUPIRUS Tabula Rasa Engine v2.2\n- **Fail-Closed Contract**: Enforces strict pre-trade validation before any MetaApi Cloud dispatch.\n\n## Inputs & Telemetry\n- TimescaleDB M1/M15 OHLCV stream\n- Live Bid/Ask spread from London G2 Bridge\n- Economic Calendar High-Impact USD window`,
+      });
+    }
+
+    const skillTestMatch = pathname.match(/^\/api\/admin\/skills\/([^/]+)\/test$/);
+    if (skillTestMatch && method === 'POST') {
+      const sid = skillTestMatch[1];
+      return sendJson(res, 200, {
+        ok: true,
+        result: {
+          skill_id: sid,
+          status: 'VERIFIED_NOMINAL',
+          execution_latency_ms: 14.2,
+          sample_output: {
+            symbol: 'XAUUSD',
+            regime: 'LONDON_TREND_EXPANSION',
+            atr_14: 4.12,
+            spread_pips: 2.6,
+            recommendation: 'ALLOW_DISPATCH_WITH_1R_AUTO_BE',
+          },
+        },
+      });
+    }
+
     return sendJson(res, 404, { detail: `Endpoint not found: ${method} ${pathname}` });
   };
 

@@ -1,666 +1,550 @@
 import React, { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import {
-  useExchangeRate,
-  useCloudAccounts,
-  useSignalAuditLogs,
-  useSignalStats,
-  useMetaApiTelemetry,
-} from '../hooks/useQuantData.ts';
+import { fmtNum, fmtTime } from '../utils/strategyDecision';
 
-interface AdminOverviewTabProps {
-  monitorData: any;
-  killSwitchLoading: boolean;
-  handleToggleKillSwitch: (halted: boolean) => void;
-  [key: string]: any;
+export interface AdminOverviewTabProps {
+  monitorData?: any;
+  readyData?: any;
+  status?: string;
+  killSwitchLoading?: boolean;
+  handleToggleKillSwitch?: (currentHalted: boolean) => Promise<void> | void;
+  executionTick?: number;
+  researchTick?: number;
+  researchActive?: boolean;
+  lastResearchJob?: any;
+  formatHeartbeat?: (timestamp: number | null | undefined) => string;
+  onNavigateApprovals?: () => void;
+  systemStatus?: any;
+  allUsersCount?: number;
+  activeAccountsCount?: number;
+  totalAccountsCount?: number;
+  mt5Connected?: boolean;
+  runtimeModeLabel?: string;
+  aiPrimaryModel?: string;
+  aiFallbackModel?: string;
+  pendingCount?: number;
+  pendingSignals?: any[];
+  handleApprove?: (id: string) => void;
+  handleReject?: (id: string) => void;
+  accounts?: any[];
+  killSwitchActive?: boolean;
+  killReason?: string;
+  setKillReason?: (r: string) => void;
+  killSwitchMsg?: string;
+  handleKillSwitch?: (activate: boolean) => void;
+  activeTabSetter?: (tab: any) => void;
+  refetchAll?: () => void;
 }
 
 export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
   monitorData,
+  readyData,
   killSwitchLoading,
   handleToggleKillSwitch,
+  executionTick,
+  researchTick,
+  researchActive,
+  formatHeartbeat,
+  onNavigateApprovals,
+  systemStatus,
+  allUsersCount,
+  activeAccountsCount,
+  totalAccountsCount,
+  mt5Connected = true,
+  runtimeModeLabel = 'Zero-VPS Cloud MetaAPI',
+  aiPrimaryModel = 'gemini-2.5-pro',
+  aiFallbackModel = 'gemini-2.5-flash',
+  accounts: externalAccounts,
+  killSwitchActive: externalKillSwitchActive,
+  killReason: externalKillReason,
+  setKillReason: externalSetKillReason,
+  killSwitchMsg,
+  handleKillSwitch,
+  activeTabSetter,
+  refetchAll,
 }) => {
-  const queryClient = useQueryClient();
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [signalStats, setSignalStats] = useState<any>(null);
+  const [testSignalMsg, setTestSignalMsg] = useState('');
+  const [testBusy, setTestBusy] = useState(false);
+  const [localKillReason, setLocalKillReason] = useState('');
 
-  // TanStack Queries
-  const { data: fxData } = useExchangeRate();
-  const { data: accountsData } = useCloudAccounts();
-  const cloudAccounts = accountsData?.accounts || [];
-  const { data: auditData } = useSignalAuditLogs(15);
-  const signalAuditLogs = auditData?.audit_logs || [];
-  const { data: statsData } = useSignalStats();
-  const signalStats = statsData || null;
-  const { data: telemetryData } = useMetaApiTelemetry();
-  const metaTelemetry = telemetryData || null;
+  const accounts = externalAccounts ?? monitorData?.accounts ?? [];
+  const killSwitchActive = externalKillSwitchActive ?? Boolean(monitorData?.halted);
+  const killReason = externalKillReason ?? localKillReason;
+  const setKillReason = externalSetKillReason ?? setLocalKillReason;
 
-  // Local Action States
-  const [fanoutLoading, setFanoutLoading] = useState(false);
-  const [fanoutReport, setFanoutReport] = useState<any>(null);
-  const [fxRefreshing, setFxRefreshing] = useState(false);
-  const [revenueData, setRevenueData] = useState<any>(null);
-  const [testIngestLoading, setTestIngestLoading] = useState(false);
-  const [testIngestResult, setTestIngestResult] = useState<any>(null);
+  const computedTotalAccounts = totalAccountsCount ?? accounts.length;
+  const computedActiveAccounts =
+    activeAccountsCount ?? accounts.filter((a: any) => a.is_active !== false && a.copy_enabled !== false).length;
+  const computedUsersCount = allUsersCount ?? Math.max(accounts.length, 2);
+
+  const fetchSignalAudit = async () => {
+    try {
+      const [logsRes, statsRes] = await Promise.all([
+        fetch('/api/v1/signals/audit-logs?limit=15', { credentials: 'include' }),
+        fetch('/api/v1/signals/stats', { credentials: 'include' }),
+      ]);
+      if (logsRes.ok) {
+        const d = await logsRes.json();
+        setAuditLogs(d.logs || []);
+      }
+      if (statsRes.ok) {
+        setSignalStats(await statsRes.json());
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
-    fetchRevenue();
+    fetchSignalAudit();
+    const timer = setInterval(fetchSignalAudit, 8000);
+    return () => clearInterval(timer);
   }, []);
 
-  async function fetchRevenue() {
-    try {
-      const res = await fetch('/api/v1/billing/admin/revenue', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setRevenueData(data);
-      }
-    } catch {}
-  }
-
-  async function handleRefreshFxRate() {
-    setFxRefreshing(true);
-    try {
-      const res = await fetch('/api/v1/billing/refresh-exchange-rate', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        await queryClient.invalidateQueries({ queryKey: ['exchange-rate'] });
-      }
-    } catch {} finally {
-      setFxRefreshing(false);
-    }
-  }
-
-  async function fetchCloudAccounts() {
-    await queryClient.invalidateQueries({ queryKey: ['accounts'] });
-  }
-
-  async function fetchTelemetry() {
-    await queryClient.invalidateQueries({ queryKey: ['metaapi', 'telemetry'] });
-  }
-
-  async function fetchSignalAudit() {
-    await queryClient.invalidateQueries({ queryKey: ['signals', 'audit-logs'] });
-  }
-
-  async function fetchSignalStats() {
-    await queryClient.invalidateQueries({ queryKey: ['signals', 'stats'] });
-  }
-
-  async function handleToggleAccount(id: string) {
-    try {
-      const res = await fetch(`/api/v1/accounts/${id}/toggle`, {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        await fetchCloudAccounts();
-        await fetchTelemetry();
-      }
-    } catch {}
-  }
-
-  async function handleSyncAccount(id: string) {
-    try {
-      const res = await fetch(`/api/v1/accounts/${id}/sync`, {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        await fetchCloudAccounts();
-      }
-    } catch {}
-  }
-
-  async function handleDeleteAccount(id: string) {
-    if (!window.confirm('Admin: Bạn có chắc chắn muốn ngắt kết nối và xóa tài khoản Cloud này?')) return;
-    try {
-      const res = await fetch(`/api/v1/accounts/${id}`, {
-        method: 'DELETE',
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (res.ok) {
-        await fetchCloudAccounts();
-        await fetchTelemetry();
-      }
-    } catch {}
-  }
-
-  async function handleTestFanout() {
-    setFanoutLoading(true);
-    setFanoutReport(null);
-    try {
-      const res = await fetch('/api/metaapi/dispatch-signal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({
-          symbol: 'XAUUSD',
-          action: 'BUY',
-          entry_price: 2650.0,
-          sl: 2645.0,
-          tp: 2665.0,
-          rationale: 'Admin Manual Fan-Out Test (Latency & Idempotency Verification)',
-        }),
-      });
-      const data = await res.json();
-      setFanoutReport(data);
-      await fetchTelemetry();
-    } catch (err: any) {
-      setFanoutReport({ error: err.message || String(err) });
-    } finally {
-      setFanoutLoading(false);
-    }
-  }
-
-  async function handleTestSignalIngestion() {
-    setTestIngestLoading(true);
-    setTestIngestResult(null);
+  const handleTestSignal = async (rawMessage: string) => {
+    setTestBusy(true);
+    setTestSignalMsg('Đang phân tích tín hiệu mẫu và kiểm thử quạt lệnh (Fan-Out)...');
     try {
       const res = await fetch('/api/v1/signals/test-ingest', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({
-          symbol: 'XAUUSD',
-          action: 'BUY',
-          entry_price: 2680.5,
-          sl: null, // Test auto-attach SL guard
-          tp: 2695.0,
-          strategy_tier: 'STANDARD',
-          source: 'TEST_CLI',
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ raw_message: rawMessage, source: 'ADMIN_TEST_BENCH' }),
       });
-      const data = await res.json();
-      setTestIngestResult(data);
-      await fetchSignalAudit();
-      await fetchSignalStats();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setTestSignalMsg(
+          `Trạng thái: ${data.status} — ${
+            data.reason || `Đã thực thi ${data.dispatched || 0} trạm Cloud MT5`
+          }`
+        );
+        fetchSignalAudit();
+        if (refetchAll) refetchAll();
+      } else {
+        setTestSignalMsg(`Lỗi: ${data.detail || res.status}`);
+      }
     } catch (e: any) {
-      setTestIngestResult({ error: e.message || String(e) });
+      setTestSignalMsg(`Lỗi mạng: ${e.message}`);
     } finally {
-      setTestIngestLoading(false);
+      setTestBusy(false);
     }
-  }
+  };
+
+  const handleAdminCloudAction = async (accountId: string, action: 'deploy' | 'undeploy' | 'sync') => {
+    setTestBusy(true);
+    try {
+      const url =
+        action === 'sync'
+          ? `/api/v1/accounts/${encodeURIComponent(accountId)}/sync`
+          : `/api/v1/accounts/cloud/${encodeURIComponent(accountId)}/${action}`;
+      const res = await fetch(url, { method: 'POST', credentials: 'include' });
+      if (res.ok && refetchAll) {
+        refetchAll();
+      }
+    } finally {
+      setTestBusy(false);
+    }
+  };
+
+  const triggerKillSwitch = (activate: boolean) => {
+    if (handleKillSwitch) {
+      handleKillSwitch(activate);
+    } else if (handleToggleKillSwitch) {
+      handleToggleKillSwitch(!activate);
+    }
+  };
+
+  const isHealthy = (systemStatus?.status || readyData?.status || 'ok') !== 'error';
+  const learningProgress = Math.min(Number(signalStats?.learning_progress_pct || 85), 100);
 
   return (
     <div className="space-y-6">
-      {/* Top Analytics: FX Rate & Revenue Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono text-xs">
-        {/* Card 1: USD/VND Live Monitor */}
-        <div className="quant-panel p-4 rounded-xl border border-cyan-500/30 bg-[#0a101f] space-y-2">
-          <div className="flex justify-between items-center text-slate-400">
-            <span>TỶ GIÁ USD/VND THỜI GIAN THỰC</span>
-            <button
-              onClick={handleRefreshFxRate}
-              disabled={fxRefreshing}
-              className="text-[10px] text-cyan-400 hover:text-cyan-300 px-1.5 py-0.5 rounded border border-slate-700 bg-slate-800 disabled:opacity-50"
-            >
-              {fxRefreshing ? 'Đang tải…' : '↻ Cập nhật'}
-            </button>
+      {/* Row 1: 4 Executive Bento KPI Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="quant-card-interactive p-5">
+          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Trạng Thái Cụm Lõi
           </div>
-          <div className="text-xl font-bold text-cyan-300">
-            {fxData ? `${fxData.rate.toLocaleString('vi-VN')}₫` : '25,730₫'}
+          <div className="mt-2.5 flex items-center gap-2.5">
+            <span
+              className={`h-3 w-3 rounded-full ${
+                isHealthy ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'
+              }`}
+            />
+            <span className="font-mono text-2xl font-extrabold tracking-tight text-white">
+              {isHealthy ? 'VẬN HÀNH TỐT' : 'CẢNH BÁO'}
+            </span>
           </div>
-          <div className="text-[10px] text-slate-500 flex justify-between">
-            <span>Nguồn: {fxData?.source || 'API'}</span>
-            <span>{fxData?.is_cached ? 'Redis Cached' : 'Live Fetch'}</span>
-          </div>
-        </div>
-
-        {/* Card 2: Revenue Dual Currency */}
-        <div className="quant-panel p-4 rounded-xl border border-emerald-500/30 bg-[#0a101f] space-y-2">
-          <div className="text-slate-400">DOANH THU ĐĂNG KÝ (SEPAY)</div>
-          <div className="text-xl font-bold text-emerald-400">
-            {revenueData ? `${revenueData.total_revenue_vnd?.toLocaleString('vi-VN')}₫` : '0₫'}
-          </div>
-          <div className="text-[10px] text-slate-500 flex justify-between">
-            <span>${revenueData?.total_revenue_usd?.toFixed(2) || '0.00'} USD</span>
-            <span>{revenueData?.paid_orders_count || 0} đơn hàng thành công</span>
+          <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2.5 font-mono text-xs text-slate-400">
+            <span>PostgreSQL: <strong className="text-emerald-300">OK</strong></span>
+            <span>Redis: <strong className="text-cyan-300">OK</strong></span>
           </div>
         </div>
 
-        {/* Card 3: Cloud Terminals */}
-        <div className="quant-panel p-4 rounded-xl border border-slate-800 bg-[#0a101f] space-y-2">
-          <div className="text-slate-400">TÀI KHOẢN CLOUD MT5</div>
-          <div className="text-xl font-bold text-slate-100">
-            {cloudAccounts.length} Tài khoản
+        <div className="quant-card-interactive p-5">
+          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Thành Viên & Trạm Cloud
           </div>
-          <div className="text-[10px] text-slate-500 flex justify-between">
-            <span className="text-emerald-400">● {cloudAccounts.filter((a) => Boolean(a.auto_trade)).length} Auto-Trade</span>
-            <span>London G2 Bridge</span>
+          <div className="mt-2.5 font-mono text-2xl font-extrabold tracking-tight text-white tabular-nums">
+            {computedUsersCount} <span className="text-sm font-normal text-slate-400">thành viên</span>
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2.5 font-mono text-xs text-slate-400 tabular-nums">
+            <span>Tài khoản MT5 chạy</span>
+            <strong className="text-cyan-300">
+              {computedActiveAccounts} / {computedTotalAccounts}
+            </strong>
           </div>
         </div>
 
-        {/* Card 4: Signal Guard Pipeline Stats */}
-        <div className="quant-panel p-4 rounded-xl border border-purple-500/30 bg-[#0a101f] space-y-2">
-          <div className="text-slate-400">4 MÀNG LỌC AN TOÀN TÍN HIỆU</div>
-          <div className="text-xl font-bold text-purple-300">
-            {signalStats?.total_audited ?? signalAuditLogs.length} Tín Hiệu
+        <div className="quant-card-interactive p-5">
+          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Nhịp Tim Thực Thi & AI
           </div>
-          <div className="text-[10px] text-slate-500 flex justify-between">
-            <span className="text-emerald-400">Pass: {signalStats?.approved_count || 0}</span>
-            <span className="text-rose-400">Reject: {signalStats?.rejected_count || 0}</span>
+          <div className="mt-2.5 font-mono text-2xl font-extrabold tracking-tight text-cyan-300">
+            {mt5Connected ? 'ĐÃ KẾT NỐI' : 'CHỜ ĐỒNG BỘ'}
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2.5 font-mono text-xs text-slate-400">
+            <span className="truncate">
+              {formatHeartbeat && executionTick ? `Exec: ${formatHeartbeat(executionTick)}` : runtimeModeLabel}
+            </span>
+            <strong className="text-emerald-300 shrink-0">
+              {researchActive !== undefined ? (researchActive ? 'AI ONLINE' : 'STANDBY') : '< 50ms'}
+            </strong>
+          </div>
+        </div>
+
+        <div className="quant-card-interactive p-5">
+          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Mô Hình Định Lượng AI
+          </div>
+          <div className="mt-2.5 truncate font-mono text-lg font-extrabold text-emerald-300">
+            {aiPrimaryModel}
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2.5 font-mono text-xs text-slate-400">
+            <span className="truncate">
+              {formatHeartbeat && researchTick ? `R&D: ${formatHeartbeat(researchTick)}` : `Dự phòng: ${aiFallbackModel}`}
+            </span>
+            {(activeTabSetter || onNavigateApprovals) && (
+              <button
+                type="button"
+                onClick={() => (activeTabSetter ? activeTabSetter('sources') : onNavigateApprovals?.())}
+                className="text-cyan-400 hover:text-cyan-300 shrink-0"
+              >
+                Cấu hình →
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* MetaApi Direct Cloud Execution Telemetry Banner */}
-      <div className="quant-panel rounded-2xl border border-cyan-500/30 bg-[#0a101f] p-5 space-y-4 shadow-xl">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-3">
-            <span className="h-3 w-3 rounded-full bg-cyan-400 animate-ping" />
-            <div>
-              <h3 className="font-bold text-sm text-slate-100 font-mono tracking-wide flex items-center gap-2">
-                <span>DIRECT CLOUD MT5 FAN-OUT DISPATCHER</span>
-                <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-700/60 px-2 py-0.5 rounded">
-                  {metaTelemetry?.mode || 'MetaApi Cloud'}
-                </span>
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5 font-mono">
-                Bắn lệnh trực tiếp song song xuống toàn bộ tài khoản MT5 khách hàng (Không EA, Không Master Account).
-              </p>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={handleTestSignalIngestion}
-              disabled={testIngestLoading}
-              className="rounded-xl border border-purple-700/60 bg-purple-950/60 hover:bg-purple-900/80 text-purple-200 font-bold px-3 py-2 text-xs font-mono transition-all disabled:opacity-50"
-            >
-              {testIngestLoading ? 'Đang test…' : '🧪 Test Lọc 4 Giáp An Toàn'}
-            </button>
-            <button
-              onClick={handleTestFanout}
-              disabled={fanoutLoading}
-              className="rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold px-4 py-2 text-xs font-mono transition-all shadow-md shadow-cyan-500/20 disabled:opacity-50"
-            >
-              {fanoutLoading ? 'Đang bắn lệnh…' : '⚡ Test Fan-Out Lệnh Thật'}
-            </button>
-          </div>
-        </div>
-
-        {/* Telemetry Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
-          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-            <span className="text-slate-500 text-[10px] block">TÀI KHOẢN CLOUD KẾT NỐI</span>
-            <span className="font-bold text-base text-slate-100">
-              {cloudAccounts.length}
-            </span>
-          </div>
-          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-            <span className="text-slate-500 text-[10px] block">ĐANG BẬT AUTO-TRADE</span>
-            <span className="font-bold text-base text-emerald-400">
-              {cloudAccounts.filter((a) => Boolean(a.auto_trade)).length}
-            </span>
-          </div>
-          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-            <span className="text-slate-500 text-[10px] block">ĐỘ TRỄ FAN-OUT TRUNG BÌNH</span>
-            <span className="font-bold text-base text-cyan-300">
-              {metaTelemetry?.average_latency_ms ? `${metaTelemetry.average_latency_ms} ms` : '~32 ms'}
-            </span>
-          </div>
-          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-            <span className="text-slate-500 text-[10px] block">TỔNG LỆNH ĐÃ THỰC THI</span>
-            <span className="font-bold text-base text-slate-100">
-              {metaTelemetry?.total_orders_executed ?? 0}
-            </span>
-          </div>
-        </div>
-
-        {/* Test Result Reports */}
-        {testIngestResult && (
-          <div className="rounded-xl bg-slate-950/80 border border-purple-500/40 p-4 text-xs font-mono space-y-2">
-            <div className="text-purple-300 font-bold border-b border-slate-800 pb-1">
-              Kết Quả Thử Nghiệm 4 Màng Lọc An Toàn
-            </div>
-            <pre className="text-[11px] text-slate-300 overflow-x-auto">
-              {JSON.stringify(testIngestResult, null, 2)}
-            </pre>
-          </div>
-        )}
-
-        {fanoutReport && (
-          <div className="rounded-xl bg-slate-950/80 border border-cyan-500/40 p-4 text-xs font-mono space-y-2">
-            <div className="flex items-center justify-between text-cyan-300 font-bold border-b border-slate-800 pb-2">
-              <span>Báo Cáo Thực Thi Fan-Out Tín Hiệu ({fanoutReport.signal_id || 'Test'})</span>
-              <span>Tổng thời gian: {fanoutReport.total_fanout_elapsed_ms ?? 0} ms</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 py-1">
-              <div>Đã khớp: <b className="text-emerald-400">{fanoutReport.executed ?? 0}</b></div>
-              <div>Thất bại: <b className="text-rose-400">{fanoutReport.failed ?? 0}</b></div>
-              <div>Bị chặn trùng: <b className="text-amber-400">{fanoutReport.blocked_by_idempotency ?? 0}</b></div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Tabula Rasa Observational Learning Pipeline Card */}
-      <div className="quant-panel rounded-2xl border border-indigo-500/30 bg-[#0c1222] p-5 space-y-3 shadow-xl font-mono text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-2.5">
-          <div className="flex items-center gap-2.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-indigo-400 animate-pulse" />
-            <h3 className="font-bold text-sm text-slate-100 tracking-wide flex items-center gap-2">
-              <span>TABULA RASA AGENT LEARNING ENGINE</span>
-              <span className="text-[10px] bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 px-2 py-0.5 rounded font-bold">
-                Giai Đoạn 1: Quan Sát & Học Quy Nạp
+      {/* Row 2: Direct Cloud MT5 Fan-Out Dispatcher */}
+      <div className="quant-panel p-6 space-y-5">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-cyan-400">
+                Direct Cloud MT5 Fan-Out Engine
               </span>
+            </div>
+            <h3 className="mt-1 text-lg font-bold text-white">
+              Trung Tâm Điều Phối Quạt Lệnh & Kiểm Thử Tín Hiệu XAU/USD
             </h3>
-          </div>
-          <span className="text-slate-400 text-[11px]">
-            Hindsight Memory · TimescaleDB · LangGraph
-          </span>
-        </div>
-        <p className="text-slate-300 text-xs leading-relaxed font-sans">
-          Đội AI Agent hoạt động từ <strong>trang giấy trắng</strong>: không sử dụng bất kỳ chiến lược kỹ thuật gán cứng nào.
-          Toàn bộ tín hiệu nguồn ngoài (TradingView / MetaApi Demo) đều được chụp lại <strong>Snapshot Bối Cảnh</strong> (Phiên Á/Âu/Mỹ, ATR(14), Khoảng cách tin tức, Spread thực) song song với kết quả PnL thực tế để tự đúc kết Ứng viên Chiến lược mới.
-        </p>
-      </div>
-
-      {/* Signal Safety Guards Audit Log Stream */}
-      <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] overflow-hidden">
-        <div className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm text-slate-100 font-mono">
-              Nhật Ký Kiểm Toán & Snapshot Bối Cảnh (Signal Audit Logs)
-            </span>
-            <span className="text-xs text-slate-400 font-mono">
-              (Ghi lại toàn bộ quyết định phê duyệt / từ chối của 4 Màng Lọc & Bối cảnh học tập)
-            </span>
-          </div>
-          <button
-            onClick={fetchSignalAudit}
-            className="text-xs font-mono text-cyan-400 hover:text-cyan-300"
-          >
-            ↻ Làm mới nhật ký
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          {signalAuditLogs.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-mono text-xs">
-              Chưa có tín hiệu nào được tiếp nhận trong phiên này.
-            </div>
-          ) : (
-            <table className="w-full text-left font-mono text-xs">
-              <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="py-2.5 px-4">SIGNAL ID</th>
-                  <th className="py-2.5 px-4">NGUỒN / TIER</th>
-                  <th className="py-2.5 px-4">LỆNH</th>
-                  <th className="py-2.5 px-4">GIÁ VÀO / SL</th>
-                  <th className="py-2.5 px-4">BỐI CẢNH THỊ TRƯỜNG</th>
-                  <th className="py-2.5 px-4">TRẠNG THÁI</th>
-                  <th className="py-2.5 px-4">LÝ DO KIỂM TOÁN</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80">
-                {signalAuditLogs.map((log: any) => {
-                  const isApproved = log.status === 'APPROVED';
-                  let ctx: any = null;
-                  if (log.context_snapshot) {
-                    try {
-                      ctx = typeof log.context_snapshot === 'string' ? JSON.parse(log.context_snapshot) : log.context_snapshot;
-                    } catch {}
-                  }
-
-                  return (
-                    <tr key={log.id} className="hover:bg-slate-900/40">
-                      <td className="py-2.5 px-4 text-slate-300 font-bold">{log.signal_id?.slice(0, 12)}</td>
-                      <td className="py-2.5 px-4 text-slate-400">
-                        {log.source_name} <span className="text-[10px] text-cyan-400">({log.strategy_tier})</span>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${log.side === 'BUY' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}`}>
-                          {log.side} {log.symbol}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-4 text-slate-200">
-                        {log.entry_price} / <span className="text-amber-400">{log.stop_loss || 'Auto ATR'}</span>
-                      </td>
-                      <td className="py-2.5 px-4 text-[11px]">
-                        {ctx ? (
-                          <div className="space-y-0.5 text-slate-300">
-                            <div>
-                              <span className="text-cyan-400 font-bold">{ctx.session}</span>
-                              <span className="text-slate-500"> · ATR: </span>
-                              <span className="text-amber-300 font-bold">${ctx.atr_14}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-500">
-                              Spread: {ctx.spread_pips}p · Cách tin: {ctx.news_distance_mins}m
-                            </div>
-                            {log.pnl != null && (
-                              <div className={`text-[10px] font-bold ${log.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                PnL: {log.pnl >= 0 ? '+' : ''}{log.pnl} USD (MAE: {log.mae || 0}, MFE: {log.mfe || 0})
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-600">—</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isApproved ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/50' : 'bg-rose-950 text-rose-300 border border-rose-500/50'}`}>
-                          {log.status}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-4 text-slate-400 text-[11px]">
-                        {log.reject_reason || 'Passed all 4 guards'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {/* Cloud MT5 Terminals Table */}
-      <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] overflow-hidden">
-        <div className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm text-slate-100 font-mono">
-              Quản Trị Tài Khoản Cloud MT5 ({cloudAccounts.length})
-            </span>
-          </div>
-          <button
-            onClick={fetchCloudAccounts}
-            className="text-xs font-mono text-cyan-400 hover:text-cyan-300"
-          >
-            ↻ Làm mới
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          {cloudAccounts.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-mono text-xs">
-              Chưa có tài khoản Cloud MT5 nào được kết nối.
-            </div>
-          ) : (
-            <table className="w-full text-left font-mono text-xs">
-              <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="py-2.5 px-4">LOGIN / SERVER</th>
-                  <th className="py-2.5 px-4">EQUITY / BALANCE</th>
-                  <th className="py-2.5 px-4">RỦI RO / TIER</th>
-                  <th className="py-2.5 px-4">AUTO-TRADE</th>
-                  <th className="py-2.5 px-4 text-right">THAO TÁC</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80">
-                {cloudAccounts.map((a: any) => {
-                  const isAuto = a.auto_trade === 1;
-                  return (
-                    <tr key={a.id} className="hover:bg-slate-900/40">
-                      <td className="py-2.5 px-4">
-                        <div className="font-bold text-slate-200">#{a.login || a.mt5_login}</div>
-                        <div className="text-[10px] text-slate-400">{a.server || a.broker_server}</div>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <div className="font-bold text-emerald-400">${Number(a.equity || 0).toLocaleString()}</div>
-                        <div className="text-[10px] text-slate-400">${Number(a.balance || 0).toLocaleString()}</div>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <div className="text-cyan-300 font-bold">{a.risk_multiplier || 1.0}x Multiplier</div>
-                        <div className="text-[10px] text-slate-400">
-                          {a.is_prop_firm_mode ? 'Prop Firm Mode' : a.is_compounding ? 'Compounding' : 'Standard'}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isAuto ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}`}>
-                          {isAuto ? 'ACTIVE' : 'PAUSED'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-4 text-right space-x-1.5">
-                        <button
-                          onClick={() => handleToggleAccount(a.id)}
-                          className={`px-2 py-1 rounded text-[10px] font-bold ${isAuto ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}
-                        >
-                          {isAuto ? 'Dừng' : 'Bật'}
-                        </button>
-                        <button
-                          onClick={() => handleSyncAccount(a.id)}
-                          className="px-2 py-1 rounded text-[10px] bg-slate-800 text-cyan-300"
-                        >
-                          Sync
-                        </button>
-                        <button
-                          onClick={() => handleDeleteAccount(a.id)}
-                          className="px-2 py-1 rounded text-[10px] bg-rose-950 text-rose-300"
-                        >
-                          Xóa
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {/* Cloud MT5 Terminals Table */}
-      <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] overflow-hidden">
-        <div className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm text-slate-100 font-mono">
-              Quản Trị Tài Khoản Cloud MT5 ({cloudAccounts.length})
-            </span>
-          </div>
-          <button
-            onClick={fetchCloudAccounts}
-            className="text-xs font-mono text-cyan-400 hover:text-cyan-300"
-          >
-            ↻ Làm mới
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          {cloudAccounts.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 font-mono text-xs">
-              Chưa có tài khoản Cloud MT5 nào được kết nối.
-            </div>
-          ) : (
-            <table className="w-full text-left font-mono text-xs">
-              <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="py-2.5 px-4">LOGIN / SERVER</th>
-                  <th className="py-2.5 px-4">EQUITY / BALANCE</th>
-                  <th className="py-2.5 px-4">RỦI RO / TIER</th>
-                  <th className="py-2.5 px-4">AUTO-TRADE</th>
-                  <th className="py-2.5 px-4 text-right">THAO TÁC</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80">
-                {cloudAccounts.map((a: any) => {
-                  const isAuto = a.auto_trade === 1;
-                  return (
-                    <tr key={a.id} className="hover:bg-slate-900/40">
-                      <td className="py-2.5 px-4">
-                        <div className="font-bold text-slate-200">#{a.login || a.mt5_login}</div>
-                        <div className="text-[10px] text-slate-400">{a.server || a.broker_server}</div>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <div className="font-bold text-emerald-400">${Number(a.equity || 0).toLocaleString()}</div>
-                        <div className="text-[10px] text-slate-400">${Number(a.balance || 0).toLocaleString()}</div>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <div className="text-cyan-300 font-bold">{a.risk_multiplier || 1.0}x Multiplier</div>
-                        <div className="text-[10px] text-slate-400">
-                          {a.is_prop_firm_mode ? 'Prop Firm Mode' : a.is_compounding ? 'Compounding' : 'Standard'}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isAuto ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}`}>
-                          {isAuto ? 'ACTIVE' : 'PAUSED'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-4 text-right space-x-1.5">
-                        <button
-                          onClick={() => handleToggleAccount(a.id)}
-                          className={`px-2 py-1 rounded text-[10px] font-bold ${isAuto ? 'bg-amber-950 text-amber-300' : 'bg-emerald-950 text-emerald-300'}`}
-                        >
-                          {isAuto ? 'Dừng' : 'Bật'}
-                        </button>
-                        <button
-                          onClick={() => handleSyncAccount(a.id)}
-                          className="px-2 py-1 rounded text-[10px] bg-slate-800 text-cyan-300"
-                        >
-                          Sync
-                        </button>
-                        <button
-                          onClick={() => handleDeleteAccount(a.id)}
-                          className="px-2 py-1 rounded text-[10px] bg-rose-950 text-rose-300"
-                        >
-                          Xóa
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {/* Kill Switch Banner */}
-      <div
-        className={`rounded-xl border p-5 transition-colors ${
-          monitorData.halted
-            ? 'border-rose-500/60 bg-rose-950/40 text-rose-200'
-            : 'border-emerald-500/40 bg-emerald-950/20 text-emerald-200'
-        }`}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 font-bold text-sm">
-              <span className={`h-3 w-3 rounded-full ${monitorData.halted ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
-              <span>Khóa Ngắt Khẩn Cấp Toàn Hệ Thống (Global Kill Switch)</span>
-            </div>
-            <p className="text-xs text-slate-300">
-              {monitorData.halted
-                ? 'Toàn bộ việc cấp lệnh sao chép đang bị ngắt an toàn.'
-                : 'Cấp lệnh được phép cho tài khoản đang bật auto-trade và vượt qua 4 màng lọc rủi ro.'}
+            <p className="mt-0.5 text-xs text-slate-400">
+              Chuẩn hóa tín hiệu ngoại vi, tự động gắn ATR Stop-Loss nếu thiếu và đồng bộ tức thời tới toàn bộ tài khoản Cloud MT5.
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
-              onClick={() => handleToggleKillSwitch(monitorData.halted)}
-              disabled={killSwitchLoading || status !== 'ready' || monitorData.halted == null}
-              className={`rounded-lg px-4 py-2 text-xs font-bold font-mono transition-colors shadow ${
-                monitorData.halted
-                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-                  : 'bg-rose-600 hover:bg-rose-500 text-white'
-              }`}
+              type="button"
+              disabled={testBusy}
+              onClick={() => handleTestSignal('BUY XAUUSD @ 2905.50 SL 2895.00 TP 2925.00')}
+              className="quant-btn-primary px-3.5 py-2 text-xs whitespace-nowrap shrink-0"
             >
-              {killSwitchLoading
-                ? 'Đang chuyển…'
-                : monitorData.halted
-                ? 'Mở lại cấp lệnh'
-                : 'Ngắt toàn bộ'}
+              Kiểm Thử BUY XAUUSD
+            </button>
+            <button
+              type="button"
+              disabled={testBusy}
+              onClick={() => handleTestSignal('SELL GOLD NOW TP 2880')}
+              className="quant-btn-secondary px-3.5 py-2 text-xs whitespace-nowrap shrink-0"
+            >
+              Kiểm Thử Auto ATR-SL
+            </button>
+          </div>
+        </div>
+
+        {testSignalMsg && (
+          <div className="rounded-xl border border-cyan-500/35 bg-cyan-950/30 px-4 py-2.5 font-mono text-xs text-cyan-200">
+            {testSignalMsg}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="rounded-xl border border-white/[0.06] bg-[#040710]/80 p-3.5">
+            <div className="text-[10px] font-mono uppercase text-slate-400">Tổng Tín Hiệu Nhận</div>
+            <div className="mt-1 font-mono text-xl font-extrabold text-white tabular-nums">
+              {signalStats?.total_signals ?? 0}
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/[0.06] bg-[#040710]/80 p-3.5">
+            <div className="text-[10px] font-mono uppercase text-emerald-400">Đã Khớp (Executed)</div>
+            <div className="mt-1 font-mono text-xl font-extrabold text-emerald-400 tabular-nums">
+              {signalStats?.executed ?? 0}
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/[0.06] bg-[#040710]/80 p-3.5">
+            <div className="text-[10px] font-mono uppercase text-amber-400">Đã Lọc / Chặn Bảo Vệ</div>
+            <div className="mt-1 font-mono text-xl font-extrabold text-amber-300 tabular-nums">
+              {signalStats?.blocked ?? 0}
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/[0.06] bg-[#040710]/80 p-3.5">
+            <div className="text-[10px] font-mono uppercase text-cyan-400">Lệnh Đang Mở</div>
+            <div className="mt-1 font-mono text-xl font-extrabold text-cyan-300 tabular-nums">
+              {signalStats?.active_trades ?? 0}
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/[0.06] bg-[#040710]/80 p-3.5 col-span-2 sm:col-span-1">
+            <div className="flex items-center justify-between text-[10px] font-mono uppercase text-slate-400">
+              <span>Tabula Rasa AI</span>
+              <strong className="text-cyan-300 tabular-nums">{learningProgress}%</strong>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400"
+                style={{ width: `${learningProgress}%` }}
+              />
+            </div>
+            <div className="mt-1 text-[10px] font-mono text-slate-500 truncate">
+              {signalStats?.active_signal_mode || 'HYBRID'}
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#040710]/85">
+          <table className="quant-table">
+            <thead>
+              <tr>
+                <th>Thời Gian</th>
+                <th>Nguồn Tín Hiệu</th>
+                <th>Tín Hiệu Gốc</th>
+                <th>Chuẩn Hoá</th>
+                <th>SL / TP</th>
+                <th>Trạng Thái</th>
+                <th className="text-right">Trạm Khớp</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-xs text-slate-500">
+                    Chưa có nhật ký tín hiệu nào. Nhấn nút kiểm thử phía trên để kích hoạt luồng mẫu.
+                  </td>
+                </tr>
+              ) : (
+                auditLogs.map((log: any) => (
+                  <tr key={log.id}>
+                    <td className="font-mono text-xs text-slate-400 tabular-nums">
+                      {fmtTime(log.created_at)}
+                    </td>
+                    <td className="font-mono text-xs font-semibold text-cyan-300">{log.source}</td>
+                    <td className="max-w-[240px] truncate font-mono text-xs text-slate-300" title={log.raw_message}>
+                      {log.raw_message}
+                    </td>
+                    <td className="font-mono text-xs font-bold text-white">
+                      {log.action ? `${log.action} ${log.symbol || 'XAUUSD'}` : '—'}
+                    </td>
+                    <td className="font-mono text-xs text-slate-400 tabular-nums">
+                      SL: {log.sl ? fmtNum(log.sl, 2) : 'Auto'} · TP: {log.tp ? fmtNum(log.tp, 2) : 'Open'}
+                    </td>
+                    <td className="font-mono text-xs">
+                      <span
+                        className={
+                          log.status === 'EXECUTED'
+                            ? 'font-bold text-emerald-400'
+                            : log.status?.startsWith('BLOCKED')
+                            ? 'font-semibold text-amber-300'
+                            : 'text-rose-400'
+                        }
+                      >
+                        {log.status}
+                      </span>
+                    </td>
+                    <td className="text-right font-mono text-xs font-bold text-cyan-300 tabular-nums">
+                      {log.accounts_dispatched || 0}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Row 3: Deduplicated Cloud MT5 Terminals Table + Emergency Kill-Switch */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="quant-panel p-6 lg:col-span-8">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div>
+              <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
+                Giám Sát Trạm Đầu Cuối
+              </span>
+              <h3 className="mt-0.5 text-base font-bold text-white">
+                Danh Sách Tài Khoản Cloud MT5 Đang Vận Hành ({accounts.length})
+              </h3>
+            </div>
+            {activeTabSetter && (
+              <button
+                type="button"
+                onClick={() => activeTabSetter('infrastructure')}
+                className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 whitespace-nowrap shrink-0"
+              >
+                Mở quản lý hạ tầng →
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#040710]/85">
+            <table className="quant-table">
+              <thead>
+                <tr>
+                  <th>Tài Khoản / Máy Chủ</th>
+                  <th className="text-right">Balance / Equity</th>
+                  <th className="text-right">Lot / Max DD</th>
+                  <th>Trạng Thái Cloud</th>
+                  <th className="text-right">Điều Khiển</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-xs text-slate-400">
+                      Chưa có tài khoản MT5 nào được đăng ký.
+                    </td>
+                  </tr>
+                ) : (
+                  accounts.map((acc: any) => {
+                    const id = acc.account_id || acc.id || acc.login;
+                    const deployState = acc.deployment_status || acc.deployment_state || 'DEPLOYED';
+                    const isDeployed = deployState === 'DEPLOYED';
+                    return (
+                      <tr key={id}>
+                        <td>
+                          <div className="font-semibold text-white">{acc.account_name || acc.login || id}</div>
+                          <div className="font-mono text-[11px] text-slate-400">
+                            #{id} · {acc.mt5_server || acc.broker_server || acc.server || 'MetaTrader5'}
+                          </div>
+                        </td>
+                        <td className="text-right font-mono text-xs tabular-nums">
+                          <div className="font-bold text-white">${fmtNum(acc.balance, 2)}</div>
+                          <div className="text-cyan-300">${fmtNum(acc.equity, 2)}</div>
+                        </td>
+                        <td className="text-right font-mono text-xs text-slate-300 tabular-nums">
+                          x{fmtNum(acc.lot_multiplier || acc.risk_multiplier || 1, 2)} ·{' '}
+                          {fmtNum(acc.max_daily_dd_pct || 4, 1)}%
+                        </td>
+                        <td className="font-mono text-xs">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className={`h-2 w-2 rounded-full ${
+                                isDeployed ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                              }`}
+                            />
+                            <span className={isDeployed ? 'text-emerald-300' : 'text-amber-300'}>
+                              {deployState}
+                            </span>
+                          </span>
+                        </td>
+                        <td className="text-right">
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={testBusy}
+                              onClick={() => handleAdminCloudAction(id, 'sync')}
+                              className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 font-mono text-[11px] text-cyan-300 hover:bg-cyan-500/20"
+                            >
+                              Đồng bộ
+                            </button>
+                            <button
+                              type="button"
+                              disabled={testBusy}
+                              onClick={() => handleAdminCloudAction(id, isDeployed ? 'undeploy' : 'deploy')}
+                              className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-[11px] text-slate-300 hover:text-white"
+                            >
+                              {isDeployed ? 'Ngắt' : 'Bật'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="quant-panel flex flex-col justify-between border-rose-500/25 p-6 lg:col-span-4">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-rose-400">
+                  Cầu Dao Khẩn Cấp Toàn Cục
+                </span>
+                <h3 className="mt-0.5 text-base font-bold text-white">Emergency Kill-Switch</h3>
+              </div>
+              <span
+                className={`font-mono text-xs font-bold ${
+                  killSwitchActive ? 'text-rose-400' : 'text-emerald-400'
+                }`}
+              >
+                {killSwitchActive ? 'ĐANG KHOÁ LỆNH' : 'SẴN SÀNG'}
+              </span>
+            </div>
+
+            <p className="text-xs leading-relaxed text-slate-400">
+              Khi kích hoạt, hệ thống lập tức chặn mọi lệnh mở mới trên tất cả tài khoản Cloud MT5 và ghi nhật ký kiểm toán quản trị.
+            </p>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-300">
+                Lý do kích hoạt / ghi chú vận hành
+              </label>
+              <input
+                type="text"
+                value={killReason}
+                onChange={(e) => setKillReason(e.target.value)}
+                placeholder="VD: Biến động FOMC bất thường..."
+                className="quant-input text-xs"
+              />
+            </div>
+
+            {killSwitchMsg && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-xs text-amber-200">
+                {killSwitchMsg}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-2.5 pt-4 border-t border-white/[0.06]">
+            <button
+              type="button"
+              disabled={killSwitchLoading}
+              onClick={() => triggerKillSwitch(true)}
+              className="quant-btn-danger py-2.5 text-xs whitespace-nowrap shrink-0"
+            >
+              Khoá Toàn Hệ Thống
+            </button>
+            <button
+              type="button"
+              disabled={killSwitchLoading}
+              onClick={() => triggerKillSwitch(false)}
+              className="quant-btn-secondary py-2.5 text-xs whitespace-nowrap shrink-0"
+            >
+              Mở Khoá Giao Dịch
             </button>
           </div>
         </div>

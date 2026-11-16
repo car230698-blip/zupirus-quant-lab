@@ -2,6 +2,58 @@
 <html lang="vi" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Prevent third-party browser extensions (e.g. request interceptors) from crashing
+      // when attempting to overwrite a getter-only window.fetch in sandboxed environments.
+      (function () {
+        try {
+          var nativeFetch = window.fetch ? window.fetch.bind(window) : undefined;
+          if (nativeFetch) {
+            Object.defineProperty(window, 'fetch', {
+              configurable: true,
+              enumerable: true,
+              get: function () {
+                return nativeFetch;
+              },
+              set: function (fn) {
+                if (typeof fn === 'function') {
+                  nativeFetch = fn;
+                }
+              },
+            });
+          }
+        } catch (_e) {
+          // Ignore if descriptor is locked
+        }
+
+        window.addEventListener(
+          'error',
+          function (event) {
+            if (
+              event &&
+              ((event.filename && event.filename.indexOf('chrome-extension://') === 0) ||
+                (event.message && event.message.indexOf('Cannot set property fetch') !== -1))
+            ) {
+              event.stopImmediatePropagation();
+              event.preventDefault();
+            }
+          },
+          true
+        );
+
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            var reason = event && event.reason ? String(event.reason.stack || event.reason.message || event.reason) : '';
+            if (reason.indexOf('chrome-extension://') !== -1 || reason.indexOf('Cannot set property fetch') !== -1) {
+              event.stopImmediatePropagation();
+              event.preventDefault();
+            }
+          },
+          true
+        );
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ZUPIRUS Quant Lab</title>
     <meta name="description" content="Phân tích định lượng XAU/USD, theo dõi danh mục MT5 và quản trị vận hành." />
@@ -10,8 +62,11 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-[#070b14] text-slate-100 antialiased selection:bg-cyan-500/20 selection:text-cyan-300">
+  <body class="bg-[#02040a] text-slate-100 antialiased selection:bg-cyan-500/25 selection:text-cyan-200">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

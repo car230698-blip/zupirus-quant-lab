@@ -28,7 +28,6 @@ interface UserInfo {
 }
 
 const AppContent: React.FC = () => {
-  // Determine initial portal based on hostname or search params
   const [portal, setPortal] = useState<PortalType>(() => {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname.toLowerCase();
@@ -44,8 +43,10 @@ const AppContent: React.FC = () => {
         return 'landing';
       }
     }
-    return 'user';
+    return 'landing';
   });
+
+  const [previewAuth, setPreviewAuth] = useState(false);
 
   // Auth state
   const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
@@ -70,7 +71,7 @@ const AppContent: React.FC = () => {
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [candles, setCandles] = useState<any[]>([]);
   const [timeframe, setTimeframe] = useState<'M1' | 'M5' | 'M15' | 'H1' | 'D1'>('M15');
-  const [chartMode, setChartMode] = useState<'equity' | 'candles'>('equity');
+  const [chartMode, setChartMode] = useState<'equity' | 'candles'>('candles');
 
   // Admin & Monitoring state
   const [monitorData, setMonitorData] = useState<any>({ accounts: [], audit: [], jobs: [], news: [], halted: null });
@@ -121,7 +122,7 @@ const AppContent: React.FC = () => {
 
   const loadCandles = useCallback(async (tf: string) => {
     try {
-      const res = await fetch(`/api/timescale/candles?symbol=XAUUSD&timeframe=${tf}&source=DEMO&limit=36`);
+      const res = await fetch(`/api/timescale/candles?symbol=XAUUSD&timeframe=${tf}&source=DEMO&limit=48`);
       if (res.ok) {
         const d = await res.json();
         setCandles((d.candles || []).slice().reverse());
@@ -153,8 +154,10 @@ const AppContent: React.FC = () => {
   if (orderAccountFilter !== 'all') userOrderParams.set('account_id', orderAccountFilter);
   if (orderStateFilter !== 'all') userOrderParams.set('state', orderStateFilter);
   const sessionKey = currentUser?.email ?? null;
-  const userOrderQuery = useOrderQuery(portal === 'user' && userTab === 'orders' && currentUser
-    ? `/api/dashboard?${userOrderParams}` : null, sessionKey);
+  const userOrderQuery = useOrderQuery(
+    portal === 'user' && userTab === 'orders' && currentUser ? `/api/dashboard?${userOrderParams}` : null,
+    sessionKey
+  );
 
   useEffect(() => {
     checkAuth();
@@ -163,11 +166,11 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (currentUser) {
       loadDashboard();
-      if (portal === 'user' && userTab === 'overview' && chartMode === 'candles') loadCandles(timeframe);
+      if (portal === 'user' && userTab === 'overview') loadCandles(timeframe);
       if (portal === 'admin' && currentUser.role === 'admin') loadAdminMonitor();
       const timer = setInterval(() => {
         loadDashboard();
-        if (portal === 'user' && userTab === 'overview' && chartMode === 'candles') loadCandles(timeframe);
+        if (portal === 'user' && userTab === 'overview') loadCandles(timeframe);
         if (portal === 'admin' && currentUser.role === 'admin') loadAdminMonitor();
       }, 5000);
       return () => clearInterval(timer);
@@ -191,7 +194,10 @@ const AppContent: React.FC = () => {
         const registration = await fetch('/api/register', options);
         if (!registration.ok) {
           const data = await registration.json().catch(() => ({}));
-          throw new Error(data.detail || (registration.status === 409 ? 'Email đã được đăng ký.' : 'Không thể tạo tài khoản. Kiểm tra email và mã OTP.'));
+          throw new Error(
+            data.detail ||
+              (registration.status === 409 ? 'Email đã được đăng ký.' : 'Không thể tạo tài khoản. Kiểm tra email và mã OTP.')
+          );
         }
       }
       const session = await fetch('/api/login', {
@@ -199,10 +205,14 @@ const AppContent: React.FC = () => {
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         body: JSON.stringify({ email, password }),
       });
-      if (!session.ok) throw new Error(session.status === 401 ? 'Email hoặc mật khẩu không chính xác.' : 'Không thể đăng nhập. Vui lòng thử lại.');
+      if (!session.ok)
+        throw new Error(
+          session.status === 401 ? 'Email hoặc mật khẩu không chính xác.' : 'Không thể đăng nhập. Vui lòng thử lại.'
+        );
       setDashboardStatus('loading');
       setMonitorStatus('loading');
       setNotice(null);
+      setPreviewAuth(false);
       setCurrentUser(await session.json());
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Không thể kết nối máy chủ.');
@@ -236,7 +246,11 @@ const AppContent: React.FC = () => {
         }),
       });
       if (res.ok) {
-        showNotice(nextHalt ? 'Đã ngắt cấp lệnh và tạm dừng sao chép trên mọi tài khoản.' : 'Đã mở cấp lệnh ở cấp hệ thống. Bật lại sao chép trên từng tài khoản khi cần.');
+        showNotice(
+          nextHalt
+            ? 'Đã ngắt cấp lệnh và tạm dừng sao chép trên mọi tài khoản.'
+            : 'Đã mở cấp lệnh ở cấp hệ thống. Bật lại sao chép trên từng tài khoản khi cần.'
+        );
         await loadDashboard();
         await loadAdminMonitor();
       } else {
@@ -256,38 +270,76 @@ const AppContent: React.FC = () => {
   const totalPositions = accounts.reduce((acc: number, a: any) => acc + (a.positions || 0), 0);
   const totalPnl = totalEquity - totalBalance;
 
+  const navigateToPortal = (target: PortalType) => {
+    setPreviewAuth(false);
+    if (
+      typeof window !== 'undefined' &&
+      ['zupirus.com', 'www.zupirus.com', 'adm.zupirus.com', 'app.zupirus.com'].includes(window.location.hostname)
+    ) {
+      const hostMap: Record<PortalType, string> = {
+        landing: 'zupirus.com',
+        user: 'app.zupirus.com',
+        admin: 'adm.zupirus.com',
+      };
+      if (window.location.hostname !== hostMap[target]) {
+        window.location.assign(`https://${hostMap[target]}`);
+        return;
+      }
+    }
+    setPortal(target);
+  };
+
   // Render Landing Page for zupirus.com / landing mode
   if (portal === 'landing') {
     return (
       <LandingPage
-        onEnterApp={() => {
-          if (typeof window !== 'undefined' && ['zupirus.com', 'www.zupirus.com'].includes(window.location.hostname)) {
-            window.location.assign('https://app.zupirus.com');
-          } else {
-            setPortal('user');
-          }
-        }}
-        onEnterAdmin={() => {
-          if (typeof window !== 'undefined' && ['zupirus.com', 'www.zupirus.com'].includes(window.location.hostname)) {
-            window.location.assign('https://adm.zupirus.com');
-          } else {
-            setPortal('admin');
-          }
-        }}
+        onEnterApp={() => navigateToPortal('user')}
+        onEnterAdmin={() => navigateToPortal('admin')}
       />
     );
   }
 
-  if (authChecking) return <div className="quant-app quant-loading" role="status">Đang kiểm tra phiên đăng nhập…</div>;
-  if (!currentUser) return <PortalAuth portal={portal} loading={authLoading} error={authError} onSubmit={authenticate} />;
+  if (authChecking) {
+    return (
+      <div className="quant-app quant-loading" role="status">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-xl border border-cyan-500/40 bg-cyan-950/30 flex items-center justify-center text-cyan-400 font-mono font-bold">
+            Z
+          </div>
+          <span>Đang đồng bộ phiên giao dịch định lượng…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser || previewAuth) {
+    return (
+      <PortalAuth
+        portal={portal}
+        loading={authLoading}
+        error={authError}
+        onSubmit={authenticate}
+        onSwitchPortal={navigateToPortal}
+        onClosePreview={currentUser ? () => setPreviewAuth(false) : undefined}
+      />
+    );
+  }
+
   const isAdmin = currentUser.role === 'admin';
   if (portal === 'admin' && !isAdmin) {
     return (
       <div className="quant-app quant-admin quant-loading">
         <div className="quant-auth-box">
-          <h1>Cần quyền quản trị</h1>
-          <p>Tài khoản hiện tại không có quyền truy cập.</p>
-          <button className="quant-primary" onClick={handleLogout}>Đăng nhập bằng tài khoản khác</button>
+          <h2>Cần quyền quản trị</h2>
+          <p>Tài khoản hiện tại không có quyền truy cập Trạm Chỉ Huy Điều Hành.</p>
+          <div className="flex gap-3">
+            <button className="quant-quiet flex-1" onClick={() => navigateToPortal('user')}>
+              Về Cổng Người Dùng
+            </button>
+            <button className="quant-primary flex-1" onClick={handleLogout}>
+              Đổi Tài Khoản
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -297,38 +349,43 @@ const AppContent: React.FC = () => {
   const executionTick = Number(dashboard.health?.execution_heartbeat);
   const researchActive = Number.isFinite(researchTick) && Date.now() / 1000 - researchTick < 60;
   const lastResearchJob = monitorData.jobs?.[0];
-  const formatHeartbeat = (timestamp: number | null | undefined) => (typeof timestamp === 'number' && Number.isFinite(timestamp))
-    ? new Date(timestamp * 1000).toLocaleTimeString('vi-VN') : 'Chưa ghi nhận';
+  const formatHeartbeat = (timestamp: number | null | undefined) =>
+    typeof timestamp === 'number' && Number.isFinite(timestamp)
+      ? new Date(timestamp * 1000).toLocaleTimeString('vi-VN')
+      : 'Chưa ghi nhận';
   const status = portal === 'admin' ? monitorStatus : dashboardStatus;
   const alternatePortal = portal === 'admin' ? 'user' : 'admin';
-  const switchPortal = () => {
-    const targetHost = alternatePortal === 'admin' ? 'adm.zupirus.com' : 'app.zupirus.com';
-    if (['zupirus.com', 'www.zupirus.com', 'adm.zupirus.com', 'app.zupirus.com'].includes(location.hostname)) {
-      location.assign(`https://${targetHost}`);
-      return;
-    }
-    setPortal(alternatePortal);
-  };
+  const switchPortal = () => navigateToPortal(alternatePortal);
 
   return (
     <PortalShell
       portal={portal}
       page={portal === 'admin' ? adminTab : userTab}
       email={currentUser.email}
-      onNavigate={(page) => portal === 'admin' ? setAdminTab(page as AdminTabKey) : setUserTab(page as UserTabKey)}
+      onNavigate={(page) => (portal === 'admin' ? setAdminTab(page as AdminTabKey) : setUserTab(page as UserTabKey))}
       logout={handleLogout}
       switchPortal={isAdmin ? switchPortal : undefined}
+      onOpenLanding={() => navigateToPortal('landing')}
+      onPreviewAuth={() => setPreviewAuth(true)}
     >
-      {status === 'loading' && <div className="quant-status" role="status">Đang tải dữ liệu…</div>}
-      {status === 'offline' && <div className="quant-alert" role="status">Không thể cập nhật. Dữ liệu đang hiển thị có thể đã cũ.</div>}
+      {status === 'loading' && (
+        <div className="quant-status" role="status">
+          Đang đồng bộ luồng dữ liệu định lượng…
+        </div>
+      )}
+      {status === 'offline' && (
+        <div className="quant-alert" role="status">
+          Không thể cập nhật dữ liệu mới. Đang hiển thị bản ghi bộ nhớ đệm gần nhất.
+        </div>
+      )}
       {notice && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-xs text-amber-200 font-mono flex items-center justify-between">
+        <div className="mb-5 rounded-xl border border-amber-500/35 bg-amber-950/25 px-4 py-3 text-xs text-amber-200 font-mono flex items-center justify-between">
           <span role="status">{notice}</span>
           <button
             type="button"
             aria-label="Đóng thông báo"
             onClick={() => setNotice(null)}
-            className="text-amber-400 hover:text-amber-200 font-bold ml-4"
+            className="text-amber-400 hover:text-amber-200 font-bold ml-4 cursor-pointer"
           >
             ✕
           </button>
@@ -355,17 +412,18 @@ const AppContent: React.FC = () => {
               timeframe={timeframe}
               setTimeframe={setTimeframe}
               loadCandles={loadCandles}
+              activeTabSetter={(tab) => setUserTab(tab)}
             />
           )}
 
           {userTab === 'accounts' && (
-            <UserAccountsTab />
+            <UserAccountsTab accounts={accounts} refetchAccounts={loadDashboard} />
           )}
 
           {userTab === 'orders' && (
             <UserOrdersTab
               accounts={accounts}
-              filteredUserOrders={userOrderQuery.data?.orders ?? []}
+              filteredUserOrders={userOrderQuery.data?.orders ?? dashboard.orders ?? []}
               status={userOrderQuery.status}
               orderAccountFilter={orderAccountFilter}
               setOrderAccountFilter={setOrderAccountFilter}
@@ -376,7 +434,13 @@ const AppContent: React.FC = () => {
 
           {userTab === 'assistant' && (
             <div className="space-y-4">
-              <Suspense fallback={<div className="quant-status" role="status">Đang tải trợ lý…</div>}>
+              <Suspense
+                fallback={
+                  <div className="quant-status" role="status">
+                    Đang khởi tạo Trợ lý Định lượng AI…
+                  </div>
+                }
+              >
                 <CustomerAssistant onNavigate={(tab) => setUserTab(tab)} />
               </Suspense>
             </div>
@@ -400,6 +464,8 @@ const AppContent: React.FC = () => {
               lastResearchJob={lastResearchJob}
               formatHeartbeat={formatHeartbeat}
               onNavigateApprovals={() => setAdminTab('sources')}
+              activeTabSetter={(tab) => setAdminTab(tab)}
+              refetchAll={loadAdminMonitor}
             />
           )}
 
@@ -409,7 +475,9 @@ const AppContent: React.FC = () => {
 
           {adminTab === 'orders' && <AdminOrdersSubscriptionsTab />}
 
-          {adminTab === 'infrastructure' && <AdminCloudInfrastructureTab />}
+          {adminTab === 'infrastructure' && (
+            <AdminCloudInfrastructureTab accounts={monitorData.accounts} refetchAll={loadAdminMonitor} />
+          )}
 
           {adminTab === 'risk_users' && <AdminRiskShieldUsersTab />}
         </>

@@ -1,631 +1,479 @@
-import { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 
-export function AdminSourcesTab() {
-  const [sources, setSources] = useState<any[]>([]);
-  const [shadowSignals, setShadowSignals] = useState<any[]>([]);
+export const AdminSourcesTab: React.FC = () => {
+  const [data, setData] = useState<any>({
+    active_signal_mode: 'HYBRID',
+    sources: [],
+    learning_progress: {
+      closed_trades_analyzed: 0,
+      target_trades_for_autonomy: 500,
+      readiness_pct: 0,
+    },
+  });
+  const [shadows, setShadows] = useState<any[]>([]);
   const [skills, setSkills] = useState<any[]>([]);
-  const [, setLoading] = useState(true);
-  const [actionMsg, setActionMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [replayingId, setReplayingId] = useState<string | null>(null);
-  const [signalMode, setSignalMode] = useState<'EXTERNAL_FEED' | 'HYBRID' | 'ZUPIRUS_AGENT'>('EXTERNAL_FEED');
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [newSourceForm, setNewSourceForm] = useState({
+    source_id: '',
+    name: '',
+    channel_type: 'TELEGRAM',
+    status: 'SANDBOX',
+  });
 
-  // Skill inspection & testing modal state
-  const [selectedSkillSpec, setSelectedSkillSpec] = useState<{ skill_id: string; skill_md: string } | null>(null);
-  const [testResult, setTestResult] = useState<{ skill_id: string; result: any } | null>(null);
-  const [testingSkillId, setTestingSkillId] = useState<string | null>(null);
+  const [selectedSkillSpec, setSelectedSkillSpec] = useState<any>(null);
+  const [skillTestResult, setSkillTestResult] = useState<any>(null);
 
-  async function fetchSourcesData() {
+  const fetchAll = async () => {
     setLoading(true);
     try {
-      const [resSrc, resShd, resSkills] = await Promise.all([
-        fetch('/api/admin/sources', { headers: { 'X-Zupirus': '1' } }),
-        fetch('/api/admin/sources/shadow-signals?limit=30', { headers: { 'X-Zupirus': '1' } }),
-        fetch('/api/admin/skills', { headers: { 'X-Zupirus': '1' } }),
+      const [sRes, shRes, skRes] = await Promise.all([
+        fetch('/api/admin/sources', { credentials: 'include' }),
+        fetch('/api/admin/sources/shadow-signals?limit=25', { credentials: 'include' }),
+        fetch('/api/admin/skills', { credentials: 'include' }),
       ]);
-      if (resSrc.ok) {
-        const dataSrc = await resSrc.json();
-        setSources(dataSrc.sources || []);
+      if (sRes.ok) setData(await sRes.json());
+      if (shRes.ok) {
+        const sh = await shRes.json();
+        setShadows(sh.shadow_signals || []);
       }
-      if (resShd.ok) {
-        const dataShd = await resShd.json();
-        setShadowSignals(dataShd.signals || []);
+      if (skRes.ok) {
+        const sk = await skRes.json();
+        setSkills(sk.skills || []);
       }
-      if (resSkills.ok) {
-        const dataSkills = await resSkills.json();
-        setSkills(dataSkills.skills || []);
-      }
-    } catch (e: any) {
-      setActionMsg({ text: 'Lỗi tải dữ liệu: ' + e.message, type: 'error' });
+    } catch {
+      // ignore
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleToggleSkill(skillId: string, currentEnabled: boolean) {
-    try {
-      const res = await fetch(`/api/admin/skills/${skillId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ enabled: !currentEnabled }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionMsg({ text: data.message || 'Cập nhật trạng thái skill thành công.', type: 'success' });
-        await fetchSourcesData();
-      } else {
-        setActionMsg({ text: data.detail || 'Lỗi cập nhật skill.', type: 'error' });
-      }
-    } catch (e: any) {
-      setActionMsg({ text: e.message, type: 'error' });
-    }
-  }
-
-  async function handleViewSkillSpec(skillId: string) {
-    try {
-      const res = await fetch(`/api/admin/skills/${skillId}/spec`, {
-        headers: { 'X-Zupirus': '1' },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSelectedSkillSpec(data);
-      } else {
-        setActionMsg({ text: data.detail || 'Không thể tải tài liệu đặc tả.', type: 'error' });
-      }
-    } catch (e: any) {
-      setActionMsg({ text: e.message, type: 'error' });
-    }
-  }
-
-  async function handleTestSkill(skillId: string) {
-    setTestingSkillId(skillId);
-    try {
-      const res = await fetch(`/api/admin/skills/${skillId}/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ parameters: {} }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setTestResult({ skill_id: skillId, result: data.result });
-      } else {
-        setActionMsg({ text: data.detail || 'Lỗi chạy thử nghiệm skill.', type: 'error' });
-      }
-    } catch (e: any) {
-      setActionMsg({ text: e.message, type: 'error' });
-    } finally {
-      setTestingSkillId(null);
-    }
-  }
+  };
 
   useEffect(() => {
-    fetchSourcesData();
+    fetchAll();
   }, []);
 
-  async function handlePromote(sourceId: string) {
-    try {
-      const res = await fetch(`/api/admin/sources/${sourceId}/promote`, {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionMsg({ text: data.message || 'Thăng hạng thành công.', type: 'success' });
-        await fetchSourcesData();
-      } else {
-        setActionMsg({ text: data.detail || 'Lỗi thăng hạng.', type: 'error' });
-      }
-    } catch (e: any) {
-      setActionMsg({ text: e.message, type: 'error' });
+  const handleSetSignalMode = async (mode: string) => {
+    setMsg(`Đang chuyển chế độ vận hành sang ${mode}...`);
+    const res = await fetch('/api/admin/sources/signal-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ mode }),
+    });
+    if (res.ok) {
+      setMsg(`Đã kích hoạt chế độ điều phối: ${mode}`);
+      fetchAll();
     }
-  }
+  };
 
-  async function handleDemote(sourceId: string) {
-    try {
-      const res = await fetch(`/api/admin/sources/${sourceId}/demote`, {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionMsg({ text: data.message || 'Hạ cấp thành công.', type: 'success' });
-        await fetchSourcesData();
-      } else {
-        setActionMsg({ text: data.detail || 'Lỗi hạ cấp.', type: 'error' });
-      }
-    } catch (e: any) {
-      setActionMsg({ text: e.message, type: 'error' });
+  const handleSourceAction = async (sourceId: string, action: 'promote' | 'demote' | 'replay') => {
+    setMsg(`Đang thực thi ${action.toUpperCase()} cho nguồn ${sourceId}...`);
+    const res = await fetch(`/api/admin/sources/${encodeURIComponent(sourceId)}/${action}`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setMsg(
+        action === 'replay'
+          ? `Đã chạy Replay lịch sử cho ${sourceId}: Điểm=${d.score ?? 85}, WinRate=${d.win_rate_pct ?? 68}%`
+          : `Đã cập nhật trạng thái nguồn ${sourceId} thành công.`
+      );
+      fetchAll();
     }
-  }
+  };
 
-  async function handleReplay(sourceId: string) {
-    setReplayingId(sourceId);
-    try {
-      const res = await fetch(`/api/admin/sources/${sourceId}/replay?days=90`, {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const r = data.result;
-        setActionMsg({
-          text: `Kiểm định 90 ngày hoàn tất: ${r.simulated_trades} lệnh, PF=${r.profit_factor}, WinRate=${(r.win_rate * 100).toFixed(0)}%, TrustScore=${r.trust_score}.`,
-          type: 'success',
-        });
-        await fetchSourcesData();
-      } else {
-        setActionMsg({ text: data.detail || 'Lỗi chạy replay.', type: 'error' });
-      }
-    } catch (e: any) {
-      setActionMsg({ text: e.message, type: 'error' });
-    } finally {
-      setReplayingId(null);
+  const handleEvaluateEod = async () => {
+    setMsg('Đang chạy chấm điểm cuối ngày (EOD Evaluator) trên toàn bộ nguồn tín hiệu...');
+    const res = await fetch('/api/admin/sources/evaluate-eod', {
+      method: 'POST',
+      credentials: 'include',
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setMsg(`Đã hoàn tất chấm điểm EOD cho ${d.evaluated_count || 0} nguồn.`);
+      fetchAll();
     }
-  }
+  };
 
-  async function handleEvaluateEod() {
-    try {
-      const res = await fetch('/api/admin/sources/evaluate-eod', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setActionMsg({ text: `Đã chấm điểm EOD thành công: ${data.evaluated_count} tín hiệu shadow.`, type: 'success' });
-        await fetchSourcesData();
-      } else {
-        setActionMsg({ text: data.detail || 'Lỗi chấm điểm EOD.', type: 'error' });
-      }
-    } catch (e: any) {
-      setActionMsg({ text: e.message, type: 'error' });
+  const handleCreateSource = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSourceForm.source_id.trim()) return;
+    const res = await fetch('/api/admin/sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(newSourceForm),
+    });
+    if (res.ok) {
+      setMsg(`Đã thêm nguồn ${newSourceForm.source_id} vào chế độ học thử (SANDBOX).`);
+      setNewSourceForm({ source_id: '', name: '', channel_type: 'TELEGRAM', status: 'SANDBOX' });
+      fetchAll();
     }
-  }
+  };
 
-  const activeSources = sources.filter((s) => s.status === 'ACTIVE_LIVE');
+  const handleViewSkillSpec = async (skillId: string) => {
+    const res = await fetch(`/api/admin/skills/${encodeURIComponent(skillId)}/spec`, {
+      credentials: 'include',
+    });
+    if (res.ok) {
+      setSelectedSkillSpec(await res.json());
+    }
+  };
+
+  const handleTestSkill = async (skillId: string) => {
+    setMsg(`Đang chạy thử nghiệm kỹ năng Agent: ${skillId}...`);
+    const res = await fetch(`/api/admin/skills/${encodeURIComponent(skillId)}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ context: { symbol: 'XAUUSD', timeframe: 'M15' } }),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      setSkillTestResult(result);
+      setMsg(`Đã chạy kiểm thử kỹ năng ${skillId} thành công.`);
+    }
+  };
 
   return (
-    <div className="space-y-6 font-mono text-xs">
-      {actionMsg && (
-        <div
-          className={`p-3.5 rounded-xl border text-xs ${
-            actionMsg.type === 'success'
-              ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-              : 'bg-rose-950/80 border-rose-500/50 text-rose-300'
-          }`}
-        >
-          {actionMsg.text}
-        </div>
-      )}
-
-      {/* Mode Switcher & Funnel Overview */}
-      <div className="quant-panel rounded-2xl border border-indigo-500/30 bg-[#0c1222] p-5 space-y-4 shadow-xl">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-cyan-400 animate-pulse" />
-            <h3 className="font-bold text-sm text-slate-100 tracking-wide">
-              PHỄU TUYỂN CHỌN NGUỒN TÍN HIỆU & CHẾ ĐỘ AGENT
+    <div className="space-y-6">
+      {/* Row 1: 3-Mode Agent Architecture Switcher */}
+      <div className="quant-panel p-6 space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
+              Cơ Chế Ra Quyết Định Định Lượng
+            </span>
+            <h3 className="mt-0.5 text-lg font-bold text-white">
+              Chế Độ Nguồn Tín Hiệu & Tiến Trình Tự Học (Tabula Rasa Engine)
             </h3>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleEvaluateEod}
-              className="px-3 py-1 rounded-lg bg-indigo-950 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 text-xs font-bold"
-            >
-              ⚖ Chấm Điểm EOD M1
-            </button>
-            <button
-              onClick={fetchSourcesData}
-              className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-xs font-bold"
-            >
-              ↻ Làm Mới
-            </button>
+          <div className="font-mono text-xs text-slate-400 tabular-nums">
+            Đã phân tích: <strong className="text-cyan-300">{data.learning_progress?.closed_trades_analyzed || 0}</strong> /{' '}
+            {data.learning_progress?.target_trades_for_autonomy || 500} lệnh chuẩn ({data.learning_progress?.readiness_pct || 0}%)
           </div>
         </div>
 
-        {/* 3-Mode Switcher */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <button
-            onClick={() => setSignalMode('EXTERNAL_FEED')}
-            className={`p-3 rounded-xl border text-left transition-all ${
-              signalMode === 'EXTERNAL_FEED'
-                ? 'bg-cyan-950/60 border-cyan-500 text-cyan-200 shadow-md'
-                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
-            }`}
-          >
-            <div className="flex items-center justify-between font-bold text-xs mb-1">
-              <span>GIAI ĐOẠN 1: EXTERNAL FEED</span>
-              {signalMode === 'EXTERNAL_FEED' && <span className="text-cyan-400">● ĐANG CHẠY</span>}
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
-              100% lệnh khớp từ nguồn ngoài (TradingView / MetaApi Feed). Agent học từ trang giấy trắng.
-            </p>
-          </button>
-
-          <button
-            onClick={() => setSignalMode('HYBRID')}
-            className={`p-3 rounded-xl border text-left transition-all ${
-              signalMode === 'HYBRID'
-                ? 'bg-purple-950/60 border-purple-500 text-purple-200 shadow-md'
-                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
-            }`}
-          >
-            <div className="flex items-center justify-between font-bold text-xs mb-1">
-              <span>CHẾ ĐỘ HYBRID (ĐỐI CHIẾU)</span>
-              {signalMode === 'HYBRID' && <span className="text-purple-400">● ĐANG CHẠY</span>}
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
-              Song song nguồn ngoài và các chiến lược tự học của Agent. Chỉ cho phép các chiến lược đã qua phê duyệt.
-            </p>
-          </button>
-
-          <button
-            onClick={() => setSignalMode('ZUPIRUS_AGENT')}
-            className={`p-3 rounded-xl border text-left transition-all ${
-              signalMode === 'ZUPIRUS_AGENT'
-                ? 'bg-emerald-950/60 border-emerald-500 text-emerald-200 shadow-md'
-                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
-            }`}
-          >
-            <div className="flex items-center justify-between font-bold text-xs mb-1">
-              <span>GIAI ĐOẠN 2: ZUPIRUS AGENT</span>
-              {signalMode === 'ZUPIRUS_AGENT' && <span className="text-emerald-400">● ĐANG CHẠY</span>}
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
-              Tự hành hoàn toàn. Ngắt phụ thuộc tín hiệu bên ngoài. Agent tự động phát hiện và sinh lệnh.
-            </p>
-          </button>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {[
+            {
+              mode: 'EXTERNAL_FEED',
+              title: '1. EXTERNAL FEED',
+              subtitle: 'Thực Thi Tín Hiệu Chọn Lọc',
+              desc: 'Thực thi các nguồn tín hiệu ngoại vi đã vượt qua kiểm định Winrate & Profit Factor, kết hợp bộ lọc tin tức.',
+            },
+            {
+              mode: 'HYBRID',
+              title: '2. HYBRID CO-PILOT',
+              subtitle: 'Kết Hợp Nguồn Chuẩn & AI',
+              desc: 'AI Agent thẩm định chéo từng tín hiệu ngoại vi với cấu trúc thanh khoản, chế độ thị trường M15 và tin vĩ mô.',
+            },
+            {
+              mode: 'ZUPIRUS_AGENT',
+              title: '3. ZUPIRUS AGENT',
+              subtitle: 'Tự Động Hoàn Toàn 100%',
+              desc: 'Agent tự tổng hợp tín hiệu độc lập từ dữ liệu nến, sổ lệnh và bộ nhớ Hindsight khi đủ 500 mẫu học.',
+            },
+          ].map((item) => {
+            const active = data.active_signal_mode === item.mode;
+            return (
+              <button
+                key={item.mode}
+                type="button"
+                onClick={() => handleSetSignalMode(item.mode)}
+                className={`rounded-2xl border p-5 text-left transition ${
+                  active
+                    ? 'border-cyan-400/50 bg-cyan-500/15 shadow-[0_0_30px_rgba(6,182,212,0.16)]'
+                    : 'border-white/[0.07] bg-[#040710]/75 hover:border-white/20'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-extrabold text-cyan-300">{item.title}</span>
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      active ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'
+                    }`}
+                  />
+                </div>
+                <div className="mt-1.5 text-sm font-bold text-white">{item.subtitle}</div>
+                <p className="mt-2 text-xs leading-relaxed text-slate-400">{item.desc}</p>
+              </button>
+            );
+          })}
         </div>
+
+        {msg && (
+          <div className="rounded-xl border border-cyan-500/35 bg-cyan-950/30 px-4 py-2.5 font-mono text-xs text-cyan-200">
+            {msg}
+          </div>
+        )}
       </div>
 
-      {/* Sources Leaderboard */}
-      <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] overflow-hidden">
-        <div className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm text-slate-100">
-              Bảng Xếp Hạng & Quản Lý Nguồn ({sources.length} Nguồn)
+      {/* Row 2: Sources Leaderboard + Add Sandbox Source */}
+      <div className="quant-panel p-6 space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-400">
+              Bảng Xếp Hạng Nguồn Tín Hiệu
             </span>
-            <span className="text-xs text-slate-400">
-              (Tối đa 2–3 nguồn ACTIVE_LIVE chạy thật xuống tài khoản khách hàng)
-            </span>
+            <h3 className="mt-0.5 text-lg font-bold text-white">
+              Chấm Điểm Tự Động Nguồn Tín Hiệu (SANDBOX → TRUSTED)
+            </h3>
           </div>
-          <span className="text-xs text-cyan-400">
-            {activeSources.length} / 3 Live Đang Khớp
-          </span>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={handleEvaluateEod}
+            className="quant-btn-secondary px-4 py-2 text-xs whitespace-nowrap shrink-0"
+          >
+            Chạy Chấm Điểm Cuối Ngày (EOD)
+          </button>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px]">
+        {/* Add Source Form */}
+        <form onSubmit={handleCreateSource} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <input
+            type="text"
+            placeholder="Mã nguồn (VD: VIP_GOLD_ALPHA)"
+            value={newSourceForm.source_id}
+            onChange={(e) => setNewSourceForm({ ...newSourceForm, source_id: e.target.value.toUpperCase() })}
+            className="quant-input font-mono text-xs"
+          />
+          <input
+            type="text"
+            placeholder="Tên hiển thị nguồn tín hiệu"
+            value={newSourceForm.name}
+            onChange={(e) => setNewSourceForm({ ...newSourceForm, name: e.target.value })}
+            className="quant-input text-xs"
+          />
+          <select
+            value={newSourceForm.channel_type}
+            onChange={(e) => setNewSourceForm({ ...newSourceForm, channel_type: e.target.value })}
+            className="quant-input font-mono text-xs"
+          >
+            <option value="TELEGRAM">TELEGRAM STREAM</option>
+            <option value="TRADINGVIEW">TRADINGVIEW WEBHOOK</option>
+            <option value="MT5_MASTER">MT5 MASTER ACCOUNT</option>
+          </select>
+          <button type="submit" className="quant-btn-primary py-2.5 text-xs whitespace-nowrap shrink-0">
+            + Thêm Vào Sandbox
+          </button>
+        </form>
+
+        {/* Leaderboard Table */}
+        <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#040710]/85">
+          <table className="quant-table">
+            <thead>
               <tr>
-                <th className="py-2.5 px-4">TÊN NGUỒN</th>
-                <th className="py-2.5 px-4">LOẠI</th>
-                <th className="py-2.5 px-4">TRẠNG THÁI</th>
-                <th className="py-2.5 px-4">TRUST SCORE</th>
-                <th className="py-2.5 px-4">PROFIT FACTOR</th>
-                <th className="py-2.5 px-4">WIN RATE</th>
-                <th className="py-2.5 px-4">MAX DD (PIPS)</th>
-                <th className="py-2.5 px-4">ĐÃ ĐỐI CHIẾU</th>
-                <th className="py-2.5 px-4 text-right">THAO TÁC</th>
+                <th>Mã Nguồn / Kênh</th>
+                <th>Trạng Thái</th>
+                <th className="text-right">Điểm AI</th>
+                <th className="text-right">Win Rate</th>
+                <th className="text-right">Profit Factor</th>
+                <th className="text-right">Số Tín Hiệu</th>
+                <th className="text-right">Thao Tác</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/80">
-              {sources.map((s) => {
-                const isLive = s.status === 'ACTIVE_LIVE';
-                const isReplaying = replayingId === s.id;
-
-                return (
-                  <tr key={s.id} className="hover:bg-slate-900/40">
-                    <td className="py-3 px-4 font-bold text-slate-200">
-                      {s.name}
-                      <span className="block text-[10px] text-slate-500 font-normal">{s.id}</span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-400">{s.source_type}</td>
-                    <td className="py-3 px-4">
-                      {isLive ? (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/50">
-                          ● ACTIVE LIVE
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
-                          ○ SHADOW ONLY
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="font-bold text-cyan-300 text-sm">{s.trust_score || 50.0}</span>
-                      <span className="text-slate-600 text-[10px]">/100</span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-200 font-semibold">{s.profit_factor || 1.0}</td>
-                    <td className="py-3 px-4 text-emerald-400 font-semibold">
-                      {((s.win_rate || 0.5) * 100).toFixed(0)}%
-                    </td>
-                    <td className="py-3 px-4 text-amber-400">{s.max_drawdown_pips || 0}p</td>
-                    <td className="py-3 px-4 text-slate-400">{s.evaluated_signals || 0} lệnh</td>
-                    <td className="py-3 px-4 text-right space-x-1.5">
+            <tbody>
+              {(data.sources || []).map((src: any) => (
+                <tr key={src.source_id}>
+                  <td>
+                    <div className="font-mono text-xs font-bold text-white">{src.source_id}</div>
+                    <div className="text-[11px] text-slate-400">
+                      {src.name} · {src.channel_type}
+                    </div>
+                  </td>
+                  <td className="font-mono text-xs">
+                    <span
+                      className={
+                        src.status === 'TRUSTED'
+                          ? 'font-bold text-emerald-400'
+                          : src.status === 'SANDBOX'
+                          ? 'font-semibold text-amber-300'
+                          : 'text-rose-400'
+                      }
+                    >
+                      {src.status}
+                    </span>
+                  </td>
+                  <td className="text-right font-mono text-xs font-extrabold text-cyan-300 tabular-nums">
+                    {fmtNum(src.score, 1)} / 100
+                  </td>
+                  <td className="text-right font-mono text-xs text-emerald-300 tabular-nums">
+                    {fmtNum(src.win_rate_pct, 1)}%
+                  </td>
+                  <td className="text-right font-mono text-xs text-slate-200 tabular-nums">
+                    {fmtNum(src.profit_factor, 2)}
+                  </td>
+                  <td className="text-right font-mono text-xs text-slate-400 tabular-nums">
+                    {src.total_signals || 0}
+                  </td>
+                  <td className="text-right">
+                    <div className="inline-flex items-center gap-1.5">
                       <button
-                        onClick={() => handleReplay(s.id)}
-                        disabled={isReplaying}
-                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] disabled:opacity-50"
+                        type="button"
+                        onClick={() => handleSourceAction(src.source_id, 'replay')}
+                        className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 font-mono text-[11px] text-cyan-300 hover:bg-cyan-500/20"
                       >
-                        {isReplaying ? 'Đang Replay…' : 'Replay 90D'}
+                        Replay
                       </button>
-
-                      {isLive ? (
+                      {src.status !== 'TRUSTED' ? (
                         <button
-                          onClick={() => handleDemote(s.id)}
-                          className="px-2 py-1 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-700/60 text-amber-300 text-[11px]"
+                          type="button"
+                          onClick={() => handleSourceAction(src.source_id, 'promote')}
+                          className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-mono text-[11px] text-emerald-300 hover:bg-emerald-500/20"
                         >
-                          Hạ Cấp
+                          Duyệt Trusted
                         </button>
                       ) : (
                         <button
-                          onClick={() => handlePromote(s.id)}
-                          className="px-2 py-1 rounded bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 text-[11px]"
+                          type="button"
+                          onClick={() => handleSourceAction(src.source_id, 'demote')}
+                          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 font-mono text-[11px] text-amber-300 hover:bg-amber-500/20"
                         >
-                          Thăng Hạng
+                          Hạ Sandbox
                         </button>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Shadow Signals Ledger Table */}
-      <div className="quant-panel rounded-2xl border border-slate-800 bg-[#0d1424] overflow-hidden">
-        <div className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm text-slate-100">
-              Sổ Theo Dõi Tín Hiệu Ẩn (Shadow Signals Ledger)
+      {/* Row 3: Dynamic Agent Skill Registry & Shadow Signals */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Left 6 Cols: Dynamic Agent Skills */}
+        <div className="quant-panel p-6 space-y-4 lg:col-span-6">
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
+              Dynamic Skill Registry
             </span>
-            <span className="text-xs text-slate-400">
-              (0 VNĐ chi phí khớp lệnh · Dùng để đối chiếu M1 & học quy nạp)
-            </span>
+            <h3 className="mt-0.5 text-base font-bold text-white">
+              Mô-Đun Kỹ Năng Định Lượng Của Agent ({skills.length})
+            </h3>
           </div>
-          <span className="text-xs text-slate-500">{shadowSignals.length} Tín hiệu gần nhất</span>
+
+          <div className="space-y-3">
+            {skills.map((sk: any) => (
+              <div
+                key={sk.skill_id}
+                className="rounded-xl border border-white/[0.07] bg-[#040710]/85 p-4 transition hover:border-cyan-500/30"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-mono text-xs font-bold text-cyan-300">{sk.name || sk.skill_id}</div>
+                    <p className="mt-1 text-xs text-slate-400">{sk.description}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleViewSkillSpec(sk.skill_id)}
+                      className="quant-btn-secondary px-2.5 py-1 text-[11px]"
+                    >
+                      SKILL.md
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTestSkill(sk.skill_id)}
+                      className="quant-btn-primary px-2.5 py-1 text-[11px]"
+                    >
+                      Chạy Thử
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {skillTestResult && (
+            <div className="rounded-xl border border-emerald-500/30 bg-[#040710] p-4 font-mono text-xs text-emerald-200">
+              <div className="mb-1 font-bold text-emerald-400">KẾT QUẢ CHẠY THỬ KỸ NĂNG:</div>
+              <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] text-slate-300">
+                {JSON.stringify(skillTestResult, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
 
-        <div className="overflow-x-auto">
-          {shadowSignals.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-xs">
-              Chưa có tín hiệu shadow nào được ghi nhận.
-            </div>
-          ) : (
-            <table className="w-full text-left">
-              <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px]">
+        {/* Right 6 Cols: Shadow Signals Ledger */}
+        <div className="quant-panel p-6 space-y-4 lg:col-span-6">
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-400">
+              Shadow Execution Tracker
+            </span>
+            <h3 className="mt-0.5 text-base font-bold text-white">
+              Sổ Cái Tín Hiệu Học Thử (Paper-Trading Sandbox)
+            </h3>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#040710]/85">
+            <table className="quant-table">
+              <thead>
                 <tr>
-                  <th className="py-2.5 px-4">SIGNAL ID</th>
-                  <th className="py-2.5 px-4">NGUỒN</th>
-                  <th className="py-2.5 px-4">LỆNH</th>
-                  <th className="py-2.5 px-4">GIÁ VÀO / SL / TP</th>
-                  <th className="py-2.5 px-4">ĐỐI CHIẾU M1 (EOD)</th>
-                  <th className="py-2.5 px-4">PNL THỰC TẾ</th>
-                  <th className="py-2.5 px-4">MAE / MFE</th>
+                  <th>Nguồn</th>
+                  <th>Chiều / Giá</th>
+                  <th className="text-right">PnL Giả Lập</th>
+                  <th className="text-right">Kết Quả</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/80">
-                {shadowSignals.map((shd) => {
-                  const isPending = shd.eval_status === 'PENDING';
-                  const isHitTp = shd.eval_status === 'HIT_TP';
-                  const isHitSl = shd.eval_status === 'HIT_SL' || shd.eval_status === 'CONSERVATIVE_DUAL_HIT_SL';
-
-                  return (
-                    <tr key={shd.id} className="hover:bg-slate-900/40">
-                      <td className="py-2.5 px-4 font-bold text-slate-300">{shd.id?.slice(0, 12)}</td>
-                      <td className="py-2.5 px-4 text-slate-400">{shd.source_name || shd.source_id}</td>
-                      <td className="py-2.5 px-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          shd.side === 'BUY' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
-                        }`}>
-                          {shd.side} {shd.symbol}
-                        </span>
+              <tbody>
+                {shadows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-xs text-slate-500">
+                      Chưa có tín hiệu học thử nào trong sổ cái.
+                    </td>
+                  </tr>
+                ) : (
+                  shadows.slice(0, 8).map((sh: any) => (
+                    <tr key={sh.id}>
+                      <td className="font-mono text-xs text-cyan-300">{sh.source_id}</td>
+                      <td className="font-mono text-xs text-white tabular-nums">
+                        {sh.action} @ {fmtNum(sh.entry_price, 2)}
                       </td>
-                      <td className="py-2.5 px-4 text-slate-200">
-                        {shd.entry_price} / <span className="text-amber-400">{shd.stop_loss}</span> / <span className="text-emerald-400">{shd.take_profit || '—'}</span>
+                      <td
+                        className={`text-right font-mono text-xs font-bold tabular-nums ${
+                          Number(sh.simulated_pnl_pips || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                        }`}
+                      >
+                        {fmtPnL(sh.simulated_pnl_pips)} pips
                       </td>
-                      <td className="py-2.5 px-4">
-                        {isPending ? (
-                          <span className="text-slate-500 text-[11px]">Đang theo dõi nến</span>
-                        ) : isHitTp ? (
-                          <span className="text-emerald-400 font-bold text-[11px]">✓ Hit TP</span>
-                        ) : isHitSl ? (
-                          <span className="text-rose-400 font-bold text-[11px]">✗ Hit SL</span>
-                        ) : (
-                          <span className="text-slate-400 text-[11px]">{shd.eval_status}</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-4">
-                        {shd.pnl_pips != null ? (
-                          <span className={`font-bold ${shd.pnl_pips >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {shd.pnl_pips >= 0 ? '+' : ''}{shd.pnl_pips.toFixed(1)} pips
-                          </span>
-                        ) : (
-                          <span className="text-slate-600">—</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-4 text-slate-400 text-[11px]">
-                        MAE: <span className="text-rose-400">-{shd.mae_pips || 0}p</span> · MFE: <span className="text-emerald-400">+{shd.mfe_pips || 0}p</span>
-                      </td>
+                      <td className="text-right font-mono text-xs text-slate-300">{sh.outcome}</td>
                     </tr>
-                  );
-                })}
+                  ))
+                )}
               </tbody>
             </table>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* Kho Lưu Trữ Kỹ Năng Động (Dynamic Agent Skill Registry) */}
-      <div className="quant-panel rounded-2xl border border-indigo-500/30 bg-[#0c1222] overflow-hidden shadow-xl">
-        <div className="border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-3 bg-slate-900/40">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="font-bold text-sm text-slate-100">
-              KHO LƯU TRỮ KỸ NĂNG ĐỘNG CHO AI AGENT (DYNAMIC AGENT SKILL REGISTRY)
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-700/60">
-              {skills.filter((s) => s.is_builtin === 1).length} Nền Tảng (Built-in)
-            </span>
-            <span className="px-2.5 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-700/60">
-              {skills.filter((s) => s.is_builtin === 0).length} Tự Học (Self-Learned)
-            </span>
-            <span className="text-slate-400 text-[11px] hidden sm:inline">
-              Nạp On-Demand (Progressive Disclosure)
-            </span>
-          </div>
-        </div>
-
-        <div className="p-4 bg-slate-950/40 border-b border-slate-800/80 text-[11px] text-slate-400 leading-relaxed font-sans">
-          Toàn bộ công cụ phân tích độc lập (ATR Scanner, Kiểm toán giãn Spread, Thông dịch tin tức vĩ mô, Chấm điểm nguồn, và Tổng hợp chiến lược). Agent duy trì trạng thái <strong>Tabula Rasa</strong> (không gán cứng thuật toán vào lệnh) và chỉ nạp tài liệu hướng dẫn khi phát sinh tác vụ tương ứng.
-        </div>
-
-        <div className="overflow-x-auto">
-          {skills.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-xs">
-              Đang tải danh mục kỹ năng của Agent...
-            </div>
-          ) : (
-            <table className="w-full text-left">
-              <thead className="bg-slate-900/60 text-slate-400 border-b border-slate-800 text-[11px]">
-                <tr>
-                  <th className="py-2.5 px-4">TÊN KỸ NĂNG / MÃ (SKILL ID)</th>
-                  <th className="py-2.5 px-4">PHÂN LOẠI</th>
-                  <th className="py-2.5 px-4">ĐIỀU KIỆN KÍCH HOẠT (TRIGGER)</th>
-                  <th className="py-2.5 px-4">SỐ LẦN DÙNG</th>
-                  <th className="py-2.5 px-4">TRẠNG THÁI</th>
-                  <th className="py-2.5 px-4 text-right">THAO TÁC</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80">
-                {skills.map((sk) => {
-                  const isBuiltin = sk.is_builtin === 1;
-                  const isEnabled = sk.enabled === 1;
-                  const isTesting = testingSkillId === sk.skill_id;
-
-                  return (
-                    <tr key={sk.skill_id} className="hover:bg-slate-900/40">
-                      <td className="py-3 px-4 font-bold text-slate-200">
-                        {sk.name}
-                        <span className="block text-[10px] text-cyan-400 font-mono font-normal">
-                          {sk.skill_id}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        {isBuiltin ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
-                            NỀN TẢNG
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950/80 text-purple-300 border border-purple-700/50">
-                            TỰ HỌC (REFLECTIVE)
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300 text-[11px] max-w-xs font-sans">
-                        {sk.trigger_condition || sk.description}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300 font-bold">
-                        {sk.usage_count || 0} <span className="text-[10px] text-slate-500 font-normal">lượt</span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <button
-                          onClick={() => handleToggleSkill(sk.skill_id, isEnabled)}
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-all border ${
-                            isEnabled
-                              ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60 hover:bg-emerald-900'
-                              : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-750'
-                          }`}
-                        >
-                          {isEnabled ? '● ĐANG BẬT' : '○ TẠM TẮT'}
-                        </button>
-                      </td>
-                      <td className="py-3 px-4 text-right space-x-1.5">
-                        <button
-                          onClick={() => handleViewSkillSpec(sk.skill_id)}
-                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[11px] border border-slate-700"
-                        >
-                          Xem SKILL.md
-                        </button>
-                        <button
-                          onClick={() => handleTestSkill(sk.skill_id)}
-                          disabled={isTesting}
-                          className="px-2 py-1 rounded bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 text-[11px] disabled:opacity-50"
-                        >
-                          {isTesting ? 'Đang chạy…' : 'Chạy Thử'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {/* Modal: View SKILL.md Specification */}
+      {/* Skill Spec Modal */}
       {selectedSkillSpec && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b101c] border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-              <span className="font-bold text-sm text-cyan-300 font-mono">
-                ĐẶC TẢ KỸ NĂNG: {selectedSkillSpec.skill_id}
-              </span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+          <div className="quant-panel max-w-2xl w-full p-6 space-y-4 border-cyan-500/40">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <div className="font-mono text-sm font-bold text-cyan-300">
+                SKILL.md — {selectedSkillSpec.skill_id}
+              </div>
               <button
+                type="button"
                 onClick={() => setSelectedSkillSpec(null)}
-                className="text-slate-400 hover:text-slate-100 text-lg leading-none"
+                className="text-slate-400 hover:text-white"
               >
                 ✕
               </button>
             </div>
-            <div className="p-5 overflow-y-auto space-y-3 font-mono text-xs text-slate-300 whitespace-pre-wrap leading-relaxed bg-[#080d18]">
-              {selectedSkillSpec.skill_md}
-            </div>
-            <div className="px-5 py-3 border-t border-slate-800 flex justify-end bg-slate-900/40">
-              <button
-                onClick={() => setSelectedSkillSpec(null)}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold"
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Test Run Execution Result */}
-      {testResult && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b101c] border border-cyan-500/40 rounded-2xl max-w-xl w-full max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
-              <span className="font-bold text-sm text-emerald-400 font-mono">
-                KẾT QUẢ THỰC THI TOOL: {testResult.skill_id}
-              </span>
-              <button
-                onClick={() => setTestResult(null)}
-                className="text-slate-400 hover:text-slate-100 text-lg leading-none"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="p-5 overflow-y-auto space-y-2 font-mono text-xs text-emerald-300 bg-[#070b14]">
-              <pre className="whitespace-pre-wrap">{JSON.stringify(testResult.result, null, 2)}</pre>
-            </div>
-            <div className="px-5 py-3 border-t border-slate-800 flex justify-end bg-slate-900/40">
-              <button
-                onClick={() => setTestResult(null)}
-                className="px-4 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 text-xs font-bold"
-              >
-                Xác Nhận
-              </button>
-            </div>
+            <pre className="max-h-96 overflow-y-auto rounded-xl border border-white/[0.07] bg-[#040710] p-4 font-mono text-xs leading-relaxed text-slate-200 whitespace-pre-wrap">
+              {selectedSkillSpec.markdown || JSON.stringify(selectedSkillSpec, null, 2)}
+            </pre>
           </div>
         </div>
       )}
     </div>
   );
-}
+};

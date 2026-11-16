@@ -1,281 +1,258 @@
 import React, { useState, useEffect } from 'react';
-
-interface OrderItem {
-  id: string;
-  user_id: string;
-  user_email?: string;
-  amount_usd: number;
-  amount_vnd: number;
-  locked_exchange_rate: number;
-  plan_tier: string;
-  cloud_slots_count: number;
-  status: 'PENDING' | 'PAID' | 'EXPIRED' | 'CANCELLED';
-  payment_gateway: string;
-  created_at: number;
-  expires_at?: number;
-}
-
-interface RevenueStats {
-  total_orders: number;
-  total_revenue_usd: number;
-  total_revenue_vnd: number;
-  pending_orders: number;
-  paid_orders: number;
-  current_fx_rate: number;
-  fx_source: string;
-}
+import { fmtNum, fmtTime } from '../utils/strategyDecision';
 
 export const AdminOrdersSubscriptionsTab: React.FC = () => {
-  const [orders, setOrders] = useState<OrderItem[]>([]);
-  const [stats, setStats] = useState<RevenueStats | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState<any>(null);
+  const [orders, setOrders] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [actionMsg, setActionMsg] = useState('');
 
-  // Manual Approve Form state
-  const [manualEmail, setManualEmail] = useState('');
-  const [manualAmountVnd, setManualAmountVnd] = useState('');
-  const [manualGateway, setManualGateway] = useState('VietinBank');
-  const [manualRefCode, setManualRefCode] = useState('');
-  const [manualNote, setManualNote] = useState('Duyệt thanh toán SePay cho khách');
-  const [manualSubmitting, setManualSubmitting] = useState(false);
-  const [manualMsg, setManualMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [manualUserId, setManualUserId] = useState('');
+  const [manualTier, setManualTier] = useState('PRO');
+  const [manualSlots, setManualSlots] = useState(2);
+  const [manualDays, setManualDays] = useState(30);
 
-  async function loadData() {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const [revRes, ordRes] = await Promise.all([
-        fetch('/api/v1/billing/admin/revenue'),
-        fetch(`/api/v1/billing/admin/orders?status=${statusFilter}`),
+      const [sumRes, ordRes] = await Promise.all([
+        fetch('/api/admin/billing/summary', { credentials: 'include' }),
+        fetch(
+          `/api/admin/billing/orders${statusFilter !== 'ALL' ? `?status=${statusFilter}` : ''}`,
+          { credentials: 'include' }
+        ),
       ]);
-      if (revRes.ok) {
-        const revData = await revRes.json();
-        setStats(revData);
-      }
+      if (sumRes.ok) setSummary(await sumRes.json());
       if (ordRes.ok) {
-        const ordData = await ordRes.json();
-        setOrders(ordData.orders || []);
+        const data = await ordRes.json();
+        setOrders(data.orders || []);
       }
-    } catch (e) {
-      console.error('Error fetching admin orders:', e);
+    } catch {
+      // ignore
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    loadData();
+    fetchData();
   }, [statusFilter]);
 
-  async function handleManualApprove(e: React.FormEvent) {
-    e.preventDefault();
-    setManualSubmitting(true);
-    setManualMsg(null);
+  const handleManualApproveOrder = async (orderCode: string, amountVnd: number) => {
+    setActionMsg(`Đang kích hoạt thanh toán thủ công cho mã đơn ${orderCode}...`);
     try {
-      const res = await fetch('/api/admin/payments/manual-approve', {
+      const res = await fetch('/api/v1/webhooks/sepay', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
-          user_email: manualEmail.trim(),
-          amount_vnd: Number(manualAmountVnd),
-          gateway: manualGateway,
-          reference_code: manualRefCode.trim(),
-          note: manualNote.trim(),
+          content: `MANUAL APPROVE ${orderCode}`,
+          transferAmount: amountVnd,
+          referenceCode: `ADMIN-${Date.now()}`,
         }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setManualMsg({
-          text: data.message || `Đã kích hoạt thành công đơn cho ${manualEmail}!`,
-          type: 'success',
-        });
-        setManualEmail('');
-        setManualAmountVnd('');
-        setManualRefCode('');
-        await loadData();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setActionMsg(`Đã duyệt đơn ${orderCode} và cấp phát khe cắm Cloud MT5 thành công.`);
+        fetchData();
       } else {
-        setManualMsg({
-          text: data.detail || 'Lỗi khi duyệt thủ công.',
-          type: 'error',
-        });
+        setActionMsg(`Lỗi duyệt đơn: ${data.reason || data.detail || res.status}`);
       }
-    } catch (err: any) {
-      setManualMsg({ text: err.message || String(err), type: 'error' });
-    } finally {
-      setManualSubmitting(false);
+    } catch (e: any) {
+      setActionMsg(`Lỗi kết nối: ${e.message}`);
     }
-  }
+  };
 
-  const filteredOrders = orders.filter((o) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      o.id.toLowerCase().includes(q) ||
-      (o.user_email && o.user_email.toLowerCase().includes(q)) ||
-      o.plan_tier.toLowerCase().includes(q)
-    );
-  });
+  const handleGrantSubscription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualUserId.trim()) return;
+    setActionMsg('Đang cấp quyền thuê bao Cloud...');
+    try {
+      const res = await fetch('/api/admin/billing/grant-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          user_id: manualUserId.trim(),
+          plan_tier: manualTier,
+          max_cloud_accounts: Number(manualSlots) || 1,
+          duration_days: Number(manualDays) || 30,
+        }),
+      });
+      if (res.ok) {
+        setActionMsg(`Đã nâng cấp gói ${manualTier} (${manualSlots} khe cắm) cho ${manualUserId}.`);
+        setManualUserId('');
+        fetchData();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setActionMsg(`Lỗi: ${d.detail || res.status}`);
+      }
+    } catch (e: any) {
+      setActionMsg(`Lỗi: ${e.message}`);
+    }
+  };
 
   return (
-    <div className="space-y-8 font-sans">
-      {/* 1. Header Revenue & Subscription Stats (Bento Grid) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-slate-800 bg-[#0B1120] p-5 shadow-lg relative overflow-hidden">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">Doanh Thu Thực Tế (USD)</div>
-          <div className="mt-2 text-2xl font-black text-emerald-400 font-mono tabular-nums">
-            ${stats ? stats.total_revenue_usd.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}
+    <div className="space-y-6">
+      {/* Row 1: 4 Revenue & Subscription Bento KPI Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="quant-card-interactive p-5">
+          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Tổng Doanh Thu (VND)
           </div>
-          <div className="mt-1 text-[11px] text-slate-400 font-mono">
-            {stats ? stats.paid_orders : 0} đơn hàng đã hoàn tất
+          <div className="mt-2.5 font-mono text-2xl font-extrabold text-emerald-400 tabular-nums">
+            {(summary?.orders?.paid_revenue_vnd || 0).toLocaleString('vi-VN')} ₫
           </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-[#0B1120] p-5 shadow-lg relative overflow-hidden">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">Doanh Thu VNĐ (VietQR)</div>
-          <div className="mt-2 text-2xl font-black text-cyan-400 font-mono tabular-nums">
-            {stats ? stats.total_revenue_vnd.toLocaleString('vi-VN') : '0'}₫
-          </div>
-          <div className="mt-1 text-[11px] text-slate-400 font-mono">
-            Tỷ giá chốt: {stats ? Number(stats.current_fx_rate).toLocaleString('vi-VN') : '25.700'} đ
+          <div className="mt-3 border-t border-white/[0.06] pt-2.5 font-mono text-xs text-slate-400 tabular-nums">
+            Quy đổi: <strong className="text-white">${fmtNum(summary?.orders?.paid_revenue_usd || 0, 2)}</strong>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-[#0B1120] p-5 shadow-lg relative overflow-hidden">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">Đơn Chờ Thanh Toán</div>
-          <div className="mt-2 text-2xl font-black text-amber-400 font-mono tabular-nums">
-            {stats ? stats.pending_orders : 0}
+        <div className="quant-card-interactive p-5">
+          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Đơn Hàng Đã Thanh Toán
           </div>
-          <div className="mt-1 text-[11px] text-slate-400 font-mono">
-            Đang giữ tỷ giá trong 20 phút
+          <div className="mt-2.5 font-mono text-2xl font-extrabold text-cyan-300 tabular-nums">
+            {summary?.orders?.paid_orders || 0} / {summary?.orders?.total_orders || 0}
+          </div>
+          <div className="mt-3 border-t border-white/[0.06] pt-2.5 font-mono text-xs text-slate-400 tabular-nums">
+            Đang chờ quét QR: <strong className="text-amber-300">{summary?.orders?.pending_orders || 0}</strong>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-[#0B1120] p-5 shadow-lg relative overflow-hidden">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">Tổng Đơn Đã Tạo</div>
-          <div className="mt-2 text-2xl font-black text-slate-100 font-mono tabular-nums">
-            {stats ? stats.total_orders : 0}
+        <div className="quant-card-interactive p-5">
+          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Thuê Bao Cloud Đang Chạy
           </div>
-          <div className="mt-1 text-[11px] text-slate-400 font-mono">
-            100% Tự động qua SePay Webhook
+          <div className="mt-2.5 font-mono text-2xl font-extrabold text-white tabular-nums">
+            {summary?.subscriptions?.active_subs || 0}
+          </div>
+          <div className="mt-3 border-t border-white/[0.06] pt-2.5 font-mono text-xs text-slate-400 tabular-nums">
+            Tổng khe cắm đã cấp:{' '}
+            <strong className="text-emerald-300">{summary?.subscriptions?.allocated_slots || 0}</strong>
+          </div>
+        </div>
+
+        <div className="quant-card-interactive p-5">
+          <div className="text-[11px] font-mono font-semibold uppercase tracking-[0.14em] text-slate-400">
+            Trạm MT5 Đã Triển Khai
+          </div>
+          <div className="mt-2.5 font-mono text-2xl font-extrabold text-amber-300 tabular-nums">
+            {summary?.cloud_accounts?.deployed_count || 0} / {summary?.cloud_accounts?.total_cloud || 0}
+          </div>
+          <div className="mt-3 border-t border-white/[0.06] pt-2.5 font-mono text-xs text-slate-400">
+            Đồng bộ thời gian thực MetaAPI
           </div>
         </div>
       </div>
 
-      {/* 2. Main Two-Column Split Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Col (2/3): SePay Orders Transaction Table */}
-        <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-[#0B1120] p-6 shadow-xl space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+      {actionMsg && (
+        <div className="rounded-xl border border-cyan-500/35 bg-cyan-950/30 px-4 py-3 font-mono text-xs text-cyan-200">
+          {actionMsg}
+        </div>
+      )}
+
+      {/* Row 2: Orders Ledger & Manual Grant Form */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Left 8 Cols: SePay Orders Ledger */}
+        <div className="quant-panel p-6 space-y-4 lg:col-span-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="font-bold text-sm text-slate-100 font-mono flex items-center gap-2">
-                <span>📋 DANH SÁCH ĐƠN HÀNG SEPAY THỜI GIAN THỰC</span>
-              </h3>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Quản lý các giao dịch VietQR, gói cước và trạng thái kích hoạt tự động.
-              </p>
+              <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
+                Đối Soát Giao Dịch SePay
+              </span>
+              <h3 className="mt-0.5 text-base font-bold text-white">Sổ Cái Đơn Hàng & Webhook VietQR</h3>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={loadData}
-                disabled={loading}
-                className="text-xs font-mono text-cyan-400 hover:text-cyan-300 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800"
-              >
-                {loading ? 'Đang tải…' : '↻ Làm Mới'}
-              </button>
-            </div>
-          </div>
-
-          {/* Filters & Search Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
-            <div className="flex items-center gap-1.5">
-              {(['ALL', 'PAID', 'PENDING', 'EXPIRED'] as const).map((st) => (
+            <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-[#040710] p-1">
+              {['ALL', 'PENDING', 'PAID'].map((st) => (
                 <button
                   key={st}
                   type="button"
                   onClick={() => setStatusFilter(st)}
-                  className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                  className={`rounded-lg px-3 py-1 font-mono text-xs font-semibold transition whitespace-nowrap shrink-0 ${
                     statusFilter === st
-                      ? 'bg-cyan-950 text-cyan-300 border border-cyan-500/60 shadow'
-                      : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/35'
+                      : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  {st === 'ALL' ? 'Tất Cả' : st === 'PAID' ? 'Đã Thanh Toán' : st === 'PENDING' ? 'Chờ Quét' : 'Hết Hạn'}
+                  {st === 'ALL' ? 'Tất Cả' : st}
                 </button>
               ))}
             </div>
-
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm theo Mã Đơn hoặc Email…"
-              className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-1.5 text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400 w-full sm:w-60"
-            />
           </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto rounded-xl border border-slate-800/80">
-            <table className="w-full text-left font-mono text-xs">
-              <thead className="bg-[#111827] text-slate-400 border-b border-slate-800 text-[11px] uppercase tracking-wider">
+          <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-[#040710]/85">
+            <table className="quant-table">
+              <thead>
                 <tr>
-                  <th className="py-3 px-3.5">Mã Đơn / Memo</th>
-                  <th className="py-3 px-3.5">Khách Hàng</th>
-                  <th className="py-3 px-3.5">Gói Cước</th>
-                  <th className="py-3 px-3.5 text-right">Số Tiền (VNĐ)</th>
-                  <th className="py-3 px-3.5 text-center">Trạng Thái</th>
-                  <th className="py-3 px-3.5 text-right">Thời Gian</th>
+                  <th>Mã Đơn / Thời Gian</th>
+                  <th>Khách Hàng</th>
+                  <th>Gói / Khe Cắm</th>
+                  <th className="text-right">Số Tiền</th>
+                  <th>Trạng Thái</th>
+                  <th className="text-right">Thao Tác</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
-                {filteredOrders.length === 0 ? (
+              <tbody>
+                {loading ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-500 text-xs">
-                      Không có đơn hàng nào khớp với điều kiện lọc.
+                    <td colSpan={6} className="py-8 text-center text-xs text-slate-400">
+                      Đang tải danh sách đơn hàng...
+                    </td>
+                  </tr>
+                ) : orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-xs text-slate-500">
+                      Không có đơn hàng nào trong bộ lọc này.
                     </td>
                   </tr>
                 ) : (
-                  filteredOrders.map((o) => (
-                    <tr key={o.id} className="hover:bg-slate-900/40 transition-colors">
-                      <td className="py-3 px-3.5">
-                        <div className="font-bold text-slate-200">{o.id}</div>
-                        <div className="text-[10px] text-amber-400">ZP {o.id.slice(-6).toUpperCase()}</div>
+                  orders.map((o) => (
+                    <tr key={o.id}>
+                      <td>
+                        <div className="font-mono text-xs font-bold text-cyan-300">{o.order_code}</div>
+                        <div className="font-mono text-[11px] text-slate-500 tabular-nums">
+                          {fmtTime(o.created_at)}
+                        </div>
                       </td>
-                      <td className="py-3 px-3.5 text-slate-300">
-                        {o.user_email || <span className="text-slate-500">Chưa xác định</span>}
+                      <td>
+                        <div className="text-xs font-semibold text-white">{o.user_email || o.user_id}</div>
+                        <div className="font-mono text-[11px] text-slate-500">{o.user_id}</div>
                       </td>
-                      <td className="py-3 px-3.5">
-                        <span className="capitalize font-bold text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/50">
-                          {o.plan_tier} ({o.cloud_slots_count} MT5)
+                      <td className="font-mono text-xs text-slate-200">
+                        {o.plan_tier} · {o.cloud_accounts_count} MT5 ({o.billing_cycle})
+                      </td>
+                      <td className="text-right font-mono text-xs tabular-nums">
+                        <div className="font-bold text-emerald-400">
+                          {Number(o.amount_vnd || 0).toLocaleString('vi-VN')} ₫
+                        </div>
+                        <div className="text-[11px] text-slate-500">${fmtNum(o.amount_usd, 2)}</div>
+                      </td>
+                      <td className="font-mono text-xs">
+                        <span
+                          className={
+                            o.status === 'PAID'
+                              ? 'font-bold text-emerald-400'
+                              : 'font-semibold text-amber-300'
+                          }
+                        >
+                          {o.status}
                         </span>
                       </td>
-                      <td className="py-3 px-3.5 text-right font-black text-emerald-400 tabular-nums">
-                        {o.amount_vnd.toLocaleString('vi-VN')}₫
-                        <div className="text-[10px] font-normal text-slate-500">${o.amount_usd} USD</div>
-                      </td>
-                      <td className="py-3 px-3.5 text-center">
-                        {o.status === 'PAID' ? (
-                          <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-600/60">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Đã Trả
-                          </span>
-                        ) : o.status === 'PENDING' ? (
-                          <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-600/60 animate-pulse">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Chờ Quét
-                          </span>
+                      <td className="text-right">
+                        {o.status !== 'PAID' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleManualApproveOrder(o.order_code, Number(o.amount_vnd || 0))}
+                            className="rounded-lg border border-emerald-500/35 bg-emerald-500/15 px-3 py-1 font-mono text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/25 whitespace-nowrap shrink-0"
+                          >
+                            Duyệt Thủ Công
+                          </button>
                         ) : (
-                          <span className="rounded px-2 py-0.5 text-[10px] font-bold bg-slate-900 text-slate-500 border border-slate-800">
-                            {o.status}
-                          </span>
+                          <span className="font-mono text-[11px] text-slate-500">Đã kích hoạt</span>
                         )}
-                      </td>
-                      <td className="py-3 px-3.5 text-right text-slate-400 text-[11px] tabular-nums">
-                        {new Date(o.created_at * 1000).toLocaleString('vi-VN', {
-                          month: 'numeric',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
                       </td>
                     </tr>
                   ))
@@ -285,136 +262,70 @@ export const AdminOrdersSubscriptionsTab: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Col (1/3): Manual Approve Tool & Tier Cards */}
-        <div className="space-y-6">
-          {/* Manual Approval Form */}
-          <div className="rounded-2xl border border-slate-800 bg-[#0B1120] p-6 shadow-xl space-y-4">
+        {/* Right 4 Cols: Manual Grant Subscription */}
+        <div className="quant-panel p-6 space-y-4 lg:col-span-4">
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-400">
+              Cấp Phát Đặc Quyền
+            </span>
+            <h3 className="mt-0.5 text-base font-bold text-white">Cấp Gói Cloud MT5 Thủ Công</h3>
+          </div>
+
+          <form onSubmit={handleGrantSubscription} className="space-y-3.5">
             <div>
-              <h3 className="font-bold text-sm text-slate-100 font-mono flex items-center gap-2">
-                <span>⚡ DUYỆT THANH TOÁN THỦ CÔNG (MANUAL APPROVE)</span>
-              </h3>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Kích hoạt tài khoản ngay khi khách chuyển khoản sai nội dung memo.
-              </p>
+              <label className="mb-1 block text-xs text-slate-300">User ID hoặc Email khách hàng</label>
+              <input
+                type="text"
+                required
+                placeholder="VD: trader@zupirus.local"
+                value={manualUserId}
+                onChange={(e) => setManualUserId(e.target.value)}
+                className="quant-input font-mono text-xs"
+              />
             </div>
 
-            {manualMsg && (
-              <div
-                className={`p-3 rounded-xl border text-xs font-mono ${
-                  manualMsg.type === 'success'
-                    ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                    : 'bg-rose-950/80 border-rose-500/50 text-rose-300'
-                }`}
+            <div>
+              <label className="mb-1 block text-xs text-slate-300">Hạng gói thuê bao</label>
+              <select
+                value={manualTier}
+                onChange={(e) => setManualTier(e.target.value)}
+                className="quant-input font-mono text-xs"
               >
-                {manualMsg.text}
-              </div>
-            )}
+                <option value="STARTER">STARTER ($39)</option>
+                <option value="PRO">QUANT PRO ($59)</option>
+                <option value="INSTITUTIONAL">INSTITUTIONAL ($149)</option>
+              </select>
+            </div>
 
-            <form onSubmit={handleManualApprove} className="space-y-3 font-mono text-xs">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-400 mb-1">EMAIL KHÁCH HÀNG *</label>
+                <label className="mb-1 block text-xs text-slate-300">Số khe cắm MT5</label>
                 <input
-                  type="email"
-                  required
-                  value={manualEmail}
-                  onChange={(e) => setManualEmail(e.target.value)}
-                  placeholder="khachhang@gmail.com"
-                  className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3.5 py-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-400"
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={manualSlots}
+                  onChange={(e) => setManualSlots(Number(e.target.value))}
+                  className="quant-input font-mono text-xs tabular-nums"
                 />
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">SỐ TIỀN VNĐ *</label>
-                  <input
-                    type="number"
-                    required
-                    min={10000}
-                    step={1000}
-                    value={manualAmountVnd}
-                    onChange={(e) => setManualAmountVnd(e.target.value)}
-                    placeholder="772000"
-                    className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3.5 py-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-400 font-bold text-emerald-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-slate-400 mb-1">NGÂN HÀNG *</label>
-                  <select
-                    value={manualGateway}
-                    onChange={(e) => setManualGateway(e.target.value)}
-                    className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-400"
-                  >
-                    <option value="VietinBank">VietinBank</option>
-                    <option value="MBBank">MBBank</option>
-                    <option value="Vietcombank">Vietcombank</option>
-                    <option value="Techcombank">Techcombank</option>
-                    <option value="Chuyển Khoản Trực Tiếp">Khác / Trực Tiếp</option>
-                  </select>
-                </div>
-              </div>
-
               <div>
-                <label className="block text-slate-400 mb-1">MÃ GIAO DỊCH NGÂN HÀNG (BILL) *</label>
+                <label className="mb-1 block text-xs text-slate-300">Số ngày hiệu lực</label>
                 <input
-                  type="text"
-                  required
-                  value={manualRefCode}
-                  onChange={(e) => setManualRefCode(e.target.value)}
-                  placeholder="VD: FT261116892301"
-                  className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3.5 py-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-400"
+                  type="number"
+                  min={1}
+                  max={3650}
+                  value={manualDays}
+                  onChange={(e) => setManualDays(Number(e.target.value))}
+                  className="quant-input font-mono text-xs tabular-nums"
                 />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1">GHI CHÚ DUYỆT</label>
-                <input
-                  type="text"
-                  value={manualNote}
-                  onChange={(e) => setManualNote(e.target.value)}
-                  className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3.5 py-2 text-slate-100 focus:outline-none focus:ring-1 focus:ring-cyan-400"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={manualSubmitting}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs transition-all shadow-lg disabled:opacity-50 mt-2"
-              >
-                {manualSubmitting ? 'Đang kích hoạt…' : '✓ Duyệt & Kích Hoạt Gói Cho Khách ↗'}
-              </button>
-            </form>
-          </div>
-
-          {/* Pricing & Tier Breakdown */}
-          <div className="rounded-2xl border border-slate-800 bg-[#0B1120] p-6 shadow-xl space-y-3 font-mono text-xs">
-            <h4 className="font-bold text-slate-200">QUY CÁCH PHÂN CẤP GÓI CƯỚC</h4>
-            <div className="space-y-2 text-slate-300 text-[11px]">
-              <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex justify-between items-center">
-                <div>
-                  <span className="font-bold text-slate-100">STARTER</span>
-                  <span className="text-slate-400 block text-[10px]">1 Cloud MT5 Slot · Standard USD</span>
-                </div>
-                <span className="font-bold text-cyan-300">$30 / tháng</span>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex justify-between items-center">
-                <div>
-                  <span className="font-bold text-slate-100">GROWTH</span>
-                  <span className="text-slate-400 block text-[10px]">3 Cloud MT5 Slots · Cent USC (1:100) & ECN</span>
-                </div>
-                <span className="font-bold text-emerald-400">$45 / tháng</span>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 flex justify-between items-center">
-                <div>
-                  <span className="font-bold text-slate-100">ALPHA (VIP)</span>
-                  <span className="text-slate-400 block text-[10px]">5 Cloud MT5 Slots · Mở Khóa Prop Firm Mode</span>
-                </div>
-                <span className="font-bold text-purple-300">$99 / tháng</span>
               </div>
             </div>
-          </div>
+
+            <button type="submit" className="quant-btn-primary w-full py-2.5 text-xs">
+              Kích Hoạt Thuê Bao Ngay
+            </button>
+          </form>
         </div>
       </div>
     </div>

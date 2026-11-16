@@ -4,6 +4,7 @@ export interface ExchangeRateData {
   base: string;
   target: string;
   rate: number;
+  usd_vnd_rate?: number;
   source: string;
   is_cached?: boolean;
   updated_at?: number;
@@ -11,20 +12,55 @@ export interface ExchangeRateData {
 
 export interface CloudAccountItem {
   id: string;
+  account_id?: string;
   login: string;
+  account_name?: string;
   broker_server: string;
+  mt5_server?: string;
   equity: number;
   balance: number;
   deployment_state: string;
+  deployment_status?: string;
   is_active: boolean;
   auto_trade?: boolean;
   cloud_slot_expires_at?: number | null;
   risk_multiplier?: number;
+  lot_multiplier?: number;
   auto_compounding?: boolean;
   prop_firm_mode?: boolean;
   max_daily_drawdown_pct?: number;
+  max_daily_dd_pct?: number;
   profit_target_pct?: number;
   [key: string]: any;
+}
+
+export interface EquityPoint {
+  timestamp?: string | number;
+  time?: string | number;
+  equity: number;
+  balance?: number;
+}
+
+export function useEquityHistory(days: number = 30) {
+  return useQuery<EquityPoint[]>({
+    queryKey: ['equity-history', days],
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard?days=${days}`, {
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      if (Array.isArray(data.series) && data.series.length > 0) {
+        return data.series.map((item: any) => ({
+          timestamp: item.timestamp || item.time || item.bucket,
+          equity: Number(item.equity ?? item.balance ?? 10000),
+          balance: Number(item.balance ?? item.equity ?? 10000),
+        }));
+      }
+      return [];
+    },
+    staleTime: 15_000,
+  });
 }
 
 export function useExchangeRate() {
@@ -35,7 +71,7 @@ export function useExchangeRate() {
       if (!res.ok) throw new Error('Không thể tải tỷ giá USD/VND');
       return res.json();
     },
-    staleTime: 60_000, // Cache valid for 60s
+    staleTime: 60_000,
   });
 }
 
@@ -78,7 +114,7 @@ export function useSignalAuditLogs(limit: number = 20) {
       return res.json();
     },
     staleTime: 10_000,
-    refetchInterval: 15_000, // Live poll every 15s for admin
+    refetchInterval: 15_000,
   });
 }
 
@@ -109,4 +145,3 @@ export function useMetaApiTelemetry() {
     staleTime: 15_000,
   });
 }
-

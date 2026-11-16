@@ -4,7 +4,7 @@ export interface BackendStateInfo {
 }
 
 export function mapBackendState(state: string): BackendStateInfo {
-  switch (state) {
+  switch (String(state || '').toLowerCase()) {
     case 'queued':
       return { label: 'Đang chờ', badge: 'bg-amber-950 text-amber-300 border border-amber-700/50' };
     case 'resume':
@@ -12,6 +12,7 @@ export function mapBackendState(state: string): BackendStateInfo {
     case 'waiting_approval':
       return { label: 'Chờ duyệt', badge: 'bg-amber-950 text-amber-300 border border-amber-700/50' };
     case 'filled':
+    case 'executed':
       return { label: 'Đã khớp', badge: 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' };
     case 'completed':
       return { label: 'Hoàn tất', badge: 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' };
@@ -31,8 +32,28 @@ export function mapBackendState(state: string): BackendStateInfo {
     case 'error':
       return { label: 'Lỗi', badge: 'bg-rose-950 text-rose-300 border border-rose-700/50' };
     default:
-      return { label: state, badge: 'bg-slate-800 text-slate-300 border border-slate-700' };
+      return { label: state || '—', badge: 'bg-slate-800 text-slate-300 border border-slate-700' };
   }
+}
+
+export function translateOrderStatus(status: unknown): string {
+  return mapBackendState(String(status || 'unknown')).label;
+}
+
+export function translateAction(action: unknown): string {
+  const upper = String(action || '').toUpperCase();
+  if (upper === 'BUY' || upper === 'LONG') return 'MUA (BUY)';
+  if (upper === 'SELL' || upper === 'SHORT') return 'BÁN (SELL)';
+  if (upper === 'HOLD' || upper === 'WAIT') return 'QUAN SÁT (HOLD)';
+  return upper || 'QUAN SÁT';
+}
+
+export function translateRegime(regime: unknown): string {
+  const upper = String(regime || '').toUpperCase();
+  if (upper.includes('TREND')) return 'Xu Hướng Mạnh (Trending)';
+  if (upper.includes('RANG') || upper.includes('MEAN')) return 'Tích Luỹ Biên Độ (Ranging)';
+  if (upper.includes('VOLATIL')) return 'Biến Động Cao (High Volatility)';
+  return regime ? String(regime) : 'Cân Bằng Định Lượng';
 }
 
 export const orderStates = ['queued', 'intent', 'unknown', 'filled', 'rejected', 'cancelled', 'expired'] as const;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useExchangeRate } from '../hooks/useQuantData.ts';
 
 interface LandingPageProps {
@@ -17,11 +17,46 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
   const [calcAccountType, setCalcAccountType] = useState<'standard' | 'cent' | 'prop'>('standard');
   const [calcSlPoints, setCalcSlPoints] = useState<number>(300);
 
+  // Live Holographic Signal Fan-Out Simulator State
+  const [simRunning, setSimRunning] = useState(false);
+  const [simStep, setSimStep] = useState<number>(4);
+  const [simSide, setSimSide] = useState<'BUY' | 'SELL'>('BUY');
+  const [livePrice, setLivePrice] = useState<number>(2908.45);
+
+  // Image Fallback States
+  const [heroImgError, setHeroImgError] = useState(false);
+  const [guardImgError, setGuardImgError] = useState(false);
+
+  // Subtle live price micro-tick for visual realism
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLivePrice((prev) => {
+        const delta = (Math.random() - 0.48) * 0.35;
+        return Math.round((prev + delta) * 100) / 100;
+      });
+    }, 2200);
+    return () => clearInterval(interval);
+  }, []);
+
+  const triggerLiveSimulation = (side: 'BUY' | 'SELL') => {
+    if (simRunning) return;
+    setSimSide(side);
+    setSimRunning(true);
+    setSimStep(1);
+    setTimeout(() => setSimStep(2), 450);
+    setTimeout(() => setSimStep(3), 900);
+    setTimeout(() => {
+      setSimStep(4);
+      setSimRunning(false);
+    }, 1450);
+  };
+
   // Compute calculated values
   const riskDollars = calcEquity * (calcRiskPct / 100);
   const rawLot = (riskDollars / Math.max(calcSlPoints, 150)) * (calcAccountType === 'cent' ? 100 : 1);
   const recommendedLot = Math.min(Math.max(roundLot(rawLot, calcAccountType === 'cent' ? 0.1 : 0.01), 0.01), 50.0);
   const oneRProfitDollars = riskDollars;
+  const twoRProfitDollars = riskDollars * 2;
   const propDdLimitDollars = calcEquity * 0.045;
 
   function roundLot(val: number, step: number): number {
@@ -37,286 +72,607 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
   };
 
   return (
-    <div className="min-h-screen bg-[#050810] text-slate-100 font-sans selection:bg-cyan-500 selection:text-slate-950 overflow-x-hidden relative">
-      {/* Background Cyber Mesh & Radial Glows */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[1000px] h-[550px] bg-gradient-to-b from-cyan-500/12 via-blue-600/6 to-transparent rounded-full blur-[140px]" />
-        <div className="absolute top-[35%] right-[-10%] w-[600px] h-[450px] bg-purple-600/8 rounded-full blur-[150px]" />
-        <div className="absolute top-[65%] left-[-10%] w-[700px] h-[500px] bg-emerald-600/6 rounded-full blur-[160px]" />
-        <div
-          className="absolute inset-0 opacity-[0.025]"
-          style={{
-            backgroundImage: `linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)`,
-            backgroundSize: '48px 48px',
-          }}
-        />
+    <div className="min-h-screen bg-[#02040a] text-slate-100 font-sans selection:bg-cyan-500/30 selection:text-cyan-200 overflow-x-hidden relative quant-cyber-grid">
+      {/* Multi-Layered Quantum Aurora & Laser Lighting */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-44 left-1/4 w-[980px] h-[520px] bg-gradient-to-b from-cyan-500/16 via-teal-500/8 to-transparent rounded-full blur-[135px] animate-aurora" />
+        <div className="absolute top-[34%] -right-36 w-[680px] h-[460px] bg-emerald-500/10 rounded-full blur-[145px]" />
+        <div className="absolute bottom-10 -left-32 w-[620px] h-[420px] bg-sky-500/8 rounded-full blur-[140px]" />
       </div>
 
-      {/* Top Header / Modern Quant Nav */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#050810]/85 border-b border-cyan-500/15 px-6 py-3.5 transition-all">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={onEnterApp}>
-            <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-400 via-teal-500 to-blue-600 p-[1px] shadow-[0_0_20px_rgba(6,182,212,0.4)]">
-              <div className="w-full h-full bg-[#070c18] rounded-[11px] flex items-center justify-center font-black text-cyan-400 text-lg font-mono">
-                Z
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-black text-base tracking-wider text-slate-100 font-mono">ZUPIRUS</span>
-                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-950 text-cyan-400 border border-cyan-800/60">
-                  v2.2 QUANT
-                </span>
-              </div>
-              <span className="text-[10px] text-slate-400 font-mono tracking-widest uppercase block -mt-0.5">
-                AUTONOMOUS QUANT LAB
-              </span>
-            </div>
-          </div>
+      {/* Top Navigation Bar — Strict 3-Zone Contract */}
+      <header className="sticky top-0 z-50 backdrop-blur-2xl bg-[#02040a]/85 border-b border-cyan-500/15 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-8">
+          {/* Zone 1: Single text element Brand wordmark */}
+          <a
+            href="#top"
+            className="text-xl font-extrabold tracking-tight text-slate-100 font-display whitespace-nowrap shrink-0"
+          >
+            ZUPIRUS
+          </a>
 
-          <nav className="hidden md:flex items-center gap-7 text-xs font-mono text-slate-300">
-            <a href="#guards" className="hover:text-cyan-400 transition-colors flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-              4 Lớp Giáp Bảo Vệ
+          {/* Zone 2: 4 concise single-line navigation links */}
+          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+            <a
+              href="#fanout-sim"
+              className="hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0"
+            >
+              Mô Phỏng Bắn Lệnh
             </a>
-            <a href="#calculator" className="hover:text-cyan-400 transition-colors">
-              Máy Tính Lô & Rủi Ro
+            <a
+              href="#guards"
+              className="hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0"
+            >
+              4 Lớp Giáp Vốn
             </a>
-            <a href="#pricing" className="hover:text-cyan-400 transition-colors">
-              Gói Bản Quyền & SePay
+            <a
+              href="#calculator"
+              className="hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0"
+            >
+              Máy Tính Khối Lượng
+            </a>
+            <a
+              href="#pricing"
+              className="hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0"
+            >
+              Bảng Giá VietQR
             </a>
           </nav>
 
-          <div className="flex items-center gap-3 font-mono text-xs">
+          {/* Zone 3: 1 Primary CTA button */}
+          <div className="flex items-center gap-3 shrink-0">
             <button
-              onClick={onEnterAdmin}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700/80 bg-slate-900/60 hover:bg-slate-800 text-slate-300 transition-all hover:border-slate-600"
-            >
-              <span>Quản Trị adm</span>
-              <span className="text-slate-500 text-[10px]">↗</span>
-            </button>
-            <button
+              type="button"
               onClick={onEnterApp}
-              className="relative group px-4 py-2 rounded-lg font-bold text-slate-950 transition-all shadow-[0_0_20px_rgba(6,182,212,0.35)] hover:shadow-[0_0_30px_rgba(6,182,212,0.6)] bg-gradient-to-r from-cyan-400 via-teal-300 to-emerald-400"
+              className="quant-btn-primary px-5 py-2.5 text-xs whitespace-nowrap shrink-0"
             >
-              <span className="flex items-center gap-1.5 text-xs">
-                <span>Vào Ứng Dụng (app)</span>
-                <span className="transition-transform group-hover:translate-x-0.5">↗</span>
-              </span>
+              Truy Cập Cổng Giao Dịch →
             </button>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-20 pb-16 px-6 z-10">
-        <div className="max-w-5xl mx-auto text-center space-y-6">
-          {/* Live Telemetry Pill */}
-          <div className="inline-flex items-center gap-3 px-4 py-1.5 rounded-full border border-cyan-500/30 bg-cyan-950/40 text-cyan-300 text-xs font-mono shadow-[0_0_20px_rgba(6,182,212,0.15)] backdrop-blur-md">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-            </span>
-            <span className="font-semibold text-slate-200">DIRECT CLOUD EXECUTION</span>
-            <span className="text-cyan-500">·</span>
-            <span className="text-emerald-400">ZERO EA CÀI ĐẶT</span>
-            <span className="text-cyan-500">·</span>
-            <span className="text-slate-400">ĐỘ TRỄ 28MS LONDON</span>
+      {/* Hero Section — 2-Column Split with items-stretch & Holographic Monitor */}
+      <section id="top" className="relative pt-10 pb-20 px-6 z-10">
+        <div className="max-w-7xl mx-auto space-y-12">
+          {/* Interactive Portal Switcher Bar in Hero Workspace */}
+          <div className="quant-glass rounded-2xl px-5 py-3 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5 text-xs font-mono text-slate-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+              <span className="font-bold text-white">ZUPIRUS QUANT LAB v2.5</span>
+              <span aria-hidden="true" className="text-slate-600">·</span>
+              <span className="text-cyan-300">XAU/USD Live: ${livePrice.toFixed(2)}</span>
+              <span aria-hidden="true" className="hidden sm:inline text-slate-600">·</span>
+              <span className="hidden sm:inline text-emerald-400">MetaApi London G2 (~28ms)</span>
+            </div>
+            <div className="flex items-center gap-2 font-mono text-xs">
+              <span className="text-slate-400 hidden sm:inline">Chuyển cổng trực tiếp:</span>
+              <button
+                type="button"
+                onClick={onEnterApp}
+                className="quant-btn-secondary px-3.5 py-1.5 text-xs whitespace-nowrap shrink-0"
+              >
+                Cổng Khách Hàng (User) ↗
+              </button>
+              <button
+                type="button"
+                onClick={onEnterAdmin}
+                className="quant-btn-secondary px-3.5 py-1.5 text-xs whitespace-nowrap shrink-0"
+              >
+                Trạm Chỉ Huy (Admin) ↗
+              </button>
+            </div>
           </div>
 
-          <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black text-slate-100 tracking-tight leading-[1.08]">
-            Hệ Thống Giao Dịch Định Lượng <br />
-            <span className="bg-gradient-to-r from-cyan-300 via-teal-200 to-emerald-400 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(6,182,212,0.3)]">
-              Tự Hành 100% Trên Điện Toán Đám Mây
-            </span>
-          </h1>
+          {/* 2-Column Hero Split */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-stretch">
+            {/* Left Column: Value Proposition & Primary Action */}
+            <div className="lg:col-span-7 flex flex-col justify-center space-y-6">
+              <div className="text-xs font-mono text-cyan-300 flex flex-wrap items-center gap-2">
+                <span>DIRECT CLOUD EXECUTION</span>
+                <span aria-hidden="true">·</span>
+                <span>ZERO EA / ZERO VPS</span>
+                <span aria-hidden="true">·</span>
+                <span className="text-emerald-400">TABULA RASA QUANT ENGINE</span>
+              </div>
 
-          <p className="max-w-3xl mx-auto text-sm sm:text-base text-slate-400 font-normal leading-relaxed">
-            Vĩnh biệt máy tính bật 24/7 và nỗi lo EA bị ngắt kết nối. ZUPIRUS Quant Lab kết nối trực tiếp đám mây với
-            tài khoản MT5 của bạn, ứng dụng mô hình học quy nạp Tabula Rasa và bảo vệ nguồn vốn bằng 4 lớp giáp an toàn
-            chuẩn mực phố Wall.
-          </p>
+              <h1
+                className="font-display font-extrabold tracking-tight leading-[1.06] text-balance bg-gradient-to-br from-white via-slate-100 to-cyan-300 bg-clip-text text-transparent"
+                style={{ fontSize: 'clamp(2.35rem, 4.2vw, 3.85rem)' }}
+              >
+                Hệ Thống Giao Dịch Định Lượng XAU/USD Tự Hành Trên Đám Mây
+              </h1>
 
-          {/* Action CTAs */}
-          <div className="pt-4 flex flex-wrap items-center justify-center gap-4 font-mono text-xs">
-            <button
-              onClick={onEnterApp}
-              className="px-7 py-3.5 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black text-sm transition-all shadow-[0_0_30px_rgba(6,182,212,0.4)] flex items-center gap-2 group"
-            >
-              <span>⚡ KẾT NỐI TÀI KHOẢN MT5 NGAY</span>
-              <span className="transition-transform group-hover:translate-x-1">→</span>
-            </button>
-            <a
-              href="#calculator"
-              className="px-5 py-3.5 rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 font-semibold transition-colors flex items-center gap-2"
-            >
-              <span>📊 Tính Toán Phân Bổ Vốn & Lô Lệnh</span>
-            </a>
+              <p className="text-base text-slate-300 font-normal leading-relaxed max-w-2xl">
+                Loại bỏ hoàn toàn máy chủ VPS treo 24/7 và rủi ro đứt kết nối phần mềm EA. ZUPIRUS kết nối trực tiếp
+                cụm máy chủ London G2 tới tài khoản MT5 của bạn, vận hành thuật toán học quy nạp Tabula Rasa và kiểm
+                toán 4 lớp giáp bảo vệ vốn trước mọi quyết định vào lệnh.
+              </p>
+
+              <div className="pt-2 flex flex-wrap items-center gap-4">
+                <button
+                  type="button"
+                  onClick={onEnterApp}
+                  className="quant-btn-primary px-7 py-3.5 text-xs whitespace-nowrap shrink-0"
+                >
+                  <span>Kết Nối Tài Khoản MT5 Ngay</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onEnterAdmin}
+                  className="quant-btn-secondary px-6 py-3.5 text-xs whitespace-nowrap shrink-0"
+                >
+                  Mở Trạm Chỉ Huy Admin ↗
+                </button>
+              </div>
+
+              <div className="pt-2 text-xs text-slate-400 font-mono flex flex-wrap items-center gap-3">
+                <span>Tương thích Exness · FTMO · IC Markets · Pepperstone</span>
+                <span aria-hidden="true">·</span>
+                <span className="text-emerald-400">Tự động dời SL hòa vốn tại 1R</span>
+              </div>
+            </div>
+
+            {/* Right Column: Holographic Laser-Scanning Showcase Card */}
+            <div className="lg:col-span-5 flex">
+              <div className="relative w-full rounded-2xl overflow-hidden border border-cyan-400/35 bg-[#050b18] flex flex-col justify-between min-h-[380px] shadow-[0_0_55px_rgba(6,182,212,0.18)]">
+                {!heroImgError ? (
+                  <img
+                    src="/src/assets/images/hero_quant_datacenter_1794792840793.jpg"
+                    alt="Trung tâm điều hành định lượng ZUPIRUS"
+                    referrerPolicy="no-referrer"
+                    onError={() => setHeroImgError(true)}
+                    className="absolute inset-0 w-full h-full object-cover opacity-80"
+                  />
+                ) : (
+                  <div className="absolute inset-0 bg-gradient-to-br from-cyan-950/60 via-slate-950 to-emerald-950/50" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-[#02040a] via-[#02040a]/65 to-[#02040a]/25" />
+
+                {/* Animated Vertical Laser Scan Beam */}
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-cyan-400/20 via-cyan-400/5 to-transparent border-t border-cyan-400/50 animate-laser-scan" />
+
+                {/* Top HUD Bar */}
+                <div className="relative z-10 p-5 flex items-center justify-between text-xs font-mono">
+                  <span className="inline-flex items-center gap-2 text-cyan-300 font-bold">
+                    <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+                    LONDON G2 OPTICAL BRIDGE
+                  </span>
+                  <span className="tabular-nums text-emerald-400 font-bold">~28 ms</span>
+                </div>
+
+                {/* Live Holographic Order-Flow & Telemetry HUD */}
+                <div className="relative z-10 p-5 space-y-3">
+                  {/* Live SVG Pulse Wave */}
+                  <div className="rounded-xl bg-[#030712]/85 backdrop-blur-md border border-cyan-500/25 p-3.5">
+                    <div className="flex items-center justify-between text-xs font-mono mb-2">
+                      <span className="text-slate-300 font-bold">XAU/USD M15 ALPHA WAVE</span>
+                      <span className="text-cyan-300 font-extrabold tabular-nums">${livePrice.toFixed(2)}</span>
+                    </div>
+                    <svg viewBox="0 0 320 58" className="w-full h-14 overflow-visible">
+                      <defs>
+                        <linearGradient id="heroWaveGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.4" />
+                          <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <polygon
+                        points="0,56 0,42 35,38 70,44 105,28 140,31 175,18 210,22 245,12 280,15 315,6 315,56"
+                        fill="url(#heroWaveGrad)"
+                      />
+                      <polyline
+                        fill="none"
+                        stroke="#22d3ee"
+                        strokeWidth="2.2"
+                        points="0,42 35,38 70,44 105,28 140,31 175,18 210,22 245,12 280,15 315,6"
+                      />
+                      <circle cx="315" cy="6" r="4" fill="#10b981" />
+                    </svg>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-[#030712]/90 backdrop-blur-md border border-white/10 space-y-2 font-mono text-xs">
+                    <div className="flex items-center justify-between text-slate-300">
+                      <span>Cơ chế bảo toàn vị thế</span>
+                      <strong className="text-emerald-400">Chốt 50% TP1 & Dời SL Hòa Vốn</strong>
+                    </div>
+                    <div className="flex items-center justify-between text-slate-400">
+                      <span>Lá chắn tài khoản quỹ FTMO</span>
+                      <span className="text-cyan-300">Tự ngắt khi chạm 4.5% Daily DD</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Real-time Status Badges Grid */}
-          <div className="pt-8 grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-4xl mx-auto text-left font-mono">
-            <div className="p-3.5 rounded-xl border border-slate-800/80 bg-[#0b1120]/70 backdrop-blur-sm">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">HẠ TẦNG KẾT NỐI</div>
-              <div className="text-sm font-bold text-cyan-300 mt-1 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                MetaApi Cloud
+          {/* Full-Width 4-Column Quantitative Proof Strip Below Hero Split */}
+          <div id="architecture" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+            <div className="quant-card-interactive p-5">
+              <div className="text-xs font-mono text-cyan-400">01. HẠ TẦNG ĐÁM MÂY</div>
+              <div className="text-2xl font-extrabold text-slate-100 mt-2 font-mono tabular-nums">
+                28 ms Latency
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Không cần cài EA/VPS</div>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                Đấu nối trực tiếp qua MetaApi Cloud tại trung tâm dữ liệu London G2, không cần cài EA hay thuê VPS.
+              </p>
             </div>
 
-            <div className="p-3.5 rounded-xl border border-slate-800/80 bg-[#0b1120]/70 backdrop-blur-sm">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">LÁ CHẮN AN TOÀN</div>
-              <div className="text-sm font-bold text-emerald-300 mt-1 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                4 Màng Lọc Chặt
+            <div className="quant-card-interactive p-5">
+              <div className="text-xs font-mono text-emerald-400">02. KIỂM TOÁN RỦI RO</div>
+              <div className="text-2xl font-extrabold text-emerald-400 mt-2 font-mono tabular-nums">
+                100% Có SL Cứng
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">SL cứng & News Shield</div>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                Từ chối mọi tín hiệu thiếu mức dừng lỗ. Tuyệt đối không bình quân giá âm (Martingale) hay gồng lỗ.
+              </p>
             </div>
 
-            <div className="p-3.5 rounded-xl border border-slate-800/80 bg-[#0b1120]/70 backdrop-blur-sm">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">ĐA DẠNG TÀI KHOẢN</div>
-              <div className="text-sm font-bold text-purple-300 mt-1 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-purple-400" />
-                Cent / Standard / Prop
+            <div className="quant-card-interactive p-5">
+              <div className="text-xs font-mono text-cyan-300">03. CHUẨN HÓA ĐA SÀN</div>
+              <div className="text-2xl font-extrabold text-cyan-300 mt-2 font-mono tabular-nums">
+                Standard · Cent · Prop
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Tự chuẩn hóa Lot size</div>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                Tự động nhận diện hậu tố mã vàng (XAUUSDm, GOLD) và quy đổi khối lượng Lot theo từng loại tài khoản.
+              </p>
             </div>
 
-            <div className="p-3.5 rounded-xl border border-slate-800/80 bg-[#0b1120]/70 backdrop-blur-sm">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider">THANH TOÁN VIỆT NAM</div>
-              <div className="text-sm font-bold text-amber-300 mt-1 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-400" />
-                SePay VietQR 24/7
+            <div className="quant-card-interactive p-5">
+              <div className="text-xs font-mono text-amber-300">04. KÍCH HOẠT TỨC THÌ</div>
+              <div className="text-2xl font-extrabold text-amber-300 mt-2 font-mono tabular-nums">
+                3 Giây Qua VietQR
               </div>
-              <div className="text-[10px] text-slate-400 mt-0.5">Kích hoạt tự động 3 giây</div>
+              <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                Chốt tỷ giá USD/VND thời gian thực và kích hoạt gói tự động 24/7 ngay khi quét mã SePay VietQR.
+              </p>
+            </div>
+          </div>
+
+          {/* Interactive Live Signal Fan-Out Pipeline Simulator */}
+          <div id="fanout-sim" className="quant-panel p-6 sm:p-8 space-y-6 border-cyan-500/30">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/[0.07] pb-5">
+              <div>
+                <div className="text-xs font-mono text-cyan-300 flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
+                  <span>INTERACTIVE QUANTUM PIPELINE SIMULATOR</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+                  Mô Phỏng Trực Tiếp Quy Trình Kiểm Toán 4 Lớp & Quạt Lệnh Đám Mây
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Bấm nút bên phải để kích hoạt thử một tín hiệu XAU/USD và quan sát tốc độ xử lý mili-giây qua 4 trạm bảo vệ.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  disabled={simRunning}
+                  onClick={() => triggerLiveSimulation('BUY')}
+                  className="quant-btn-primary px-4 py-2.5 text-xs whitespace-nowrap shrink-0"
+                >
+                  ⚡ Bắn Thử BUY XAU/USD
+                </button>
+                <button
+                  type="button"
+                  disabled={simRunning}
+                  onClick={() => triggerLiveSimulation('SELL')}
+                  className="quant-btn-secondary px-4 py-2.5 text-xs whitespace-nowrap shrink-0"
+                >
+                  ⚡ Bắn Thử SELL XAU/USD
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono text-xs">
+              {[
+                {
+                  step: 1,
+                  code: 'STAGE 01 · 0.6 ms',
+                  title: 'Redis Idempotency Lock',
+                  detail: `Khóa nguyên tử tín hiệu ${simSide} XAU/USD @ $${livePrice.toFixed(2)}`,
+                },
+                {
+                  step: 2,
+                  code: 'STAGE 02 · 1.1 ms',
+                  title: 'ATR(14) Hard Stop-Loss',
+                  detail:
+                    simSide === 'BUY'
+                      ? `Gắn SL cứng $${(livePrice - 4.5).toFixed(2)} · TP $${(livePrice + 9.0).toFixed(2)}`
+                      : `Gắn SL cứng $${(livePrice + 4.5).toFixed(2)} · TP $${(livePrice - 9.0).toFixed(2)}`,
+                },
+                {
+                  step: 3,
+                  code: 'STAGE 03 · 1.4 ms',
+                  title: 'USD News & Spread Audit',
+                  detail: 'Lịch USD an toàn · Spread 2.4 pips (Đạt chuẩn ≤ 4.5 pips)',
+                },
+                {
+                  step: 4,
+                  code: 'STAGE 04 · 28.0 ms',
+                  title: 'MetaApi Cloud Fan-Out',
+                  detail: 'Khớp đồng loạt: Exness Standard · ICMarkets ECN · Quỹ FTMO',
+                },
+              ].map((s) => {
+                const active = simStep >= s.step;
+                const current = simRunning && simStep === s.step;
+                return (
+                  <div
+                    key={s.step}
+                    className={`rounded-xl border p-4 transition-all duration-300 ${
+                      current
+                        ? 'border-cyan-400 bg-cyan-500/20 shadow-[0_0_28px_rgba(6,182,212,0.3)] scale-[1.02]'
+                        : active
+                        ? 'border-emerald-500/40 bg-emerald-950/20'
+                        : 'border-white/[0.06] bg-[#040710]/60 opacity-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className={active ? 'text-cyan-300 font-bold' : 'text-slate-500'}>{s.code}</span>
+                      <span className={active ? 'text-emerald-400 font-bold' : 'text-slate-600'}>
+                        {current ? 'ĐANG XỬ LÝ...' : active ? '✓ PASSED' : 'CHỜ'}
+                      </span>
+                    </div>
+                    <div className="mt-2 font-sans text-sm font-bold text-white">{s.title}</div>
+                    <div className="mt-1.5 text-[11px] text-slate-300 leading-relaxed tabular-nums">{s.detail}</div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
       </section>
 
-      {/* Interactive Lot Size & Risk Calculator */}
-      <section id="calculator" className="py-16 px-6 relative z-10 border-t border-slate-800/60 bg-[#070b16]/50">
-        <div className="max-w-6xl mx-auto space-y-8">
-          <div className="text-center space-y-2">
-            <div className="inline-block px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-cyan-950/70 border border-cyan-700/50 text-cyan-300">
-              CÔNG CỤ TÍNH TOÁN ĐỊNH LƯỢNG THỜI GIAN THỰC
+      {/* Section 2: Asymmetric Bento Grid — 4 Mandatory Safety Guards */}
+      <section id="guards" className="py-20 px-6 relative z-10 border-t border-white/[0.06] bg-[#040812]/80">
+        <div className="max-w-7xl mx-auto space-y-12">
+          <div className="max-w-3xl space-y-3">
+            <div className="text-xs font-mono text-emerald-400">
+              CƠ CHẾ BẢO VỆ VỐN BẮT BUỘC · FAIL-CLOSED ARCHITECTURE
             </div>
-            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-100">
-              Mô Phỏng Phân Bổ Vốn & Khối Lượng Lệnh (Lot Size)
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-100 text-balance">
+              4 Lớp Giáp Kiểm Toán Trước Khi Khớp Lệnh Xuống MT5
             </h2>
-            <p className="text-sm text-slate-400 max-w-2xl mx-auto">
-              Trực quan hóa cách ZUPIRUS Quant Lab tính toán khối lượng lệnh chuẩn xác theo tỷ lệ rủi ro, khoảng cách SL
-              và đặc tính riêng của từng loại tài khoản (Cent, Chuẩn hoặc Thi Quỹ).
+            <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
+              Mỗi tín hiệu giao dịch đều phải đi qua quy trình kiểm định tuần tự 4 bước trong thời gian dưới 5 mili-giây.
+              Nếu bất kỳ điều kiện an toàn nào bị vi phạm, lệnh sẽ bị hủy bỏ ngay từ tầng lõi.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start font-mono">
-            {/* Input Controls */}
-            <div className="lg:col-span-7 rounded-2xl border border-slate-800 bg-[#0d1424] p-6 space-y-6 shadow-xl">
-              <div>
-                <div className="flex justify-between items-center text-xs mb-2">
-                  <span className="text-slate-400 font-bold">1. SỐ DƯ TÀI KHOẢN (EQUITY):</span>
-                  <span className="text-cyan-300 font-bold text-sm">${calcEquity.toLocaleString()} USD</span>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div className="lg:col-span-5 quant-panel overflow-hidden flex flex-col justify-between p-6">
+              <div className="space-y-2">
+                <div className="text-xs font-mono text-cyan-300">S-4 OPTICAL SECURITY PIPELINE</div>
+                <h3 className="text-xl font-bold text-slate-100">
+                  Kiến Trúc Thực Thi Cách Ly Hai Lớp
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Tách biệt hoàn toàn luồng phân tích AI khỏi động cơ khớp lệnh. Khóa phân tán Redis và bộ kiểm tra
+                  Spread bảo đảm mỗi tài khoản chỉ nhận lệnh khi thanh khoản đạt chuẩn.
+                </p>
+              </div>
+
+              <div className="my-5 rounded-xl overflow-hidden border border-white/10 bg-[#050914] aspect-video relative">
+                {!guardImgError ? (
+                  <img
+                    src="/src/assets/images/guard_matrix_architecture_1794792845754.jpg"
+                    alt="Kiến trúc 4 màng lọc bảo vệ vốn ZUPIRUS"
+                    referrerPolicy="no-referrer"
+                    onError={() => setGuardImgError(true)}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center font-mono text-xs text-cyan-400">
+                    4-STAGE FAIL-CLOSED GUARD MATRIX
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between text-xs font-mono text-slate-400 pt-2 border-t border-white/[0.06]">
+                <span>Thời gian kiểm toán trung bình</span>
+                <strong className="text-emerald-400 tabular-nums">&lt; 1.2 ms / tín hiệu</strong>
+              </div>
+            </div>
+
+            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="quant-card-interactive p-6 flex flex-col justify-between space-y-4">
+                <div className="space-y-2.5">
+                  <div className="text-xs font-mono text-cyan-300 font-bold">01. Khóa Phân Tán Nguyên Tử</div>
+                  <h3 className="text-base font-bold text-slate-100">Redis Idempotency Lock</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Khóa phân tán nguyên tử trên Redis với TTL 120 giây cho từng cặp (Tài khoản + Tín hiệu). Ngăn chặn
+                    tuyệt đối việc bắn lặp lệnh khi mạng biến động.
+                  </p>
+                </div>
+                <div className="text-xs font-mono text-cyan-300 pt-3 border-t border-white/[0.06] tabular-nums">
+                  Độ trễ xác thực khóa: &lt; 0.8 ms
+                </div>
+              </div>
+
+              <div className="quant-card-interactive p-6 flex flex-col justify-between space-y-4">
+                <div className="space-y-2.5">
+                  <div className="text-xs font-mono text-rose-300 font-bold">02. Kiểm Soát Cắt Lỗ Bắt Buộc</div>
+                  <h3 className="text-base font-bold text-slate-100">Mandatory Hard Stop-Loss</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Loại bỏ 100% các tín hiệu không có mức dừng lỗ (SL) hoặc tự động đính kèm SL chuẩn hóa theo biên độ
+                    biến động ATR(14) thực tế của khung M15.
+                  </p>
+                </div>
+                <div className="text-xs font-mono text-rose-300 pt-3 border-t border-white/[0.06]">
+                  Chặn tuyệt đối lệnh thả nổi không SL
+                </div>
+              </div>
+
+              <div className="quant-card-interactive p-6 flex flex-col justify-between space-y-4">
+                <div className="space-y-2.5">
+                  <div className="text-xs font-mono text-amber-300 font-bold">03. Lá Chắn Lịch Kinh Tế Vĩ Mô</div>
+                  <h3 className="text-base font-bold text-slate-100">High-Impact USD News Shield</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Tự động đóng băng phát lệnh mới trước và sau các bản tin USD tác động mạnh (CPI, Non-Farm Payrolls,
+                    lãi suất FOMC) để tránh quét thanh khoản hai đầu.
+                  </p>
+                </div>
+                <div className="text-xs font-mono text-amber-300 pt-3 border-t border-white/[0.06] tabular-nums">
+                  Vùng cách ly an toàn: ±15 đến 30 phút
+                </div>
+              </div>
+
+              <div className="quant-card-interactive p-6 flex flex-col justify-between space-y-4">
+                <div className="space-y-2.5">
+                  <div className="text-xs font-mono text-emerald-300 font-bold">04. Bộ Lọc Giãn Spread & Trượt Giá</div>
+                  <h3 className="text-base font-bold text-slate-100">Live Spread & Slippage Auditor</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Đo trực tiếp chênh lệch Bid/Ask trên tài khoản MT5 của khách hàng trước mili-giây đặt lệnh. Hủy lệnh
+                    ngay nếu Spread giãn vượt ngưỡng an toàn.
+                  </p>
+                </div>
+                <div className="text-xs font-mono text-emerald-300 pt-3 border-t border-white/[0.06] tabular-nums">
+                  Ngưỡng bảo vệ XAU/USD: ≤ 4.5 pips
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 3: Interactive Lot Size & Risk Simulator */}
+      <section id="calculator" className="py-20 px-6 relative z-10 border-t border-white/[0.06]">
+        <div className="max-w-7xl mx-auto space-y-10">
+          <div className="max-w-3xl space-y-3">
+            <div className="text-xs font-mono text-cyan-300">
+              CÔNG CỤ TÍNH TOÁN KHỐI LƯỢNG THỜI GIAN THỰC
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-100 text-balance">
+              Mô Phỏng Phân Bổ Rủi Ro & Khối Lượng Lệnh (Lot Sizing)
+            </h2>
+            <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
+              Kiểm chứng cách động cơ định lượng ZUPIRUS tự động tính toán số Lot chuẩn xác dựa trên vốn thực (Equity),
+              phần trăm rủi ro mỗi lệnh và khoảng cách dừng lỗ SL.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch font-mono">
+            <div className="lg:col-span-7 quant-panel p-6 sm:p-8 space-y-7 flex flex-col justify-between">
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-baseline text-xs">
+                  <label htmlFor="calc-equity" className="text-slate-300 font-bold">
+                    01. Vốn Tài Khoản Hiện Tại (Equity)
+                  </label>
+                  <span className="text-cyan-300 font-extrabold text-base tabular-nums">
+                    ${calcEquity.toLocaleString('en-US')} USD
+                  </span>
                 </div>
                 <input
+                  id="calc-equity"
                   type="range"
                   min="500"
                   max="100000"
                   step="500"
                   value={calcEquity}
                   onChange={(e) => setCalcEquity(parseFloat(e.target.value))}
-                  className="w-full accent-cyan-400"
+                  className="w-full accent-cyan-400 cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                  <span>$500 (Tối thiểu)</span>
+                <div className="flex justify-between text-[11px] text-slate-500 tabular-nums">
+                  <span>$500</span>
                   <span>$10,000</span>
                   <span>$50,000</span>
-                  <span>$100,000 (Quỹ)</span>
+                  <span>$100,000 (Quỹ FTMO)</span>
                 </div>
               </div>
 
-              <div>
-                <div className="flex justify-between items-center text-xs mb-2">
-                  <span className="text-slate-400 font-bold">2. TỶ LỆ RỦI RO MỖI LỆNH (% RISK):</span>
-                  <span className="text-emerald-400 font-bold text-sm">{calcRiskPct.toFixed(1)}% ({riskDollars.toFixed(1)} USD)</span>
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-baseline text-xs">
+                  <label htmlFor="calc-risk" className="text-slate-300 font-bold">
+                    02. Tỷ Lệ Rủi Ro Mỗi Lệnh (% Risk per Trade)
+                  </label>
+                  <span className="text-emerald-400 font-extrabold text-base tabular-nums">
+                    {calcRiskPct.toFixed(1)}% (${riskDollars.toFixed(1)} USD)
+                  </span>
                 </div>
                 <input
+                  id="calc-risk"
                   type="range"
                   min="0.2"
                   max="3.0"
                   step="0.1"
                   value={calcRiskPct}
                   onChange={(e) => setCalcRiskPct(parseFloat(e.target.value))}
-                  className="w-full accent-emerald-400"
+                  className="w-full accent-emerald-400 cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                  <span>0.2% (Thận trọng)</span>
-                  <span>1.0% (Khuyến nghị)</span>
+                <div className="flex justify-between text-[11px] text-slate-500 tabular-nums">
+                  <span>0.2% (Bảo thủ)</span>
+                  <span>1.0% (Chuẩn tổ chức)</span>
                   <span>2.0%</span>
                   <span>3.0% (Tối đa)</span>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs text-slate-400 font-bold mb-2">3. LOẠI TÀI KHOẢN GIAO DỊCH:</label>
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="space-y-2.5">
+                <span className="block text-xs text-slate-300 font-bold">
+                  03. Phân Loại Tài Khoản MT5
+                </span>
+                <div className="grid grid-cols-3 gap-3 text-center text-xs">
                   <button
                     type="button"
                     onClick={() => setCalcAccountType('standard')}
-                    className={`p-3 rounded-xl border transition-all ${
+                    className={`p-3.5 rounded-xl border transition-colors cursor-pointer ${
                       calcAccountType === 'standard'
-                        ? 'border-cyan-400 bg-cyan-950/60 text-cyan-300 font-bold'
-                        : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700'
+                        ? 'border-cyan-400 bg-cyan-950/50 text-cyan-200 font-bold'
+                        : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-700'
                     }`}
                   >
-                    <div>STANDARD</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">Tài khoản chuẩn USD</div>
+                    <div className="whitespace-nowrap">Standard / ECN</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Hợp đồng chuẩn USD</div>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setCalcAccountType('cent')}
-                    className={`p-3 rounded-xl border transition-all ${
+                    className={`p-3.5 rounded-xl border transition-colors cursor-pointer ${
                       calcAccountType === 'cent'
-                        ? 'border-purple-400 bg-purple-950/60 text-purple-300 font-bold'
-                        : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700'
+                        ? 'border-cyan-400 bg-cyan-950/50 text-cyan-200 font-bold'
+                        : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-700'
                     }`}
                   >
-                    <div>CENT (USC)</div>
-                    <div className="text-[10px] text-purple-300 mt-0.5">Nhân 100x số dư</div>
+                    <div className="whitespace-nowrap">Cent (USC)</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Quy đổi 100x số dư</div>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setCalcAccountType('prop')}
-                    className={`p-3 rounded-xl border transition-all ${
+                    className={`p-3.5 rounded-xl border transition-colors cursor-pointer ${
                       calcAccountType === 'prop'
-                        ? 'border-amber-400 bg-amber-950/60 text-amber-300 font-bold'
-                        : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700'
+                        ? 'border-cyan-400 bg-cyan-950/50 text-cyan-200 font-bold'
+                        : 'border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-700'
                     }`}
                   >
-                    <div>PROP FIRM</div>
-                    <div className="text-[10px] text-amber-300 mt-0.5">Giới hạn DD 4.5%</div>
+                    <div className="whitespace-nowrap">Prop Firm</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Khóa lỗ ngày 4.5%</div>
                   </button>
                 </div>
               </div>
 
-              <div>
-                <div className="flex justify-between items-center text-xs mb-2">
-                  <span className="text-slate-400 font-bold">4. KHOẢNG CÁCH DỪNG LỖ (SL DISTANCE):</span>
-                  <span className="text-slate-200 font-bold text-sm">{calcSlPoints} Points (${(calcSlPoints / 100).toFixed(2)} Giá Vàng)</span>
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-baseline text-xs">
+                  <label htmlFor="calc-sl" className="text-slate-300 font-bold">
+                    04. Khoảng Cách Dừng Lỗ (Stop-Loss Distance)
+                  </label>
+                  <span className="text-slate-100 font-extrabold text-base tabular-nums">
+                    {calcSlPoints} Points (${(calcSlPoints / 100).toFixed(2)} giá vàng)
+                  </span>
                 </div>
                 <input
+                  id="calc-sl"
                   type="range"
                   min="150"
                   max="800"
                   step="50"
                   value={calcSlPoints}
                   onChange={(e) => setCalcSlPoints(parseInt(e.target.value))}
-                  className="w-full accent-slate-400"
+                  className="w-full accent-cyan-400 cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                <div className="flex justify-between text-[11px] text-slate-500 tabular-nums">
                   <span>150 pts ($1.5)</span>
                   <span>300 pts ($3.0 chuẩn)</span>
                   <span>500 pts ($5.0)</span>
@@ -325,326 +681,288 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
               </div>
             </div>
 
-            {/* Live Calculation Output Card */}
-            <div className="lg:col-span-5 rounded-2xl border border-cyan-500/40 bg-gradient-to-b from-[#0b1428] to-[#070d1a] p-6 space-y-5 shadow-2xl relative">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <span className="text-xs font-bold text-cyan-300 uppercase">KẾT QUẢ ĐỊNH LƯỢNG LỆNH</span>
-                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800">
-                  TỰ HÀNH 100%
-                </span>
-              </div>
+            <div className="lg:col-span-5 quant-panel p-6 sm:p-8 flex flex-col justify-between border-cyan-500/30">
+              <div className="space-y-6">
+                <div className="flex items-center justify-between border-b border-white/[0.07] pb-4">
+                  <span className="text-xs font-bold text-cyan-300">THÔNG SỐ LỆNH ĐẦU RA</span>
+                  <span className="text-xs text-emerald-400">Chuẩn hóa tự động</span>
+                </div>
 
-              <div className="space-y-4">
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800">
-                  <div className="text-xs text-slate-400">Khối Lượng Lệnh Khuyến Nghị (Lot):</div>
-                  <div className="text-3xl sm:text-4xl font-black text-cyan-300 mt-1 flex items-baseline gap-2">
-                    <span>{recommendedLot.toFixed(2)}</span>
-                    <span className="text-xs font-normal text-slate-500 font-sans">
+                <div>
+                  <div className="text-xs text-slate-400">Khối lượng khớp lệnh khuyến nghị</div>
+                  <div className="text-4xl sm:text-5xl font-extrabold text-slate-100 mt-2 flex items-baseline gap-2.5 tabular-nums">
+                    <span className="text-cyan-300">{recommendedLot.toFixed(2)}</span>
+                    <span className="text-sm font-normal text-slate-400">
                       {calcAccountType === 'cent' ? 'Cent Lots' : 'Standard Lots'}
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-1">
-                    Công thức: Rủi ro ({riskDollars.toFixed(1)}$) ÷ SL ({calcSlPoints} pts)
+                  <div className="text-xs text-slate-500 mt-1.5 tabular-nums">
+                    Công thức: ${riskDollars.toFixed(1)} USD rủi ro ÷ {calcSlPoints} points SL
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                    <div className="text-slate-400 text-[10px]">RỦI RO TỐI ĐA (1R):</div>
-                    <div className="text-base font-bold text-rose-400 mt-0.5">-${riskDollars.toFixed(1)}</div>
-                    <div className="text-[10px] text-slate-500">Khi chạm Stop Loss</div>
+                <div className="grid grid-cols-2 gap-3 text-xs tabular-nums">
+                  <div className="p-3.5 rounded-xl bg-slate-950/70 border border-white/[0.06]">
+                    <div className="text-slate-400 text-[11px]">Rủi ro tối đa (-1R)</div>
+                    <div className="text-lg font-bold text-rose-400 mt-1">-${riskDollars.toFixed(1)}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Khi chạm Stop-Loss cứng</div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
-                    <div className="text-slate-400 text-[10px]">CHỐT 50% TP1 & BE:</div>
-                    <div className="text-base font-bold text-emerald-400 mt-0.5">+${oneRProfitDollars.toFixed(1)}</div>
-                    <div className="text-[10px] text-slate-500">Tại mốc 1R (+{calcSlPoints} pts)</div>
+                  <div className="p-3.5 rounded-xl bg-slate-950/70 border border-white/[0.06]">
+                    <div className="text-slate-400 text-[11px]">Mục tiêu TP1 (+1R) & TP2 (+2R)</div>
+                    <div className="text-lg font-bold text-emerald-400 mt-1">
+                      +${oneRProfitDollars.toFixed(0)} / +${twoRProfitDollars.toFixed(0)}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Chốt 50% & dời SL về Entry</div>
                   </div>
                 </div>
 
                 {calcAccountType === 'prop' && (
-                  <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-600/40 text-amber-300 text-xs space-y-1">
-                    <div className="font-bold flex items-center gap-1.5">
-                      <span>🛡️ CHẾ ĐỘ THI QUỸ (PROP PASS GUARD)</span>
-                    </div>
-                    <div className="text-[11px] text-amber-200">
-                      Ngưỡng sụt giảm ngày tối đa (4.5%): <span className="font-bold">-${propDdLimitDollars.toFixed(1)} USD</span>.
-                      Hệ thống tự động cắt toàn bộ lệnh và khóa giao dịch nếu chạm ngưỡng để bảo toàn tài khoản quỹ.
-                    </div>
+                  <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-500/35 text-xs space-y-1">
+                    <div className="font-bold text-amber-300">Chế Độ Bảo Vệ Quỹ (Prop Pass Guard)</div>
+                    <p className="text-slate-300 text-[11px] font-sans leading-relaxed">
+                      Ngưỡng sụt giảm ngày tối đa (4.5%):{' '}
+                      <strong className="text-amber-300 font-mono tabular-nums">-${propDdLimitDollars.toFixed(1)} USD</strong>.
+                      Tự động đóng vị thế và khóa nhận lệnh mới trong ngày nếu chạm ngưỡng bảo toàn quỹ.
+                    </p>
                   </div>
                 )}
-
-                <button
-                  type="button"
-                  onClick={onEnterApp}
-                  className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)] mt-2"
-                >
-                  ÁP DỤNG THÔNG SỐ VÀO TÀI KHOẢN MT5 CỦA BẠN ↗
-                </button>
               </div>
+
+              <button
+                type="button"
+                onClick={onEnterApp}
+                className="quant-btn-primary w-full py-3.5 text-xs mt-6 whitespace-nowrap"
+              >
+                Áp Dụng Cấu Hình Này Vào Tài Khoản MT5 →
+              </button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 4 Safety Guards Bento Grid */}
-      <section id="guards" className="py-20 px-6 relative z-10 max-w-7xl mx-auto space-y-10">
-        <div className="text-center space-y-3">
-          <div className="inline-block px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-emerald-950/70 border border-emerald-700/50 text-emerald-400">
-            CƠ CHẾ BẢO VỆ VỐN BẮT BUỘC (FAIL-CLOSED)
-          </div>
-          <h2 className="text-3xl sm:text-5xl font-black text-slate-100">
-            4 Lớp Giáp Bảo Vệ Tài Khoản Khách Hàng
-          </h2>
-          <p className="text-sm text-slate-400 max-w-2xl mx-auto font-normal">
-            Bất kỳ tín hiệu nào, dù từ chuyên gia hay thuật toán định lượng, đều phải vượt qua 4 màng lọc an toàn 
-            không thể thương lượng trước khi được phép khớp lệnh xuống tài khoản MT5.
-          </p>
-        </div>
+      {/* Section 4: Pricing Matrix & SePay VietQR Instant Activation */}
+      <section id="pricing" className="py-20 px-6 relative z-10 border-t border-white/[0.06] bg-[#040812]/90">
+        <div className="max-w-7xl mx-auto space-y-12">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div className="space-y-3 max-w-2xl">
+              <div className="text-xs font-mono text-cyan-300">
+                BIỂU PHÍ MINH BẠCH · TỰ ĐỘNG KÍCH HOẠT 24/7
+              </div>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-100 text-balance">
+                Phân Cấp Gói Bản Quyền Định Lượng
+              </h2>
+              <p className="text-sm sm:text-base text-slate-400 leading-relaxed">
+                Thanh toán trực tiếp qua mã SePay VietQR (VietinBank) theo tỷ giá thực tế{' '}
+                <span className="text-cyan-300 font-mono tabular-nums">{fxRate.toLocaleString('vi-VN')}₫/USD</span>.
+                Hệ thống tự động mở khóa tài khoản trong 3 giây qua Webhook.
+              </p>
+            </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 font-mono text-xs">
-          {/* Guard 1 */}
-          <div className="p-6 rounded-2xl border border-cyan-500/30 bg-[#0b1222] hover:border-cyan-400 transition-all space-y-3 relative overflow-hidden group">
-            <div className="w-10 h-10 rounded-xl bg-cyan-950 border border-cyan-500/40 flex items-center justify-center text-cyan-300 font-bold text-lg">
-              01
-            </div>
-            <h3 className="font-bold text-sm text-slate-100 group-hover:text-cyan-300 transition-colors">
-              Redis Idempotency Lock
-            </h3>
-            <p className="text-slate-400 text-[11px] font-sans leading-relaxed">
-              Khóa phân tán nguyên tử Redis với TTL 120s. Ngăn chặn tuyệt đối tình trạng một tín hiệu bị gửi trùng 
-              hoặc khớp lệnh nhiều lần khi nguồn phát bị chập chờn.
-            </p>
-            <div className="pt-2 text-[10px] text-cyan-400 flex items-center gap-1 font-mono">
-              <span>✓ Trễ xác thực: &lt;1ms</span>
-            </div>
-          </div>
-
-          {/* Guard 2 */}
-          <div className="p-6 rounded-2xl border border-rose-500/30 bg-[#0b1222] hover:border-rose-400 transition-all space-y-3 relative overflow-hidden group">
-            <div className="w-10 h-10 rounded-xl bg-rose-950 border border-rose-500/40 flex items-center justify-center text-rose-300 font-bold text-lg">
-              02
-            </div>
-            <h3 className="font-bold text-sm text-slate-100 group-hover:text-rose-300 transition-colors">
-              Mandatory Stop Loss Guard
-            </h3>
-            <p className="text-slate-400 text-[11px] font-sans leading-relaxed">
-              Từ chối 100% các tín hiệu không cài đặt giá cắt lỗ (SL). Nghiêm cấm mọi hành vi gồng lỗ vô cực, thả trôi 
-              lệnh hay bình quân giá (Martingale) nguy hiểm.
-            </p>
-            <div className="pt-2 text-[10px] text-rose-400 flex items-center gap-1 font-mono">
-              <span>✓ Bắt buộc có SL cứng</span>
-            </div>
-          </div>
-
-          {/* Guard 3 */}
-          <div className="p-6 rounded-2xl border border-amber-500/30 bg-[#0b1222] hover:border-amber-400 transition-all space-y-3 relative overflow-hidden group">
-            <div className="w-10 h-10 rounded-xl bg-amber-950 border border-amber-500/40 flex items-center justify-center text-amber-300 font-bold text-lg">
-              03
-            </div>
-            <h3 className="font-bold text-sm text-slate-100 group-hover:text-amber-300 transition-colors">
-              Live News Shield (Non-Farm, CPI)
-            </h3>
-            <p className="text-slate-400 text-[11px] font-sans leading-relaxed">
-              Tự động đóng băng nhận lệnh trước 30 phút và sau 15 phút quanh các thời điểm công bố tin tức đỏ 
-              (Lãi suất Fed, CPI, Bảng lương phi nông nghiệp NFP).
-            </p>
-            <div className="pt-2 text-[10px] text-amber-400 flex items-center gap-1 font-mono">
-              <span>✓ Miễn nhiễm trượt giá tin tức</span>
-            </div>
-          </div>
-
-          {/* Guard 4 */}
-          <div className="p-6 rounded-2xl border border-emerald-500/30 bg-[#0b1222] hover:border-emerald-400 transition-all space-y-3 relative overflow-hidden group">
-            <div className="w-10 h-10 rounded-xl bg-emerald-950 border border-emerald-500/40 flex items-center justify-center text-emerald-300 font-bold text-lg">
-              04
-            </div>
-            <h3 className="font-bold text-sm text-slate-100 group-hover:text-emerald-300 transition-colors">
-              Live Spread & Slippage Guard
-            </h3>
-            <p className="text-slate-400 text-[11px] font-sans leading-relaxed">
-              Kiểm tra trực tiếp độ giãn Spread của sàn trước khi đặt lệnh. Nếu Spread XAUUSD vượt quá 4.5 pips 
-              hoặc trượt giá quá 3 pips, lệnh lập tức bị hủy bỏ để bảo toàn lợi nhuận.
-            </p>
-            <div className="pt-2 text-[10px] text-emerald-400 flex items-center gap-1 font-mono">
-              <span>✓ Giới hạn Spread &lt;4.5 pips</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Pricing Section with SePay VietQR Highlights */}
-      <section id="pricing" className="py-20 px-6 relative z-10 border-t border-slate-800/80 bg-[#060a16]">
-        <div className="max-w-6xl mx-auto space-y-10">
-          <div className="text-center space-y-3">
-            <div className="inline-block px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-cyan-950/70 border border-cyan-700/50 text-cyan-300">
-              MINH BẠCH & KÍCH HOẠT TỨC THÌ
-            </div>
-            <h2 className="text-3xl sm:text-5xl font-black text-slate-100">
-              Bảng Giá Dịch Vụ Định Lượng
-            </h2>
-            <p className="text-sm text-slate-400 max-w-xl mx-auto font-normal">
-              Thanh toán tiện lợi qua cổng ngân hàng SePay VietQR (VietinBank). Tỷ giá USD/VND được chốt theo thời gian thực 
-              và tự động kích hoạt tài khoản trong vòng 3 giây.
-            </p>
-
-            {/* Currency Selector */}
-            <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800 font-mono text-xs mt-3">
+            <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800 font-mono text-xs self-start">
               <button
                 type="button"
                 onClick={() => setCurrency('VND')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  currency === 'VND' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                className={`px-4 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                  currency === 'VND' ? 'bg-cyan-400 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                VNĐ (VietQR)
+                Hiển thị VNĐ (VietQR)
               </button>
               <button
                 type="button"
                 onClick={() => setCurrency('USD')}
-                className={`px-3 py-1.5 rounded-lg transition-all ${
-                  currency === 'USD' ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
+                className={`px-4 py-2 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+                  currency === 'USD' ? 'bg-cyan-400 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                USD ($)
+                Hiển thị USD ($)
               </button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 font-mono text-xs">
-            {/* Starter Plan */}
-            <div className="p-6 rounded-2xl border border-slate-800 bg-[#0d1424] space-y-6 flex flex-col justify-between hover:border-slate-700 transition-all">
+            <div className="quant-panel p-7 flex flex-col justify-between space-y-6">
               <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-slate-200 text-sm">STARTER</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">1 TÀI KHOẢN MT5</span>
-                </div>
                 <div>
-                  <div className="text-3xl font-black text-slate-100">{formatPrice(20)}</div>
-                  <div className="text-[11px] text-slate-500 mt-1">/ tháng (Bao gồm $10 Cloud Bridge)</div>
+                  <div className="text-xs text-slate-400">Dành cho nhà đầu tư cá nhân khởi đầu</div>
+                  <h3 className="text-xl font-extrabold text-slate-100 mt-1 font-display">STARTER</h3>
                 </div>
-                <div className="space-y-2 text-slate-300 text-[11px] border-t border-slate-800 pt-4">
-                  <div className="flex items-center gap-2"><span>✓</span> 1 Tài khoản MT5 Cloud Bridge</div>
-                  <div className="flex items-center gap-2"><span>✓</span> Tín hiệu XAUUSD chuẩn mực</div>
-                  <div className="flex items-center gap-2"><span>✓</span> Đầy đủ 4 Lớp Giáp An Toàn</div>
-                  <div className="flex items-center gap-2 text-slate-500"><span>✕</span> Auto Break-Even & Partial TP</div>
-                  <div className="flex items-center gap-2 text-slate-500"><span>✕</span> Chế độ thi quỹ (Prop Guard)</div>
+
+                <div className="pt-2 border-t border-white/[0.06]">
+                  <div className="text-3xl sm:text-4xl font-extrabold text-slate-100 tabular-nums">
+                    {formatPrice(20)}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    mỗi 30 ngày · cộng $10/slot Cloud MT5 Bridge
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-slate-300 text-xs pt-3 border-t border-white/[0.06] font-sans">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Số lượng tài khoản MT5</span>
+                    <strong className="font-mono text-slate-100">1 Tài khoản</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Loại tài khoản hỗ trợ</span>
+                    <strong className="font-mono text-slate-100">Standard USD</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">4 Lớp giáp an toàn lệnh</span>
+                    <strong className="font-mono text-emerald-400">Bật mặc định</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Hệ số nhân rủi ro (Multiplier)</span>
+                    <strong className="font-mono text-slate-400">Cố định 1.0x</strong>
+                  </div>
                 </div>
               </div>
+
               <button
                 type="button"
                 onClick={onEnterApp}
-                className="w-full py-3 rounded-xl border border-slate-700 hover:border-cyan-400 text-slate-200 hover:text-cyan-300 font-bold text-xs transition-colors"
+                className="quant-btn-secondary w-full py-3 text-xs whitespace-nowrap"
               >
-                Bắt Đầu Với Starter ↗
+                Chọn Gói Starter →
               </button>
             </div>
 
-            {/* Growth Plan (Popular) */}
-            <div className="p-6 rounded-2xl border-2 border-cyan-400 bg-[#0d172e] space-y-6 flex flex-col justify-between shadow-[0_0_30px_rgba(6,182,212,0.2)] relative">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-cyan-400 text-slate-950 font-bold text-[10px]">
-                PHỔ BIẾN NHẤT
-              </div>
+            <div className="quant-panel p-7 flex flex-col justify-between space-y-6 border-cyan-400/50 bg-gradient-to-b from-[#0e1b38] to-[#081022]">
               <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-cyan-300 text-sm">GROWTH</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-800">
-                    TỐI ĐA 3 MT5
-                  </span>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-cyan-300">Dành cho danh mục đa tài khoản & Cent</div>
+                    <h3 className="text-xl font-extrabold text-slate-100 mt-1 font-display">GROWTH</h3>
+                  </div>
+                  <span className="text-[11px] text-cyan-300 font-bold">Khuyến nghị</span>
                 </div>
-                <div>
-                  <div className="text-3xl font-black text-cyan-300">{formatPrice(35)}</div>
-                  <div className="text-[11px] text-slate-400 mt-1">/ tháng (Bao gồm Cloud Bridge)</div>
+
+                <div className="pt-2 border-t border-white/[0.08]">
+                  <div className="text-3xl sm:text-4xl font-extrabold text-cyan-300 tabular-nums">
+                    {formatPrice(35)}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    mỗi 30 ngày · hỗ trợ tối đa 3 tài khoản MT5
+                  </div>
                 </div>
-                <div className="space-y-2 text-slate-200 text-[11px] border-t border-cyan-900/50 pt-4">
-                  <div className="flex items-center gap-2 text-cyan-300"><span>✓</span> Tối đa 3 Tài khoản MT5 đồng thời</div>
-                  <div className="flex items-center gap-2 text-cyan-300"><span>✓</span> <strong>Auto Break-Even (1R) & Chốt 50% TP1</strong></div>
-                  <div className="flex items-center gap-2 text-cyan-300"><span>✓</span> Đầy đủ 4 Lớp Giáp An Toàn</div>
-                  <div className="flex items-center gap-2 text-cyan-300"><span>✓</span> Hỗ trợ tài khoản Cent (USC)</div>
-                  <div className="flex items-center gap-2 text-slate-500"><span>✕</span> Chế độ thi quỹ (Prop Guard)</div>
+
+                <div className="space-y-3 text-slate-200 text-xs pt-3 border-t border-white/[0.08] font-sans">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Số lượng tài khoản MT5</span>
+                    <strong className="font-mono text-cyan-300">Tối đa 3 MT5</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Loại tài khoản hỗ trợ</span>
+                    <strong className="font-mono text-cyan-300">Standard · Cent (USC) · ECN</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Auto Break-Even & Chốt 50% TP1</span>
+                    <strong className="font-mono text-emerald-400">Kích hoạt tự động</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Tùy biến Risk Multiplier & Lãi kép</span>
+                    <strong className="font-mono text-emerald-400">0.5x – 3.0x</strong>
+                  </div>
                 </div>
               </div>
+
               <button
                 type="button"
                 onClick={onEnterApp}
-                className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)]"
+                className="quant-btn-primary w-full py-3 text-xs whitespace-nowrap"
               >
-                Kích Hoạt Gói Growth ↗
+                Kích Hoạt Gói Growth →
               </button>
             </div>
 
-            {/* Alpha Prop Plan */}
-            <div className="p-6 rounded-2xl border border-purple-500/40 bg-[#120f26] space-y-6 flex flex-col justify-between hover:border-purple-400 transition-all">
+            <div className="quant-panel p-7 flex flex-col justify-between space-y-6">
               <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="font-bold text-purple-300 text-sm">PROP ALPHA</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] bg-purple-950 text-purple-300 border border-purple-800">
-                    TỐI ĐA 5 MT5
-                  </span>
-                </div>
                 <div>
-                  <div className="text-3xl font-black text-purple-300">{formatPrice(49)}</div>
-                  <div className="text-[11px] text-slate-400 mt-1">/ tháng (Full tính năng)</div>
+                  <div className="text-xs text-emerald-400">Dành cho Trader thi quỹ FTMO / Prop Firm</div>
+                  <h3 className="text-xl font-extrabold text-slate-100 mt-1 font-display">PROP ALPHA</h3>
                 </div>
-                <div className="space-y-2 text-slate-300 text-[11px] border-t border-purple-900/50 pt-4">
-                  <div className="flex items-center gap-2 text-purple-300"><span>✓</span> Tối đa 5 Tài khoản MT5 đồng thời</div>
-                  <div className="flex items-center gap-2 text-purple-300"><span>✓</span> <strong>Chế độ thi quỹ: Drawdown 4.5% Breaker</strong></div>
-                  <div className="flex items-center gap-2 text-purple-300"><span>✓</span> <strong>Đóng toàn bộ vị thế thứ Sáu 21:00 UTC</strong></div>
-                  <div className="flex items-center gap-2 text-purple-300"><span>✓</span> Auto Break-Even & Chốt 50% TP1</div>
-                  <div className="flex items-center gap-2 text-purple-300"><span>✓</span> Ưu tiên băng thông khớp lệnh cao nhất</div>
+
+                <div className="pt-2 border-t border-white/[0.06]">
+                  <div className="text-3xl sm:text-4xl font-extrabold text-emerald-400 tabular-nums">
+                    {formatPrice(49)}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    mỗi 30 ngày · mở khóa toàn bộ tính năng bảo vệ quỹ
+                  </div>
+                </div>
+
+                <div className="space-y-3 text-slate-200 text-xs pt-3 border-t border-white/[0.06] font-sans">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Số lượng tài khoản MT5</span>
+                    <strong className="font-mono text-emerald-400">Tối đa 5 MT5</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Ngắt lỗ ngày (Daily DD Breaker)</span>
+                    <strong className="font-mono text-amber-300">Tự ngắt tại 4.5% DD</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Đóng lệnh cuối tuần (Weekend Close)</span>
+                    <strong className="font-mono text-emerald-400">Thứ Sáu 21:00 UTC</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Ưu tiên luồng Fan-Out</span>
+                    <strong className="font-mono text-cyan-300">Băng thông ưu tiên #1</strong>
+                  </div>
                 </div>
               </div>
+
               <button
                 type="button"
                 onClick={onEnterApp}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-slate-100 font-bold text-xs transition-all shadow-[0_0_20px_rgba(168,85,247,0.3)]"
+                className="quant-btn-secondary w-full py-3 text-xs whitespace-nowrap"
               >
-                Kích Hoạt Prop Alpha ↗
+                Kích Hoạt Prop Alpha →
               </button>
             </div>
-          </div>
-
-          {/* VietQR Bank Notice Banner */}
-          <div className="p-4 rounded-2xl border border-slate-800 bg-[#090f1e] flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-950 border border-blue-600/40 flex items-center justify-center text-xl">
-                🏦
-              </div>
-              <div>
-                <div className="font-bold text-slate-200">Thanh toán tự động qua SePay VietQR (VietinBank)</div>
-                <div className="text-slate-400 text-[11px]">
-                  Số tài khoản: <strong className="text-cyan-300">105887054819</strong> · Chủ tài khoản: <strong className="text-slate-200">LE NGUYEN NHU THUY</strong>
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={onEnterApp}
-              className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition-all text-xs"
-            >
-              Nâng Cấp Ngay Trên App ↗
-            </button>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800/80 bg-[#04060d] py-12 px-6 font-mono text-xs text-slate-500">
+      {/* Quiet Footer */}
+      <footer className="border-t border-white/[0.06] bg-[#010308] py-12 px-6 font-mono text-xs text-slate-500 relative z-10">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center font-bold text-cyan-400">
-              Z
-            </div>
-            <span className="text-slate-300 font-bold">ZUPIRUS QUANT LAB</span>
-            <span>· All Rights Reserved © 2026</span>
+            <span className="text-slate-200 font-bold font-display text-sm">ZUPIRUS</span>
+            <span aria-hidden="true">·</span>
+            <span>Autonomous Quantitative Execution Lab © 2026</span>
           </div>
 
           <div className="flex items-center gap-6">
-            <a href="https://zupirus.com" className="hover:text-cyan-400 transition-colors">zupirus.com</a>
-            <a href="https://app.zupirus.com" className="hover:text-cyan-400 transition-colors">app.zupirus.com</a>
-            <a href="https://adm.zupirus.com" className="hover:text-cyan-400 transition-colors">adm.zupirus.com</a>
+            <button type="button" onClick={onEnterApp} className="hover:text-cyan-300 transition-colors cursor-pointer">
+              Cổng Khách Hàng (User)
+            </button>
+            <button type="button" onClick={onEnterAdmin} className="hover:text-cyan-300 transition-colors cursor-pointer">
+              Trạm Chỉ Huy (Admin)
+            </button>
           </div>
         </div>
       </footer>
+
+      {/* Floating Quantum Portal Dock */}
+      <div className="fixed bottom-5 right-5 z-50 flex items-center gap-1.5 rounded-2xl border border-cyan-400/40 bg-[#030714]/90 p-1.5 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_25px_rgba(6,182,212,0.25)] font-mono text-xs">
+        <span className="px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 font-bold whitespace-nowrap">
+          🌐 Landing
+        </span>
+        <button
+          type="button"
+          onClick={onEnterApp}
+          className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
+        >
+          📊 Cổng User
+        </button>
+        <button
+          type="button"
+          onClick={onEnterAdmin}
+          className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
+        >
+          ⚡ Cổng Admin
+        </button>
+      </div>
     </div>
   );
 };
