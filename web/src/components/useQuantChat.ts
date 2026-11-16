@@ -11,12 +11,12 @@ type QuantMessage = UIMessage<unknown, {
 const transports = {
   customer: new DefaultChatTransport<QuantMessage>({
     api: '/api/chat/assistant',
-    credentials: 'same-origin',
+    credentials: 'include',
     headers: { 'X-Zupirus': '1' },
   }),
   admin: new DefaultChatTransport<QuantMessage>({
     api: '/api/chat/admin-agent',
-    credentials: 'same-origin',
+    credentials: 'include',
     headers: { 'X-Zupirus': '1' },
   }),
 };

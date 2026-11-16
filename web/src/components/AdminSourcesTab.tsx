@@ -26,6 +26,105 @@ export const AdminSourcesTab: React.FC = () => {
   const [selectedSkillSpec, setSelectedSkillSpec] = useState<any>(null);
   const [skillTestResult, setSkillTestResult] = useState<any>(null);
 
+  // AI Settings state
+  const [aiSettings, setAiSettings] = useState<any>({
+    provider: 'HYBRID',
+    api_key_masked: '',
+    has_api_key: false,
+    base_url: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
+    gemini_model: 'gemini-2.0-flash',
+    gemini_keys_count: 0,
+    available_models: [],
+  });
+  const [aiApiKeyInput, setAiApiKeyInput] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [aiBaseUrlInput, setAiBaseUrlInput] = useState('https://api.openai.com/v1');
+  const [aiModelInput, setAiModelInput] = useState('gpt-4o-mini');
+  const [aiProviderInput, setAiProviderInput] = useState('HYBRID');
+  const [customModelMode, setCustomModelMode] = useState(false);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiTestPrompt, setAiTestPrompt] = useState('Đánh giá điều kiện rủi ro và chế độ thị trường XAU/USD M15 hiện tại.');
+  const [aiTestResult, setAiTestResult] = useState<any>(null);
+
+  const fetchAiSettings = async () => {
+    try {
+      const res = await fetch('/api/admin/ai/settings', { credentials: 'include' });
+      if (res.ok) {
+        const d = await res.json();
+        setAiSettings(d);
+        setAiProviderInput(d.provider || 'HYBRID');
+        setAiBaseUrlInput(d.base_url || 'https://api.openai.com/v1');
+        setAiModelInput(d.model || 'gpt-4o-mini');
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSaveAiSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAiSaving(true);
+    try {
+      const res = await fetch('/api/admin/ai/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        credentials: 'include',
+        body: JSON.stringify({
+          provider: aiProviderInput,
+          api_key: aiApiKeyInput.trim() || undefined,
+          base_url: aiBaseUrlInput.trim(),
+          model: aiModelInput.trim(),
+        }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setMsg(d.message || 'Đã cập nhật cấu hình AI thành công.');
+        setAiApiKeyInput('');
+        fetchAiSettings();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setMsg(`Lỗi lưu cấu hình: ${d.detail || res.status}`);
+      }
+    } catch (e: any) {
+      setMsg(`Lỗi kết nối: ${e.message}`);
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  const handleTestAi = async () => {
+    if (!aiTestPrompt.trim()) return;
+    setAiTesting(true);
+    setAiTestResult(null);
+    try {
+      const res = await fetch('/api/admin/ai/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        credentials: 'include',
+        body: JSON.stringify({ prompt: aiTestPrompt.trim() }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setAiTestResult(d);
+        setMsg(`Kiểm thử AI thành công (${d.latency_ms}ms, ${d.provider}).`);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setAiTestResult({
+          success: false,
+          error: d.detail || `Lỗi HTTP ${res.status}`,
+        });
+        setMsg(`Lỗi kiểm thử AI: ${d.detail || res.status}`);
+      }
+    } catch (e: any) {
+      setAiTestResult({ success: false, error: e.message });
+      setMsg(`Lỗi kết nối kiểm thử: ${e.message}`);
+    } finally {
+      setAiTesting(false);
+    }
+  };
+
   const fetchAll = async () => {
     setLoading(true);
     try {
@@ -43,6 +142,7 @@ export const AdminSourcesTab: React.FC = () => {
         const sk = await skRes.json();
         setSkills(sk.skills || []);
       }
+      await fetchAiSettings();
     } catch {
       // ignore
     } finally {
@@ -206,7 +306,221 @@ export const AdminSourcesTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Row 2: Sources Leaderboard + Add Sandbox Source */}
+      {/* Row 2: AI Engine Gateway & Model Router Configuration */}
+      <div className="quant-panel p-6 space-y-5 border-amber-500/25">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-400">
+              Cổng Điều Phối Trí Tuệ Nhân Tạo (AI Engine Gateway)
+            </span>
+            <h3 className="mt-0.5 text-lg font-bold text-white">
+              Cấu Hình API Key & Chọn Mô Hình Cho AI Agent
+            </h3>
+            <p className="mt-1 text-xs text-slate-400 leading-relaxed max-w-2xl">
+              Chỉ định nhà cung cấp AI (OpenAI / OpenRouter / DeepSeek / Google Gemini), lựa chọn mô hình suy luận và kiểm thử trực tiếp độ trễ phản hồi trước khi cấp quyền phân tích danh mục.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 font-mono text-xs text-amber-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Pool Gemini: <strong>{aiSettings.gemini_keys_count || 0} keys</strong></span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 font-mono text-xs text-cyan-300">
+              <span>Đang chạy: <strong>{aiSettings.model}</strong></span>
+            </span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveAiSettings} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {/* Provider Selector */}
+            <div>
+              <label className="block text-[11px] font-mono uppercase tracking-wider text-slate-400 mb-1.5">
+                Nhà Cung Cấp AI (Provider)
+              </label>
+              <select
+                value={aiProviderInput}
+                onChange={(e) => setAiProviderInput(e.target.value)}
+                className="quant-input font-mono text-xs w-full"
+              >
+                <option value="HYBRID">HYBRID (Đa luồng Gemini + OpenAI)</option>
+                <option value="OPENAI">OpenAI / OpenRouter / DeepSeek API</option>
+                <option value="GEMINI">Google Gemini API Pool (Chuyên sâu)</option>
+              </select>
+            </div>
+
+            {/* Model Selector */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+                  Mô Hình AI (AI Model)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setCustomModelMode(!customModelMode)}
+                  className="text-[10px] font-mono text-amber-400 hover:text-amber-300 underline"
+                >
+                  {customModelMode ? 'Chọn từ danh sách' : 'Tùy chỉnh model khác'}
+                </button>
+              </div>
+              {customModelMode ? (
+                <input
+                  type="text"
+                  placeholder="VD: deepseek/deepseek-r1, gpt-4o"
+                  value={aiModelInput}
+                  onChange={(e) => setAiModelInput(e.target.value)}
+                  className="quant-input font-mono text-xs w-full"
+                  required
+                />
+              ) : (
+                <select
+                  value={aiModelInput}
+                  onChange={(e) => setAiModelInput(e.target.value)}
+                  className="quant-input font-mono text-xs w-full"
+                >
+                  {(aiSettings.available_models && aiSettings.available_models.length > 0
+                    ? aiSettings.available_models
+                    : [
+                        { id: 'gpt-4o-mini', name: 'OpenAI GPT-4o Mini (Khuyên dùng)' },
+                        { id: 'gpt-4o', name: 'OpenAI GPT-4o Flagship' },
+                        { id: 'gemini-2.0-flash', name: 'Google Gemini 2.0 Flash' },
+                        { id: 'gemini-1.5-pro', name: 'Google Gemini 1.5 Pro' },
+                        { id: 'deepseek-chat', name: 'DeepSeek V3 (DeepSeek / OpenRouter)' },
+                        { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (qua OpenRouter)' },
+                      ]
+                  ).map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name || m.id}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Base URL (Endpoint) */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+                  Điểm Cuối API (Base URL)
+                </label>
+                <span className="text-[10px] font-mono text-slate-500">
+                  OpenAI / OpenRouter / DeepSeek
+                </span>
+              </div>
+              <input
+                type="text"
+                placeholder="https://api.openai.com/v1"
+                value={aiBaseUrlInput}
+                onChange={(e) => setAiBaseUrlInput(e.target.value)}
+                className="quant-input font-mono text-xs w-full"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-12 items-end">
+            {/* API Key Input */}
+            <div className="sm:col-span-8">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+                  Khóa API (API Key)
+                </label>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {aiSettings.has_api_key
+                    ? `Hiện tại: ${aiSettings.api_key_masked}`
+                    : 'Chưa có key được lưu'}
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  placeholder={
+                    aiSettings.has_api_key
+                      ? 'Để trống nếu giữ nguyên khóa API hiện tại'
+                      : 'Nhập API key (sk-... hoặc token)'
+                  }
+                  value={aiApiKeyInput}
+                  onChange={(e) => setAiApiKeyInput(e.target.value)}
+                  className="quant-input font-mono text-xs w-full pr-16"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-0.5 text-[10px] font-mono rounded bg-white/10 text-slate-300 hover:text-white"
+                >
+                  {showApiKey ? 'Ẩn' : 'Hiện'}
+                </button>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="sm:col-span-4 flex gap-2">
+              <button
+                type="submit"
+                disabled={aiSaving}
+                className="quant-btn-primary py-2.5 text-xs font-bold w-full whitespace-nowrap"
+              >
+                {aiSaving ? 'Đang lưu...' : '💾 Lưu Cấu Hình AI'}
+              </button>
+            </div>
+          </div>
+        </form>
+
+        {/* Live Test Console */}
+        <div className="pt-4 border-t border-white/[0.08] space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-amber-300">
+              Kiểm Thử Kết Nối Mô Hình Trực Tiếp (Live Model Sandbox Test)
+            </span>
+            <span className="text-[10px] font-mono text-slate-400">
+              Thực hiện truy vấn mẫu và đo độ trễ mạng thực tế
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <input
+              type="text"
+              value={aiTestPrompt}
+              onChange={(e) => setAiTestPrompt(e.target.value)}
+              placeholder="Nhập câu lệnh kiểm thử cho AI Agent..."
+              className="quant-input font-mono text-xs flex-1"
+            />
+            <button
+              type="button"
+              disabled={aiTesting}
+              onClick={handleTestAi}
+              className="quant-btn-secondary px-5 py-2.5 text-xs font-bold whitespace-nowrap shrink-0 border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
+            >
+              {aiTesting ? 'Đang gọi AI...' : '⚡ Kiểm Thử Kết Nối (1-Click Test)'}
+            </button>
+          </div>
+
+          {aiTestResult && (
+            <div
+              className={`rounded-xl border p-4 space-y-2 text-xs font-mono ${
+                aiTestResult.success
+                  ? 'border-emerald-500/35 bg-emerald-950/20 text-emerald-200'
+                  : 'border-rose-500/35 bg-rose-950/20 text-rose-200'
+              }`}
+            >
+              <div className="flex items-center justify-between border-b border-white/[0.08] pb-2 text-[11px]">
+                <span className="font-bold">
+                  {aiTestResult.success ? '✓ KẾT NỐI AI THÀNH CÔNG' : '✕ KẾT NỐI THẤT BẠI'}
+                </span>
+                {aiTestResult.success && (
+                  <span className="text-emerald-400 tabular-nums font-bold">
+                    {aiTestResult.provider} · {aiTestResult.model} · {aiTestResult.latency_ms}ms
+                  </span>
+                )}
+              </div>
+              <div className="leading-relaxed whitespace-pre-wrap font-sans text-xs pt-1 text-slate-200">
+                {aiTestResult.response || aiTestResult.error}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 3: Sources Leaderboard + Add Sandbox Source */}
       <div className="quant-panel p-6 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

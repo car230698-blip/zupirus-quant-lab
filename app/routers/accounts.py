@@ -86,7 +86,17 @@ def list_accounts(u: dict = Depends(get_current_user)):
             """
             rows = c.execute(query, (u["id"],)).fetchall()
 
-        accounts = [_row_to_account_response(dict(r)) for r in rows]
+        raw_accounts = [_row_to_account_response(dict(r)) for r in rows]
+        # Deduplicate accounts by (login, server) keeping the most recently updated
+        seen = set()
+        accounts = []
+        for a in raw_accounts:
+            login = a.get("login") or a.get("mt5_login") or a.get("id")
+            server = (a.get("server") or a.get("broker_server") or "").lower()
+            key = (str(login), server)
+            if key not in seen:
+                seen.add(key)
+                accounts.append(a)
         return {"accounts": accounts}
 
 

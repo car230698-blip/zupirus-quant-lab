@@ -161,7 +161,7 @@ def logout(request: Request, u=Depends(user)):
 
 @app.get('/api/me')
 def me(u=Depends(user)):
-    return {'email': u['email'], 'role': u['role']}
+    return {'id': u['id'], 'email': u['email'], 'role': u['role']}
 
 class AccountCreate(Model):
     login: str = Field(min_length=1, max_length=24, pattern=r'^\d+$')
@@ -392,7 +392,18 @@ def feed(p: Quote, request: Request):
 @app.get('/api/dashboard')
 def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional[str] = None):
     with tx() as c:
-        accounts = [dict(r) for r in c.execute('SELECT * FROM accounts WHERE user_id=?', (u['id'],))]
+        accounts = []
+        try:
+            cloud_accs = [dict(r) for r in c.execute('SELECT * FROM trading_accounts WHERE user_id=?', (u['id'],))]
+            for ca in cloud_accs:
+                ca['login'] = ca.get('mt5_login', ca.get('login'))
+                ca['server'] = ca.get('broker_server', ca.get('server'))
+                ca['mode'] = 'REAL'
+                ca['is_real'] = True
+            accounts.extend(cloud_accs)
+        except Exception:
+            pass
+
         try:
             real_accs = [dict(r) for r in c.execute('SELECT * FROM real_accounts WHERE user_id=?', (u['id'],))]
             for ra in real_accs:
@@ -401,9 +412,26 @@ def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional
             accounts.extend(real_accs)
         except Exception:
             pass
+
+        try:
+            legacy_accs = [dict(r) for r in c.execute('SELECT * FROM accounts WHERE user_id=?', (u['id'],))]
+            accounts.extend(legacy_accs)
+        except Exception:
+            pass
+
+        # Deduplicate accounts so each (login, server) appears only once
+        seen_keys = set()
+        deduped = []
+        for a in accounts:
+            key = (str(a.get('login')), str(a.get('server', '')).lower())
+            if key not in seen_keys:
+                seen_keys.add(key)
+                deduped.append(a)
+        accounts = deduped
+
         # Enrich accounts with cached heartbeat from Redis if available
         for a in accounts:
-            hb = get_cached_heartbeat(a['id'])
+            hb = get_cached_heartbeat(a.get('id', ''))
             if hb:
                 a['cached_heartbeat'] = hb
         
@@ -663,16 +691,40 @@ def delete_admin_user(target_uid: str, u=Depends(admin)):
         row = c.execute('SELECT id, email, role FROM users WHERE id=?', (target_uid,)).fetchone()
         if not row:
             fail(404, 'Không tìm thấy người dùng')
-        acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
-        for aid in acc_ids:
-            c.execute('DELETE FROM pairings WHERE account_id=?', (aid,))
-            c.execute('DELETE FROM devices WHERE account_id=?', (aid,))
-            c.execute('DELETE FROM dispatches WHERE account_id=?', (aid,))
-            c.execute('DELETE FROM accounts WHERE id=?', (aid,))
+
+        # Clean up cloud trading accounts & executions
+        try:
+            c.execute('DELETE FROM metaapi_trade_executions WHERE account_id IN (SELECT id FROM trading_accounts WHERE user_id=?)', (target_uid,))
+            c.execute('DELETE FROM trading_accounts WHERE user_id=?', (target_uid,))
+            c.execute('DELETE FROM metaapi_cloud_accounts WHERE user_id=?', (target_uid,))
+        except Exception:
+            pass
+
+        # Clean up orders, subscriptions, transactions
+        try:
+            c.execute('DELETE FROM orders WHERE user_id=?', (target_uid,))
+            c.execute('DELETE FROM subscriptions WHERE user_id=?', (target_uid,))
+            c.execute('DELETE FROM payment_transactions WHERE user_id=?', (target_uid,))
+        except Exception:
+            pass
+
+        # Clean up real accounts, legal disclaimers, legacy accounts
+        try:
+            c.execute('DELETE FROM real_accounts WHERE user_id=?', (target_uid,))
+            c.execute('DELETE FROM legal_disclaimers WHERE user_id=?', (target_uid,))
+            acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
+            for aid in acc_ids:
+                c.execute('DELETE FROM pairings WHERE account_id=?', (aid,))
+                c.execute('DELETE FROM devices WHERE account_id=?', (aid,))
+                c.execute('DELETE FROM dispatches WHERE account_id=?', (aid,))
+                c.execute('DELETE FROM accounts WHERE id=?', (aid,))
+        except Exception:
+            pass
+
         c.execute('DELETE FROM sessions WHERE user_id=?', (target_uid,))
         c.execute('DELETE FROM users WHERE id=?', (target_uid,))
         audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': row[1]})
-    return {'ok': True}
+    return {'ok': True, 'message': f'Đã xoá người dùng {row[1]} thành công.'}
 
 # ---------------------------------------------------------------------------
 # Admin Gemini API Keys Pool Endpoints
@@ -1494,6 +1546,7 @@ from app.routers import (
     admin_billing_router,
     telemetry_router,
     skills_router,
+    admin_ai_router,
 )
 app.include_router(billing_router)
 app.include_router(webhooks_router)
@@ -1503,6 +1556,7 @@ app.include_router(sources_router)
 app.include_router(admin_billing_router)
 app.include_router(telemetry_router)
 app.include_router(skills_router)
+app.include_router(admin_ai_router)
 
 @app.post('/api/metaapi/dispatch-signal')
 async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):

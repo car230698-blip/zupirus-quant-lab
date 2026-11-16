@@ -7,6 +7,7 @@ from app.routers.sources import router as sources_router
 from app.routers.admin_billing import router as admin_billing_router
 from app.routers.telemetry import router as telemetry_router
 from app.routers.skills import router as skills_router
+from app.routers.admin_ai import router as admin_ai_router
 
 __all__ = [
     "billing_router",
@@ -17,4 +18,5 @@ __all__ = [
     "admin_billing_router",
     "telemetry_router",
     "skills_router",
+    "admin_ai_router",
 ]

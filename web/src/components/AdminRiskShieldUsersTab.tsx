@@ -49,15 +49,24 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
   const [localNewsPostMin, setLocalNewsPostMin] = useState('30');
   const [localNewsMsg, setLocalNewsMsg] = useState('');
 
-  const [localUsers, setLocalUsers] = useState<any[]>([
-    { id: 'usr-admin-1', email: 'admin@zupirus.local', full_name: 'Quản Trị Viên', role: 'admin', is_active: true },
-    { id: 'usr-trader-1', email: 'trader@zupirus.local', full_name: 'Nhà Giao Dịch', role: 'user', is_active: true },
-  ]);
+  const [localUsers, setLocalUsers] = useState<any[]>([]);
   const [localNewEmail, setLocalNewEmail] = useState('');
   const [localNewName, setLocalNewName] = useState('');
   const [localNewPass, setLocalNewPass] = useState('');
   const [localNewRole, setLocalNewRole] = useState('user');
   const [localUserMsg, setLocalUserMsg] = useState('');
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch('/api/admin/users', { credentials: 'include' });
+      if (res.ok) {
+        const d = await res.json();
+        setLocalUsers(d.users || []);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     const loadMonitor = async () => {
@@ -73,6 +82,7 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
       }
     };
     loadMonitor();
+    fetchUsers();
   }, []);
 
   const killSwitchActive = props.killSwitchActive ?? localHalted;
@@ -177,32 +187,77 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
 
   const handleCreateUser =
     props.handleCreateUser ??
-    ((e: React.FormEvent) => {
+    (async (e: React.FormEvent) => {
       e.preventDefault();
       if (!newUserEmail.trim()) return;
-      setLocalUsers((prev) => [
-        ...prev,
-        {
-          id: `usr-${Date.now()}`,
-          email: newUserEmail.trim(),
-          full_name: newUserName.trim() || 'Thành Viên Mới',
-          role: newUserRole,
-          is_active: true,
-        },
-      ]);
-      setLocalNewEmail('');
-      setLocalNewName('');
-      setLocalNewPass('');
-      setLocalUserMsg(`Đã tạo tài khoản ${newUserEmail} thành công.`);
+      try {
+        const res = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+          credentials: 'include',
+          body: JSON.stringify({
+            email: newUserEmail.trim(),
+            password: newUserPass || 'Zupirus@123',
+            role: newUserRole,
+          }),
+        });
+        if (res.ok) {
+          setLocalUserMsg(`Đã tạo thành viên ${newUserEmail} thành công.`);
+          setLocalNewEmail('');
+          setLocalNewName('');
+          setLocalNewPass('');
+          fetchUsers();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setLocalUserMsg(`Lỗi tạo thành viên: ${err.detail || res.status}`);
+        }
+      } catch (e: any) {
+        setLocalUserMsg(`Lỗi kết nối: ${e.message}`);
+      }
     });
 
-  const handleToggleUserActive =
-    props.handleToggleUserActive ??
-    ((userId: string, currentActive: boolean) => {
-      setLocalUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, is_active: !currentActive } : u))
-      );
-    });
+  const handleDeleteUser = async (userId: string, email: string) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn xoá vĩnh viễn thành viên "${email}" (ID: ${userId})? Mọi tài khoản MT5, gói cước và phiên đăng nhập liên kết sẽ bị xoá hoàn toàn.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+        headers: { 'X-Zupirus': '1' },
+        credentials: 'include',
+      });
+      if (res.ok) {
+        setLocalUserMsg(`Đã xoá vĩnh viễn thành viên ${email}.`);
+        fetchUsers();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setLocalUserMsg(`Lỗi xoá thành viên: ${err.detail || res.status}`);
+      }
+    } catch (e: any) {
+      setLocalUserMsg(`Lỗi kết nối: ${e.message}`);
+    }
+  };
+
+  const handleToggleUserRole = async (userId: string, currentRole: string) => {
+    const newRole = currentRole === 'admin' ? 'customer' : 'admin';
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        credentials: 'include',
+        body: JSON.stringify({ role: newRole }),
+      });
+      if (res.ok) {
+        setLocalUserMsg(`Đã chuyển vai trò của ${userId} sang ${newRole.toUpperCase()}.`);
+        fetchUsers();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setLocalUserMsg(`Lỗi đổi vai trò: ${err.detail || res.status}`);
+      }
+    } catch (e: any) {
+      setLocalUserMsg(`Lỗi kết nối: ${e.message}`);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -443,40 +498,62 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
             <thead>
               <tr>
                 <th>ID / Email</th>
-                <th>Họ Tên</th>
                 <th>Vai Trò</th>
-                <th>Trạng Thái</th>
-                <th className="text-right">Điều Khiển</th>
+                <th>Tài Khoản MT5</th>
+                <th>Phiên Đăng Nhập</th>
+                <th className="text-right">Thao Tác Quản Trị</th>
               </tr>
             </thead>
             <tbody>
-              {allUsers.map((u: any) => {
-                const active = u.is_active !== false;
-                return (
-                  <tr key={u.id}>
-                    <td>
-                      <div className="font-semibold text-white">{u.email}</div>
-                      <div className="font-mono text-[11px] text-slate-500">{u.id}</div>
-                    </td>
-                    <td className="text-xs text-slate-300">{u.full_name || '—'}</td>
-                    <td className="font-mono text-xs uppercase text-cyan-300">{u.role}</td>
-                    <td className="font-mono text-xs">
-                      <span className={active ? 'text-emerald-400 font-bold' : 'text-rose-400'}>
-                        {active ? 'HOẠT ĐỘNG' : 'ĐÃ KHOÁ'}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleUserActive(u.id, active)}
-                        className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1 font-mono text-[11px] text-slate-300 hover:text-white"
-                      >
-                        {active ? 'Khoá Tài Khoản' : 'Mở Khoá'}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {allUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-xs text-slate-500">
+                    Chưa có thành viên nào trong hệ thống.
+                  </td>
+                </tr>
+              ) : (
+                allUsers.map((u: any) => {
+                  return (
+                    <tr key={u.id}>
+                      <td>
+                        <div className="font-semibold text-white">{u.email}</div>
+                        <div className="font-mono text-[11px] text-slate-500">{u.id}</div>
+                      </td>
+                      <td className="font-mono text-xs">
+                        <span className={`inline-block px-2 py-0.5 rounded font-bold ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'}`}>
+                          {u.role ? u.role.toUpperCase() : 'USER'}
+                        </span>
+                      </td>
+                      <td className="font-mono text-xs text-slate-300 tabular-nums">
+                        {u.accounts_count ?? 0} tài khoản
+                      </td>
+                      <td className="font-mono text-xs text-emerald-400 tabular-nums">
+                        {u.active_sessions ? `${u.active_sessions} phiên hoạt động` : 'Chưa đăng nhập'}
+                      </td>
+                      <td className="text-right">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleUserRole(u.id, u.role)}
+                            className="rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 font-mono text-[11px] text-slate-300 hover:text-white transition"
+                            title="Chuyển đổi quyền User/Admin"
+                          >
+                            Đổi Quyền
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUser(u.id, u.email)}
+                            className="rounded-lg border border-rose-500/40 bg-rose-950/30 px-2.5 py-1 font-mono text-[11px] font-bold text-rose-300 hover:bg-rose-900/60 hover:text-white transition"
+                            title="Xoá vĩnh viễn thành viên và mọi dữ liệu liên kết"
+                          >
+                            Xoá Thành Viên
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

@@ -20,7 +20,21 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   refetchAccounts: externalRefetch,
 }) => {
   const { data: cloudQueryData, refetch: queryRefetch } = useCloudAccounts();
-  const accounts = externalAccounts ?? cloudQueryData?.accounts ?? [];
+  const rawAccounts = externalAccounts ?? cloudQueryData?.accounts ?? [];
+  const accounts = React.useMemo(() => {
+    const seen = new Set<string>();
+    const deduped: any[] = [];
+    for (const a of rawAccounts) {
+      const login = a.login || a.mt5_login || a.account_id || a.id;
+      const server = (a.server || a.broker_server || a.mt5_server || '').toLowerCase();
+      const key = `${login}-${server}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(a);
+      }
+    }
+    return deduped;
+  }, [rawAccounts]);
   const refetchAccounts = () => {
     if (externalRefetch) externalRefetch();
     queryRefetch();
@@ -151,7 +165,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       const res = await fetch('/api/v1/billing/checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({
           plan_tier: subTier,
@@ -190,7 +204,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       const res = await fetch('/api/v1/accounts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({
           account_id: cloudForm.mt5_login,
@@ -232,6 +246,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       const res = await fetch(`/api/v1/accounts/cloud/${encodeURIComponent(accountId)}/${action}`, {
         method: 'POST',
+        headers: { 'X-Zupirus': '1' },
         credentials: 'include',
       });
       if (res.ok) {
@@ -251,13 +266,39 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/toggle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({ is_active: !currentActive }),
       });
       refetchAccounts();
     } catch {
       // ignore
+    }
+  };
+
+  const handleDeleteAccount = async (accountId: string) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn ngắt kết nối và xoá tài khoản #${accountId} khỏi hệ thống không?`)) {
+      return;
+    }
+    setCloudBusy(true);
+    try {
+      const res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}`, {
+        method: 'DELETE',
+        headers: { 'X-Zupirus': '1' },
+        credentials: 'include',
+      });
+      if (res.ok) {
+        setCloudMsg(`Đã xoá tài khoản #${accountId} thành công.`);
+        refetchAccounts();
+        fetchCloudSub();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setCloudMsg(`Lỗi xoá tài khoản: ${d.detail || res.status}`);
+      }
+    } catch (e: any) {
+      setCloudMsg(`Lỗi kết nối: ${e.message}`);
+    } finally {
+      setCloudBusy(false);
     }
   };
 
@@ -700,6 +741,16 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                         }`}
                       >
                         {isActive ? 'Tạm Dừng Copy' : 'Kích Hoạt Copy'}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={cloudBusy}
+                        onClick={() => handleDeleteAccount(id)}
+                        className="rounded-xl px-2.5 py-1.5 text-xs font-bold transition whitespace-nowrap shrink-0 border border-rose-500/40 bg-rose-950/30 text-rose-300 hover:bg-rose-900/50 hover:text-white"
+                        title="Xoá và ngắt kết nối tài khoản"
+                      >
+                        Xoá
                       </button>
                     </div>
                   </div>
