@@ -175,8 +175,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.order) {
-        setCheckoutOrder(data.order);
+      const orderData = data.order || (data.id ? data : null);
+      if (res.ok && orderData) {
+        setCheckoutOrder(orderData);
         setCheckoutModalOpen(true);
       } else {
         setCloudMsg(`Lỗi khởi tạo đơn thanh toán: ${data.detail || res.status}`);
