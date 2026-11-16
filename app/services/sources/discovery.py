@@ -79,11 +79,101 @@ def fetch_cross_asset_context() -> Dict[str, Any]:
     return ctx
 
 
-def discover_and_ingest_external_signals() -> Dict[str, Any]:
-    """Autonomously poll configured external JSON/webhook feeds or intermarket structure
-    and record candidate observations into `SHADOW_ONLY` sources for M1 grading."""
+def _poll_tradingview_public_scanner() -> int:
+    """Poll TradingView Public Forex/Gold Scanner API across M15, H1, H4 for
+    XAUUSD, EURUSD, GBPUSD, USDJPY without requiring any manual user setup."""
+    import httpx
     now = time.time()
+    tickers_map = {
+        "OANDA:XAUUSD": ("XAUUSD", 2, 5.0),
+        "FX:EURUSD": ("EURUSD", 5, 0.0025),
+        "FX:GBPUSD": ("GBPUSD", 5, 0.0030),
+        "FX:USDJPY": ("USDJPY", 3, 0.35),
+    }
+    payload = {
+        "symbols": {"tickers": list(tickers_map.keys())},
+        "columns": ["Recommend.All|15", "Recommend.All|60", "Recommend.All|240", "close", "ATR"],
+    }
+    try:
+        with httpx.Client(timeout=6.0) as client:
+            r = client.post("https://scanner.tradingview.com/forex/scan", json=payload)
+            if r.status_code != 200:
+                return 0
+            rows = r.json().get("data") or []
+    except Exception as e:
+        logger.debug(f"TradingView public scanner skip: {e}")
+        return 0
+
+    tf_sources = [
+        (0, "src_tv_m15_consensus", "TradingView Public M15 Consensus", 1800),
+        (1, "src_tv_h1_consensus", "TradingView Public H1 Consensus", 3600),
+        (2, "src_tv_h4_trend", "TradingView Public H4 Trend", 14400),
+    ]
     ingested = 0
+    for _, sid, sname, _ in tf_sources:
+        create_source(
+            name=sname,
+            source_type="PUBLIC_SCANNER",
+            status="SHADOW_ONLY",
+            symbol_universe="XAUUSD,EURUSD,GBPUSD,USDJPY",
+            source_id=sid,
+        )
+
+    with tx() as c:
+        for row in rows:
+            ticker = row.get("s")
+            vals = row.get("d") or []
+            if ticker not in tickers_map or len(vals) < 5:
+                continue
+            sym, dec, fallback_atr = tickers_map[ticker]
+            price = vals[3]
+            if price is None:
+                continue
+            entry = round(float(price), dec)
+            atr = float(vals[4]) if vals[4] else fallback_atr
+            sl_dist = max(atr * 1.5, fallback_atr * 0.6)
+            tp_dist = sl_dist * 2.0
+
+            for col_idx, sid, _, cooldown in tf_sources:
+                rec = vals[col_idx]
+                if rec is None:
+                    continue
+                rec_f = float(rec)
+                if rec_f >= 0.35:
+                    side = "BUY"
+                elif rec_f <= -0.35:
+                    side = "SELL"
+                else:
+                    continue
+
+                recent = c.execute(
+                    "SELECT id FROM shadow_signals WHERE source_id = ? AND symbol = ? AND signal_time >= ?",
+                    (sid, sym, now - cooldown),
+                ).fetchone()
+                if recent:
+                    continue
+
+                sl_p = round(entry - sl_dist if side == "BUY" else entry + sl_dist, dec)
+                tp_p = round(entry + tp_dist if side == "BUY" else entry - tp_dist, dec)
+                record_shadow_signal(
+                    source_id=sid,
+                    symbol=sym,
+                    side=side,
+                    entry_price=entry,
+                    stop_loss=sl_p,
+                    take_profit=tp_p,
+                    signal_time=now,
+                    db_cursor=c,
+                )
+                ingested += 1
+    return ingested
+
+
+def discover_and_ingest_external_signals() -> Dict[str, Any]:
+    """Autonomously poll public TradingView Scanner, configured external feeds, and
+    cross-asset structure across XAUUSD, EURUSD, GBPUSD, USDJPY into SHADOW_ONLY."""
+    now = time.time()
+    ingested = _poll_tradingview_public_scanner()
 
     # 1. Check any custom discovery feeds stored in kv (`discovery:feeds`)
     feeds: List[Dict[str, Any]] = []

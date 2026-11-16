@@ -18,27 +18,37 @@ class MarketDataStreamer:
 
     def __init__(self, metaapi_client: Optional[MetaApiClient] = None):
         self.client = metaapi_client or MetaApiClient()
-        self.current_m1_bar = None
-        self.current_m15_bar = None
+        self.current_m1_bars: Dict[str, Dict[str, Any]] = {}
+        self.current_m15_bars: Dict[str, Dict[str, Any]] = {}
 
     def ingest_tick(self, symbol: str, bid: float, ask: float, ts: Optional[float] = None, source: str = "METAAPI"):
-        """Save tick quote and aggregate both M1 and M15 candles."""
+        """Save tick quote and aggregate both M1 and M15 candles per symbol."""
         now_ts = ts or time.time()
-        with tx() as c:
-            c.execute(
-                "INSERT INTO quotes (ts, source, bid, ask) VALUES (?, ?, ?, ?)",
-                (now_ts, source, round(bid, 2), round(ask, 2))
-            )
+        sym = str(symbol or "XAUUSD").upper()
+        dec = 2 if ("XAU" in sym or "GOLD" in sym) else (3 if "JPY" in sym else 5)
+        bid_r = round(float(bid), dec)
+        ask_r = round(float(ask), dec)
 
-        mid = round((bid + ask) / 2.0, 2)
+        try:
+            from app.db import insert_timescale_quote
+            insert_timescale_quote(source, now_ts, bid_r, ask_r, symbol=sym)
+        except Exception:
+            with tx() as c:
+                c.execute(
+                    "INSERT INTO quotes (ts, source, bid, ask) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                    (now_ts, source, bid_r, ask_r)
+                )
 
-        # 1. Update M1 candle
+        mid = round((bid_r + ask_r) / 2.0, dec)
+
+        # 1. Update M1 candle for this symbol
         bar_minute = int(now_ts // 60) * 60
-        if self.current_m1_bar is None or self.current_m1_bar["time"] != bar_minute:
-            if self.current_m1_bar:
-                self._save_candle(self.current_m1_bar)
-            self.current_m1_bar = {
-                "symbol": symbol,
+        cur_m1 = self.current_m1_bars.get(sym)
+        if cur_m1 is None or cur_m1["time"] != bar_minute:
+            if cur_m1:
+                self._save_candle(cur_m1)
+            cur_m1 = {
+                "symbol": sym,
                 "timeframe": "M1",
                 "time": bar_minute,
                 "open": mid,
@@ -47,21 +57,22 @@ class MarketDataStreamer:
                 "close": mid,
                 "volume": 1
             }
+            self.current_m1_bars[sym] = cur_m1
         else:
-            b = self.current_m1_bar
-            b["high"] = max(b["high"], mid)
-            b["low"] = min(b["low"], mid)
-            b["close"] = mid
-            b["volume"] += 1
-        self._save_candle(self.current_m1_bar)
+            cur_m1["high"] = max(cur_m1["high"], mid)
+            cur_m1["low"] = min(cur_m1["low"], mid)
+            cur_m1["close"] = mid
+            cur_m1["volume"] += 1
+        self._save_candle(cur_m1)
 
-        # 2. Update M15 candle
+        # 2. Update M15 candle for this symbol
         bar_m15 = int(now_ts // 900) * 900
-        if self.current_m15_bar is None or self.current_m15_bar["time"] != bar_m15:
-            if self.current_m15_bar:
-                self._save_candle(self.current_m15_bar)
-            self.current_m15_bar = {
-                "symbol": symbol,
+        cur_m15 = self.current_m15_bars.get(sym)
+        if cur_m15 is None or cur_m15["time"] != bar_m15:
+            if cur_m15:
+                self._save_candle(cur_m15)
+            cur_m15 = {
+                "symbol": sym,
                 "timeframe": "M15",
                 "time": bar_m15,
                 "open": mid,
@@ -70,13 +81,13 @@ class MarketDataStreamer:
                 "close": mid,
                 "volume": 1
             }
+            self.current_m15_bars[sym] = cur_m15
         else:
-            b15 = self.current_m15_bar
-            b15["high"] = max(b15["high"], mid)
-            b15["low"] = min(b15["low"], mid)
-            b15["close"] = mid
-            b15["volume"] += 1
-        self._save_candle(self.current_m15_bar)
+            cur_m15["high"] = max(cur_m15["high"], mid)
+            cur_m15["low"] = min(cur_m15["low"], mid)
+            cur_m15["close"] = mid
+            cur_m15["volume"] += 1
+        self._save_candle(cur_m15)
 
     def _save_candle(self, bar: Dict[str, Any]):
         """Persist candle into candles table (TimescaleDB or SQLite)."""
@@ -147,8 +158,17 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
         except Exception as e:
             logger.debug(f"MetaApi live price fallback to market feed: {e}")
 
-    # 2. Fallback / supplement M15 history from Yahoo Finance GC=F / XAUUSD=X
-    for yf_sym in ("GC=F", "XAUUSD=X"):
+    # 2. Fallback / supplement M15 history from Yahoo Finance for Gold & FX pairs
+    sym_u = str(symbol or "XAUUSD").upper()
+    yf_cfg = {
+        "XAUUSD": (("GC=F", "XAUUSD=X"), 2, 0.14, 500.0),
+        "EURUSD": (("EURUSD=X",), 5, 0.00008, 0.5),
+        "GBPUSD": (("GBPUSD=X",), 5, 0.00010, 0.5),
+        "USDJPY": (("JPY=X", "USDJPY=X"), 3, 0.012, 50.0),
+    }
+    yf_list, dec, half_spread, min_valid = yf_cfg.get(sym_u, (("GC=F", "XAUUSD=X"), 2, 0.14, 500.0))
+
+    for yf_sym in yf_list:
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_sym}?interval=15m&range=5d"
             with httpx.Client(timeout=6.0, headers=headers) as client:
@@ -158,10 +178,10 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                 result = r.json().get("chart", {}).get("result", [{}])[0]
                 meta = result.get("meta", {})
                 price = meta.get("regularMarketPrice")
-                if bid is None and price and float(price) > 500:
-                    mid = round(float(price), 2)
-                    bid = round(mid - 0.14, 2)
-                    ask = round(mid + 0.14, 2)
+                if bid is None and price and float(price) > min_valid:
+                    mid = round(float(price), dec)
+                    bid = round(mid - half_spread, dec)
+                    ask = round(mid + half_spread, dec)
 
                 timestamps = result.get("timestamp") or []
                 quote_arr = (result.get("indicators", {}).get("quote") or [{}])[0]
@@ -174,13 +194,13 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                 for i, ts_val in enumerate(timestamps):
                     if i < len(closes) and closes[i] is not None and opens[i] is not None:
                         m15_bars.append({
-                            "symbol": symbol,
+                            "symbol": sym_u,
                             "timeframe": "M15",
                             "time": int(ts_val),
-                            "open": round(float(opens[i]), 2),
-                            "high": round(float(highs[i]), 2),
-                            "low": round(float(lows[i]), 2),
-                            "close": round(float(closes[i]), 2),
+                            "open": round(float(opens[i]), dec),
+                            "high": round(float(highs[i]), dec),
+                            "low": round(float(lows[i]), dec),
+                            "close": round(float(closes[i]), dec),
                             "volume": int(vols[i] or 1) if i < len(vols) and vols[i] else 1,
                         })
                 if bid is not None:
@@ -233,3 +253,15 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                     pass
 
     return {"symbol": symbol, "bid": bid, "ask": ask, "source": source_name, "m15_bars": len(m15_bars), "ts": now_ts}
+
+
+SUPPORTED_SYMBOLS = ("XAUUSD", "EURUSD", "GBPUSD", "USDJPY")
+_symbol_rr_idx = 0
+
+
+def fetch_next_supported_market_data() -> Optional[Dict[str, Any]]:
+    """Round-robin live quote & candle feeder across XAUUSD and major FX pairs."""
+    global _symbol_rr_idx
+    sym = SUPPORTED_SYMBOLS[_symbol_rr_idx % len(SUPPORTED_SYMBOLS)]
+    _symbol_rr_idx += 1
+    return fetch_and_ingest_live_market_data(sym)

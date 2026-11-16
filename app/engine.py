@@ -381,14 +381,16 @@ _last_market_feed_ts = 0.0
 _last_agent_eval_ts = 0.0
 
 
-async def autonomous_agent_step_async(force_side: Optional[str] = None) -> Dict[str, Any]:
+async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: str = "XAUUSD") -> Dict[str, Any]:
     """Async implementation of Autonomous AI Agent Decision & Direct Fan-Out Loop.
     Active when `signal_mode` in `kv` is `ZUPIRUS_AGENT` (and `halted != 1`).
-    Invokes AI Swarm (`Sentinel` + `Alpha` + `Risk Guardian`) + MCP Bridge on new closed M15 candles,
+    Invokes AI Swarm (`Sentinel` + `Alpha` + `Risk Guardian`) + Skills + DXY/US10Y on new closed M15 candles,
     loads `APPROVED_FOR_PROD` strategy parameters, sanitizes via 4-Layer Guards,
-    and dispatches directly to eligible Cloud MT5 accounts.
+    and dispatches directly to eligible Cloud MT5 accounts across Gold & FX pairs.
     """
     now = time.time()
+    sym_u = str(symbol or "XAUUSD").upper()
+    last_ts_key = "agent_last_candle_ts" if sym_u == "XAUUSD" else f"agent_last_candle_ts:{sym_u}"
     with tx() as c:
         halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
         if halt_row and str(halt_row[0]).strip() in ("1", "true", "True"):
@@ -413,18 +415,19 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None) -> Dict[
             rules = {}
 
         bars = c.execute(
-            "SELECT time, close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 40"
+            "SELECT time, close FROM candles WHERE symbol = ? AND timeframe = 'M15' ORDER BY time DESC LIMIT 40",
+            (sym_u,),
         ).fetchall()
         if not bars or len(bars) < 25:
-            return {"status": "SKIPPED", "reason": "INSUFFICIENT_M15_CANDLES"}
+            return {"status": "SKIPPED", "reason": f"INSUFFICIENT_M15_CANDLES_{sym_u}"}
 
         from app.db import to_epoch_ts
         bars_asc = list(reversed([dict(b) for b in bars]))
         latest_bar_ts = to_epoch_ts(bars_asc[-1]["time"])
-        last_eval_row = c.execute("SELECT value FROM kv WHERE key = 'agent_last_candle_ts'").fetchone()
+        last_eval_row = c.execute("SELECT value FROM kv WHERE key = ?", (last_ts_key,)).fetchone()
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:
             return {"status": "SKIPPED", "reason": "CANDLE_ALREADY_EVALUATED"}
-        setkv(c, "agent_last_candle_ts", str(latest_bar_ts))
+        setkv(c, last_ts_key, str(latest_bar_ts))
 
         prices = [float(b["close"]) for b in bars_asc]
         decision = coordinate_strategies(prices, timeframe="M15")
@@ -435,11 +438,13 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None) -> Dict[
 
         # Fetch live price
         q_row = c.execute(
-            "SELECT bid, ask, ts FROM quotes WHERE symbol = 'XAUUSD' ORDER BY ts DESC LIMIT 1"
+            "SELECT bid, ask, ts FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
+            (sym_u,),
         ).fetchone()
         if not q_row or (now - float(q_row["ts"])) > 180:
-            return {"status": "SKIPPED", "reason": "STALE_QUOTE"}
-        entry_price = round((float(q_row["bid"]) + float(q_row["ask"])) / 2.0, 2)
+            return {"status": "SKIPPED", "reason": f"STALE_QUOTE_{sym_u}"}
+        dec = 2 if "XAU" in sym_u else (3 if "JPY" in sym_u else 5)
+        entry_price = round((float(q_row["bid"]) + float(q_row["ask"])) / 2.0, dec)
 
     # Trigger AI Swarm (Sentinel + Alpha + Risk Guardian) & MCP cross-asset context check
     swarm_report = {}
@@ -459,19 +464,21 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None) -> Dict[
         from app.metaapi import MetaApiClient, execute_fan_out_for_signal
         from app.redis_client import get_redis_client
 
-        sl_pts = float(rules.get("sl_points", 5.0))
-        tp_pts = float(rules.get("tp_points", 10.0))
+        default_sl = 5.0 if "XAU" in sym_u else (0.35 if "JPY" in sym_u else 0.0025)
+        default_tp = default_sl * 2.0
+        sl_pts = float(rules.get("sl_points", default_sl)) if "XAU" in sym_u else default_sl
+        tp_pts = float(rules.get("tp_points", default_tp)) if "XAU" in sym_u else default_tp
         is_buy = side.upper() == "BUY"
-        sig_id = f"ag_{int(latest_bar_ts)}_{side.lower()}"
+        sig_id = f"ag_{sym_u.lower()}_{int(latest_bar_ts)}_{side.lower()}"
         norm_sig = NormalizedSignalSchema(
             id=sig_id,
             source="src_zupirus_agent",
             strategy_tier="ALPHA",
-            symbol="XAUUSD",
+            symbol=sym_u,
             action=side.upper(),
             entry_price=entry_price,
-            stop_loss=round(entry_price - sl_pts if is_buy else entry_price + sl_pts, 2),
-            take_profit=round(entry_price + tp_pts if is_buy else entry_price - tp_pts, 2),
+            stop_loss=round(entry_price - sl_pts if is_buy else entry_price + sl_pts, dec),
+            take_profit=round(entry_price + tp_pts if is_buy else entry_price - tp_pts, dec),
             raw_payload={"candidate": cand_d["name"], "decision": decision, "swarm": swarm_report.get("cycle")},
             created_at=now,
         )
@@ -523,10 +530,16 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None) -> Dict[
         return {"status": "ERROR", "error": str(e)}
 
 
-def autonomous_agent_step(force_side: Optional[str] = None) -> Dict[str, Any]:
-    """Sync wrapper for autonomous_agent_step_async used by engine tick()."""
+def autonomous_agent_step(force_side: Optional[str] = None, symbol: Optional[str] = None) -> Dict[str, Any]:
+    """Sync wrapper for autonomous_agent_step_async used by engine tick() across supported pairs."""
     import asyncio
-    return asyncio.run(autonomous_agent_step_async(force_side=force_side))
+    if symbol:
+        return asyncio.run(autonomous_agent_step_async(force_side=force_side, symbol=symbol))
+    from app.services.sources.streamer import SUPPORTED_SYMBOLS
+    last_res: Dict[str, Any] = {"status": "SKIPPED"}
+    for sym in SUPPORTED_SYMBOLS:
+        last_res = asyncio.run(autonomous_agent_step_async(force_side=force_side, symbol=sym))
+    return last_res
 
 
 _last_sub_lifecycle_ts = 0.0
@@ -545,12 +558,12 @@ def tick():
         c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 7,))
         c.execute('DELETE FROM quotes WHERE ts<?', (now - 86400 * 2,))
 
-    # 1. Fetch live market XAU/USD quotes & M1/M15 candles every 3s (outside pytest)
+    # 1. Fetch live market quotes & M1/M15 candles round-robin across XAUUSD & major FX pairs (outside pytest)
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_market_feed_ts >= 3.0:
         _last_market_feed_ts = now
         try:
-            from app.services.sources.streamer import fetch_and_ingest_live_market_data
-            fetch_and_ingest_live_market_data("XAUUSD")
+            from app.services.sources.streamer import fetch_next_supported_market_data
+            fetch_next_supported_market_data()
         except Exception as e:
             logger.debug(f"Live market feed cycle note: {e}")
 

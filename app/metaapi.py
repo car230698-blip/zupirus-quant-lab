@@ -411,11 +411,18 @@ async def execute_fan_out_for_signal(
     sl = float(signal["sl"]) if signal.get("sl") else None
     tp = float(signal["tp"]) if signal.get("tp") else None
 
-    # Calculate SL distance in points
+    # Calculate risk per 1.0 standard lot in USD for XAUUSD, JPY, and major FX pairs
+    sym_u = str(symbol or "XAUUSD").upper()
     if sl:
-        sl_points = abs(entry_price - sl) * 100.0
+        sl_dist = abs(entry_price - sl)
+        if "XAU" in sym_u or "GOLD" in sym_u:
+            sl_points = sl_dist * 100.0
+        elif "JPY" in sym_u:
+            sl_points = (sl_dist * 100000.0) / max(entry_price, 1.0)
+        else:
+            sl_points = sl_dist * 100000.0
     else:
-        sl_points = 300.0  # Default 300 points ($3)
+        sl_points = 300.0  # Default $300 risk per 1.0 standard lot
 
     tasks = []
     account_metas = []

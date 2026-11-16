@@ -105,13 +105,22 @@ def check_news_shield(current_time: float) -> Tuple[bool, Optional[str]]:
     return True, None
 
 
-def check_entry_slippage(signal: NormalizedSignalSchema, live_price: float) -> Tuple[bool, Optional[str]]:
-    """Lớp 4: Hủy lệnh nếu giá Live Tick XAUUSD lệch quá 20 pips so với entry_price gốc."""
-    slippage_usd = abs(live_price - signal.entry_price)
-    max_allowed_usd = MAX_ENTRY_SLIPPAGE_PIPS * 0.10  # 1 pip Gold = $0.10; 20 pips = $2.00
+def _symbol_pip_size(symbol: str) -> float:
+    s = str(symbol or "XAUUSD").upper()
+    if "XAU" in s or "GOLD" in s:
+        return 0.10
+    if "JPY" in s:
+        return 0.01
+    return 0.0001
 
-    if slippage_usd > max_allowed_usd:
-        reason = f"REJECTED_SLIPPAGE_EXCEEDED: Drift {slippage_usd:.2f} USD > max {max_allowed_usd:.2f} USD ({MAX_ENTRY_SLIPPAGE_PIPS} pips)"
+
+def check_entry_slippage(signal: NormalizedSignalSchema, live_price: float) -> Tuple[bool, Optional[str]]:
+    """Lớp 4: Hủy lệnh nếu giá Live Tick lệch quá MAX_ENTRY_SLIPPAGE_PIPS (20 pips) so với entry_price gốc."""
+    pip_size = _symbol_pip_size(signal.symbol)
+    drift_pips = abs(live_price - signal.entry_price) / pip_size
+
+    if drift_pips > MAX_ENTRY_SLIPPAGE_PIPS:
+        reason = f"REJECTED_SLIPPAGE_EXCEEDED: Drift {drift_pips:.1f} pips > max {MAX_ENTRY_SLIPPAGE_PIPS} pips for {signal.symbol}"
         logger.warning(reason)
         return False, reason
 
