@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient.ts';
 import { useOrderQuery } from './hooks/useOrderQuery.ts';
@@ -12,11 +12,7 @@ import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTa
 import { LandingPage } from './components/LandingPage.tsx';
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
 
-const CustomerAssistant = lazy(() =>
-  import('./components/CustomerAssistant.tsx').then((module) => ({ default: module.CustomerAssistant }))
-);
-
-type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
+type UserTabKey = 'overview' | 'accounts' | 'orders';
 type AdminTabKey = 'radar' | 'ai' | 'business';
 export type PortalType = 'landing' | 'user' | 'admin';
 
@@ -424,20 +420,6 @@ const AppContent: React.FC = () => {
               orderStateFilter={orderStateFilter}
               setOrderStateFilter={setOrderStateFilter}
             />
-          )}
-
-          {userTab === 'assistant' && (
-            <div className="space-y-4">
-              <Suspense
-                fallback={
-                  <div className="quant-status" role="status">
-                    Đang khởi tạo Trợ lý Định lượng AI…
-                  </div>
-                }
-              >
-                <CustomerAssistant onNavigate={(tab) => setUserTab(tab)} />
-              </Suspense>
-            </div>
           )}
         </>
       )}

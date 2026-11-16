@@ -10,7 +10,6 @@ const navigation = {
     ['overview', 'Tổng quan danh mục', '01'],
     ['accounts', 'Tài khoản Cloud MT5', '02'],
     ['orders', 'Nhật ký khớp lệnh', '03'],
-    ['assistant', 'Trợ lý định lượng AI', '04'],
   ],
   admin: [
     ['radar', 'Giám Sát AI & Cảnh Báo', '01'],
@@ -24,7 +23,6 @@ const pageTitles: Record<Portal, Record<string, string>> = {
     overview: 'Tổng Quan Danh Mục & Buồng Lái Thực Thi XAU/USD',
     accounts: 'Quản Trị Trạm Cloud MT5 & Cấu Hình Giáp Rủi Ro',
     orders: 'Sổ Cái Khớp Lệnh Định Lượng & Đối Soát Đám Mây',
-    assistant: 'Trợ Lý AI Phân Tích Danh Mục & Cấu Trúc Thị Trường',
   },
   admin: {
     radar: 'Giám Sát Hoạt Động AI & Cảnh Báo Lỗi',
@@ -457,18 +455,6 @@ export function PortalShell({
             >
               <span className="text-sm leading-none">03</span>
               <span>Khớp lệnh</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('assistant')}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'assistant'
-                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="text-sm leading-none">04</span>
-              <span>Trợ lý AI</span>
             </button>
             <button
               type="button"

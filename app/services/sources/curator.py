@@ -148,7 +148,7 @@ def promote_source_to_live(source_id: str, force: bool = False) -> Tuple[bool, s
         # Verify historical shadow performance before auto-promoting
         if not force:
             shadow_stats = c.execute(
-                "SELECT COUNT(*) AS total, SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins FROM shadow_signals WHERE source_id = ?",
+                "SELECT COUNT(*) AS total, SUM(CASE WHEN pnl_pips > 0 THEN 1 ELSE 0 END) AS wins FROM shadow_signals WHERE source_id = ?",
                 (source_id,)
             ).fetchone()
             if shadow_stats and shadow_stats["total"] >= 10:
@@ -340,6 +340,8 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
 
         for p_row in pending:
             p = dict(p_row)
+            if p.get("entry_price") is None or p.get("stop_loss") is None:
+                continue
             entry = float(p["entry_price"])
             sl = float(p["stop_loss"])
             tp = float(p["take_profit"]) if p["take_profit"] else None

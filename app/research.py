@@ -151,24 +151,48 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
     position = None
 
     for t in range(15, len(prices) - 1):
+        bar = prices[t]
+        is_ohlc = isinstance(bar, dict)
+        close_p = float(bar["close"]) if is_ohlc else float(bar)
+        high_p = float(bar.get("high", close_p)) if is_ohlc else close_p
+        low_p = float(bar.get("low", close_p)) if is_ohlc else close_p
+
         if position:
             entry, direction = position
-            pnl = (prices[t] - entry) * direction
-            if pnl <= -sl or pnl >= tp:
-                returns.append(pnl - 0.37)  # 0.37 cost of trading
-                position = None
+            # Conservative dual-hit rule: check Stop Loss before Take Profit using high/low wicks
+            if direction == 1:
+                if low_p - entry <= -sl:
+                    returns.append(-sl - 0.37)
+                    position = None
+                    continue
+                if high_p - entry >= tp:
+                    returns.append(tp - 0.37)
+                    position = None
+                    continue
+            else:
+                if entry - high_p <= -sl:
+                    returns.append(-sl - 0.37)
+                    position = None
+                    continue
+                if entry - low_p >= tp:
+                    returns.append(tp - 0.37)
+                    position = None
+                    continue
             continue
 
         # Evaluate candidate rule condition (momentum slope)
-        slope = (prices[t] - prices[t - 10]) / 10.0
+        p_t10 = float(prices[t - 10]["close"]) if isinstance(prices[t - 10], dict) else float(prices[t - 10])
+        p_next = float(prices[t + 1]["open"]) if isinstance(prices[t + 1], dict) and "open" in prices[t + 1] else (float(prices[t + 1]["close"]) if isinstance(prices[t + 1], dict) else float(prices[t + 1]))
+        slope = (close_p - p_t10) / 10.0
         if target_action == "BUY" and slope >= min_slope:
-            position = (prices[t + 1], 1)
+            position = (p_next, 1)
         elif target_action == "SELL" and slope <= -min_slope:
-            position = (prices[t + 1], -1)
+            position = (p_next, -1)
 
     if position:
         entry, direction = position
-        returns.append((prices[-1] - entry) * direction - 0.37)
+        last_c = float(prices[-1]["close"]) if isinstance(prices[-1], dict) else float(prices[-1])
+        returns.append((last_c - entry) * direction - 0.37)
 
     return sum(returns), returns
 
@@ -216,8 +240,8 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
 
     net_oos = round(sum(all_returns), 4)
     max_dd = round(dd, 4)
-    base_price = float(prices[0]) if prices and float(prices[0]) > 0 else 2650.0
-    max_dd_pct = round((dd / base_price) * 100.0, 2)
+    base_price = float(prices[0]["close"]) if prices and isinstance(prices[0], dict) else (float(prices[0]) if prices and float(prices[0]) > 0 else 2650.0)
+    max_dd_pct = round((dd / max(base_price, 1.0)) * 100.0, 2)
     if folds:
         best_fold = max(folds, key=lambda f: f.get("oos_net_price_units", 0.0))
         rules = {**rules, "min_slope": best_fold.get("tuned_slope", rules.get("min_slope", 0.20))}
@@ -241,7 +265,7 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
     is_qualified = bool(
         trades_count >= 10
         and net_oos > 0
-        and max_dd <= 10.0
+        and max_dd_pct <= 8.0
         and win_rate >= 0.52
         and profit_factor >= 1.2
         and sharpe_ratio >= 1.2
@@ -518,9 +542,9 @@ def run_autonomous_induction_and_wfo(force: bool = False):
             cand = discover_candidate_from_observations(c)
             if cand and cand.get("id"):
                 candle_rows = c.execute(
-                    "SELECT close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
+                    "SELECT open, high, low, close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
                 ).fetchall()
-                prices = [float(r[0]) for r in reversed(candle_rows)] if candle_rows else []
+                prices = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3])} for r in reversed(candle_rows)] if candle_rows else []
                 if len(prices) >= 180:
                     rep = walk_forward(prices, candidate=cand)
                     win_rate = float(rep.get("win_rate") or 0.0)

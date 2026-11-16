@@ -30,7 +30,7 @@ def get_market_atr14(c, symbol: str = "XAUUSD", timeframe: str = "M15") -> float
             """
             SELECT high, low, close FROM candles
             WHERE symbol = ? AND timeframe = ?
-            ORDER BY ts DESC LIMIT 15
+            ORDER BY time DESC LIMIT 15
             """,
             (symbol, timeframe)
         ).fetchall()
@@ -76,16 +76,21 @@ def get_nearest_news_info(c, current_time: float) -> Tuple[float, Optional[str]]
 
 def get_live_spread(c, symbol: str = "XAUUSD") -> float:
     """Return live spread in pips for symbol from quotes."""
+    sym_u = str(symbol or "XAUUSD").upper()
     try:
-        q = c.execute("SELECT bid, ask FROM quotes ORDER BY ts DESC LIMIT 1").fetchone()
+        q = c.execute(
+            "SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
+            (sym_u,),
+        ).fetchone()
         if q:
             bid = float(q["bid"] if hasattr(q, 'keys') else q[0])
             ask = float(q["ask"] if hasattr(q, 'keys') else q[1])
-            spread_usd = ask - bid
-            return round(spread_usd * 10.0, 1)  # 1 pip on Gold = 0.10 USD
+            diff = max(0.0, ask - bid)
+            mult = 10.0 if ("XAU" in sym_u or "GOLD" in sym_u) else (100.0 if "JPY" in sym_u else 10000.0)
+            return round(diff * mult, 1)
     except Exception:
         pass
-    return 15.0  # Default 15 pips (~1.50 USD)
+    return 1.5  # Safe neutral fallback spread in pips when quote cache is cold
 
 
 def capture_market_context_snapshot(

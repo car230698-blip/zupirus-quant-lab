@@ -343,7 +343,13 @@ async def create_account(
             """,
             (acc_type, contract_size, auto_be_default, auto_prop_default, account_id),
         )
-        discover_and_map_account_symbols(account_id, ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"], db_cursor=c)
+        broker_symbols_list = None
+        try:
+            if hasattr(client, "get_symbols"):
+                broker_symbols_list = await client.get_symbols(meta_id)
+        except Exception:
+            broker_symbols_list = None
+        discover_and_map_account_symbols(account_id, broker_symbols_list or ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"], db_cursor=c)
 
         # Attempt immediate live balance synchronization from broker
         if acc_info and acc_info.get("balance") is not None:

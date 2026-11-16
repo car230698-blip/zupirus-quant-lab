@@ -114,8 +114,13 @@ class PositionWatcher:
             try:
                 # 1. Fetch live account info
                 acc_info = await self.client.get_account_information(meta_id)
-                current_equity = float(acc_info.get("equity") if acc_info.get("equity") is not None else (acc.get("equity") or 0.0))
-                current_balance = float(acc_info.get("balance") if acc_info.get("balance") is not None else (acc.get("balance") or 0.0))
+                raw_eq = acc_info.get("equity") if isinstance(acc_info, dict) else None
+                raw_bal = acc_info.get("balance") if isinstance(acc_info, dict) else None
+                current_equity = float(raw_eq if raw_eq is not None else (acc.get("equity") or 0.0))
+                current_balance = float(raw_bal if raw_bal is not None else (acc.get("balance") or 0.0))
+                if current_equity <= 0 or current_balance <= 0:
+                    logger.debug(f"PositionWatcher skipping {acc_id}: invalid/unavailable equity={current_equity}, balance={current_balance}")
+                    continue
 
                 # Track start-of-day balance
                 day_start_balance = current_balance
@@ -253,6 +258,17 @@ class PositionWatcher:
                                         with tx() as c:
                                             setkv(c, tp1_key, "1")
                                             setkv(c, legacy_be_key, "1")
+                                            try:
+                                                from app.hindsight import reflect_on_signal_outcome
+                                                ex_row = c.execute(
+                                                    "SELECT signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY created_at DESC LIMIT 1",
+                                                    (acc_id, pos_id, pos_id),
+                                                ).fetchone()
+                                                if ex_row and ex_row[0]:
+                                                    realized_usd = abs(current_price - open_price) * half_volume * 100.0
+                                                    reflect_on_signal_outcome(c, signal_id=ex_row[0], pnl=round(realized_usd, 2), exit_price=current_price, exit_reason="PARTIAL_TP1")
+                                            except Exception:
+                                                pass
                                         results["partial_tp_executed"] += 1
                                 else:
                                     # Volume < 0.02 cannot be split; mark complete once BE SL is moved

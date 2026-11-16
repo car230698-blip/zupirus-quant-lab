@@ -91,10 +91,30 @@ def discover_and_map_account_symbols(
 
 def resolve_broker_symbol(account_id: str, standard_symbol: str) -> Optional[str]:
     """Retrieve the broker-specific symbol for an account.
+    Prioritizes user's `symbol_mapping_custom` in `risk_config`, then `account_symbol_map`.
     Returns None if the account's broker does not support this symbol.
     """
     std_sym = standard_symbol.upper()
     with tx() as c:
+        # 1. Check custom user symbol mapping in trading_accounts.risk_config
+        try:
+            acc_row = c.execute("SELECT risk_config FROM trading_accounts WHERE id = ?", (account_id,)).fetchone()
+            if acc_row and acc_row[0]:
+                import json
+                cfg = json.loads(acc_row[0]) if isinstance(acc_row[0], str) else acc_row[0]
+                custom = cfg.get("symbol_mapping_custom") if isinstance(cfg, dict) else None
+                if isinstance(custom, dict) and custom.get(std_sym):
+                    return str(custom[std_sym]).strip()
+                if isinstance(custom, str) and custom.strip():
+                    cs = custom.strip()
+                    if cs.upper().startswith(std_sym):
+                        return cs
+                    if std_sym == "XAUUSD" and any(k in cs.upper() for k in ("XAU", "GOLD")):
+                        return cs
+                    return f"{std_sym}{cs}" if cs.startswith((".", "_", "-")) or len(cs) <= 3 else cs
+        except Exception:
+            pass
+
         row = c.execute(
             "SELECT broker_symbol, is_supported FROM account_symbol_map WHERE account_id = ? AND standard_symbol = ?",
             (account_id, std_sym)
