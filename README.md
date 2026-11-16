@@ -1,129 +1,61 @@
-# ZUPIRUS Quant Lab · Institutional Quantitative Trading System
+# ZUPIRUS Quant Lab
 
-> **100% Direct Cloud MT5 Execution · Zero EA · Zero VPS · 4 Mandatory Safety Guards**
+> **100% Autonomous Cloud MT5 Execution · Zero EA · Zero VPS · Multi-Pair Gold & Forex**
 
-ZUPIRUS Quant Lab is a production-grade algorithmic trading platform designed for closed-candle execution on XAUUSD (Gold). It connects directly to investor MT5 accounts via MetaApi Cloud Bridge (London G2 datacenter) and dispatches verified signals concurrently with microsecond latency.
-
----
-
-## Key Pillars
-
-1. **Direct-to-User Cloud Architecture:**
-   - No client-side `.ex5` files or Expert Advisors to install.
-   - No personal VPS needed.
-   - No intermediary master accounts (eliminates dual-latency and volume mismatch).
-2. **4 Mandatory Safety Guards:**
-   - **Guard 1:** Mandatory Stop Loss & Anti-Martingale (Auto-attaches ATR(14) $3.50 SL if missing; max 2 concurrent trades).
-   - **Guard 2:** News Shield (Blocks new orders ±15 minutes around USD High-Impact events: CPI, NFP, FED).
-   - **Guard 3:** Entry Slippage Guard (Rejects entry if market price drifts > 20 pips / $2.00).
-   - **Guard 4:** Redis Idempotency Lock (60-second atomic deduplication).
-3. **Transparent Hybrid Pricing & Real-Time FX Conversion:**
-   - Cloud MT5 Bridge Slot: $10 / month / account.
-   - Copy-Trade Signal Service: Starter ($20/mo), Growth ($35/mo), Prop Firm Alpha ($49/mo).
-   - Live USD $\rightarrow$ VND conversion cached in Redis, ceiling-rounded to 1,000 VND, and locked for 20 minutes in SePay VietQR checkout.
-4. **Agent-Native CLI (`zupirus-cli`):**
-   - Full terminal-driven operations with `--json` output support.
+ZUPIRUS Quant Lab is an autonomous quantitative trading & cloud execution platform supporting **XAUUSD, EURUSD, GBPUSD, and USDJPY**. It connects directly to customer MT5 accounts via **MetaApi Cloud Bridge**, automates the full customer lifecycle from OTP registration and **SePay VietQR** billing to **24/5 position protection**, and runs a **3-Stage Tabula Rasa AI Evolution Loop**.
 
 ---
 
-## Tech Stack
+## Core Architecture
 
-- **Backend:** FastAPI, Python 3.12, Pydantic v2, Asyncio Fan-Out
-- **Database:** TimescaleDB (PostgreSQL) Hypertables, Redis Distributed Locks
-- **Cloud Bridge:** MetaApi Cloud Trading API (`cloud-g2`, London)
-- **Frontend:** React 19, TypeScript, TailwindCSS, Vite
-- **Payments:** SePay VietQR Automated Banking Fulfillment
+### 1. Zero-Touch Customer Lifecycle (`app.zupirus.com`)
+- **Authentication & Security:** Email registration with **Resend API OTP** (isolated attempt tracking), AES-encrypted MT5 credentials, and unified Cookie / Bearer session auth.
+- **Automated SePay VietQR Billing:** Real-time USD/VND conversion, atomic webhook fulfillment (`UNDERPAID` accumulation to `PAID`), automatic subscription activation/renewal, and email payment receipts.
+- **Auto-Provisioning & Cloud Deploy:** Automatic account classification (`STANDARD`, `CENT`, `PROP_FIRM`, `RAW_ECN`), broker symbol mapping, tier-aware protection defaults (`auto_be_partial_tp`, `is_prop_firm_mode`), and 3-attempt MetaApi deploy retry.
+- **24/5 Protection & Subscription Lifecycle Worker:**
+  - `PositionWatcher` (every 5s): Auto Break-Even at `1R`, 50% Partial TP1, Friday `21:00 UTC` Prop Firm close, and `4.5%` daily drawdown circuit breaker.
+  - Hourly lifecycle pass: 3-day & 1-day renewal reminders; suspends new entries (`auto_trade = 0`) on expiry while keeping `EXPIRED_PROTECTING` active until open positions close, then undeploys idle terminals to save Cloud costs.
 
----
+### 2. Autonomous 3-Stage AI Evolution (`Tabula Rasa`)
+- **24/5 Live Market & Macro Feed:** Polls live quotes & `M1`/`M15` candles across `XAUUSD`, `EURUSD`, `GBPUSD`, `USDJPY` into TimescaleDB + Redis, plus 6-hour USD economic calendar sync.
+- **Stage 1 (`EXTERNAL_FEED`) & Public Discovery:** Polls public **TradingView Forex/Gold Scanner** (`M15`, `H1`, `H4`) + cross-asset `DXY`/`US10Y` context into `SHADOW_ONLY`, grades signals against real `M1` candles, and auto-rotates top sources into `ACTIVE_LIVE`.
+- **Stage 2 (`HYBRID`) & Stage 3 (`ZUPIRUS_AGENT`):** Distills lessons into `Hindsight` memory, validates candidates with **Walk-Forward Out-of-Sample** (`win_rate >= 55%`, `profit_factor >= 1.4`, `sample_size >= 30`), and optionally auto-promotes to `ZUPIRUS_AGENT` (`M15` AI Swarm + 5 Skills + 4-Layer Safety Shields).
 
-## Quickstart
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-npm install
-
-# 2. Run backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-# 3. Run frontend development server
-npm run dev
-
-# 4. Agent-native CLI
-python -m cli billing fx --json
-python -m cli signal test-ingest --action BUY --price 2680.50 --json
-```
-
----
-
-## Documentation
-
-- [System Architecture](docs/ARCHITECTURE.md)
-- [API Reference](docs/API.md)
-- [Billing & FX Conversion](docs/BILLING.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
-# ZUPIRUS Quant Lab · Institutional Quantitative Trading System
-
-> **100% Direct Cloud MT5 Execution · Zero EA · Zero VPS · 4 Mandatory Safety Guards**
-
-ZUPIRUS Quant Lab is a production-grade algorithmic trading platform designed for closed-candle execution on XAUUSD (Gold). It connects directly to investor MT5 accounts via MetaApi Cloud Bridge (London G2 datacenter) and dispatches verified signals concurrently with microsecond latency.
-
----
-
-## Key Pillars
-
-1. **Direct-to-User Cloud Architecture:**
-   - No client-side `.ex5` files or Expert Advisors to install.
-   - No personal VPS needed.
-   - No intermediary master accounts (eliminates dual-latency and volume mismatch).
-2. **4 Mandatory Safety Guards:**
-   - **Guard 1:** Mandatory Stop Loss & Anti-Martingale (Auto-attaches ATR(14) $3.50 SL if missing; max 2 concurrent trades).
-   - **Guard 2:** News Shield (Blocks new orders ±15 minutes around USD High-Impact events: CPI, NFP, FED).
-   - **Guard 3:** Entry Slippage Guard (Rejects entry if market price drifts > 20 pips / $2.00).
-   - **Guard 4:** Redis Idempotency Lock (60-second atomic deduplication).
-3. **Transparent Hybrid Pricing & Real-Time FX Conversion:**
-   - Cloud MT5 Bridge Slot: $10 / month / account.
-   - Copy-Trade Signal Service: Starter ($20/mo), Growth ($35/mo), Prop Firm Alpha ($49/mo).
-   - Live USD $\rightarrow$ VND conversion cached in Redis, ceiling-rounded to 1,000 VND, and locked for 20 minutes in SePay VietQR checkout.
-4. **Agent-Native CLI (`zupirus-cli`):**
-   - Full terminal-driven operations with `--json` output support.
+### 3. Streamlined 3-Tab Admin Portal (`adm.zupirus.com`)
+1. **Giám Sát AI & Cảnh Báo (Command Radar):** 4-lamp system health radar, Global Kill-Switch, Dry-Run System Test, natural-language Live AI Decision Feed, and Error/Alert Center.
+2. **Trí Tuệ AI & Nguồn Tín Hiệu (AI Evolution):** 3-stage maturity progress, M1 grading journal, Hindsight risk lessons, Walk-Forward results, built-in vs self-learned skills, and Gemini API Pool.
+3. **Kinh Doanh & Khách Hàng (Business & Customers):** SePay/FX configuration, exception-only manual order approval, and customer account compliance controls.
 
 ---
 
 ## Tech Stack
 
 - **Backend:** FastAPI, Python 3.12, Pydantic v2, Asyncio Fan-Out
-- **Database:** TimescaleDB (PostgreSQL) Hypertables, Redis Distributed Locks
-- **Cloud Bridge:** MetaApi Cloud Trading API (`cloud-g2`, London)
+- **Database & Cache:** TimescaleDB (PostgreSQL), Redis
+- **Execution Bridge:** MetaApi Cloud API
 - **Frontend:** React 19, TypeScript, TailwindCSS, Vite
-- **Payments:** SePay VietQR Automated Banking Fulfillment
+- **Payments & Email:** SePay VietQR, Resend API
 
 ---
 
-## Quickstart
+## Deployment & Local Development
 
+### Production (Docker Compose)
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-npm install
-
-# 2. Run backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-# 3. Run frontend development server
-npm run dev
-
-# 4. Agent-native CLI
-python -m cli billing fx --json
-python -m cli signal test-ingest --action BUY --price 2680.50 --json
+# Configure .env from .env.example (METAAPI_TOKEN, SEPAY_WEBHOOK_SECRET, RESEND_API_KEY, ENCRYPTION_KEY, TRADINGVIEW_WEBHOOK_SECRET)
+docker compose -p zupirus-prod up -d --build
 ```
 
----
+### Local Development & Testing
+```bash
+# 1. Install dependencies
+pip install -r requirements.lock
+npm ci
 
-## Documentation
+# 2. Run API & Frontend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+npm run dev
 
-- [System Architecture](docs/ARCHITECTURE.md)
-- [API Reference](docs/API.md)
-- [Billing & FX Conversion](docs/BILLING.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
-
+# 3. Run End-to-End Autonomous System Tests
+pytest tests/test_end_to_end_autonomous_system.py tests/test_full_autonomous_lifecycle.py -q
+```
