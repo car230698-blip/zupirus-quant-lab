@@ -331,7 +331,12 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
         candles = c.execute(
             "SELECT symbol, time, open, high, low, close FROM candles WHERE timeframe = 'M1' ORDER BY time ASC"
         ).fetchall()
-        candle_list = [dict(cd) for cd in candles]
+        from app.db import to_epoch_ts
+        candle_list = []
+        for cd in candles:
+            item = dict(cd)
+            item["time"] = to_epoch_ts(item.get("time"))
+            candle_list.append(item)
 
         for p_row in pending:
             p = dict(p_row)

@@ -79,27 +79,24 @@ class MarketDataStreamer:
         self._save_candle(self.current_m15_bar)
 
     def _save_candle(self, bar: Dict[str, Any]):
-        """Persist closed candle into candles table."""
+        """Persist candle into candles table (TimescaleDB or SQLite)."""
         try:
+            from app.db import insert_timescale_candle
             with tx() as c:
-                c.execute(
-                    """
-                    INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(symbol, timeframe, time) DO UPDATE SET
-                    high=excluded.high, low=excluded.low, close=excluded.close, volume=excluded.volume
-                    """,
-                    (bar["symbol"], bar["timeframe"], bar["time"], bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"])
+                insert_timescale_candle(
+                    c,
+                    symbol=bar["symbol"],
+                    timeframe=bar["timeframe"],
+                    ts=bar["time"],
+                    open_p=bar["open"],
+                    high_p=bar["high"],
+                    low_p=bar["low"],
+                    close_p=bar["close"],
+                    volume=bar["volume"],
+                    source="MARKET_LIVE",
                 )
-        except Exception:
-            try:
-                with tx() as c:
-                    c.execute(
-                        "INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (bar["symbol"], bar["timeframe"], bar["time"], bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"])
-                    )
-            except Exception:
-                pass
+        except Exception as e:
+            logger.debug(f"Failed saving candle {bar.get('timeframe')}: {e}")
 
 
 # Singleton instance
@@ -216,29 +213,23 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
     streamer = get_streamer()
     streamer.ingest_tick(symbol=symbol, bid=bid, ask=ask, ts=now_ts, source=source_name)
     if m15_bars:
+        from app.db import insert_timescale_candle
         with tx() as c:
             for bar in m15_bars[-120:]:
                 try:
-                    c.execute(
-                        """
-                        INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(symbol, timeframe, time) DO UPDATE SET
-                        high=excluded.high, low=excluded.low, close=excluded.close, volume=excluded.volume
-                        """,
-                        (bar["symbol"], bar["timeframe"], bar["time"], bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"])
+                    insert_timescale_candle(
+                        c,
+                        symbol=bar["symbol"],
+                        timeframe=bar["timeframe"],
+                        ts=bar["time"],
+                        open_p=bar["open"],
+                        high_p=bar["high"],
+                        low_p=bar["low"],
+                        close_p=bar["close"],
+                        volume=bar["volume"],
+                        source=source_name,
                     )
                 except Exception:
-                    try:
-                        c.execute(
-                            "DELETE FROM candles WHERE symbol=? AND timeframe=? AND time=?",
-                            (bar["symbol"], bar["timeframe"], bar["time"])
-                        )
-                        c.execute(
-                            "INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            (bar["symbol"], bar["timeframe"], bar["time"], bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"])
-                        )
-                    except Exception:
-                        pass
+                    pass
 
     return {"symbol": symbol, "bid": bid, "ask": ask, "source": source_name, "m15_bars": len(m15_bars), "ts": now_ts}

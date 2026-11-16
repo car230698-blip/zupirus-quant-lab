@@ -362,6 +362,65 @@ def insert_timescale_quote(source: str, ts: float, bid: float, ask: float, symbo
             )
 
 
+def to_epoch_ts(val: Any) -> float:
+    """Convert numeric epoch or Postgres datetime/timestamptz to float epoch seconds."""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    if hasattr(val, "timestamp"):
+        return float(val.timestamp())
+    return float(val)
+
+
+def insert_timescale_candle(
+    c,
+    symbol: str,
+    timeframe: str,
+    ts: float,
+    open_p: float,
+    high_p: float,
+    low_p: float,
+    close_p: float,
+    volume: float = 1.0,
+    source: str = "MARKET_LIVE",
+):
+    """Insert or upsert an OHLCV candle into TimescaleDB (Postgres) or SQLite."""
+    if is_postgres():
+        c.execute(
+            """
+            INSERT INTO candles (time, source, symbol, timeframe, open, high, low, close, volume)
+            VALUES (to_timestamp(?), ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
+                high = GREATEST(candles.high, excluded.high),
+                low = LEAST(candles.low, excluded.low),
+                close = excluded.close,
+                volume = candles.volume + excluded.volume
+            """,
+            (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+        )
+    else:
+        try:
+            c.execute(
+                """
+                INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (symbol, timeframe, time) DO UPDATE SET
+                    high = excluded.high, low = excluded.low, close = excluded.close, volume = excluded.volume
+                """,
+                (symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+            )
+        except Exception:
+            c.execute(
+                "DELETE FROM candles WHERE symbol = ? AND timeframe = ? AND time = ?",
+                (symbol, timeframe, int(ts)),
+            )
+            c.execute(
+                "INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+            )
+
+
 def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", source: str = "ALL", limit: int = 100) -> List[Dict[str, Any]]:
     """Query recent aggregated OHLCV candles from TimescaleDB or snapshots.
     Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO, REPLAY, LIVE_FEED, ALL)."""

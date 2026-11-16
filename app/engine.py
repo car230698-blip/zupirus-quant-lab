@@ -418,8 +418,9 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None) -> Dict[
         if not bars or len(bars) < 25:
             return {"status": "SKIPPED", "reason": "INSUFFICIENT_M15_CANDLES"}
 
+        from app.db import to_epoch_ts
         bars_asc = list(reversed([dict(b) for b in bars]))
-        latest_bar_ts = float(bars_asc[-1]["time"])
+        latest_bar_ts = to_epoch_ts(bars_asc[-1]["time"])
         last_eval_row = c.execute("SELECT value FROM kv WHERE key = 'agent_last_candle_ts'").fetchone()
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:
             return {"status": "SKIPPED", "reason": "CANDLE_ALREADY_EVALUATED"}
