@@ -226,6 +226,26 @@ class MetaApiClient:
                 raise RuntimeError(f"MetaApi get_open_positions HTTP {resp.status_code}: {resp.text[:160]}")
             return []
 
+    async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
+        """Retrieve closed execution deals from MetaApi history for real PnL reflection."""
+        if self.is_mock:
+            return []
+        from datetime import datetime, timedelta, timezone
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(hours=hours)
+        start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/history-deals/time/{start_iso}/{end_iso}"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, headers=self._headers())
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.debug(f"get_closed_deals error for {metaapi_account_id}: {e}")
+        return []
+
     async def modify_position_sl(
         self,
         metaapi_account_id: str,

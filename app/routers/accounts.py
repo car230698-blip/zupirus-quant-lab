@@ -612,10 +612,18 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     meta_id = acc.get("metaapi_account_id") or real_id
     eq = float(acc.get("equity") or 0.0)
     bal = float(acc.get("balance") or 0.0)
+    synced = False
     if not client.is_mock:
         info = await client.get_account_information(meta_id)
-        eq = float(info.get("equity", eq))
-        bal = float(info.get("balance", bal))
+        if isinstance(info, dict) and info.get("connected", True):
+            new_eq = float(info.get("equity") or 0.0)
+            new_bal = float(info.get("balance") or 0.0)
+            if new_eq > 0 or new_bal > 0:
+                eq = new_eq
+                bal = new_bal
+                synced = True
+    else:
+        synced = True
     now_ts = time.time()
 
     with tx() as c:

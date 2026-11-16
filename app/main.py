@@ -169,6 +169,82 @@ def logout(request: Request, u=Depends(user)):
 def me(u=Depends(user)):
     return {'id': u['id'], 'email': u['email'], 'role': u['role']}
 
+
+class ForgotPasswordPayload(Model):
+    email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+
+
+class ResetPasswordPayload(Model):
+    email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+    otp_code: str = Field(min_length=4, max_length=10)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+class ChangePasswordPayload(Model):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+@app.post('/api/auth/forgot-password')
+def forgot_password(p: ForgotPasswordPayload):
+    email_clean = p.email.strip().lower()
+    now = time.time()
+    code = f"{secrets.randbelow(900000) + 100000}"
+    with tx() as c:
+        usr = c.execute('SELECT id FROM users WHERE email=?', (email_clean,)).fetchone()
+        if not usr:
+            return {'ok': True, 'message': 'Nếu email tồn tại, mã OTP đặt lại mật khẩu đã được gửi.'}
+        c.execute(
+            "INSERT INTO otp_codes (email, code, expires_at, attempts) VALUES (?, ?, ?, 0) "
+            "ON CONFLICT(email) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0",
+            (email_clean, code, now + 600),
+        )
+    from .mailer import send_otp_code
+    send_otp_code(email=email_clean, code=code, purpose="Đặt Lại Mật Khẩu")
+    return {'ok': True, 'message': 'Nếu email tồn tại, mã OTP đặt lại mật khẩu đã được gửi.'}
+
+
+@app.post('/api/auth/reset-password')
+def reset_password(p: ResetPasswordPayload):
+    email_clean = p.email.strip().lower()
+    now = time.time()
+    err_code = None
+    err_msg = None
+    with tx() as c:
+        row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
+        if not row:
+            err_code, err_msg = 400, "Mã OTP không tồn tại hoặc đã hết hạn."
+        elif row['expires_at'] < now:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            err_code, err_msg = 400, "Mã OTP đã hết hạn."
+        elif int(row['attempts']) >= 5:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            err_code, err_msg = 429, "Nhập sai mã OTP quá 5 lần."
+        elif row['code'] != p.otp_code.strip():
+            c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (int(row['attempts']) + 1, email_clean))
+            err_code, err_msg = 400, "Mã OTP không chính xác."
+        else:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            usr = c.execute("SELECT id FROM users WHERE email=?", (email_clean,)).fetchone()
+            if not usr:
+                err_code, err_msg = 404, "Tài khoản không tồn tại."
+            else:
+                c.execute("UPDATE users SET password=? WHERE id=?", (password_hash(p.new_password), usr['id']))
+                c.execute("DELETE FROM sessions WHERE user_id=?", (usr['id'],))
+    if err_code:
+        fail(err_code, err_msg)
+    return {'ok': True, 'message': 'Đã đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.'}
+
+
+@app.post('/api/auth/change-password')
+def change_password(p: ChangePasswordPayload, u=Depends(user)):
+    with tx() as c:
+        row = c.execute("SELECT password FROM users WHERE id=?", (u['id'],)).fetchone()
+        if not row or not verify(p.current_password, row['password']):
+            fail(400, "Mật khẩu hiện tại không chính xác.")
+        c.execute("UPDATE users SET password=? WHERE id=?", (password_hash(p.new_password), u['id']))
+    return {'ok': True, 'message': 'Đã đổi mật khẩu thành công.'}
+
 class AccountCreate(Model):
     login: str = Field(min_length=1, max_length=24, pattern=r'^\d+$')
     server: str = Field(min_length=1, max_length=100, pattern=r'^[A-Za-z0-9_. -]+$')

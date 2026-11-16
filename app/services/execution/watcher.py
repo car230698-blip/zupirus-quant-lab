@@ -8,6 +8,7 @@ Monitors all open positions across user MetaApi terminals (including accounts wi
 import json
 import logging
 import datetime
+import time
 from typing import Dict, Any, List, Optional
 from app.db import tx, audit, setkv, getkv
 from app.metaapi import MetaApiClient
@@ -158,6 +159,14 @@ class PositionWatcher:
                             })
                         results["prop_breakers_triggered"] += 1
                         results["details"].append({"account_id": acc_id, "action": "PROP_CIRCUIT_BREAKER_LOCKED"})
+                        try:
+                            from app.mailer import send_admin_alert_email
+                            send_admin_alert_email(
+                                f"Ngắt mạch Prop DD tài khoản {acc_id}",
+                                f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. Hệ thống đã tự động đóng toàn bộ vị thế và khóa giao dịch.",
+                            )
+                        except Exception:
+                            pass
                         continue
 
                 # 3. Friday 21:00 UTC Weekend Risk Close
@@ -261,7 +270,7 @@ class PositionWatcher:
                                             try:
                                                 from app.hindsight import reflect_on_signal_outcome
                                                 ex_row = c.execute(
-                                                    "SELECT signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY created_at DESC LIMIT 1",
+                                                    "SELECT signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY executed_at DESC LIMIT 1",
                                                     (acc_id, pos_id, pos_id),
                                                 ).fetchone()
                                                 if ex_row and ex_row[0]:
@@ -297,6 +306,41 @@ class PositionWatcher:
                                     "partial_ok": partial_ok,
                                     "modify_ok": modify_ok
                                 })
+
+                # 5. Periodic Closed Deal History Sync (every 60s per account) for real PnL reflection
+                try:
+                    with tx() as c:
+                        last_ds = getkv(c, f"deals_sync_ts:{acc_id}")
+                        should_sync_deals = not last_ds or (time.time() - float(last_ds)) >= 60.0
+                    if should_sync_deals and hasattr(self.client, "get_closed_deals"):
+                        deals = await self.client.get_closed_deals(meta_id, hours=24)
+                        with tx() as c:
+                            setkv(c, f"deals_sync_ts:{acc_id}", str(time.time()))
+                            for dl in deals or []:
+                                if str(dl.get("entryType") or "").upper() not in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", ""):
+                                    continue
+                                dl_id = str(dl.get("id") or "")
+                                if not dl_id or getkv(c, f"deal_synced:{dl_id}"):
+                                    continue
+                                profit = float(dl.get("profit") or 0.0) + float(dl.get("swap") or 0.0) + float(dl.get("commission") or 0.0)
+                                pos_ref = str(dl.get("positionId") or dl.get("orderId") or "")
+                                if pos_ref:
+                                    ex_row = c.execute(
+                                        "SELECT signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY executed_at DESC LIMIT 1",
+                                        (acc_id, pos_ref, pos_ref),
+                                    ).fetchone()
+                                    if ex_row and ex_row[0]:
+                                        from app.hindsight import reflect_on_signal_outcome
+                                        reflect_on_signal_outcome(
+                                            c,
+                                            signal_id=ex_row[0],
+                                            pnl=round(profit, 2),
+                                            exit_price=float(dl.get("price") or 0.0),
+                                            exit_reason="BROKER_DEAL_CLOSED",
+                                        )
+                                        setkv(c, f"deal_synced:{dl_id}", "1")
+                except Exception as ds_err:
+                    logger.debug(f"Deal history sync note for {acc_id}: {ds_err}")
 
             except Exception as e:
                 logger.error(f"Error watching positions for account {acc_id}: {e}")

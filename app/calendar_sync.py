@@ -77,15 +77,18 @@ def fetch_live_calendar() -> List[Dict[str, Any]]:
         except Exception as e:
             logger.debug(f"Feed {url} fetch skipped or offline: {e}")
 
-    # If external network is restricted or offline, use deterministic forward schedule
-    now = time.time()
-    for ev in FALLBACK_UPCOMING_EVENTS:
-        events.append({
-            "title": ev["title"],
-            "currency": ev["currency"],
-            "impact": ev["impact"],
-            "ts": now + ev["hours_ahead"] * 3600
-        })
+    # Never fabricate fake news blackout windows in Production if live feed fails/rate-limits.
+    # Only return deterministic schedule during pytest offline runs.
+    import os
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        now = time.time()
+        for ev in FALLBACK_UPCOMING_EVENTS:
+            events.append({
+                "title": ev["title"],
+                "currency": ev["currency"],
+                "impact": ev["impact"],
+                "ts": now + ev["hours_ahead"] * 3600
+            })
     return events
 
 

@@ -116,7 +116,7 @@ def send_otp_code(email: str, code: str, purpose: str = "Đăng Ký & Xác Thự
               <tr>
                 <td style="padding:20px 32px;background:#090d1a;border-top:1px solid #1e293b;text-align:center;">
                   <p style="color:#475569;font-size:11px;margin:0;">
-                    © 2026 ZUPIRUS Quant Lab • Tokyo Server Region • Autonomous Multi-Agent Swarm
+                    © 2026 ZUPIRUS Quant Lab • London G2 Server Region • Autonomous Multi-Agent Swarm
                   </p>
                 </td>
               </tr>
@@ -240,3 +240,29 @@ def send_subscription_expiry_reminder(
     </body></html>
     """
     return send_resend_email(to=email, subject=subject, html=html)
+
+
+def send_admin_alert_email(title: str, detail: str) -> Dict[str, Any]:
+    """Send proactive operational/risk alert email to all real Admin users."""
+    try:
+        from app.db import tx
+        with tx() as c:
+            rows = c.execute("SELECT email FROM users WHERE role = 'admin'").fetchall()
+        admin_emails = [
+            r[0] for r in rows
+            if r[0] and "@" in str(r[0]) and not str(r[0]).endswith(("@example.com", "@zupirus.local"))
+        ]
+        if not admin_emails:
+            return {"ok": False, "error": "NO_REAL_ADMIN_EMAIL"}
+        html = f"""
+        <div style="background:#050811;color:#f8fafc;padding:24px;font-family:Arial,sans-serif;">
+          <div style="max-width:540px;margin:0 auto;background:#0d1527;border:1px solid #ef4444;border-radius:12px;padding:24px;">
+            <h2 style="color:#ef4444;margin:0 0 12px;">[ZUPIRUS ALERT] {title}</h2>
+            <p style="color:#cbd5e1;font-size:13px;line-height:1.6;">{detail}</p>
+          </div>
+        </div>
+        """
+        return send_resend_email(to=admin_emails, subject=f"[ZUPIRUS ALERT] {title}", html=html)
+    except Exception as e:
+        logger.debug(f"Admin alert email skipped: {e}")
+        return {"ok": False, "error": str(e)}

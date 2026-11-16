@@ -10,9 +10,11 @@ from app.db import tx
 
 logger = logging.getLogger("zupirus.skills")
 
-# Base directory for built-in and self-learned filesystem skills
+# Base directory for built-in and writable learned filesystem skills (/data/skills_learned in Docker)
 SKILLS_DIR = os.path.dirname(os.path.abspath(__file__))
-LEARNED_SKILLS_DIR = os.path.join(SKILLS_DIR, "learned")
+_LEGACY_LEARNED_DIR = os.path.join(SKILLS_DIR, "learned")
+_DATA_DIR = os.getenv("DATA_DIR", "").strip()
+LEARNED_SKILLS_DIR = os.path.join(_DATA_DIR, "skills_learned") if _DATA_DIR else _LEGACY_LEARNED_DIR
 
 CORE_SKILL_IDS = [
     "market_regime_scanner",
@@ -26,7 +28,7 @@ CORE_SKILL_IDS = [
 def _read_builtin_skill_md(skill_id: str) -> Optional[str]:
     """Read SKILL.md file from local filesystem (builtin or learned)."""
     safe_id = os.path.basename(skill_id)
-    for base_folder in (SKILLS_DIR, LEARNED_SKILLS_DIR):
+    for base_folder in (SKILLS_DIR, LEARNED_SKILLS_DIR, _LEGACY_LEARNED_DIR):
         skill_path = os.path.join(base_folder, safe_id, "SKILL.md")
         if os.path.isfile(skill_path):
             try:
