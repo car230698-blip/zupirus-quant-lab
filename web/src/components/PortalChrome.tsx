@@ -13,12 +13,9 @@ const navigation = {
     ['assistant', 'Trợ lý định lượng AI', '04'],
   ],
   admin: [
-    ['overview', 'Trạm điều hành trung tâm', '01'],
-    ['billing', 'Thanh toán & Tỷ giá', '02'],
-    ['sources', 'Phễu nguồn & Kỹ năng AI', '03'],
-    ['orders', 'Đơn hàng & Gói cước', '04'],
-    ['infrastructure', 'Hạ tầng Cloud MT5', '05'],
-    ['risk_users', 'Lá chắn rủi ro & Quyền', '06'],
+    ['radar', 'Giám Sát AI & Cảnh Báo', '01'],
+    ['ai', 'Trí Tuệ AI & Nguồn Tín Hiệu', '02'],
+    ['business', 'Kinh Doanh & Khách Hàng', '03'],
   ],
 };
 
@@ -30,12 +27,9 @@ const pageTitles: Record<Portal, Record<string, string>> = {
     assistant: 'Trợ Lý AI Phân Tích Danh Mục & Cấu Trúc Thị Trường',
   },
   admin: {
-    overview: 'Trạm Chỉ Huy Điều Hành Định Lượng Trung Tâm',
-    billing: 'Cấu Hình Cổng Thanh Toán SePay & Đồng Bộ Tỷ Giá',
-    sources: 'Phễu Tuyển Chọn Nguồn Tín Hiệu & Kho Kỹ Năng Agent',
-    orders: 'Đối Soát Đơn Hàng VietQR & Quản Trị Thuê Bao Cloud',
-    infrastructure: 'Quản Trị Cụm Máy Chủ Cloud MT5 London G2',
-    risk_users: 'Lá Chắn Rủi Ro Toàn Hệ Thống & Phân Quyền RBAC',
+    radar: 'Giám Sát Hoạt Động AI & Cảnh Báo Lỗi',
+    ai: 'Trí Tuệ AI & Nguồn Tín Hiệu Tự Tiến Hóa',
+    business: 'Cài Đặt Kinh Doanh, SePay & Khách Hàng',
   },
 };
 
@@ -47,12 +41,9 @@ const pageSubtitles: Record<Portal, Record<string, string>> = {
     assistant: 'Truy vấn trực tiếp dữ liệu danh mục và giải thích lý do vào lệnh XAU/USD M15 theo thời gian thực.',
   },
   admin: {
-    overview: 'Điều phối luồng bắn lệnh song song (Multi-Account Fan-Out), giám sát mô hình học quy nạp Tabula Rasa và nhật ký kiểm toán.',
-    billing: 'Quản lý tài khoản ngân hàng thụ hưởng VietQR, đồng bộ tỷ giá USD/VND tự động và kiểm thử mã QR trực tiếp.',
-    sources: 'Đánh giá hiệu suất nguồn tín hiệu ẩn (Shadow Signals), chấm điểm EOD M1 và điều khiển kho kỹ năng AI.',
-    orders: 'Theo dõi doanh thu thời gian thực, đối soát giao dịch SePay Webhook và phê duyệt kích hoạt gói cước thủ công.',
-    infrastructure: 'Quản trị trạng thái kết nối MetaApi Cloud, phân loại tài khoản Standard/Cent/Prop và điều khiển triển khai.',
-    risk_users: 'Kích hoạt cầu dao ngắt khẩn cấp toàn hệ thống (Kill-Switch), lịch chặn tin tức USD Đỏ và quản lý phân quyền.',
+    radar: 'Nhịp tim hệ thống 4 phân hệ, dòng thời gian quyết định của AI theo thời gian thực và hộp xử lý cảnh báo lỗi.',
+    ai: 'Lộ trình tự tiến hóa 3 giai đoạn, nguồn hạt giống, kỹ năng AI tự học và cấu hình Gemini API Pool.',
+    business: 'Cấu hình nhận tiền SePay, tỷ giá USD/VND, đối soát ngoại lệ đơn hàng và quản trị tài khoản khách hàng.',
   },
 };
 
@@ -480,51 +471,39 @@ export function PortalShell({
           <>
             <button
               type="button"
-              onClick={() => onNavigate('overview')}
+              onClick={() => onNavigate('radar')}
               className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'overview'
+                page === 'radar'
                   ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <span className="text-sm leading-none">01</span>
-              <span>Tổng quan</span>
+              <span>Giám sát</span>
             </button>
             <button
               type="button"
-              onClick={() => onNavigate('sources')}
+              onClick={() => onNavigate('ai')}
               className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'sources'
+                page === 'ai'
+                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-sm leading-none">02</span>
+              <span>Trí tuệ AI</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('business')}
+              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'business'
                   ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <span className="text-sm leading-none">03</span>
-              <span>Tín hiệu</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('infrastructure')}
-              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'infrastructure'
-                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="text-sm leading-none">05</span>
-              <span>MT5 Cloud</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('risk_users')}
-              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'risk_users'
-                  ? 'text-rose-300 font-bold bg-rose-500/15 border border-rose-500/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="text-sm leading-none">06</span>
-              <span>Lá chắn</span>
+              <span>Kinh doanh</span>
             </button>
             <button
               type="button"

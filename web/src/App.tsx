@@ -6,12 +6,9 @@ import { PortalAuth, PortalShell } from './components/PortalChrome.tsx';
 import { UserOverviewTab } from './components/UserOverviewTab.tsx';
 import { UserAccountsTab } from './components/UserAccountsTab.tsx';
 import { UserOrdersTab } from './components/UserOrdersTab.tsx';
-import { AdminOverviewTab } from './components/AdminOverviewTab.tsx';
+import { AdminCommandRadarTab } from './components/AdminCommandRadarTab.tsx';
 import { AdminSourcesTab } from './components/AdminSourcesTab.tsx';
-import { AdminBillingSettingsTab } from './components/AdminBillingSettingsTab.tsx';
-import { AdminOrdersSubscriptionsTab } from './components/AdminOrdersSubscriptionsTab.tsx';
-import { AdminCloudInfrastructureTab } from './components/AdminCloudInfrastructureTab.tsx';
-import { AdminRiskShieldUsersTab } from './components/AdminRiskShieldUsersTab.tsx';
+import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTab.tsx';
 import { LandingPage } from './components/LandingPage.tsx';
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
 
@@ -20,7 +17,7 @@ const CustomerAssistant = lazy(() =>
 );
 
 type UserTabKey = 'overview' | 'accounts' | 'orders' | 'assistant';
-type AdminTabKey = 'overview' | 'billing' | 'sources' | 'orders' | 'infrastructure' | 'risk_users';
+type AdminTabKey = 'radar' | 'ai' | 'business';
 export type PortalType = 'landing' | 'user' | 'admin';
 
 interface UserInfo {
@@ -58,7 +55,7 @@ const AppContent: React.FC = () => {
 
   // Tab navigation
   const [userTab, setUserTab] = useState<UserTabKey>('overview');
-  const [adminTab, setAdminTab] = useState<AdminTabKey>('overview');
+  const [adminTab, setAdminTab] = useState<AdminTabKey>('radar');
 
   // Dashboard & Market Data
   const [dashboard, setDashboard] = useState<any>({
@@ -445,38 +442,22 @@ const AppContent: React.FC = () => {
         </>
       )}
 
-      {/* ADMIN PORTAL VIEWS */}
+      {/* ADMIN PORTAL VIEWS (3 Simplified Autonomous Tabs) */}
       {portal === 'admin' && (
         <>
-          {adminTab === 'overview' && (
-            <AdminOverviewTab
-              monitorData={monitorData}
-              readyData={readyData}
-              status={status}
+          {adminTab === 'radar' && (
+            <AdminCommandRadarTab
               killSwitchLoading={killSwitchLoading}
               handleToggleKillSwitch={handleToggleKillSwitch}
-              executionTick={executionTick}
-              researchTick={researchTick}
-              researchActive={researchActive}
-              lastResearchJob={lastResearchJob}
-              formatHeartbeat={formatHeartbeat}
-              onNavigateApprovals={() => setAdminTab('sources')}
-              activeTabSetter={(tab) => setAdminTab(tab)}
-              refetchAll={loadAdminMonitor}
+              onNavigateTab={(tab) => setAdminTab(tab)}
             />
           )}
 
-          {adminTab === 'billing' && <AdminBillingSettingsTab />}
+          {adminTab === 'ai' && <AdminSourcesTab />}
 
-          {adminTab === 'sources' && <AdminSourcesTab />}
-
-          {adminTab === 'orders' && <AdminOrdersSubscriptionsTab />}
-
-          {adminTab === 'infrastructure' && (
-            <AdminCloudInfrastructureTab accounts={monitorData.accounts} refetchAll={loadAdminMonitor} />
+          {adminTab === 'business' && (
+            <AdminBusinessCustomersTab accounts={monitorData.accounts} refetchAll={loadAdminMonitor} />
           )}
-
-          {adminTab === 'risk_users' && <AdminRiskShieldUsersTab />}
         </>
       )}
     </PortalShell>
