@@ -20,6 +20,8 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   });
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [dryRunLoading, setDryRunLoading] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<any>(null);
   const [msg, setMsg] = useState('');
 
   const loadRadar = useCallback(async () => {
@@ -67,6 +69,23 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     }
   };
 
+  const handleRunDryRun = async () => {
+    setDryRunLoading(true);
+    try {
+      const res = await fetch('/api/v1/telemetry/admin-radar/dry-run', {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setDryRunResult(d);
+        setMsg(d.ok ? 'Dry-Run Test thông suốt (không vào tiền thật).' : 'Dry-Run Test phát hiện điểm cần kiểm tra.');
+      }
+    } finally {
+      setDryRunLoading(false);
+    }
+  };
+
   const isHalted = Boolean(radar.halted);
 
   return (
@@ -85,26 +104,68 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             </h2>
           </div>
 
-          <button
-            type="button"
-            disabled={killSwitchLoading}
-            onClick={async () => {
-              await handleToggleKillSwitch(isHalted);
-              await loadRadar();
-            }}
-            className={`rounded-xl px-5 py-3 text-xs font-extrabold uppercase tracking-wider shadow-lg transition cursor-pointer ${
-              isHalted
-                ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-                : 'bg-rose-600 text-white hover:bg-rose-500 shadow-rose-600/30'
-            }`}
-          >
-            {killSwitchLoading
-              ? 'Đang xử lý...'
-              : isHalted
-              ? 'MỞ LẠI HỆ THỐNG (ĐANG TẠM DỪNG)'
-              : 'CẦU DAO KHẨN CẤP (DỪNG TOÀN BỘ)'}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={dryRunLoading}
+              onClick={handleRunDryRun}
+              className="rounded-xl border border-cyan-400/40 bg-cyan-500/15 px-4 py-3 text-xs font-extrabold text-cyan-300 hover:bg-cyan-500/25 transition cursor-pointer"
+            >
+              {dryRunLoading ? 'Đang chạy Dry-Run...' : 'Chạy Thử Nghiệm Toàn Hệ Thống (Dry-Run Test)'}
+            </button>
+            <button
+              type="button"
+              disabled={killSwitchLoading}
+              onClick={async () => {
+                await handleToggleKillSwitch(isHalted);
+                await loadRadar();
+              }}
+              className={`rounded-xl px-5 py-3 text-xs font-extrabold uppercase tracking-wider shadow-lg transition cursor-pointer ${
+                isHalted
+                  ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+                  : 'bg-rose-600 text-white hover:bg-rose-500 shadow-rose-600/30'
+              }`}
+            >
+              {killSwitchLoading
+                ? 'Đang xử lý...'
+                : isHalted
+                ? 'MỞ LẠI HỆ THỐNG (ĐANG TẠM DỪNG)'
+                : 'CẦU DAO KHẨN CẤP (DỪNG TOÀN BỘ)'}
+            </button>
+          </div>
         </div>
+
+        {dryRunResult && (
+          <div className="rounded-2xl border border-cyan-500/30 bg-[#040710]/80 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[11px] font-bold uppercase text-cyan-300">
+                Kết Quả Dry-Run Test (Không Vào Tiền Thật)
+              </span>
+              <button
+                type="button"
+                onClick={() => setDryRunResult(null)}
+                className="text-[11px] text-slate-400 hover:text-white cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {(dryRunResult.steps || []).map((st: any, idx: number) => (
+                <div
+                  key={idx}
+                  className={`rounded-xl border p-3 text-xs ${
+                    st.ok
+                      ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
+                      : 'border-amber-500/35 bg-amber-500/10 text-amber-200'
+                  }`}
+                >
+                  <div className="font-bold">{st.step}</div>
+                  <div className="mt-1 text-[11px] opacity-90">{st.detail}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {(radar.health_cards || []).map((card: any) => (

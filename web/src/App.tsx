@@ -7,7 +7,7 @@ import { UserOverviewTab } from './components/UserOverviewTab.tsx';
 import { UserAccountsTab } from './components/UserAccountsTab.tsx';
 import { UserOrdersTab } from './components/UserOrdersTab.tsx';
 import { AdminCommandRadarTab } from './components/AdminCommandRadarTab.tsx';
-import { AdminSourcesTab } from './components/AdminSourcesTab.tsx';
+import { AdminAIEvolutionTab } from './components/AdminAIEvolutionTab.tsx';
 import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTab.tsx';
 import { LandingPage } from './components/LandingPage.tsx';
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
@@ -453,7 +453,7 @@ const AppContent: React.FC = () => {
             />
           )}
 
-          {adminTab === 'ai' && <AdminSourcesTab />}
+          {adminTab === 'ai' && <AdminAIEvolutionTab />}
 
           {adminTab === 'business' && (
             <AdminBusinessCustomersTab accounts={monitorData.accounts} refetchAll={loadAdminMonitor} />
