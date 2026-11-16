@@ -99,15 +99,12 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
 
 
 @router.post("/simulate-pay/{order_id}")
-async def simulate_pay_order(order_id: str, u=Depends(get_current_user)):
-    """Test/admin action: fulfill order as paid immediately."""
+async def simulate_pay_order(order_id: str, admin=Depends(get_current_admin)):
+    """Admin-only action: fulfill order as paid immediately."""
     with tx() as c:
         row = c.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
         if not row:
             fail(404, "Đơn hàng không tồn tại.")
-        d = dict(row)
-        if u["role"] != "admin" and d["user_id"] != u["id"]:
-            fail(403, "Không có quyền.")
 
     success = await process_successful_payment(order_id, sepay_trans_id=f"sim_{int(time.time())}")
     return {"ok": success, "order_id": order_id, "status": "PAID" if success else "FAILED"}

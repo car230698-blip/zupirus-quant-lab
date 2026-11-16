@@ -1,6 +1,7 @@
 import os,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+os.environ.pop('DATABASE_URL', None)
 os.environ.setdefault('ADMIN_PASSWORD','test-only-admin-password-123')
 os.environ['COOKIE_SECURE']='false'
 os.environ['ALLOWED_ORIGINS']='http://testserver,http://localhost:8080'
@@ -11,6 +12,9 @@ from app import db, main, research
 
 @pytest.fixture
 def client(tmp_path,monkeypatch):
+    monkeypatch.delenv('DATABASE_URL', raising=False)
+    monkeypatch.setattr(db,'DATABASE_URL','')
+    monkeypatch.setattr(db,'_pg_pool',None)
     monkeypatch.setattr(db,'DB',tmp_path/'lab.sqlite3')
     monkeypatch.setattr(db,'DATA',tmp_path)
     monkeypatch.setattr(research,'DATA',tmp_path)

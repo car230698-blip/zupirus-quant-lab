@@ -137,12 +137,28 @@ async def create_account(
             else:
                 fail(403, "Yêu cầu đọc và ký Điều khoản Miễn trừ trách nhiệm pháp lý trước khi kết nối Cloud MT5.")
 
-    # 2. Check maximum account limit according to subscription
+    # 2. Check if this (mt5_login, broker_server) already exists
     with tx() as c:
+        existing_same_acc = c.execute(
+            """
+            SELECT ta.*, u.email AS owner_email
+            FROM trading_accounts ta
+            LEFT JOIN users u ON u.id = ta.user_id
+            WHERE ta.mt5_login=? AND ta.broker_server=?
+            """,
+            (p.login, p.server)
+        ).fetchone()
         existing_count = c.execute(
-            "SELECT COUNT(*) FROM trading_accounts WHERE user_id=?",
-            (user_id,)
+            "SELECT COUNT(*) FROM trading_accounts WHERE user_id=? AND NOT (mt5_login=? AND broker_server=?)",
+            (user_id, p.login, p.server)
         ).fetchone()[0]
+
+    if existing_same_acc:
+        owner_id = existing_same_acc["user_id"]
+        owner_email = existing_same_acc.get("owner_email") or ""
+        # If owned by another active non-test user and current user is not admin, reject with 409
+        if owner_id != user_id and owner_email and not owner_email.endswith("@example.com") and u.get("role") != "admin":
+            fail(409, "Tài khoản MT5 trên Server này đã được liên kết hoặc xảy ra xung đột dữ liệu.")
 
     max_allowed = sub.get("max_mt5_accounts", 1)
     if existing_count >= max_allowed and u.get("role") != "admin":
@@ -177,7 +193,7 @@ async def create_account(
 
     meta_id = prov.get("id")
     meta_state = prov.get("state", "DEPLOYED")
-    account_id = f"acc_{secrets.token_hex(8)}"
+    account_id = existing_same_acc["id"] if existing_same_acc else f"acc_{secrets.token_hex(8)}"
     enc_pwd = encrypt_secret(p.password)
 
     # Cloud expiration defaults to 30 days or matches subscription
@@ -185,21 +201,37 @@ async def create_account(
 
     with tx() as c:
         try:
-            c.execute("""
-                INSERT INTO trading_accounts(
-                    id, user_id, mt5_login, encrypted_master_password, broker_server,
-                    metaapi_account_id, deployment_state, risk_config, subscription_expires_at,
-                    cloud_expires_at, auto_trade, balance, equity, created_at, last_sync,
-                    risk_multiplier, is_compounding, is_prop_firm_mode,
-                    prop_daily_dd_limit_pct, prop_profit_target_pct
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (
-                account_id, user_id, p.login, enc_pwd, p.server,
-                meta_id, meta_state, '{"risk_percent": 1.0, "max_lot": 1.0, "multiplier": 1.0}', cloud_expiry,
-                cloud_expiry, 1, 0.0, 0.0, now_ts, now_ts,
-                risk_mult, 1 if is_compounding else 0, 1 if is_prop else 0,
-                p.prop_daily_dd_limit_pct, p.prop_profit_target_pct
-            ))
+            if existing_same_acc:
+                c.execute("""
+                    UPDATE trading_accounts SET
+                        user_id=?, encrypted_master_password=?, metaapi_account_id=?,
+                        deployment_state=?, subscription_expires_at=?, cloud_expires_at=?,
+                        auto_trade=1, last_sync=?, risk_multiplier=?, is_compounding=?,
+                        is_prop_firm_mode=?, prop_daily_dd_limit_pct=?, prop_profit_target_pct=?
+                    WHERE id=?
+                """, (
+                    user_id, enc_pwd, meta_id,
+                    meta_state, cloud_expiry, cloud_expiry,
+                    now_ts, risk_mult, 1 if is_compounding else 0,
+                    1 if is_prop else 0, p.prop_daily_dd_limit_pct, p.prop_profit_target_pct,
+                    account_id
+                ))
+            else:
+                c.execute("""
+                    INSERT INTO trading_accounts(
+                        id, user_id, mt5_login, encrypted_master_password, broker_server,
+                        metaapi_account_id, deployment_state, risk_config, subscription_expires_at,
+                        cloud_expires_at, auto_trade, balance, equity, created_at, last_sync,
+                        risk_multiplier, is_compounding, is_prop_firm_mode,
+                        prop_daily_dd_limit_pct, prop_profit_target_pct
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (
+                    account_id, user_id, p.login, enc_pwd, p.server,
+                    meta_id, meta_state, '{"risk_percent": 1.0, "max_lot": 1.0, "multiplier": 1.0}', cloud_expiry,
+                    cloud_expiry, 1, 0.0, 0.0, now_ts, now_ts,
+                    risk_mult, 1 if is_compounding else 0, 1 if is_prop else 0,
+                    p.prop_daily_dd_limit_pct, p.prop_profit_target_pct
+                ))
             # Also keep metaapi_cloud_accounts in sync for backwards compatibility
             c.execute("""
                 INSERT OR REPLACE INTO metaapi_cloud_accounts(

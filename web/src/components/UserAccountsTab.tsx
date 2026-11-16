@@ -1024,36 +1024,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                     </div>
                   </div>
 
-                  {checkoutOrder.status !== 'PAID' && (
-                    <div className="flex flex-col gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            const res = await fetch(`/api/v1/billing/simulate-pay/${encodeURIComponent(displayOrderId)}`, {
-                              method: 'POST',
-                              headers: { 'X-Zupirus': '1' },
-                              credentials: 'include',
-                            });
-                            if (res.ok) {
-                              setCheckoutOrder((prev: any) => ({ ...prev, status: 'PAID' }));
-                              setPollingPaid(false);
-                              fetchCloudSub();
-                              refetchAccounts();
-                            }
-                          } catch {
-                            // ignore
-                          }
-                        }}
-                        className="quant-btn-secondary w-full py-2 text-[11px] border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/15"
-                      >
-                        ⚡ Kích Hoạt Nhanh Bằng Sandbox (Mô phỏng SePay đã nhận tiền)
-                      </button>
-                      {pollingPaid && (
-                        <div className="text-[11px] font-mono text-slate-400">
-                          Hệ thống tự động kiểm tra giao dịch mỗi 3 giây...
-                        </div>
-                      )}
+                  {pollingPaid && checkoutOrder.status !== 'PAID' && (
+                    <div className="pt-1 text-[11px] font-mono text-slate-400">
+                      Hệ thống tự động kiểm tra giao dịch SePay mỗi 3 giây...
                     </div>
                   )}
                 </>
