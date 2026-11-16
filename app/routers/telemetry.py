@@ -298,7 +298,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         active_gemini = 0
         rate_limited_gemini = 0
         try:
-            g_rows = c.execute("SELECT status FROM gemini_api_keys").fetchall()
+            g_rows = c.execute("SELECT status FROM gemini_keys WHERE is_active = 1").fetchall()
             for gr in g_rows:
                 st = str(gr[0] or "").lower()
                 if st == "active":
