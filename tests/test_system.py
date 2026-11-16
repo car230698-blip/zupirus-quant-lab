@@ -44,7 +44,7 @@ def test_customer_not_admin(customer):
 
 def test_passwords_and_tokens_hashed(customer):
     with db.tx() as c:
-        u=c.execute("SELECT * FROM users WHERE role='customer'").fetchone()
+        u=c.execute("SELECT * FROM users WHERE email='alice@example.com'").fetchone()
         assert u['password']!='customer-password-123' and ':' in u['password']
         s=c.execute('SELECT token FROM sessions WHERE user_id=?',(u['id'],)).fetchone()[0]
         assert s!=customer.cookies.get('session') and len(s)==64

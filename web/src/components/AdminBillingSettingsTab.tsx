@@ -54,7 +54,7 @@ export const AdminBillingSettingsTab: React.FC = () => {
       }
       const res = await fetch('/api/admin/billing/settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify(payload),
       });
@@ -79,6 +79,7 @@ export const AdminBillingSettingsTab: React.FC = () => {
     try {
       const res = await fetch('/api/admin/billing/flush-fx-cache', {
         method: 'POST',
+        headers: { 'X-Zupirus': '1' },
         credentials: 'include',
       });
       const data = await res.json().catch(() => ({}));

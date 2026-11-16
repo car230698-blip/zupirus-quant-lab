@@ -1617,13 +1617,28 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
             logger.warning(f"Admin signal dispatch rejected: Missing mandatory Stop Loss")
             raise HTTPException(status_code=422, detail="Mandatory Stop Loss missing. Direct dispatch requires valid SL.")
 
-        # 3. Scan active cloud accounts with accepted disclaimers
+        # 3. Scan active cloud accounts with accepted disclaimers from both trading_accounts and metaapi_cloud_accounts
         rows = c.execute("""
-            SELECT id, user_id, metaapi_account_id, balance, equity, risk_percent, max_lot, multiplier
-            FROM metaapi_cloud_accounts
-            WHERE auto_trade=1 AND disclaimer_id IS NOT NULL
+            SELECT id, user_id, metaapi_account_id, balance, equity,
+                   risk_multiplier as multiplier, 1.0 as risk_percent, 5.0 as max_lot
+            FROM trading_accounts
+            WHERE auto_trade=1 AND deployment_state='DEPLOYED' AND metaapi_account_id IS NOT NULL
         """).fetchall()
         accounts = [dict(r) for r in rows]
+        seen_meta_ids = {a.get("metaapi_account_id") for a in accounts if a.get("metaapi_account_id")}
+
+        try:
+            legacy_rows = c.execute("""
+                SELECT id, user_id, metaapi_account_id, balance, equity, risk_percent, max_lot, multiplier
+                FROM metaapi_cloud_accounts
+                WHERE auto_trade=1 AND disclaimer_id IS NOT NULL
+            """).fetchall()
+            for r in legacy_rows:
+                d = dict(r)
+                if d.get("metaapi_account_id") not in seen_meta_ids:
+                    accounts.append(d)
+        except Exception:
+            pass
 
         audit(c, u.get("email") if isinstance(u, dict) else getattr(u, "email", "admin"), "admin_dispatch_signal", f"Signal {signal_id} {p.action} {p.symbol} @ {p.entry_price} SL={p.sl} TP={p.tp}")
 

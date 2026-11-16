@@ -102,6 +102,8 @@ def call_gemini(
     system_instruction: Optional[str] = None,
     active_keys: Optional[List[Dict[str, Any]]] = None,
     c = None,
+    timeout: float = 2.5,
+    max_tries: int = 2,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Calls Google Gemini API (gemini-1.5-flash / gemini-2.0-flash) with multi-key failover.
     Returns (response_text, used_key_id)."""
@@ -127,17 +129,21 @@ def call_gemini(
     body_bytes = json.dumps(payload).encode("utf-8")
 
     last_error = None
+    attempt = 0
     for k_item in keys:
+        if attempt >= max_tries:
+            break
         api_key = k_item.get("key_cipher", "")
         kid = k_item.get("id", "unknown")
         if not api_key:
             continue
+        attempt += 1
 
         endpoint = url_template.format(key=api_key)
         req = urllib.request.Request(endpoint, data=body_bytes, headers=headers, method="POST")
 
         try:
-            with urllib.request.urlopen(req, timeout=8.0) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
                 candidates = res_data.get("candidates", [])
                 if candidates:

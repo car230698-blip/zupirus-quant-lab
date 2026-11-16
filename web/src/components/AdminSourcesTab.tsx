@@ -158,7 +158,7 @@ export const AdminSourcesTab: React.FC = () => {
     setMsg(`Đang chuyển chế độ vận hành sang ${mode}...`);
     const res = await fetch('/api/admin/sources/signal-mode', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
       credentials: 'include',
       body: JSON.stringify({ mode }),
     });
@@ -172,6 +172,7 @@ export const AdminSourcesTab: React.FC = () => {
     setMsg(`Đang thực thi ${action.toUpperCase()} cho nguồn ${sourceId}...`);
     const res = await fetch(`/api/admin/sources/${encodeURIComponent(sourceId)}/${action}`, {
       method: 'POST',
+      headers: { 'X-Zupirus': '1' },
       credentials: 'include',
     });
     const d = await res.json().catch(() => ({}));
@@ -189,6 +190,7 @@ export const AdminSourcesTab: React.FC = () => {
     setMsg('Đang chạy chấm điểm cuối ngày (EOD Evaluator) trên toàn bộ nguồn tín hiệu...');
     const res = await fetch('/api/admin/sources/evaluate-eod', {
       method: 'POST',
+      headers: { 'X-Zupirus': '1' },
       credentials: 'include',
     });
     const d = await res.json().catch(() => ({}));
@@ -203,7 +205,7 @@ export const AdminSourcesTab: React.FC = () => {
     if (!newSourceForm.source_id.trim()) return;
     const res = await fetch('/api/admin/sources', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
       credentials: 'include',
       body: JSON.stringify(newSourceForm),
     });
@@ -227,7 +229,7 @@ export const AdminSourcesTab: React.FC = () => {
     setMsg(`Đang chạy thử nghiệm kỹ năng Agent: ${skillId}...`);
     const res = await fetch(`/api/admin/skills/${encodeURIComponent(skillId)}/test`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
       credentials: 'include',
       body: JSON.stringify({ context: { symbol: 'XAUUSD', timeframe: 'M15' } }),
     });

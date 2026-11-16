@@ -785,7 +785,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       const target = e.currentTarget;
-                      if (!target.src.includes('guard_matrix_architecture_1794792845754.jpg')) {
+                      if (target.dataset.triedPublic !== '1') {
+                        target.dataset.triedPublic = '1';
                         target.src = '/assets/images/guard_matrix_architecture_1794792845754.jpg';
                       } else {
                         setGuardImgError(true);

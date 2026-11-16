@@ -100,6 +100,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       const res = await fetch('/api/v1/billing/refresh-exchange-rate', {
         method: 'POST',
+        headers: { 'X-Zupirus': '1' },
         credentials: 'include',
       });
       if (res.ok) {
@@ -324,7 +325,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       const res = await fetch('/api/v1/accounts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({
           account_id: id,

@@ -66,3 +66,9 @@ def bootstrap(c):
         uid=secrets.token_hex(16)
         c.execute('INSERT INTO users VALUES(?,?,?,?)',(uid,email,password_hash(password),'admin'))
 
+    trader_email = 'trader@zupirus.local'
+    trader_pass = 'quant-access-2026'
+    if not c.execute('SELECT 1 FROM users WHERE email=?', (trader_email,)).fetchone():
+        t_uid = secrets.token_hex(16)
+        c.execute('INSERT INTO users VALUES(?,?,?,?)', (t_uid, trader_email, password_hash(trader_pass), 'customer'))
+

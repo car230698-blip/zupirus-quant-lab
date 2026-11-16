@@ -154,35 +154,32 @@ class MarketDataStreamer:
             return
 
         # Route B: ACTIVE_LIVE (Verify through 4 Safety Guards then execute to clients)
-        # 1. Idempotency Lock
-        lock_token = acquire_signal_idempotency_lock(pos_id)
-        if not lock_token:
-            logger.warning(f"Master feed signal {pos_id} already locked/executed. Skipping.")
-            return
-
-        # 2. Mandatory SL Guard
-        ok_sl, sl_err = check_mandatory_sl_guard(sl, entry_price)
-        if not ok_sl:
-            logger.warning(f"Master signal rejected by Mandatory SL Guard: {sl_err}")
-            return
-
-        # 3. News Shield Guard
-        now_ts = time.time()
-        ok_news, news_err = check_news_shield_guard(now_ts)
-        if not ok_news:
-            logger.warning(f"Master signal rejected by News Shield Guard: {news_err}")
-            return
-
-        # 4. Entry Slippage Guard: Query actual latest tick quote from database
+        # Query actual latest tick quote from database
         current_market_price = entry_price
         with tx() as c:
             q_row = c.execute("SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1", (symbol,)).fetchone()
             if q_row and q_row[0] and q_row[1]:
                 current_market_price = round((float(q_row[0]) + float(q_row[1])) / 2.0, 2)
 
-        ok_slip, slip_err = check_slippage_guard(symbol, entry_price, current_market_price)
-        if not ok_slip:
-            logger.warning(f"Master signal rejected by Slippage Guard: {slip_err} (Live: {current_market_price}, Entry: {entry_price})")
+        from app.schemas.signals import NormalizedSignalSchema
+        sig_obj = NormalizedSignalSchema(
+            id=pos_id,
+            symbol=symbol,
+            action=action,
+            entry_price=entry_price,
+            stop_loss=sl,
+            take_profit=tp,
+            source=source_id,
+            strategy_tier="CORE"
+        )
+        now_ts = time.time()
+        approved, reject_reason, sanitized = sanitize_and_audit_signal(
+            signal=sig_obj,
+            live_price=current_market_price,
+            current_time=now_ts
+        )
+        if not approved:
+            logger.warning(f"Master feed signal {pos_id} rejected by guard: {reject_reason}")
             return
 
         # Execute fan-out to all deployed active accounts
@@ -197,8 +194,8 @@ class MarketDataStreamer:
                 "symbol": symbol,
                 "action": action,
                 "entry_price": entry_price,
-                "sl": sl,
-                "tp": tp,
+                "sl": sanitized.stop_loss,
+                "tp": sanitized.take_profit,
                 "source": "METAAPI_FEED"
             }
             res = await execute_fan_out_for_signal(signal_payload, accounts, self.client)

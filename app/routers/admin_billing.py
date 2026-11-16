@@ -68,8 +68,10 @@ class PreviewQRRequest(BaseModel):
 class GrantSubscriptionRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     plan_tier: str = Field("PRO")
-    slots: int = Field(default=2, ge=1, le=50)
-    days: int = Field(default=30, ge=1, le=365)
+    slots: Optional[int] = Field(default=None, ge=1, le=50)
+    max_cloud_accounts: Optional[int] = Field(default=None, ge=1, le=50)
+    days: Optional[int] = Field(default=None, ge=1, le=365)
+    duration_days: Optional[int] = Field(default=None, ge=1, le=365)
 
 
 @router.get("/settings")
@@ -339,7 +341,9 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
 
         uid = user_row["id"]
         tier = req.plan_tier.lower().strip()
-        duration_sec = req.days * 86400
+        effective_slots = req.slots or req.max_cloud_accounts or 2
+        effective_days = req.days or req.duration_days or 30
+        duration_sec = effective_days * 86400
         now_ts = time.time()
 
         sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (uid,)).fetchone()
@@ -363,7 +367,7 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
                     updated_at = ?
                 WHERE user_id = ?
             """, (
-                tier, new_exp, req.slots,
+                tier, new_exp, effective_slots,
                 1 if is_growth else 0,
                 1 if is_growth else 0,
                 1 if is_growth else 0,
@@ -380,7 +384,7 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
                     allow_prop_firm_mode, allow_alpha_strategies, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                sub_id, uid, tier, new_exp, req.slots,
+                sub_id, uid, tier, new_exp, effective_slots,
                 1 if is_growth else 0,
                 1 if is_growth else 0,
                 1 if is_growth else 0,
@@ -391,10 +395,41 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
 
     return {
         "success": True,
-        "message": f"Đã cấp thành công gói {req.plan_tier.upper()} ({req.slots} trạm MT5) cho {user_row['email']} trong {req.days} ngày.",
+        "message": f"Đã cấp thành công gói {req.plan_tier.upper()} ({effective_slots} trạm MT5) cho {user_row['email']} trong {effective_days} ngày.",
         "user_id": uid,
         "email": user_row["email"],
         "plan_tier": tier,
-        "slots": req.slots,
+        "slots": effective_slots,
         "expires_at": new_exp,
     }
+
+
+@router.post("/orders/{order_id}/approve")
+def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_admin)):
+    """Admin manual override to approve an order and activate its subscription."""
+    from app.services.billing_service import process_successful_payment
+    with tx() as c:
+        row = c.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
+        if not row:
+            fail(404, f"Không tìm thấy đơn hàng {order_id}")
+        order = dict(row)
+        if order.get("status") == "PAID":
+            return {"status": "ALREADY_PAID", "message": f"Đơn hàng {order_id} đã được thanh toán trước đó."}
+
+    fake_gateway_data = {
+        "transaction_id": f"adm_{secrets.token_hex(6)}",
+        "order_id": order_id,
+        "amount_vnd": order.get("amount_vnd", 0),
+        "transfer_type": "in",
+        "description": f"MANUAL_ADMIN_APPROVAL {order_id}",
+        "raw_payload": {"approved_by_admin": _admin.get("email") if isinstance(_admin, dict) else "admin"}
+    }
+    success, msg = process_successful_payment(
+        gateway_name="MANUAL_ADMIN",
+        gateway_transaction_id=fake_gateway_data["transaction_id"],
+        gateway_data=fake_gateway_data,
+        matched_order_id=order_id
+    )
+    if not success:
+        fail(400, f"Không thể duyệt đơn hàng: {msg}")
+    return {"status": "SUCCESS", "message": f"Đã duyệt và kích hoạt đơn hàng {order_id} thành công."}

@@ -39,25 +39,20 @@ export const AdminOrdersSubscriptionsTab: React.FC = () => {
     fetchData();
   }, [statusFilter]);
 
-  const handleManualApproveOrder = async (orderCode: string, amountVnd: number) => {
-    setActionMsg(`Đang kích hoạt thanh toán thủ công cho mã đơn ${orderCode}...`);
+  const handleManualApproveOrder = async (orderCode: string, _amountVnd: number) => {
+    setActionMsg(`Đang kích hoạt duyệt thanh toán thủ công cho mã đơn ${orderCode}...`);
     try {
-      const res = await fetch('/api/v1/webhooks/sepay', {
+      const res = await fetch(`/api/admin/billing/orders/${encodeURIComponent(orderCode)}/approve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
-        body: JSON.stringify({
-          content: `MANUAL APPROVE ${orderCode}`,
-          transferAmount: amountVnd,
-          referenceCode: `ADMIN-${Date.now()}`,
-        }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.ok) {
-        setActionMsg(`Đã duyệt đơn ${orderCode} và cấp phát khe cắm Cloud MT5 thành công.`);
+      if (res.ok) {
+        setActionMsg(data.message || `Đã duyệt đơn ${orderCode} và cấp phát khe cắm Cloud MT5 thành công.`);
         fetchData();
       } else {
-        setActionMsg(`Lỗi duyệt đơn: ${data.reason || data.detail || res.status}`);
+        setActionMsg(`Lỗi duyệt đơn: ${data.detail || res.status}`);
       }
     } catch (e: any) {
       setActionMsg(`Lỗi kết nối: ${e.message}`);
@@ -69,15 +64,19 @@ export const AdminOrdersSubscriptionsTab: React.FC = () => {
     if (!manualUserId.trim()) return;
     setActionMsg('Đang cấp quyền thuê bao Cloud...');
     try {
+      const slotsNum = Number(manualSlots) || 1;
+      const daysNum = Number(manualDays) || 30;
       const res = await fetch('/api/admin/billing/grant-subscription', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({
           user_id: manualUserId.trim(),
           plan_tier: manualTier,
-          max_cloud_accounts: Number(manualSlots) || 1,
-          duration_days: Number(manualDays) || 30,
+          slots: slotsNum,
+          max_cloud_accounts: slotsNum,
+          days: daysNum,
+          duration_days: daysNum,
         }),
       });
       if (res.ok) {

@@ -149,19 +149,29 @@ def demote_source_to_shadow(source_id: str, reason: str = "") -> Tuple[bool, str
 def record_shadow_signal(
     source_id: str,
     symbol: str,
-    side: str,
-    entry_price: float,
-    stop_loss: float,
+    side: str = "BUY",
+    entry_price: float = 0.0,
+    stop_loss: Optional[float] = None,
     take_profit: Optional[float] = None,
     signal_time: Optional[float] = None,
     context_snapshot: Optional[dict] = None,
+    action: Optional[str] = None,
+    sl: Optional[float] = None,
+    tp: Optional[float] = None,
+    metadata: Optional[dict] = None,
+    db_cursor: Any = None,
+    **kwargs
 ) -> str:
     """Record passive signal to shadow_signals ledger for offline M1 evaluation and agent learning."""
     sig_id = f"shd_{uuid.uuid4().hex[:10]}"
     now_ts = signal_time or time.time()
-    ctx_str = json.dumps(context_snapshot) if context_snapshot else None
+    effective_side = (action or side or "BUY").upper()
+    effective_sl = stop_loss if stop_loss is not None else sl
+    effective_tp = take_profit if take_profit is not None else tp
+    ctx = context_snapshot or metadata
+    ctx_str = json.dumps(ctx) if ctx else None
 
-    with tx() as c:
+    def _do_insert(c):
         c.execute(
             """
             INSERT INTO shadow_signals (
@@ -169,12 +179,18 @@ def record_shadow_signal(
                 signal_time, eval_status, context_snapshot, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
             """,
-            (sig_id, source_id, symbol.upper(), side.upper(), entry_price, stop_loss, take_profit, now_ts, ctx_str, now_ts)
+            (sig_id, source_id, symbol.upper(), effective_side, entry_price, effective_sl, effective_tp, now_ts, ctx_str, now_ts)
         )
         c.execute(
             "UPDATE signal_sources SET total_signals = total_signals + 1, updated_at = ? WHERE id = ?",
             (now_ts, source_id)
         )
+
+    if db_cursor:
+        _do_insert(db_cursor)
+    else:
+        with tx() as c:
+            _do_insert(c)
     return sig_id
 
 

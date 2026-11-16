@@ -471,11 +471,6 @@ def ai_text(prompt, image=None):
 
     return {'available': False, 'text': None}
 
-    return {
-        'available': False,
-        'text': None,
-    }
-
 _last_eod_eval_ts = 0.0
 
 def run_eod_shadow_evaluation_cycle():

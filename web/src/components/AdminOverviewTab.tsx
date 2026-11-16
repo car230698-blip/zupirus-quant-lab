@@ -122,7 +122,7 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
     try {
       const res = await fetch('/api/v1/signals/test-ingest', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({ raw_message: trimmed, source: 'ADMIN_TEST_BENCH' }),
       });
@@ -152,7 +152,11 @@ export const AdminOverviewTab: React.FC<AdminOverviewTabProps> = ({
         action === 'sync'
           ? `/api/v1/accounts/${encodeURIComponent(accountId)}/sync`
           : `/api/v1/accounts/cloud/${encodeURIComponent(accountId)}/${action}`;
-      const res = await fetch(url, { method: 'POST', credentials: 'include' });
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+        credentials: 'include',
+      });
       if (res.ok && refetchAll) {
         refetchAll();
       }

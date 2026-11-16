@@ -721,7 +721,8 @@ export function PortalAuth({
                 referrerPolicy="no-referrer"
                 onError={(e) => {
                   const target = e.currentTarget;
-                  if (!target.src.includes('auth_terminal_sculpture_1794792847915.jpg')) {
+                  if (target.dataset.triedPublic !== '1') {
+                    target.dataset.triedPublic = '1';
                     target.src = '/assets/images/auth_terminal_sculpture_1794792847915.jpg';
                   } else {
                     setImgError(true);
@@ -800,8 +801,13 @@ export function PortalAuth({
               <button
                 type="button"
                 onClick={() => {
-                  setEmailInput(portal === 'admin' ? 'admin@zupirus.local' : 'trader@zupirus.local');
-                  setPasswordInput('quant-access-2026');
+                  if (portal === 'admin') {
+                    setEmailInput('admin@zupirus.local');
+                    setPasswordInput('admin_secure_change_me_2026');
+                  } else {
+                    setEmailInput('trader@zupirus.local');
+                    setPasswordInput('quant-access-2026');
+                  }
                 }}
                 className="w-full rounded-xl border border-amber-500/30 bg-amber-500/15 px-3 py-2 font-mono text-[11px] font-bold text-amber-200 hover:bg-amber-500/25 transition cursor-pointer"
               >
