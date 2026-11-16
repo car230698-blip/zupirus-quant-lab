@@ -425,15 +425,48 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
 @router.delete("/api/v1/accounts/{account_id}")
 @router.delete("/api/metaapi/accounts/{account_id}")
 async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
-    """Undeploy cloud terminal on MetaApi and remove account from platform."""
-    with tx() as c:
-        acc = c.execute("SELECT * FROM trading_accounts WHERE id=?", (account_id,)).fetchone()
-        if not acc:
-            fail(404, "Tài khoản không tồn tại.")
-        if u.get("role") != "admin" and acc["user_id"] != u["id"]:
-            fail(403, "Không có quyền.")
+    """Undeploy cloud terminal on MetaApi and remove account from platform across all tables."""
+    is_admin = u.get("role") == "admin"
+    found = False
+    meta_id = None
+    target_user_id = None
 
-    meta_id = acc.get("metaapi_account_id")
+    with tx() as c:
+        # Check trading_accounts
+        acc = c.execute("SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id)).fetchone()
+        if acc:
+            found = True
+            target_user_id = acc["user_id"]
+            meta_id = acc.get("metaapi_account_id")
+
+        if not found:
+            # Check real_accounts
+            racc = c.execute("SELECT * FROM real_accounts WHERE id=? OR login=?", (account_id, account_id)).fetchone()
+            if racc:
+                found = True
+                target_user_id = racc["user_id"]
+
+        if not found:
+            # Check accounts
+            lacc = c.execute("SELECT * FROM accounts WHERE id=? OR login=?", (account_id, account_id)).fetchone()
+            if lacc:
+                found = True
+                target_user_id = lacc["user_id"]
+
+        if not found:
+            # Check metaapi_cloud_accounts
+            macc = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE id=? OR login=?", (account_id, account_id)).fetchone()
+            if macc:
+                found = True
+                target_user_id = macc["user_id"]
+                meta_id = macc.get("metaapi_account_id")
+
+        if not found:
+            fail(404, "Tài khoản không tồn tại.")
+
+        if not is_admin and target_user_id != u["id"]:
+            fail(403, "Không có quyền xoá tài khoản này.")
+
     if meta_id:
         client = MetaApiClient()
         try:
@@ -442,11 +475,49 @@ async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
             logger.warning(f"Could not undeploy MetaApi account {meta_id}: {e}")
 
     with tx() as c:
-        c.execute("DELETE FROM trading_accounts WHERE id=?", (account_id,))
+        # Resolve all matching accounts.id
+        matching_acc_ids = [r[0] for r in c.execute("SELECT id FROM accounts WHERE id=? OR login=?", (account_id, account_id)).fetchall()]
+        for aid in matching_acc_ids:
+            try:
+                c.execute("DELETE FROM snapshots WHERE account_id=?", (aid,))
+            except Exception:
+                pass
+            try:
+                c.execute("DELETE FROM sim_positions WHERE account_id=?", (aid,))
+            except Exception:
+                pass
+            try:
+                c.execute("DELETE FROM dispatches WHERE account_id=?", (aid,))
+            except Exception:
+                pass
+            try:
+                c.execute("DELETE FROM metaapi_trade_executions WHERE account_id=?", (aid,))
+            except Exception:
+                pass
+            try:
+                c.execute("DELETE FROM account_symbol_map WHERE account_id=?", (aid,))
+            except Exception:
+                pass
+            c.execute("DELETE FROM accounts WHERE id=?", (aid,))
+
+        # Delete from real_accounts
+        c.execute("DELETE FROM real_accounts WHERE id=? OR login=?", (account_id, account_id))
+
+        # Delete from metaapi_trade_executions for trading_accounts
         try:
-            c.execute("DELETE FROM metaapi_cloud_accounts WHERE id=?", (account_id,))
+            c.execute("DELETE FROM metaapi_trade_executions WHERE account_id IN (SELECT id FROM trading_accounts WHERE id=? OR mt5_login=?)", (account_id, account_id))
         except Exception:
             pass
-        audit(c, u["id"], "trading_account_deleted", {"account_id": account_id})
 
-    return {"id": account_id, "status": "DELETED", "message": "Đã gỡ tài khoản MT5 Cloud thành công."}
+        # Delete from trading_accounts
+        c.execute("DELETE FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id))
+
+        # Delete from metaapi_cloud_accounts
+        try:
+            c.execute("DELETE FROM metaapi_cloud_accounts WHERE id=? OR login=?", (account_id, account_id))
+        except Exception:
+            pass
+
+        audit(c, u["id"], "trading_account_deleted", {"account_id": account_id, "target_user_id": target_user_id})
+
+    return {"ok": True, "id": account_id, "status": "DELETED", "message": "Đã xoá tài khoản MT5 thành công."}

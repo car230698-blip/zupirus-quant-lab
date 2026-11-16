@@ -692,36 +692,74 @@ def delete_admin_user(target_uid: str, u=Depends(admin)):
         if not row:
             fail(404, 'Không tìm thấy người dùng')
 
-        # Clean up cloud trading accounts & executions
+        # 1. Accounts belonging to user & their foreign key children
+        acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
+        for aid in acc_ids:
+            try:
+                c.execute('DELETE FROM snapshots WHERE account_id=?', (aid,))
+            except Exception:
+                pass
+            try:
+                c.execute('DELETE FROM sim_positions WHERE account_id=?', (aid,))
+            except Exception:
+                pass
+            try:
+                c.execute('DELETE FROM dispatches WHERE account_id=?', (aid,))
+            except Exception:
+                pass
+            try:
+                c.execute('DELETE FROM metaapi_trade_executions WHERE account_id=?', (aid,))
+            except Exception:
+                pass
+            try:
+                c.execute('DELETE FROM account_symbol_map WHERE account_id=?', (aid,))
+            except Exception:
+                pass
+            c.execute('DELETE FROM accounts WHERE id=?', (aid,))
+
+        # 2. Cloud trading accounts & executions
         try:
             c.execute('DELETE FROM metaapi_trade_executions WHERE account_id IN (SELECT id FROM trading_accounts WHERE user_id=?)', (target_uid,))
+        except Exception:
+            pass
+        try:
             c.execute('DELETE FROM trading_accounts WHERE user_id=?', (target_uid,))
+        except Exception:
+            pass
+        try:
             c.execute('DELETE FROM metaapi_cloud_accounts WHERE user_id=?', (target_uid,))
         except Exception:
             pass
 
-        # Clean up orders, subscriptions, transactions
+        # 3. Real accounts
+        try:
+            c.execute('DELETE FROM real_accounts WHERE user_id=?', (target_uid,))
+        except Exception:
+            pass
+
+        # 4. User level records (orders, subscriptions, transactions, disclaimers, sessions)
         try:
             c.execute('DELETE FROM orders WHERE user_id=?', (target_uid,))
+        except Exception:
+            pass
+        try:
             c.execute('DELETE FROM subscriptions WHERE user_id=?', (target_uid,))
+        except Exception:
+            pass
+        try:
             c.execute('DELETE FROM payment_transactions WHERE user_id=?', (target_uid,))
         except Exception:
             pass
-
-        # Clean up real accounts, legal disclaimers, legacy accounts
         try:
-            c.execute('DELETE FROM real_accounts WHERE user_id=?', (target_uid,))
             c.execute('DELETE FROM legal_disclaimers WHERE user_id=?', (target_uid,))
-            acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
-            for aid in acc_ids:
-                c.execute('DELETE FROM pairings WHERE account_id=?', (aid,))
-                c.execute('DELETE FROM devices WHERE account_id=?', (aid,))
-                c.execute('DELETE FROM dispatches WHERE account_id=?', (aid,))
-                c.execute('DELETE FROM accounts WHERE id=?', (aid,))
+        except Exception:
+            pass
+        try:
+            c.execute('DELETE FROM sessions WHERE user_id=?', (target_uid,))
         except Exception:
             pass
 
-        c.execute('DELETE FROM sessions WHERE user_id=?', (target_uid,))
+        # 5. Delete user record
         c.execute('DELETE FROM users WHERE id=?', (target_uid,))
         audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': row[1]})
     return {'ok': True, 'message': f'Đã xoá người dùng {row[1]} thành công.'}
@@ -1500,7 +1538,7 @@ def create_real_account(p: RealAccountPayload, u=Depends(user)):
         try:
             c.execute("""
                 INSERT INTO real_accounts(id, user_id, login, server, disclaimer_id, mode, enabled, risk, max_spread, max_positions, max_dd, balance, equity, peak, seen, created_at)
-                VALUES(?,?,?,?,?,?,0,?,?,1,?,10000.0,10000.0,10000.0,?,?)
+                VALUES(?,?,?,?,?,?,0,?,?,1,?,0.0,0.0,0.0,?,?)
             """, (aid, u['id'], p.login, p.server, disc['id'], 'REAL', p.risk, p.max_spread, p.max_dd, now_ts, now_ts))
         except (sqlite3.IntegrityError, Exception):
             fail(409, "Tài khoản MT5 Real này đã được liên kết trong hệ thống.")

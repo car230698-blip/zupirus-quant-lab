@@ -109,7 +109,16 @@ class MetaApiClient:
     async def get_account_information(self, metaapi_account_id: str) -> Dict[str, Any]:
         """Retrieve real-time account metrics (balance, equity, margin, freeMargin)."""
         if self.is_mock:
-            # Deterministic mock based on id
+            if "unfunded" in str(metaapi_account_id).lower() or "zero" in str(metaapi_account_id).lower():
+                return {
+                    "balance": 0.0,
+                    "equity": 0.0,
+                    "margin": 0.0,
+                    "freeMargin": 0.0,
+                    "currency": "USD",
+                    "server": "Demo-Server",
+                    "connected": True
+                }
             return {
                 "balance": 10000.0,
                 "equity": 10000.0,

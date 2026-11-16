@@ -72,8 +72,8 @@ class PositionWatcher:
             try:
                 # 1. Fetch live account info
                 acc_info = await self.client.get_account_information(meta_id)
-                current_equity = float(acc_info.get("equity") or acc["equity"] or 10000.0)
-                current_balance = float(acc_info.get("balance") or acc["balance"] or 10000.0)
+                current_equity = float(acc_info.get("equity") if acc_info.get("equity") is not None else (acc.get("equity") or 0.0))
+                current_balance = float(acc_info.get("balance") if acc_info.get("balance") is not None else (acc.get("balance") or 0.0))
 
                 # Track start-of-day balance
                 day_start_balance = current_balance

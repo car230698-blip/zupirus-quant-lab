@@ -12,7 +12,23 @@ export const AdminCloudInfrastructureTab: React.FC<AdminCloudInfrastructureTabPr
   refetchAll,
 }) => {
   const { data: cloudData, refetch: queryRefetch } = useCloudAccounts();
-  const accounts = externalAccounts ?? cloudData?.accounts ?? [];
+  const rawAccounts = externalAccounts ?? cloudData?.accounts ?? [];
+
+  // Deduplicate accounts by (login, server)
+  const accounts = React.useMemo(() => {
+    const seen = new Set<string>();
+    const res: any[] = [];
+    for (const a of rawAccounts) {
+      const login = a.login || a.mt5_login || a.id;
+      const srv = (a.server || a.broker_server || '').toLowerCase();
+      const key = `${login}@${srv}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        res.push(a);
+      }
+    }
+    return res;
+  }, [rawAccounts]);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<'ALL' | 'CLOUD_METAAPI' | 'DIRECT_TERMINAL'>('ALL');
@@ -44,37 +60,41 @@ export const AdminCloudInfrastructureTab: React.FC<AdminCloudInfrastructureTabPr
     setMsg('');
     try {
       let res: Response;
+      const baseHeaders = { 'X-Zupirus': '1' };
       if (action === 'sync') {
         res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/sync`, {
           method: 'POST',
+          headers: baseHeaders,
           credentials: 'include',
         });
       } else if (action === 'toggle') {
         res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/toggle`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...baseHeaders, 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ is_active: !currentActive }),
         });
       } else if (action === 'delete') {
         res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}`, {
           method: 'DELETE',
+          headers: baseHeaders,
           credentials: 'include',
         });
       } else {
         res = await fetch(`/api/v1/accounts/cloud/${encodeURIComponent(accountId)}/${action}`, {
           method: 'POST',
+          headers: baseHeaders,
           credentials: 'include',
         });
       }
 
       if (res.ok) {
-        setMsg(`Đã thực thi [${action.toUpperCase()}] thành công cho trạm #${accountId}`);
+        setMsg(`✓ Đã thực thi [${action.toUpperCase()}] thành công cho trạm #${accountId}`);
         setConfirmDeleteId(null);
         triggerRefetch();
       } else {
         const d = await res.json().catch(() => ({}));
-        setMsg(`Lỗi: ${d.detail || res.status}`);
+        setMsg(`Lỗi: ${d.detail || d.message || res.status}`);
       }
     } catch (e: any) {
       setMsg(`Lỗi kết nối: ${e.message}`);
@@ -229,14 +249,24 @@ export const AdminCloudInfrastructureTab: React.FC<AdminCloudInfrastructureTabPr
                             {isDeployed ? 'Undeploy' : 'Deploy'}
                           </button>
                           {confirmDeleteId === id ? (
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => handleAction(id, 'delete')}
-                              className="rounded-lg border border-rose-500 bg-rose-500/25 px-2.5 py-1 font-mono text-[11px] font-bold text-rose-200"
-                            >
-                              Xác nhận xoá
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => handleAction(id, 'delete')}
+                                className="rounded-lg border border-rose-500 bg-rose-500/25 px-2.5 py-1 font-mono text-[11px] font-bold text-rose-200 hover:bg-rose-500/40"
+                              >
+                                Xác nhận xoá
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-[11px] text-slate-400 hover:text-white"
+                              >
+                                Huỷ
+                              </button>
+                            </div>
                           ) : (
                             <button
                               type="button"
