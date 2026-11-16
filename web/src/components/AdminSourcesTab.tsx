@@ -466,8 +466,8 @@ export const AdminSourcesTab: React.FC = () => {
                     : [
                         { id: 'gpt-4o-mini', name: 'OpenAI GPT-4o Mini (Khuyên dùng)' },
                         { id: 'gpt-4o', name: 'OpenAI GPT-4o Flagship' },
-                        { id: 'gemini-2.0-flash', name: 'Google Gemini 2.0 Flash' },
-                        { id: 'gemini-1.5-pro', name: 'Google Gemini 1.5 Pro' },
+                        { id: 'gemini-3.8-flash', name: 'Google Gemini 3.8 Flash' },
+                        { id: 'gemini-flash-latest', name: 'Google Gemini Flash Latest' },
                         { id: 'deepseek-chat', name: 'DeepSeek V3 (DeepSeek / OpenRouter)' },
                         { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (qua OpenRouter)' },
                       ]
@@ -546,6 +546,29 @@ export const AdminSourcesTab: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {Array.isArray(aiSettings.gemini_keys) && aiSettings.gemini_keys.length > 0 && (
+            <div className="rounded-xl border border-white/[0.06] bg-[#040710]/70 p-3 space-y-1.5">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-amber-300">
+                Danh sách Google Gemini API Keys trong Pool ({aiSettings.gemini_keys.length} keys):
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {aiSettings.gemini_keys.map((gk: any) => (
+                  <span
+                    key={gk.id}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-mono text-[11px] ${
+                      gk.is_active === 1 && gk.status === 'active'
+                        ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                        : 'border-amber-500/35 bg-amber-500/10 text-amber-300'
+                    }`}
+                  >
+                    <span>{gk.key_masked}</span>
+                    <span className="text-[10px] opacity-80">({gk.status || 'active'})</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </form>
 
         {/* Live Test Console */}

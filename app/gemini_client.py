@@ -77,7 +77,14 @@ def update_key_usage(c, key_id: str, success: bool, error_msg: Optional[str] = N
                 (now, key_id),
             )
         else:
-            status = 'rate_limited' if error_msg and '429' in error_msg else 'error'
+            err_s = str(error_msg or "")
+            if "429" in err_s:
+                status = "rate_limited"
+            elif "503" in err_s or "502" in err_s or "500" in err_s:
+                # Transient server/demand spike; keep key active in pool
+                status = "active"
+            else:
+                status = "error"
             c.execute(
                 "UPDATE gemini_keys SET last_used = ?, status = ? WHERE id = ?",
                 (now, status, key_id),
@@ -91,10 +98,11 @@ def call_gemini(
     system_instruction: Optional[str] = None,
     active_keys: Optional[List[Dict[str, Any]]] = None,
     c = None,
-    timeout: float = 2.5,
-    max_tries: int = 2,
+    timeout: float = 8.0,
+    max_tries: int = 5,
+    model: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
-    """Calls Google Gemini API (gemini-1.5-flash / gemini-2.0-flash) with multi-key failover.
+    """Calls Google Gemini API with multi-key failover across the configured pool.
     Returns (response_text, used_key_id)."""
     keys = active_keys or []
     if not keys and c:
@@ -102,7 +110,10 @@ def call_gemini(
     if not keys:
         keys = [{"id": f"k_{i}", "key_cipher": k} for i, k in enumerate(DEFAULT_GEMINI_KEYS)]
 
-    url_template = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={key}"
+    target_model = (model or "gemini-flash-latest").strip()
+    if target_model in ("gemini-2.0-flash", "gemini-1.5-flash"):
+        target_model = "gemini-3.8-flash"
+    url_template = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={{key}}"
 
     payload: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -122,9 +133,9 @@ def call_gemini(
     for k_item in keys:
         if attempt >= max_tries:
             break
-        api_key = k_item.get("key_cipher", "")
+        api_key = str(k_item.get("key_cipher") or "").strip()
         kid = k_item.get("id", "unknown")
-        if not api_key or api_key.startswith("AQ.Ab8RN"):
+        if not api_key:
             continue
         attempt += 1
 

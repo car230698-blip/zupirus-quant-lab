@@ -19,8 +19,8 @@ router = APIRouter(prefix="/api/admin/ai", tags=["Admin AI Agent Configuration"]
 AVAILABLE_MODELS = [
     {"id": "gpt-4o-mini", "name": "OpenAI GPT-4o Mini (Khuyên dùng)", "provider": "openai", "desc": "Nhanh, tiết kiệm chi phí, phân tích dữ liệu định lượng chuẩn xác"},
     {"id": "gpt-4o", "name": "OpenAI GPT-4o Flagship", "provider": "openai", "desc": "Mô hình cao cấp nhất, suy luận logic sâu và đọc biểu đồ thông minh"},
-    {"id": "gemini-2.0-flash", "name": "Google Gemini 2.0 Flash", "provider": "gemini", "desc": "Tốc độ xử lý microsecond, lý tưởng cho phân tích thị trường M15"},
-    {"id": "gemini-1.5-pro", "name": "Google Gemini 1.5 Pro", "provider": "gemini", "desc": "Cửa sổ ngữ cảnh khổng lồ, tổng hợp nhiều phiên giao dịch"},
+    {"id": "gemini-3.8-flash", "name": "Google Gemini 3.8 Flash", "provider": "gemini", "desc": "Tốc độ xử lý microsecond, lý tưởng cho phân tích thị trường M15"},
+    {"id": "gemini-flash-latest", "name": "Google Gemini Flash Latest", "provider": "gemini", "desc": "Tự động trỏ tới phiên bản Gemini Flash mới nhất của Google"},
     {"id": "deepseek-chat", "name": "DeepSeek V3 (DeepSeek API / OpenRouter)", "provider": "openai", "desc": "Hiệu năng định lượng toán học cao, chi phí cực thấp"},
     {"id": "claude-3-5-sonnet-20241022", "name": "Anthropic Claude 3.5 Sonnet (qua OpenRouter)", "provider": "openai", "desc": "Lập luận xuất sắc, phát hiện anomaly thị trường chuẩn xác"},
 ]
@@ -187,19 +187,26 @@ def _save_ai_settings(req: AISettingsUpdate):
             """,
             (json.dumps(payload),)
         )
-        # If the user entered a Google Gemini API key (AIza...), also register it in gemini_keys pool
-        if req.api_key and req.api_key.strip().startswith("AIza"):
+        # If the user entered a Google Gemini API key (AIza... or AQ....), also register it in gemini_keys pool
+        if req.api_key and (req.api_key.strip().startswith("AIza") or req.api_key.strip().startswith("AQ.")):
             g_raw = req.api_key.strip()
-            g_id = hash_key(g_raw)
+            g_hash = hash_key(g_raw)
             g_mask = mask_key(g_raw)
-            c.execute(
-                """
-                INSERT INTO gemini_keys (id, key_raw, key_masked, is_active, calls_count, last_used, status, created)
-                VALUES (?, ?, ?, 1, 0, 0, 'active', ?)
-                ON CONFLICT(id) DO UPDATE SET is_active = 1, status = 'active'
-                """,
-                (g_id, g_raw, g_mask, now_ts)
-            )
+            existing_g = c.execute("SELECT id FROM gemini_keys WHERE key_hash = ?", (g_hash,)).fetchone()
+            if existing_g:
+                c.execute(
+                    "UPDATE gemini_keys SET is_active = 1, status = 'active' WHERE id = ?",
+                    (existing_g[0],)
+                )
+            else:
+                g_id = f"gemini_custom_{g_hash[:8]}"
+                c.execute(
+                    """
+                    INSERT INTO gemini_keys (id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created)
+                    VALUES (?, ?, ?, ?, 1, 0, NULL, 'active', ?)
+                    """,
+                    (g_id, g_hash, g_mask, g_raw, now_ts)
+                )
 
     # Dynamically update process environment
     if api_key:
@@ -254,23 +261,32 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
     if provider in ("GEMINI", "HYBRID"):
         try:
             with tx() as c:
+                # Re-activate any rate-limited/error keys if user explicitly clicks Test, or if a direct Gemini key is provided
+                explicit_keys = None
+                if key and (key.startswith("AIza") or key.startswith("AQ.")):
+                    explicit_keys = [{"id": "direct_input", "key_cipher": key}]
+                eff_gem_model = model if model.startswith("gemini") else gemini_model
                 gem_res, used_k = call_gemini(
                     req.prompt,
                     system_instruction=sys_instruction,
-                    c=c
+                    active_keys=explicit_keys,
+                    c=c,
+                    timeout=8.0,
+                    max_tries=5,
+                    model=eff_gem_model,
                 )
                 if gem_res:
                     latency = round((time.perf_counter() - t0) * 1000, 1)
                     return {
                         "success": True,
                         "provider": "Google Gemini",
-                        "model": gemini_model,
+                        "model": eff_gem_model,
                         "connected_api": f"Google Gemini ({used_k or 'Pool'})",
                         "live_market_snapshot": live_snapshot,
                         "latency_ms": latency,
                         "response": gem_res,
                     }
-                gem_error = "Chưa có Gemini API Key hoạt động trong Pool hoặc tất cả các Key đều bị từ chối."
+                gem_error = "Google Gemini API tạm thời quá tải (503) hoặc các Key trong Pool đều bị từ chối."
         except Exception as e:
             logger.warning(f"Gemini call failed in test_ai_connection: {e}")
             gem_error = str(e)
