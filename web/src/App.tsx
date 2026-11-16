@@ -13,6 +13,7 @@ import { AdminOrdersSubscriptionsTab } from './components/AdminOrdersSubscriptio
 import { AdminCloudInfrastructureTab } from './components/AdminCloudInfrastructureTab.tsx';
 import { AdminRiskShieldUsersTab } from './components/AdminRiskShieldUsersTab.tsx';
 import { LandingPage } from './components/LandingPage.tsx';
+import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
 
 const CustomerAssistant = lazy(() =>
   import('./components/CustomerAssistant.tsx').then((module) => ({ default: module.CustomerAssistant }))
@@ -81,6 +82,7 @@ const AppContent: React.FC = () => {
 
   // Forms & notices
   const [notice, setNotice] = useState<string | null>(null);
+  const [noticeType, setNoticeType] = useState<ToastType>('info');
   const [killSwitchLoading, setKillSwitchLoading] = useState(false);
 
   // Check auth session
@@ -175,8 +177,9 @@ const AppContent: React.FC = () => {
     }
   }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe, chartMode, portal, userTab]);
 
-  const showNotice = (msg: string) => {
+  const showNotice = (msg: string, type: ToastType = 'info') => {
     setNotice(msg);
+    setNoticeType(type);
   };
 
   const authenticate = async (email: string, password: string, register: boolean, otp?: string) => {
@@ -246,15 +249,16 @@ const AppContent: React.FC = () => {
         showNotice(
           nextHalt
             ? 'Đã ngắt cấp lệnh và tạm dừng sao chép trên mọi tài khoản.'
-            : 'Đã mở cấp lệnh ở cấp hệ thống. Bật lại sao chép trên từng tài khoản khi cần.'
+            : 'Đã mở cấp lệnh ở cấp hệ thống. Bật lại sao chép trên từng tài khoản khi cần.',
+          nextHalt ? 'warning' : 'success'
         );
         await loadDashboard();
         await loadAdminMonitor();
       } else {
-        showNotice('Không thể thay đổi trạng thái cấp lệnh.');
+        showNotice('Không thể thay đổi trạng thái cấp lệnh.', 'error');
       }
     } catch {
-      showNotice('Không thể kết nối máy chủ để đổi trạng thái cấp lệnh.');
+      showNotice('Không thể kết nối máy chủ để đổi trạng thái cấp lệnh.', 'error');
     } finally {
       setKillSwitchLoading(false);
     }
@@ -370,19 +374,11 @@ const AppContent: React.FC = () => {
           Không thể cập nhật dữ liệu mới. Đang hiển thị bản ghi bộ nhớ đệm gần nhất.
         </div>
       )}
-      {notice && (
-        <div className="mb-5 rounded-xl border border-amber-500/35 bg-amber-950/25 px-4 py-3 text-xs text-amber-200 font-mono flex items-center justify-between">
-          <span role="status">{notice}</span>
-          <button
-            type="button"
-            aria-label="Đóng thông báo"
-            onClick={() => setNotice(null)}
-            className="text-amber-400 hover:text-amber-200 font-bold ml-4 cursor-pointer"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+      <ToastNotification
+        message={notice}
+        type={noticeType}
+        onClose={() => setNotice(null)}
+      />
 
       {/* USER PORTAL VIEWS */}
       {portal === 'user' && (

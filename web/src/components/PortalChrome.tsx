@@ -151,11 +151,11 @@ export function PortalShell({
           <button
             type="button"
             onClick={handleToggleSidebar}
-            title={sidebarCollapsed ? 'Mở rộng thanh tác vụ (Ctrl+B)' : 'Thu gọn thanh tác vụ (Ctrl+B)'}
-            aria-label={sidebarCollapsed ? 'Mở rộng thanh tác vụ' : 'Thu gọn thanh tác vụ'}
+            title={mobileMenuOpen ? 'Đóng menu' : sidebarCollapsed ? 'Mở rộng thanh tác vụ (Ctrl+B)' : 'Thu gọn thanh tác vụ (Ctrl+B)'}
+            aria-label={mobileMenuOpen ? 'Đóng menu' : sidebarCollapsed ? 'Mở rộng thanh tác vụ' : 'Thu gọn thanh tác vụ'}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-cyan-500/25 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/20 hover:text-white transition cursor-pointer font-mono text-xs"
           >
-            {sidebarCollapsed ? '»' : '«'}
+            {mobileMenuOpen ? '✕' : sidebarCollapsed ? '»' : '«'}
           </button>
         </div>
 
@@ -314,6 +314,132 @@ export function PortalShell({
           {children}
         </main>
       </div>
+
+      {/* Mobile WebApp Bottom Navigation Bar */}
+      <nav
+        aria-label="Điều hướng di động"
+        className="fixed bottom-0 left-0 right-0 z-30 flex md:hidden items-center justify-around border-t border-cyan-500/20 bg-[#030712]/95 px-1 py-1.5 backdrop-blur-2xl shadow-[0_-10px_30px_rgba(0,0,0,0.8)] pb-[max(0.375rem,env(safe-area-inset-bottom))]"
+      >
+        {portal === 'user' ? (
+          <>
+            <button
+              type="button"
+              onClick={() => onNavigate('overview')}
+              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'overview'
+                  ? 'text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-base leading-none">◫</span>
+              <span>Tổng quan</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('accounts')}
+              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'accounts'
+                  ? 'text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-base leading-none">⌁</span>
+              <span>Tài khoản</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('orders')}
+              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'orders'
+                  ? 'text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-base leading-none">⇄</span>
+              <span>Khớp lệnh</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('assistant')}
+              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'assistant'
+                  ? 'text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-base leading-none">✧</span>
+              <span>Trợ lý AI</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] text-slate-400 hover:text-cyan-300 transition cursor-pointer"
+            >
+              <span className="text-base leading-none">☰</span>
+              <span>Menu</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onNavigate('overview')}
+              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'overview'
+                  ? 'text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-base leading-none">◫</span>
+              <span>Tổng quan</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('sources')}
+              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'sources'
+                  ? 'text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-base leading-none">🎯</span>
+              <span>Tín hiệu</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('infrastructure')}
+              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'infrastructure'
+                  ? 'text-cyan-300 font-bold bg-cyan-500/15 border border-cyan-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-base leading-none">⌁</span>
+              <span>MT5 Cloud</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('risk_users')}
+              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
+                page === 'risk_users'
+                  ? 'text-rose-300 font-bold bg-rose-500/15 border border-rose-500/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-base leading-none">🛡️</span>
+              <span>Lá chắn</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className="flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] text-slate-400 hover:text-cyan-300 transition cursor-pointer"
+            >
+              <span className="text-base leading-none">☰</span>
+              <span>Tất cả</span>
+            </button>
+          </>
+        )}
+      </nav>
 
       {/* Quick Command Palette Modal (⌘K) */}
       {cmdOpen && (
