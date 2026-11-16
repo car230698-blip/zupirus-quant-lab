@@ -1719,16 +1719,49 @@ async def spa_fallback(request: Request, full_path: str):
     if DIST_DIR.exists():
         direct_file = DIST_DIR / full_path
         if full_path and direct_file.is_file():
+            # If requesting index.html directly, enforce no-cache
+            if direct_file.name == 'index.html':
+                return FileResponse(
+                    direct_file,
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                    },
+                )
             return FileResponse(direct_file)
         if (DIST_DIR / 'index.html').exists():
-            return FileResponse(DIST_DIR / 'index.html')
+            return FileResponse(
+                DIST_DIR / 'index.html',
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
 
     # 2. Fallback to web directory
     if WEB_DIR.exists():
         direct_file = WEB_DIR / full_path
         if full_path and direct_file.is_file():
+            if direct_file.name == 'index.html':
+                return FileResponse(
+                    direct_file,
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                    },
+                )
             return FileResponse(direct_file)
         if (WEB_DIR / 'index.html').exists():
-            return FileResponse(WEB_DIR / 'index.html')
+            return FileResponse(
+                WEB_DIR / 'index.html',
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
 
     return JSONResponse({'detail': 'Not Found'}, status_code=404)
