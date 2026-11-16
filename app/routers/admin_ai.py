@@ -11,6 +11,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.db import tx
 from app.routers.deps import get_current_admin, fail
 from app.gemini_client import call_gemini, seed_default_keys, hash_key, mask_key
+from app.security import encrypt_secret, decrypt_secret
+
+
+def _decrypt_ai_key(raw: str) -> str:
+    val = str(raw or "").strip()
+    if not val:
+        return ""
+    try:
+        dec = decrypt_secret(val)
+        return dec if dec else val
+    except Exception:
+        return val
 
 logger = logging.getLogger("zupirus.admin_ai")
 
@@ -123,7 +135,7 @@ def get_ai_settings(_admin=Depends(get_current_admin)):
         gem_keys_count = len(active_gem)
 
     provider = saved.get("provider") or "HYBRID"
-    raw_key = saved.get("api_key") or os.getenv("AI_API_KEY", "")
+    raw_key = _decrypt_ai_key(saved.get("api_key") or "") or os.getenv("AI_API_KEY", "")
     base_url = saved.get("base_url") or os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
     model = saved.get("model") or os.getenv("AI_MODEL", "gpt-4o-mini")
     gemini_model = saved.get("gemini_model") or "gemini-2.0-flash"
@@ -164,7 +176,7 @@ def _save_ai_settings(req: AISettingsUpdate):
         row = c.execute("SELECT value FROM kv WHERE key = 'ai:settings'").fetchone()
         existing = json.loads(row[0]) if row else {}
 
-    api_key = req.api_key.strip() if req.api_key else existing.get("api_key", os.getenv("AI_API_KEY", ""))
+    api_key = req.api_key.strip() if req.api_key else (_decrypt_ai_key(existing.get("api_key", "")) or os.getenv("AI_API_KEY", ""))
     base_url = (req.base_url or existing.get("base_url", "https://api.openai.com/v1")).strip().rstrip("/")
     model = (req.model or existing.get("model", "gpt-4o-mini")).strip()
     provider = (req.provider or existing.get("provider", "OPENAI")).strip().upper()
@@ -173,7 +185,7 @@ def _save_ai_settings(req: AISettingsUpdate):
     now_ts = time.time()
     payload = {
         "provider": provider,
-        "api_key": api_key,
+        "api_key": encrypt_secret(api_key) if api_key else "",
         "base_url": base_url,
         "model": model,
         "gemini_model": gemini_model,
@@ -206,7 +218,7 @@ def _save_ai_settings(req: AISettingsUpdate):
                     INSERT INTO gemini_keys (id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created)
                     VALUES (?, ?, ?, ?, 1, 0, NULL, 'active', ?)
                     """,
-                    (g_id, g_hash, g_mask, g_raw, now_ts)
+                    (g_id, g_hash, g_mask, encrypt_secret(g_raw), now_ts)
                 )
 
     # Dynamically update process environment
@@ -249,7 +261,7 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
         cfg = json.loads(row[0]) if row else {}
 
     provider = (req.provider or cfg.get("provider", "HYBRID")).strip().upper()
-    key = (req.api_key.strip() if req.api_key else None) or cfg.get("api_key") or os.getenv("AI_API_KEY", "")
+    key = (req.api_key.strip() if req.api_key else None) or _decrypt_ai_key(cfg.get("api_key", "")) or os.getenv("AI_API_KEY", "")
     base_url = (req.base_url.strip() if req.base_url else None) or cfg.get("base_url") or os.getenv("AI_BASE_URL", "https://api.openai.com/v1")
     model = (req.model.strip() if req.model else None) or cfg.get("model") or os.getenv("AI_MODEL", "gpt-4o-mini")
     gemini_model = (req.gemini_model.strip() if req.gemini_model else None) or cfg.get("gemini_model", "gemini-2.0-flash")

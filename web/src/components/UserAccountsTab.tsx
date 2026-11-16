@@ -124,8 +124,18 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       if (res.ok) {
         const data = await res.json();
         setCloudSub(data);
-        if (data?.plan_tier) setSubTier(data.plan_tier);
-        if (data?.billing_cycle) setSubBillingCycle(data.billing_cycle);
+        if (data?.plan_tier) {
+          const upper = String(data.plan_tier).trim().toUpperCase();
+          const tierMap: Record<string, string> = {
+            STARTER: 'STARTER',
+            GROWTH: 'PRO',
+            PRO: 'PRO',
+            ALPHA: 'INSTITUTIONAL',
+            INSTITUTIONAL: 'INSTITUTIONAL',
+          };
+          setSubTier(tierMap[upper] || 'STARTER');
+        }
+        if (data?.billing_cycle) setSubBillingCycle(String(data.billing_cycle).trim().toUpperCase());
         if (data?.max_cloud_accounts) setSubCloudSlots(Number(data.max_cloud_accounts));
       }
     } catch {
@@ -391,6 +401,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     const cycleMult: Record<string, number> = {
       MONTHLY: 1,
       QUARTERLY: 3 * 0.9,
+      BIANNUAL: 6 * 0.85,
       ANNUAL: 12 * 0.8,
     };
     return Math.round(monthly * (cycleMult[subBillingCycle] || 1) * 100) / 100;
@@ -491,7 +502,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                     <option value="MONTHLY">1 Tháng (Chuẩn)</option>
                     <option value="QUARTERLY">3 Tháng (-10%)</option>
                     <option value="BIANNUAL">6 Tháng (-15%)</option>
-                    <option value="ANNUAL">12 Tháng (-25%)</option>
+                    <option value="ANNUAL">12 Tháng (-20%)</option>
                   </select>
                 </div>
                 <div>
@@ -975,7 +986,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
             {(() => {
               const displayOrderId = checkoutOrder.order_code || checkoutOrder.order_id || checkoutOrder.id || '';
               const displayBank = checkoutOrder.bank_name || 'VietinBank';
-              const displayAccNum = checkoutOrder.account_number || '102873839291';
+              const displayAccNum = checkoutOrder.account_number || '105887054819';
               const displayHolder = checkoutOrder.account_holder || 'CTCP ZUPIRUS QUANT LAB';
               const displayMemo = checkoutOrder.payment_content || `ZP ${displayOrderId.slice(-6).toUpperCase()}`;
               const displayAmountVnd = Number(checkoutOrder.amount_vnd || estimatedVnd || 0);

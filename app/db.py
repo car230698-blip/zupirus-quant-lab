@@ -467,8 +467,16 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
 
     with tx() as c:
         if is_postgres():
+            # 1. Read historical candles stored by streamer/market ingestion
             if source == "ALL":
-                rows = c.execute(f"""
+                hist_rows = c.execute("""
+                    SELECT time AS bucket, open, high, low, close, volume
+                    FROM candles
+                    WHERE symbol = ? AND timeframe = ?
+                    ORDER BY time DESC
+                    LIMIT ?
+                """, (symbol, timeframe, limit)).fetchall()
+                quote_rows = c.execute(f"""
                     SELECT 
                         time_bucket('{bucket_interval}', time) AS bucket,
                         first(bid, time) AS open,
@@ -483,7 +491,14 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
                     LIMIT ?
                 """, (symbol, limit)).fetchall()
             else:
-                rows = c.execute(f"""
+                hist_rows = c.execute("""
+                    SELECT time AS bucket, open, high, low, close, volume
+                    FROM candles
+                    WHERE symbol = ? AND timeframe = ? AND source = ?
+                    ORDER BY time DESC
+                    LIMIT ?
+                """, (symbol, timeframe, source, limit)).fetchall()
+                quote_rows = c.execute(f"""
                     SELECT 
                         time_bucket('{bucket_interval}', time) AS bucket,
                         first(bid, time) AS open,
@@ -497,7 +512,19 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
                     ORDER BY bucket DESC
                     LIMIT ?
                 """, (symbol, source, limit)).fetchall()
-            return _sanitize_candle_outliers([dict(r) for r in rows])
+
+            merged: Dict[str, Dict[str, Any]] = {}
+            for r in hist_rows:
+                d = dict(r)
+                bkey = str(d.get("bucket"))
+                merged[bkey] = d
+            for r in quote_rows:
+                d = dict(r)
+                bkey = str(d.get("bucket"))
+                if bkey not in merged:
+                    merged[bkey] = d
+            ordered = [merged[k] for k in sorted(merged.keys(), reverse=True)[:limit]]
+            return _sanitize_candle_outliers(ordered)
         else:
             # SQLite fallback aggregation
             rows = c.execute("""

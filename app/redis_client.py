@@ -111,6 +111,18 @@ class InMemoryRedisMock:
     def publish(self, channel: str, message: str) -> int:
         return 1
 
+    def incr(self, key: str, amount: int = 1) -> int:
+        self._purge_expired()
+        cur = int(self._data.get(key) or 0) + amount
+        self._data[key] = str(cur)
+        return cur
+
+    def expire(self, key: str, time_sec: int) -> bool:
+        if key in self._data:
+            self._expires[key] = time.time() + time_sec
+            return True
+        return False
+
     def keys(self, pattern: str = "*") -> List[str]:
         self._purge_expired()
         import fnmatch

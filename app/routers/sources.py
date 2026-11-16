@@ -83,6 +83,13 @@ def set_signal_mode(req: SetSignalModeRequest, _admin=Depends(get_current_admin)
             """,
             (mode,)
         )
+        c.execute(
+            """
+            INSERT INTO kv (key, value) VALUES ('signal_source', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (mode,)
+        )
 
     return {"message": f"Đã chuyển sang chế độ {mode}.", "active_signal_mode": mode}
 

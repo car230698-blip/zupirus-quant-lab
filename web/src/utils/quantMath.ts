@@ -90,15 +90,15 @@ export function calculateSubscriptionPricing(
   totalVnd: number;
   months: number;
 } {
-  const base = Math.max(0, Number(tierBaseUsd) || 35);
-  const extraSlots = Math.max(0, (Number(slotsCount) || 1) - 1);
-  const monthlyRaw = base + extraSlots * 15;
+  const base = Math.max(0, Number(tierBaseUsd) || 20);
+  const slots = Math.max(1, Number(slotsCount) || 1);
+  const monthlyRaw = base + slots * 10;
 
   const cycleConfig: Record<BillingCycleType, { months: number; discount: number }> = {
     MONTHLY: { months: 1, discount: 0 },
     QUARTERLY: { months: 3, discount: 0.1 },
     BIANNUAL: { months: 6, discount: 0.15 },
-    ANNUAL: { months: 12, discount: 0.25 },
+    ANNUAL: { months: 12, discount: 0.2 },
   };
 
   const cfg = cycleConfig[cycle] || cycleConfig.MONTHLY;

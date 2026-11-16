@@ -1,6 +1,7 @@
 """Webhook handlers for external signal providers (TradingView) and SePay banking payments."""
 import time
 import re
+import secrets
 import logging
 from fastapi import APIRouter, Header, Query, Request, HTTPException
 from app.db import tx
@@ -25,9 +26,12 @@ async def handle_tradingview_webhook(
     secret: str = Query(default="", description="Webhook secret token")
 ):
     """Receive and process XAUUSD signals from TradingView Alerts."""
-    # 1. Authenticate secret token
-    provided_secret = p.secret or secret
-    if provided_secret != TRADINGVIEW_WEBHOOK_SECRET:
+    # 1. Authenticate secret token (fail closed if unconfigured)
+    if not TRADINGVIEW_WEBHOOK_SECRET:
+        logger.error("TradingView webhook rejected: TRADINGVIEW_WEBHOOK_SECRET is not configured")
+        raise HTTPException(status_code=503, detail="TradingView webhook secret is not configured")
+    provided_secret = str(p.secret or secret or "")
+    if not secrets.compare_digest(provided_secret, str(TRADINGVIEW_WEBHOOK_SECRET)):
         logger.warning("Unauthorized TradingView webhook attempt: invalid secret token")
         raise HTTPException(status_code=401, detail="Invalid webhook secret")
 

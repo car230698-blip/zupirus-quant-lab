@@ -186,10 +186,12 @@ def discover_and_ingest_external_signals() -> Dict[str, Any]:
                 feeds = []
 
     if feeds:
+        import hashlib
         import httpx
         for feed in feeds[:5]:
             url = str(feed.get("url") or "").strip()
-            sid = str(feed.get("source_id") or "").strip() or f"src_disc_{abs(hash(url)) % 100000}"
+            url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:10]
+            sid = str(feed.get("source_id") or "").strip() or f"src_disc_{url_hash}"
             sname = str(feed.get("name") or sid)
             if not url:
                 continue

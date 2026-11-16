@@ -1536,14 +1536,31 @@ class SendOtpPayload(BaseModel):
     email: str = Field(min_length=5, max_length=120)
 
 @app.post('/api/auth/send-otp')
-def auth_send_otp(p: SendOtpPayload):
+def auth_send_otp(p: SendOtpPayload, request: Request):
     """Generates a secure 6-digit OTP, stores it with 10-minute expiry, and sends via Resend."""
-    import secrets
+    import secrets, re
     from .mailer import send_otp_code
+    email_clean = p.email.strip().lower()
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email_clean):
+        fail(422, "Định dạng email không hợp lệ")
+
+    client_ip = (request.client.host if request.client else "") or "unknown"
+    try:
+        r = get_redis_client()
+        ip_key = f"otp_ip_rl:{client_ip}"
+        cnt = r.incr(ip_key)
+        if cnt == 1:
+            r.expire(ip_key, 60)
+        if cnt > 5:
+            fail(429, "Quá nhiều yêu cầu OTP từ IP này. Vui lòng thử lại sau 60 giây")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     code = f"{secrets.randbelow(900000) + 100000}"
     now = time.time()
     expires_at = now + 600.0
-    email_clean = p.email.strip().lower()
 
     with tx() as c:
         row = c.execute("SELECT expires_at FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
@@ -1987,16 +2004,16 @@ def list_metaapi_executions(limit: int = 50, u=Depends(user)):
     with tx() as c:
         if u['role'] == 'admin':
             rows = c.execute("""
-                SELECT e.*, a.login, a.server, a.account_name
+                SELECT e.*, a.mt5_login AS login, a.broker_server AS server, a.account_name
                 FROM metaapi_trade_executions e
-                LEFT JOIN metaapi_cloud_accounts a ON e.account_id = a.id
+                LEFT JOIN trading_accounts a ON e.account_id = a.id
                 ORDER BY e.executed_at DESC LIMIT ?
             """, (limit,)).fetchall()
         else:
             rows = c.execute("""
-                SELECT e.*, a.login, a.server, a.account_name
+                SELECT e.*, a.mt5_login AS login, a.broker_server AS server, a.account_name
                 FROM metaapi_trade_executions e
-                JOIN metaapi_cloud_accounts a ON e.account_id = a.id
+                JOIN trading_accounts a ON e.account_id = a.id
                 WHERE a.user_id = ?
                 ORDER BY e.executed_at DESC LIMIT ?
             """, (u['id'], limit)).fetchall()
@@ -2006,8 +2023,8 @@ def list_metaapi_executions(limit: int = 50, u=Depends(user)):
 def get_metaapi_telemetry(u=Depends(user)):
     """Return cloud execution latency metrics and system health."""
     with tx() as c:
-        total_accounts = c.execute("SELECT count(*) FROM metaapi_cloud_accounts").fetchone()[0]
-        active_accounts = c.execute("SELECT count(*) FROM metaapi_cloud_accounts WHERE auto_trade=1").fetchone()[0]
+        total_accounts = c.execute("SELECT count(*) FROM trading_accounts").fetchone()[0]
+        active_accounts = c.execute("SELECT count(*) FROM trading_accounts WHERE auto_trade=1").fetchone()[0]
         exec_stats = c.execute("""
             SELECT count(*), coalesce(avg(latency_ms), 0), coalesce(sum(case when status='FILLED' then 1 else 0 end), 0)
             FROM metaapi_trade_executions
@@ -2040,8 +2057,9 @@ class CombinedStaticFiles(StaticFiles):
     def lookup_path(self, path: str):
         full_path, stat_result = super().lookup_path(path)
         if stat_result is None and self.fallback_dir:
-            fallback_file = (self.fallback_dir / path).resolve()
-            if fallback_file.is_file():
+            base_dir = self.fallback_dir.resolve()
+            fallback_file = (base_dir / path.lstrip("/\\")).resolve()
+            if fallback_file.is_relative_to(base_dir) and fallback_file.is_file():
                 try:
                     return str(fallback_file), os.stat(fallback_file)
                 except (os.error, ValueError):
@@ -2062,8 +2080,9 @@ async def spa_fallback(request: Request, full_path: str):
 
     # 1. Direct static file in dist (e.g. index.html, favicon, robots.txt, metadata.json)
     if DIST_DIR.exists():
-        direct_file = DIST_DIR / full_path
-        if full_path and direct_file.is_file():
+        dist_root = DIST_DIR.resolve()
+        direct_file = (dist_root / full_path.lstrip("/\\")).resolve()
+        if full_path and direct_file.is_relative_to(dist_root) and direct_file.is_file():
             # If requesting index.html directly, enforce no-cache
             if direct_file.name == 'index.html':
                 return FileResponse(
@@ -2087,8 +2106,9 @@ async def spa_fallback(request: Request, full_path: str):
 
     # 2. Fallback to web directory
     if WEB_DIR.exists():
-        direct_file = WEB_DIR / full_path
-        if full_path and direct_file.is_file():
+        web_root = WEB_DIR.resolve()
+        direct_file = (web_root / full_path.lstrip("/\\")).resolve()
+        if full_path and direct_file.is_relative_to(web_root) and direct_file.is_file():
             if direct_file.name == 'index.html':
                 return FileResponse(
                     direct_file,

@@ -812,7 +812,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       <rect x="190" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#eab308" strokeWidth="1.5" />
                       <text x="225" y="55" textAnchor="middle" fill="#fef08a" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#03</text>
                       <text x="225" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">NEWS</text>
-                      <text x="225" y="87" textAnchor="middle" fill="#eab308" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">±30m</text>
+                      <text x="225" y="87" textAnchor="middle" fill="#eab308" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">±15m</text>
 
                       <rect x="275" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#10b981" strokeWidth="1.5" />
                       <text x="310" y="55" textAnchor="middle" fill="#a7f3d0" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#04</text>

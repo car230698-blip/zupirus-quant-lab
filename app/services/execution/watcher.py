@@ -86,6 +86,7 @@ class PositionWatcher:
                 SELECT t.id, t.user_id, t.metaapi_account_id, t.auto_trade,
                        t.balance, t.equity, t.risk_config, t.auto_be_partial_tp,
                        t.is_prop_firm_mode, t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
+                       t.account_type, t.contract_size,
                        COALESCE(s.plan_tier, 'starter') AS plan_tier
                 FROM trading_accounts t
                 LEFT JOIN subscriptions s ON t.user_id = s.user_id
@@ -274,7 +275,9 @@ class PositionWatcher:
                                                     (acc_id, pos_id, pos_id),
                                                 ).fetchone()
                                                 if ex_row and ex_row[0]:
-                                                    realized_usd = abs(current_price - open_price) * half_volume * 100.0
+                                                    is_cent = str(acc.get("account_type") or "").upper() == "CENT"
+                                                    contract_mult = float(acc.get("contract_size") or (1.0 if is_cent else 100.0))
+                                                    realized_usd = abs(current_price - open_price) * half_volume * contract_mult
                                                     reflect_on_signal_outcome(c, signal_id=ex_row[0], pnl=round(realized_usd, 2), exit_price=current_price, exit_reason="PARTIAL_TP1")
                                             except Exception:
                                                 pass

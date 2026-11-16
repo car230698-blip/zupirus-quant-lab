@@ -773,26 +773,6 @@ export function PortalAuth({
               : 'Truy cập bảng điều khiển danh mục và cấu hình sao chép đám mây MT5.'}
           </p>
 
-          {!register && (
-            <div className="mb-4 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  if (portal === 'admin') {
-                    setEmailInput('admin@zupirus.local');
-                    setPasswordInput('admin_secure_change_me_2026');
-                  } else {
-                    setEmailInput('trader@zupirus.local');
-                    setPasswordInput('quant-access-2026');
-                  }
-                }}
-                className="w-full rounded-xl border border-amber-500/30 bg-amber-500/15 px-3 py-2 font-mono text-[11px] font-bold text-amber-200 hover:bg-amber-500/25 transition cursor-pointer"
-              >
-                ⚡ Điền Nhanh Tài Khoản {portal === 'admin' ? 'Admin' : 'Trader'} Demo
-              </button>
-            </div>
-          )}
-
           {error && <div className="quant-alert">{error}</div>}
           {otpNotice && (
             <div
