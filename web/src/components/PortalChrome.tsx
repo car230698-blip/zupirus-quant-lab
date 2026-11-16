@@ -291,7 +291,19 @@ export function PortalShell({
             </span>
             <span className="text-slate-600">·</span>
             <span>
-              PHIÊN: <strong className="text-emerald-400">LONDON–NY OVERLAP</strong>
+              PHIÊN:{' '}
+              <strong className="text-emerald-400">
+                {(() => {
+                  const now = new Date();
+                  const day = now.getUTCDay();
+                  const hour = now.getUTCHours();
+                  if (day === 0 || day === 6 || (day === 5 && hour >= 22)) return 'CUỐI TUẦN (ĐÓNG CỬA)';
+                  if (hour >= 13 && hour < 17) return 'LONDON–NY OVERLAP';
+                  if (hour >= 7 && hour < 13) return 'PHIÊN ÂU (LONDON)';
+                  if (hour >= 17 && hour < 22) return 'PHIÊN MỸ (NEW YORK)';
+                  return 'PHIÊN Á (TOKYO)';
+                })()}
+              </strong>
             </span>
             <span className="text-slate-600">·</span>
             <span>

@@ -15,7 +15,7 @@ const GUARD_LAYERS = [
     title: 'Khóa Chống Lặp Lệnh Redis (Idempotency Lock)',
     metric: '< 0.8 ms',
     desc: 'Mỗi tín hiệu được băm SHA-256 và khóa nguyên tử trên Redis trước khi phân phối. Triệt tiêu 100% lỗi bắn trùng lệnh khi webhook hoặc đường truyền rung lắc.',
-    rule: 'SETNX signal:{hash}:account:{id} EX 300',
+    rule: 'SETNX signal:{hash}:account:{id} EX 60',
   },
   {
     id: '02',
@@ -29,9 +29,9 @@ const GUARD_LAYERS = [
     id: '03',
     code: 'MACRO_USD_NEWS_SHIELD',
     title: 'Lá Chắn Tin Tức Vĩ Mô USD Đỏ (CPI / NFP / FOMC)',
-    metric: '±30 Phút Phong Tỏa',
-    desc: 'Đồng bộ lịch kinh tế thời gian thực và tự động đóng băng mở vị thế mới trong bán kính ±30 phút quanh các bản tin USD High-Impact để tránh giãn spread.',
-    rule: 'IF abs(now - usd_high_impact_ts) <= 1800s -> HALT_NEW_ENTRIES',
+    metric: '±15 Phút Phong Tỏa',
+    desc: 'Đồng bộ lịch kinh tế thời gian thực và tự động đóng băng mở vị thế mới trong bán kính ±15 phút quanh các bản tin USD High-Impact để tránh giãn spread.',
+    rule: 'IF abs(now - usd_high_impact_ts) <= 900s -> HALT_NEW_ENTRIES',
   },
   {
     id: '04',
@@ -48,43 +48,43 @@ const PRICING_TIERS = [
     id: 'STARTER' as const,
     code: 'TIER 01 // RETAIL & CENT',
     name: 'Cloud Starter',
-    baseUsd: 39,
+    baseUsd: 30,
     slots: 1,
     badge: 'Khởi Đầu Chuẩn',
     features: [
-      '01 Khe cắm tài khoản Cloud MT5 (Standard hoặc Cent)',
-      'Đấu nối trực tiếp MetaApi London G2 (~24ms)',
+      '01 Khe cắm tài khoản Cloud MT5 ($20 gói + $10 Cloud)',
+      'Đấu nối trực tiếp MetaApi London G2',
       'Kích hoạt đầy đủ 4 Lớp Giáp Bảo Vệ Vốn Fail-Closed',
-      'Tự động dời Stop-Loss hòa vốn khi đạt 1R (Auto BE)',
+      'Hỗ trợ đa cặp XAUUSD, EURUSD, GBPUSD, USDJPY',
     ],
   },
   {
     id: 'PRO' as const,
-    code: 'TIER 02 // PROP FIRM & MULTI-ACCOUNT',
-    name: 'Quant Pro',
-    baseUsd: 59,
-    slots: 2,
+    code: 'TIER 02 // GROWTH & MULTI-ACCOUNT',
+    name: 'Growth Pro',
+    baseUsd: 45,
+    slots: 3,
     popular: true,
-    badge: 'Khuyên Dùng Cho Quỹ Prop',
+    badge: 'Phổ Biến Nhất',
     features: [
-      '02 Khe cắm Cloud MT5 chạy song song độc lập',
-      'Tự động quy đổi hệ số Lot riêng cho từng tài khoản',
-      'Lá chắn Daily Drawdown chuyên biệt cho FTMO /The5ers',
-      'Truy cập Trợ lý AI phân tích cấu trúc XAU/USD M15',
+      'Tối đa 03 Khe cắm Cloud MT5 ($35 gói + $10/slot)',
+      'Tự động dời hòa vốn 1R (Auto BE) & Chốt 50% TP1',
+      'Tự động quy đổi hệ số Lot riêng & Auto-Compounding',
+      'Truy cập Trợ lý AI phân tích cấu trúc thị trường',
     ],
   },
   {
     id: 'INSTITUTIONAL' as const,
-    code: 'TIER 03 // DESK & SYNDICATE',
-    name: 'Institutional Desk',
-    baseUsd: 149,
+    code: 'TIER 03 // PROP FIRM ALPHA',
+    name: 'Prop Firm Alpha',
+    baseUsd: 59,
     slots: 5,
     badge: 'Hiệu Suất Cao Nhất',
     features: [
-      '05 Khe cắm Cloud MT5 ưu tiên băng thông quạt lệnh',
-      'Tùy chỉnh hậu tố mã vàng riêng biệt cho mọi sàn',
+      'Tối đa 05 Khe cắm Cloud MT5 ($49 gói + $10/slot)',
+      'Lá chắn Daily Drawdown 4.5% & Đóng lệnh cuối tuần',
       'Báo cáo kiểm toán MAE / MFE & Profit Factor chuyên sâu',
-      'Hỗ trợ kỹ thuật trực tiếp & luồng Webhook ưu tiên',
+      'Truy cập chiến lược AI Swarm ZUPIRUS_AGENT',
     ],
   },
 ];
@@ -133,7 +133,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setHeroFlash(
       mode === 'NO_SL'
         ? '⛔ CHẶN BỞI LỚP GIÁP #02: Tín hiệu thiếu Stop-Loss cứng!'
-        : `⚡ ĐÃ QUẠT LỆNH ${mode} XAU/USD @ $${spotPrice.toFixed(2)} TỚI 03 TRẠM CLOUD MT5 (24ms)`
+        : spotPrice > 0
+        ? `⚡ ĐÃ QUẠT LỆNH ${mode} XAU/USD @ $${spotPrice.toFixed(2)} TỚI CÁC TRẠM CLOUD MT5`
+        : `⚡ ĐANG CHỜ DỮ LIỆU GIÁ LIVE XAU/USD TỪ HỆ THỐNG ĐỂ MÔ PHỎNG LỆNH ${mode}...`
     );
     setTimeout(() => setSimStep(2), 180);
     setTimeout(() => setSimStep(3), 360);

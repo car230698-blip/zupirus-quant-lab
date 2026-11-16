@@ -383,16 +383,15 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   };
 
   const calculateEstimateUsd = () => {
-    const basePrices: Record<string, number> = { STARTER: 39, PRO: 59, INSTITUTIONAL: 149 };
-    const slotAddonPrice = 25;
-    const base = basePrices[subTier] || 39;
-    const extraSlots = Math.max(0, subCloudSlots - 1);
-    const monthly = base + extraSlots * slotAddonPrice;
+    const basePrices: Record<string, number> = { STARTER: 20, PRO: 35, INSTITUTIONAL: 49 };
+    const slotAddonPrice = 10;
+    const base = basePrices[subTier] || 20;
+    const slotsCount = Math.max(1, subCloudSlots);
+    const monthly = base + slotsCount * slotAddonPrice;
     const cycleMult: Record<string, number> = {
       MONTHLY: 1,
       QUARTERLY: 3 * 0.9,
-      BIANNUAL: 6 * 0.85,
-      ANNUAL: 12 * 0.75,
+      ANNUAL: 12 * 0.8,
     };
     return Math.round(monthly * (cycleMult[subBillingCycle] || 1) * 100) / 100;
   };
@@ -456,9 +455,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: 'STARTER', name: 'STARTER', price: '$39/th' },
-                    { id: 'PRO', name: 'QUANT PRO', price: '$59/th' },
-                    { id: 'INSTITUTIONAL', name: 'FUND VIP', price: '$149/th' },
+                    { id: 'STARTER', name: 'STARTER', price: '$30/th' },
+                    { id: 'PRO', name: 'GROWTH PRO', price: '$45/th' },
+                    { id: 'INSTITUTIONAL', name: 'ALPHA VIP', price: '$59/th' },
                   ].map((t) => (
                     <button
                       key={t.id}

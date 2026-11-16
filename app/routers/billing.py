@@ -71,6 +71,7 @@ def checkout(p: CreateOrderRequest, u=Depends(get_current_user)):
         user_id=u["id"],
         plan_tier=p.plan_tier,
         cloud_slots=p.cloud_slots,
+        billing_cycle=p.billing_cycle or "MONTHLY",
     )
     return OrderResponse(**order_data)
 

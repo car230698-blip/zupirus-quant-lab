@@ -11,22 +11,28 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   accounts = [],
   refetchAll,
 }) => {
-  const [summary, setSummary] = useState<any>({ total_revenue_vnd: 0, paid_orders: 0, active_subscriptions: 0 });
+  const [summary, setSummary] = useState<any>({ orders: { paid_revenue_vnd: 0 } });
   const [orders, setOrders] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'EXCEPTIONS' | 'PAID'>('ALL');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
 
   const loadBilling = useCallback(async () => {
     try {
-      const [sRes, oRes] = await Promise.all([
+      const [sRes, oRes, uRes] = await Promise.all([
         fetch('/api/admin/billing/summary', { credentials: 'include' }),
         fetch('/api/admin/billing/orders', { credentials: 'include' }),
+        fetch('/api/admin/users', { credentials: 'include' }),
       ]);
       if (sRes.ok) setSummary(await sRes.json());
       if (oRes.ok) {
         const d = await oRes.json();
         setOrders(d.orders || d || []);
+      }
+      if (uRes.ok) {
+        const ud = await uRes.json();
+        setUsers(ud.users || ud || []);
       }
     } catch {
       // ignore transient error
@@ -108,7 +114,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2">
               <span className="text-slate-400">Tổng doanh thu: </span>
               <span className="font-mono font-extrabold text-emerald-300">
-                {Number(summary.total_revenue_vnd || 0).toLocaleString('vi-VN')} đ
+                {Number(summary.orders?.paid_revenue_vnd ?? summary.total_revenue_vnd ?? 0).toLocaleString('vi-VN')} đ
               </span>
             </div>
             <div className="flex gap-1.5">
@@ -270,6 +276,74 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   );
                 })
               )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 4. User Compliance & Role Management */}
+      <div className="quant-panel p-6 space-y-4">
+        <div>
+          <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">
+            Quản Trị Người Dùng ({users.length})
+          </div>
+          <h3 className="mt-1 text-base font-bold text-white">
+            Danh Sách Tài Khoản Hệ Thống (Phân Quyền &amp; Xử Lý Vi Phạm)
+          </h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-white/10 text-[11px] uppercase text-slate-400">
+                <th className="py-2 pr-4">Email</th>
+                <th className="py-2 pr-4">Quyền</th>
+                <th className="py-2 text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {users.map((usr: any) => (
+                <tr key={usr.id} className="hover:bg-white/[0.02]">
+                  <td className="py-2 pr-4 text-slate-200">{usr.email}</td>
+                  <td className="py-2 pr-4 font-mono text-cyan-300 uppercase">{usr.role}</td>
+                  <td className="py-2 text-right space-x-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const nextRole = usr.role === 'admin' ? 'customer' : 'admin';
+                        const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}/role`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                          body: JSON.stringify({ role: nextRole }),
+                        });
+                        if (r.ok) {
+                          setMsg(`Đã đổi quyền ${usr.email} -> ${nextRole}.`);
+                          await loadBilling();
+                        }
+                      }}
+                      className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-bold text-cyan-300 hover:bg-cyan-500/20 cursor-pointer"
+                    >
+                      Đổi quyền
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!window.confirm(`Xóa người dùng ${usr.email}?`)) return;
+                        const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}`, {
+                          method: 'DELETE',
+                          headers: { 'X-Zupirus': '1' },
+                        });
+                        if (r.ok) {
+                          setMsg(`Đã xóa người dùng ${usr.email}.`);
+                          await loadBilling();
+                        }
+                      }}
+                      className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                    >
+                      Xóa
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

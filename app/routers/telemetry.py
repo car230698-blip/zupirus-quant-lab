@@ -307,7 +307,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
                     rate_limited_gemini += 1
         except Exception:
             pass
-        ai_cfg_row = c.execute("SELECT value FROM kv WHERE key='ai_provider_config'").fetchone()
+        ai_cfg_row = c.execute("SELECT value FROM kv WHERE key='ai:settings'").fetchone()
         has_custom_ai = False
         if ai_cfg_row and ai_cfg_row[0]:
             try:
@@ -325,8 +325,15 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         pending_cnt = sum(1 for a in acc_rows if str(a[2] or "").upper() in ("DEPLOY_PENDING", "FAILED"))
 
         # SePay config & underpaid/pending orders
-        sepay_secret_ok = bool(os.getenv("SEPAY_WEBHOOK_SECRET", "").strip())
-        sepay_bank = getkv(c, "sepay_bank_account") or getkv(c, "sepay_account_number")
+        billing_cfg_row = getkv(c, "billing:settings")
+        billing_cfg = {}
+        if billing_cfg_row:
+            try:
+                billing_cfg = json.loads(billing_cfg_row)
+            except Exception:
+                billing_cfg = {}
+        sepay_secret_ok = bool(os.getenv("SEPAY_WEBHOOK_SECRET", "").strip() or billing_cfg.get("sepay_webhook_secret_encrypted") or billing_cfg.get("sepay_webhook_secret"))
+        sepay_bank = billing_cfg.get("account_number") or getkv(c, "sepay_bank_account") or getkv(c, "sepay_account_number")
         sepay_ready = sepay_secret_ok or bool(sepay_bank)
         underpaid_orders = c.execute(
             "SELECT id, amount_vnd, paid_amount_vnd, status, created_at FROM orders WHERE status IN ('UNDERPAID', 'FAILED') ORDER BY created_at DESC LIMIT 5"
@@ -343,7 +350,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
             side = sl.get("side") or "BUY"
             st = str(sl.get("status") or "").upper()
             src_name = sl.get("source_name") or "AI"
-            reason_txt = sl.get("reason") or sl.get("rejection_reason") or st
+            reason_txt = sl.get("reject_reason") or sl.get("reason") or sl.get("rejection_reason") or st
             if st == "APPROVED":
                 msg = f"Nhận tín hiệu {side} {sym} ({src_name}) -> Đã qua 4 lớp an toàn -> Phân phối tới {deployed_cnt} tài khoản."
                 kind = "success"

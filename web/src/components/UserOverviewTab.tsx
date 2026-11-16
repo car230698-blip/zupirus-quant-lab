@@ -40,7 +40,7 @@ const SHIELD_LAYERS = [
     title: 'Chống Bắn Trùng Lệnh',
     status: 'ACTIVE',
     latency: '0.6 ms',
-    detail: 'Khóa nguyên tử SHA-256 trên Redis ngăn chặn 100% lệnh lặp từ nguồn ngoại vi trong 300 giây.',
+    detail: 'Khóa nguyên tử SHA-256 trên Redis ngăn chặn 100% lệnh lặp từ nguồn ngoại vi trong 60 giây.',
   },
   {
     id: '02',
@@ -56,7 +56,7 @@ const SHIELD_LAYERS = [
     title: 'CPI · NFP · FOMC ±30m',
     status: 'ARMED',
     latency: '2.0 ms',
-    detail: 'Tự động phong tỏa mở lệnh mới trước và sau 30 phút các sự kiện tin tức USD High-Impact.',
+    detail: 'Tự động phong tỏa mở lệnh mới trước và sau 15 phút các sự kiện tin tức USD High-Impact.',
   },
   {
     id: '04',

@@ -12,20 +12,32 @@ export const AdminAIEvolutionTab: React.FC = () => {
   });
   const [geminiPool, setGeminiPool] = useState<any[]>([]);
   const [newKeysText, setNewKeysText] = useState('');
+  const [aiSettings, setAiSettings] = useState<any>({
+    provider: 'GEMINI',
+    model: 'gemini-3-flash-preview',
+    base_url: 'https://api.openai.com/v1',
+    api_key: '',
+    api_key_masked: '',
+  });
   const [testingAi, setTestingAi] = useState(false);
   const [aiTestMsg, setAiTestMsg] = useState('');
   const [msg, setMsg] = useState('');
 
   const loadAll = useCallback(async () => {
     try {
-      const [eRes, gRes] = await Promise.all([
+      const [eRes, gRes, sRes] = await Promise.all([
         fetch('/api/v1/telemetry/ai-evolution'),
-        fetch('/api/admin/ai/gemini-keys'),
+        fetch('/api/admin/gemini/keys'),
+        fetch('/api/admin/ai/settings'),
       ]);
       if (eRes.ok) setEvo(await eRes.json());
       if (gRes.ok) {
         const gd = await gRes.json();
         setGeminiPool(gd.keys || []);
+      }
+      if (sRes.ok) {
+        const sd = await sRes.json();
+        setAiSettings((prev: any) => ({ ...prev, ...(sd.settings || sd), api_key: '' }));
       }
     } catch {
       // keep existing state
@@ -58,14 +70,48 @@ export const AdminAIEvolutionTab: React.FC = () => {
       .map((s) => s.trim())
       .filter(Boolean);
     if (keys.length === 0) return;
-    const res = await fetch('/api/admin/ai/gemini-keys', {
+    let addedCount = 0;
+    for (const k of keys) {
+      const res = await fetch('/api/admin/gemini/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        body: JSON.stringify({ key: k }),
+      });
+      if (res.ok) addedCount++;
+    }
+    if (addedCount > 0) {
+      setNewKeysText('');
+      setMsg(`Đã nạp ${addedCount} Gemini API Key vào Pool.`);
+      await loadAll();
+    } else {
+      setMsg('Không thể nạp Gemini Key (kiểm tra định dạng hoặc key đã tồn tại).');
+    }
+  };
+
+  const handleToggleGeminiKey = async (kid: string) => {
+    const res = await fetch(`/api/admin/gemini/keys/${encodeURIComponent(kid)}/toggle`, {
+      method: 'PUT',
+      headers: { 'X-Zupirus': '1' },
+    });
+    if (res.ok) await loadAll();
+  };
+
+  const handleDeleteGeminiKey = async (kid: string) => {
+    const res = await fetch(`/api/admin/gemini/keys/${encodeURIComponent(kid)}`, {
+      method: 'DELETE',
+      headers: { 'X-Zupirus': '1' },
+    });
+    if (res.ok) await loadAll();
+  };
+
+  const handleSaveAiSettings = async () => {
+    const res = await fetch('/api/admin/ai/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({ keys }),
+      body: JSON.stringify(aiSettings),
     });
     if (res.ok) {
-      setNewKeysText('');
-      setMsg(`Đã nạp ${keys.length} Gemini API Key vào Pool.`);
+      setMsg('Đã lưu cấu hình Provider AI nâng cao.');
       await loadAll();
     }
   };
@@ -331,17 +377,31 @@ export const AdminAIEvolutionTab: React.FC = () => {
         {aiTestMsg && <div className="rounded-xl border border-white/10 bg-[#040710]/70 px-4 py-2 text-xs text-cyan-300">{aiTestMsg}</div>}
 
         <div className="flex flex-wrap gap-2">
-          {geminiPool.map((k: any, idx: number) => (
-            <span
-              key={idx}
-              className={`rounded-lg border px-3 py-1 font-mono text-[11px] ${
-                k.status === 'active'
+          {geminiPool.map((k: any) => (
+            <div
+              key={k.id}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-1 font-mono text-[11px] ${
+                k.status === 'active' && k.is_active
                   ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
                   : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
               }`}
             >
-              {k.masked_key || k.key_masked || 'AIza***'} ({k.status})
-            </span>
+              <span>{k.key_masked || k.masked_key || 'AIza***'} ({k.is_active ? k.status : 'disabled'})</span>
+              <button
+                type="button"
+                onClick={() => handleToggleGeminiKey(k.id)}
+                className="text-[10px] underline hover:text-white cursor-pointer"
+              >
+                {k.is_active ? 'Tắt' : 'Bật'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteGeminiKey(k.id)}
+                className="text-[10px] text-rose-300 underline hover:text-rose-200 cursor-pointer"
+              >
+                Xóa
+              </button>
+            </div>
           ))}
         </div>
 
@@ -360,6 +420,46 @@ export const AdminAIEvolutionTab: React.FC = () => {
           >
             Lưu API Key
           </button>
+        </div>
+
+        {/* Advanced AI Provider Settings */}
+        <div className="mt-4 border-t border-white/10 pt-4 space-y-3">
+          <div className="text-xs font-bold text-slate-200">
+            Cấu Hình Provider AI Nâng Cao (OpenAI / OpenRouter / DeepSeek / Gemini)
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <select
+              value={aiSettings.provider || 'GEMINI'}
+              onChange={(e) => setAiSettings({ ...aiSettings, provider: e.target.value })}
+              className="rounded-xl border border-white/10 bg-[#040710] px-3 py-2 text-xs text-white"
+            >
+              <option value="GEMINI">Google Gemini Pool</option>
+              <option value="OPENAI">OpenAI</option>
+              <option value="OPENROUTER">OpenRouter</option>
+              <option value="DEEPSEEK">DeepSeek</option>
+            </select>
+            <input
+              type="text"
+              value={aiSettings.model || ''}
+              onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
+              placeholder="Model (VD: gpt-4o-mini)"
+              className="rounded-xl border border-white/10 bg-[#040710] px-3 py-2 text-xs text-white"
+            />
+            <input
+              type="password"
+              value={aiSettings.api_key || ''}
+              onChange={(e) => setAiSettings({ ...aiSettings, api_key: e.target.value })}
+              placeholder={aiSettings.api_key_masked ? `Đã lưu: ${aiSettings.api_key_masked}` : 'API Key riêng (nếu dùng)'}
+              className="rounded-xl border border-white/10 bg-[#040710] px-3 py-2 text-xs text-white"
+            />
+            <button
+              type="button"
+              onClick={handleSaveAiSettings}
+              className="rounded-xl border border-cyan-400/40 bg-cyan-500/15 px-4 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/25 cursor-pointer"
+            >
+              Lưu Provider
+            </button>
+          </div>
         </div>
       </div>
     </div>

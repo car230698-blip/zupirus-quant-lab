@@ -45,24 +45,36 @@ class OrderTotals(dict):
         yield self["locked_rate"]
 
 
+BILLING_CYCLE_CONFIG = {
+    "MONTHLY": {"months": 1, "days": 30, "discount": 1.0},
+    "QUARTERLY": {"months": 3, "days": 90, "discount": 0.90},
+    "ANNUAL": {"months": 12, "days": 365, "discount": 0.80},
+}
+
+
 def calculate_order_totals(
     plan_tier: str,
     cloud_slots: int = 1,
-    cloud_slots_count: Optional[int] = None
+    cloud_slots_count: Optional[int] = None,
+    billing_cycle: str = "MONTHLY",
 ) -> OrderTotals:
-    """Calculate total USD, converted VND, and locked exchange rate."""
+    """Calculate total USD, converted VND, and locked exchange rate with billing cycle support."""
     if cloud_slots_count is not None:
         cloud_slots = cloud_slots_count
 
+    cycle_u = str(billing_cycle or "MONTHLY").strip().upper()
+    cycle_cfg = BILLING_CYCLE_CONFIG.get(cycle_u, BILLING_CYCLE_CONFIG["MONTHLY"])
+
     tier_price = TIER_PRICES.get(plan_tier.lower(), TIER_STARTER_MONTHLY_USD)
     cloud_price = cloud_slots * CLOUD_SLOT_MONTHLY_USD
-    total_usd = round(tier_price + cloud_price, 2)
+    monthly_usd = tier_price + cloud_price
+    total_usd = round(monthly_usd * cycle_cfg["months"] * cycle_cfg["discount"], 2)
 
     rate, _, _ = get_usd_vnd_rate()
     amount_vnd = convert_usd_to_vnd(total_usd, rate)
     return OrderTotals({
-        "copy_trade_usd": tier_price,
-        "cloud_bridge_usd": cloud_price,
+        "copy_trade_usd": round(tier_price * cycle_cfg["months"] * cycle_cfg["discount"], 2),
+        "cloud_bridge_usd": round(cloud_price * cycle_cfg["months"] * cycle_cfg["discount"], 2),
         "total_usd": total_usd,
         "amount_vnd": amount_vnd,
         "locked_rate": rate,
@@ -104,13 +116,18 @@ def create_checkout_order(
     user_id: str,
     plan_tier: str,
     cloud_slots: int = 1,
-    cloud_slots_count: Optional[int] = None
+    cloud_slots_count: Optional[int] = None,
+    billing_cycle: str = "MONTHLY",
 ) -> Dict[str, Any]:
     """Create a new payment order with locked FX rate valid for ORDER_LOCK_MINUTES."""
     if cloud_slots_count is not None:
         cloud_slots = cloud_slots_count
 
-    total_usd, amount_vnd, locked_rate = calculate_order_totals(plan_tier, cloud_slots)
+    cycle_u = str(billing_cycle or "MONTHLY").strip().upper()
+    if cycle_u not in BILLING_CYCLE_CONFIG:
+        cycle_u = "MONTHLY"
+
+    total_usd, amount_vnd, locked_rate = calculate_order_totals(plan_tier, cloud_slots, billing_cycle=cycle_u)
     now_ts = time.time()
     expires_at = now_ts + (ORDER_LOCK_MINUTES * 60)
     order_id = f"ord_{secrets.token_hex(6)}"
@@ -126,6 +143,10 @@ def create_checkout_order(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', 'SEPAY', ?, ?)
             """,
             (order_id, user_id, total_usd, locked_rate, amount_vnd, plan_tier.lower(), cloud_slots, now_ts, expires_at)
+        )
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"order_cycle:{order_id}", cycle_u),
         )
 
     # Sepay VietQR generation (Configured account: VietinBank)
@@ -193,9 +214,9 @@ async def process_successful_payment(
             logger.warning(f"Order {order['id']} cannot be fulfilled: status is '{order['status']}' (must be PENDING or UNDERPAID).")
             return False
 
-        if order["status"] == "PENDING" and order.get("expires_at") and float(order["expires_at"]) < now_ts:
-            logger.warning(f"Order {order['id']} has expired (expired at {order['expires_at']}).")
-            c.execute("UPDATE orders SET status = 'EXPIRED', payment_status = 'EXPIRED' WHERE id = ? AND status = 'PENDING'", (order["id"],))
+        if order["status"] in ("PENDING", "UNDERPAID") and order.get("expires_at") and float(order["expires_at"]) < now_ts:
+            logger.warning(f"Order {order['id']} has expired (status={order['status']}, expired at {order['expires_at']}).")
+            c.execute("UPDATE orders SET status = 'EXPIRED', payment_status = 'EXPIRED' WHERE id = ? AND status IN ('PENDING', 'UNDERPAID')", (order["id"],))
             return False
 
         expected_vnd = float(order.get("amount_vnd") or 0.0)
@@ -264,7 +285,10 @@ async def process_successful_payment(
         user_id = order["user_id"]
         tier = order["plan_tier"].lower()
         cloud_slots = order["cloud_slots_count"]
-        duration_sec = 30 * 86400  # 30 days
+        cycle_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_cycle:{order['id']}",)).fetchone()
+        cycle_u = str(cycle_row[0]).upper() if cycle_row and cycle_row[0] else "MONTHLY"
+        cycle_days = BILLING_CYCLE_CONFIG.get(cycle_u, BILLING_CYCLE_CONFIG["MONTHLY"])["days"]
+        duration_sec = cycle_days * 86400
 
         # 5. Update or create subscription
         sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()

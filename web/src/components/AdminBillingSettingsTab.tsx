@@ -63,7 +63,7 @@ export const AdminBillingSettingsTab: React.FC = () => {
       if (res.ok) {
         setMsg('Đã lưu cấu hình thanh toán SePay & tỷ giá USD/VND thành công.');
         setWebhookSecretInput('');
-        if (data.settings) setSettings(data.settings);
+        if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
       } else {
         setMsg(`Lỗi: ${formatApiError(data, res.status)}`);
       }
@@ -85,13 +85,14 @@ export const AdminBillingSettingsTab: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        const liveRate = Number(data.new_rate ?? data.usd_vnd_rate ?? 0);
         setSettings((prev) => ({
           ...prev,
-          current_live_rate: data.usd_vnd_rate || prev.current_live_rate,
+          current_live_rate: liveRate || prev.current_live_rate,
           current_rate_source: data.source || prev.current_rate_source,
         }));
         setMsg(
-          `Đã cập nhật tỷ giá trực tiếp: 1 USD = ${Number(data.usd_vnd_rate).toLocaleString('vi-VN')} VND (${data.source})`
+          `Đã cập nhật tỷ giá trực tiếp: 1 USD = ${(liveRate || settings.current_live_rate).toLocaleString('vi-VN')} VND (${data.source})`
         );
       }
     } finally {
