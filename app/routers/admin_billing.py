@@ -1,5 +1,8 @@
-"""Admin Billing Settings, Bank & VietQR Configuration, Exchange Rate Management."""
+"""Admin Billing Settings, Bank & VietQR Configuration, Exchange Rate Management, and Subscription Grants."""
+import os
 import json
+import time
+import secrets
 import logging
 from typing import Optional, List, Dict, Any
 from urllib.parse import quote
@@ -12,6 +15,7 @@ from app.config import (
     SEPAY_BANK_NAME,
     SEPAY_ACCOUNT_NUMBER,
     SEPAY_ACCOUNT_HOLDER,
+    SEPAY_WEBHOOK_SECRET,
     CLOUD_SLOT_MONTHLY_USD,
 )
 from app.services.fx_rate import get_usd_vnd_rate, REDIS_FX_KEY
@@ -35,13 +39,22 @@ SUPPORTED_BANKS = [
 ]
 
 
-class BillingSettingsUpdate(BaseModel):
-    bank_name: str = Field(..., min_length=2)
-    account_number: str = Field(..., min_length=4)
-    account_holder: str = Field(..., min_length=2)
-    content_prefix: str = Field("ZP", min_length=1, max_length=10)
-    fx_mode: str = Field("AUTO", description="AUTO or MANUAL")
-    manual_fx_rate: float = Field(25600.0, gt=1000.0)
+class FlexibleBillingSettingsUpdate(BaseModel):
+    sepay_bank_name: Optional[str] = None
+    sepay_account_number: Optional[str] = None
+    sepay_account_holder: Optional[str] = None
+    sepay_webhook_secret: Optional[str] = None
+    fallback_usd_vnd_rate: Optional[float] = None
+    fx_rate_provider_url: Optional[str] = None
+    fx_rate_cache_ttl_seconds: Optional[int] = None
+
+    # Alternate naming conventions
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    account_holder: Optional[str] = None
+    content_prefix: Optional[str] = None
+    fx_mode: Optional[str] = None
+    manual_fx_rate: Optional[float] = None
 
 
 class PreviewQRRequest(BaseModel):
@@ -52,6 +65,13 @@ class PreviewQRRequest(BaseModel):
     content_memo: str = Field("ZP TESTQR", min_length=2)
 
 
+class GrantSubscriptionRequest(BaseModel):
+    user_id: str = Field(..., min_length=1)
+    plan_tier: str = Field("PRO")
+    slots: int = Field(default=2, ge=1, le=50)
+    days: int = Field(default=30, ge=1, le=365)
+
+
 @router.get("/settings")
 def get_billing_settings(_admin=Depends(get_current_admin)):
     """Retrieve active bank configuration, memo prefix, and USD/VND conversion mode."""
@@ -59,16 +79,31 @@ def get_billing_settings(_admin=Depends(get_current_admin)):
         row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
         saved = json.loads(row[0]) if row else {}
 
-    bank_name = saved.get("bank_name", SEPAY_BANK_NAME)
-    account_number = saved.get("account_number", SEPAY_ACCOUNT_NUMBER)
-    account_holder = saved.get("account_holder", SEPAY_ACCOUNT_HOLDER)
+    bank_name = saved.get("sepay_bank_name") or saved.get("bank_name", SEPAY_BANK_NAME)
+    account_number = saved.get("sepay_account_number") or saved.get("account_number", SEPAY_ACCOUNT_NUMBER)
+    account_holder = saved.get("sepay_account_holder") or saved.get("account_holder", SEPAY_ACCOUNT_HOLDER)
     content_prefix = saved.get("content_prefix", "ZP")
     fx_mode = saved.get("fx_mode", "AUTO")
-    manual_fx_rate = float(saved.get("manual_fx_rate", 25600.0))
+    manual_fx_rate = float(saved.get("fallback_usd_vnd_rate") or saved.get("manual_fx_rate", 25600.0))
+
+    secret = saved.get("sepay_webhook_secret") or os.getenv("SEPAY_WEBHOOK_SECRET") or ""
+    masked_secret = f"{secret[:4]}***{secret[-3:]}" if len(secret) >= 7 else ("***" if secret else "CHƯA_CẤU_HÌNH")
 
     rate, source, is_cached = get_usd_vnd_rate()
 
     return {
+        # Frontend AdminBillingSettingsTab format:
+        "sepay_bank_name": bank_name,
+        "sepay_account_number": account_number,
+        "sepay_account_holder": account_holder,
+        "sepay_webhook_secret_masked": masked_secret,
+        "fallback_usd_vnd_rate": manual_fx_rate,
+        "fx_rate_provider_url": saved.get("fx_rate_provider_url", "https://open.er-api.com/v6/latest/USD"),
+        "fx_rate_cache_ttl_seconds": int(saved.get("fx_rate_cache_ttl_seconds", 1800)),
+        "current_live_rate": rate,
+        "current_rate_source": source,
+
+        # Standard legacy format:
         "bank_name": bank_name,
         "account_number": account_number,
         "account_holder": account_holder,
@@ -82,17 +117,42 @@ def get_billing_settings(_admin=Depends(get_current_admin)):
     }
 
 
-@router.post("/settings")
-def update_billing_settings(req: BillingSettingsUpdate, _admin=Depends(get_current_admin)):
-    """Save bank configuration and USD/VND exchange rate settings."""
+def _save_settings(req: FlexibleBillingSettingsUpdate):
+    with tx() as c:
+        row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
+        existing = json.loads(row[0]) if row else {}
+
+    bank_name = (req.sepay_bank_name or req.bank_name or existing.get("bank_name", SEPAY_BANK_NAME)).strip()
+    account_number = (req.sepay_account_number or req.account_number or existing.get("account_number", SEPAY_ACCOUNT_NUMBER)).strip()
+    account_holder = (req.sepay_account_holder or req.account_holder or existing.get("account_holder", SEPAY_ACCOUNT_HOLDER)).strip().upper()
+    content_prefix = (req.content_prefix or existing.get("content_prefix", "ZP")).strip().upper()
+    fx_mode = (req.fx_mode or existing.get("fx_mode", "AUTO")).strip().upper()
+
+    rate_val = req.fallback_usd_vnd_rate if req.fallback_usd_vnd_rate is not None else req.manual_fx_rate
+    if rate_val is None:
+        rate_val = float(existing.get("manual_fx_rate", 25600.0))
+
+    provider_url = req.fx_rate_provider_url or existing.get("fx_rate_provider_url", "https://open.er-api.com/v6/latest/USD")
+    ttl = req.fx_rate_cache_ttl_seconds if req.fx_rate_cache_ttl_seconds is not None else int(existing.get("fx_rate_cache_ttl_seconds", 1800))
+
     payload = {
-        "bank_name": req.bank_name.strip(),
-        "account_number": req.account_number.strip(),
-        "account_holder": req.account_holder.strip().upper(),
-        "content_prefix": req.content_prefix.strip().upper(),
-        "fx_mode": req.fx_mode.upper(),
-        "manual_fx_rate": req.manual_fx_rate,
+        "bank_name": bank_name,
+        "sepay_bank_name": bank_name,
+        "account_number": account_number,
+        "sepay_account_number": account_number,
+        "account_holder": account_holder,
+        "sepay_account_holder": account_holder,
+        "content_prefix": content_prefix,
+        "fx_mode": fx_mode,
+        "manual_fx_rate": rate_val,
+        "fallback_usd_vnd_rate": rate_val,
+        "fx_rate_provider_url": provider_url,
+        "fx_rate_cache_ttl_seconds": ttl,
     }
+    if req.sepay_webhook_secret:
+        payload["sepay_webhook_secret"] = req.sepay_webhook_secret.strip()
+    elif "sepay_webhook_secret" in existing:
+        payload["sepay_webhook_secret"] = existing["sepay_webhook_secret"]
 
     with tx() as c:
         c.execute(
@@ -103,16 +163,27 @@ def update_billing_settings(req: BillingSettingsUpdate, _admin=Depends(get_curre
             (json.dumps(payload),)
         )
 
-    # If manual mode, update Redis cache directly
-    if req.fx_mode.upper() == "MANUAL":
-        try:
-            r = get_redis_client()
-            if r:
-                r.set(REDIS_FX_KEY, str(req.manual_fx_rate), ex=86400 * 7)
-        except Exception as e:
-            logger.warning(f"Could not write manual FX rate to Redis: {e}")
+    # If manual rate or fallback updated, refresh Redis cache
+    try:
+        r = get_redis_client()
+        if r and rate_val:
+            r.set(REDIS_FX_KEY, str(rate_val), ex=86400 * 7)
+    except Exception as e:
+        logger.warning(f"Could not write FX rate to Redis: {e}")
 
     return {"message": "Cấu hình thanh toán SePay và tỷ giá đã được lưu thành công.", "settings": payload}
+
+
+@router.put("/settings")
+def put_billing_settings(req: FlexibleBillingSettingsUpdate, _admin=Depends(get_current_admin)):
+    """Save bank configuration and USD/VND exchange rate settings via PUT."""
+    return _save_settings(req)
+
+
+@router.post("/settings")
+def update_billing_settings(req: FlexibleBillingSettingsUpdate, _admin=Depends(get_current_admin)):
+    """Save bank configuration and USD/VND exchange rate settings via POST."""
+    return _save_settings(req)
 
 
 @router.post("/preview-qr")
@@ -152,3 +223,178 @@ def flush_fx_cache(_admin=Depends(get_current_admin)):
     rate, source, _ = get_usd_vnd_rate(force_refresh=True)
     return {"message": "Đã làm mới bộ nhớ đệm tỷ giá USD/VND thành công.", "new_rate": rate, "source": source}
 
+
+@router.get("/summary")
+def get_admin_billing_summary(_admin=Depends(get_current_admin)):
+    """Summary metrics for AdminOrdersSubscriptionsTab Bento KPI cards."""
+    now_ts = time.time()
+    with tx() as c:
+        try:
+            stats = c.execute("""
+                SELECT
+                    count(*) as total_orders,
+                    coalesce(sum(case when status='PAID' then amount_usd else 0 end), 0) as paid_usd,
+                    coalesce(sum(case when status='PAID' then amount_vnd else 0 end), 0) as paid_vnd,
+                    coalesce(sum(case when status='PENDING' then 1 else 0 end), 0) as pending_orders,
+                    coalesce(sum(case when status='PAID' then 1 else 0 end), 0) as paid_orders
+                FROM orders
+            """).fetchone()
+            ord_summary = {
+                "total_orders": stats[0],
+                "paid_revenue_usd": round(float(stats[1]), 2),
+                "paid_revenue_vnd": int(stats[2]),
+                "pending_orders": stats[3],
+                "paid_orders": stats[4],
+            }
+        except Exception:
+            ord_summary = {
+                "total_orders": 0,
+                "paid_revenue_usd": 0.0,
+                "paid_revenue_vnd": 0,
+                "pending_orders": 0,
+                "paid_orders": 0,
+            }
+
+        try:
+            sub_row = c.execute("""
+                SELECT count(*), coalesce(sum(max_mt5_accounts), 0)
+                FROM subscriptions
+                WHERE service_expires_at IS NULL OR service_expires_at > ?
+            """, (now_ts,)).fetchone()
+            sub_summary = {
+                "active_subs": sub_row[0],
+                "allocated_slots": int(sub_row[1]),
+            }
+        except Exception:
+            sub_summary = {"active_subs": 0, "allocated_slots": 0}
+
+        try:
+            cloud_row = c.execute("""
+                SELECT count(*), coalesce(sum(case when deployment_state='DEPLOYED' THEN 1 ELSE 0 END), 0)
+                FROM trading_accounts
+            """).fetchone()
+            cloud_summary = {
+                "total_cloud": cloud_row[0],
+                "deployed_count": int(cloud_row[1]),
+            }
+        except Exception:
+            cloud_summary = {"total_cloud": 0, "deployed_count": 0}
+
+    return {
+        "orders": ord_summary,
+        "subscriptions": sub_summary,
+        "cloud_accounts": cloud_summary,
+    }
+
+
+@router.get("/orders")
+def get_admin_billing_orders(
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    _admin=Depends(get_current_admin)
+):
+    """Retrieve orders with user email for AdminOrdersSubscriptionsTab."""
+    limit = min(max(limit, 1), 200)
+    offset = max(offset, 0)
+    with tx() as c:
+        query = """
+            SELECT o.*, u.email as user_email
+            FROM orders o
+            LEFT JOIN users u ON u.id = o.user_id
+        """
+        params = []
+        if status and status.upper() != "ALL":
+            query += " WHERE o.status = ?"
+            params.append(status.upper())
+        query += " ORDER BY o.created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        rows = c.execute(query, tuple(params)).fetchall()
+
+        count_sql = "SELECT count(*) FROM orders" + (" WHERE status = ?" if status and status.upper() != "ALL" else "")
+        count_params = (status.upper(),) if status and status.upper() != "ALL" else ()
+        total_row = c.execute(count_sql, count_params).fetchone()
+        total = total_row[0] if total_row else len(rows)
+
+        orders_list = []
+        for r in rows:
+            d = dict(r)
+            d["order_code"] = d.get("id")
+            d["cloud_accounts_count"] = d.get("cloud_slots_count", 1)
+            d["billing_cycle"] = "MONTHLY"
+            orders_list.append(d)
+
+    return {"total": total, "orders": orders_list}
+
+
+@router.post("/grant-subscription")
+def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current_admin)):
+    """Grant or extend cloud subscription manually for a customer."""
+    target_ident = req.user_id.strip()
+    with tx() as c:
+        user_row = c.execute("SELECT id, email FROM users WHERE id=? OR email=?", (target_ident, target_ident)).fetchone()
+        if not user_row:
+            fail(404, f"Không tìm thấy người dùng có ID hoặc Email: '{target_ident}'.")
+
+        uid = user_row["id"]
+        tier = req.plan_tier.lower().strip()
+        duration_sec = req.days * 86400
+        now_ts = time.time()
+
+        sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (uid,)).fetchone()
+        current_exp = float(sub["service_expires_at"] or 0) if sub and sub["service_expires_at"] else 0.0
+        new_exp = max(current_exp, now_ts) + duration_sec
+
+        is_growth = tier in ("growth", "pro", "alpha")
+        is_alpha = tier in ("alpha", "pro")
+
+        if sub:
+            c.execute("""
+                UPDATE subscriptions SET
+                    plan_tier = ?,
+                    service_expires_at = ?,
+                    max_mt5_accounts = ?,
+                    allow_custom_multiplier = ?,
+                    allow_compounding = ?,
+                    allow_partial_tp_be = ?,
+                    allow_prop_firm_mode = ?,
+                    allow_alpha_strategies = ?,
+                    updated_at = ?
+                WHERE user_id = ?
+            """, (
+                tier, new_exp, req.slots,
+                1 if is_growth else 0,
+                1 if is_growth else 0,
+                1 if is_growth else 0,
+                1 if is_growth else 0,
+                1 if is_alpha else 0,
+                now_ts, uid
+            ))
+        else:
+            sub_id = f"sub_{secrets.token_hex(6)}"
+            c.execute("""
+                INSERT INTO subscriptions (
+                    id, user_id, plan_tier, service_expires_at, max_mt5_accounts,
+                    allow_custom_multiplier, allow_compounding, allow_partial_tp_be,
+                    allow_prop_firm_mode, allow_alpha_strategies, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                sub_id, uid, tier, new_exp, req.slots,
+                1 if is_growth else 0,
+                1 if is_growth else 0,
+                1 if is_growth else 0,
+                1 if is_growth else 0,
+                1 if is_alpha else 0,
+                now_ts, now_ts
+            ))
+
+    return {
+        "success": True,
+        "message": f"Đã cấp thành công gói {req.plan_tier.upper()} ({req.slots} trạm MT5) cho {user_row['email']} trong {req.days} ngày.",
+        "user_id": uid,
+        "email": user_row["email"],
+        "plan_tier": tier,
+        "slots": req.slots,
+        "expires_at": new_exp,
+    }

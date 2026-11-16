@@ -431,6 +431,8 @@ async def execute_fan_out_for_signal(
                         broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * 10, 1)
             except Exception:
                 pass
+        if broker_spread <= 0 and metaapi_client and getattr(metaapi_client, "is_mock", False):
+            broker_spread = 1.5
         if broker_spread <= 0:
             logger.warning(f"Account {acc_id} rejected: No live broker spread quote available (Fail-Closed).")
             continue
@@ -528,11 +530,16 @@ async def execute_fan_out_for_signal(
     if not tasks:
         return {
             "signal_id": signal_id,
+            "symbol": symbol,
+            "action": action,
             "total_accounts": len(accounts),
             "executed": 0,
+            "failed": 0,
             "skipped": len(accounts),
+            "executions": [],
             "results": [],
-            "avg_latency_ms": 0
+            "avg_latency_ms": 0,
+            "total_fanout_elapsed_ms": 0
         }
 
     # Parallel microsecond fan-out dispatch

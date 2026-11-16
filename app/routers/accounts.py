@@ -342,6 +342,49 @@ def toggle_account(account_id: str, u: dict = Depends(get_current_user)):
     }
 
 
+@router.post("/api/v1/accounts/cloud/{account_id}/{action}")
+@router.post("/api/metaapi/accounts/cloud/{account_id}/{action}")
+async def cloud_deploy_action(account_id: str, action: str, u: dict = Depends(get_current_user)):
+    """Deploy or undeploy MetaApi cloud terminal for an account."""
+    act = action.lower().strip()
+    if act not in ("deploy", "undeploy"):
+        fail(400, "Hành động không hợp lệ (chỉ chấp nhận 'deploy' hoặc 'undeploy').")
+
+    with tx() as c:
+        acc_row = c.execute("SELECT * FROM trading_accounts WHERE id=?", (account_id,)).fetchone()
+        if not acc_row:
+            acc_row = c.execute("SELECT * FROM trading_accounts WHERE mt5_login=? OR metaapi_account_id=?", (account_id, account_id)).fetchone()
+        if not acc_row:
+            fail(404, "Tài khoản không tồn tại.")
+        acc = dict(acc_row)
+        if u.get("role") != "admin" and acc["user_id"] != u["id"]:
+            fail(403, "Không có quyền.")
+
+    meta_id = acc.get("metaapi_account_id")
+    client = MetaApiClient()
+    new_state = "DEPLOYED" if act == "deploy" else "UNDEPLOYED"
+    if meta_id:
+        if act == "deploy":
+            await client.deploy_account(meta_id)
+        else:
+            await client.undeploy_account(meta_id)
+
+    with tx() as c:
+        c.execute("UPDATE trading_accounts SET deployment_state=? WHERE id=?", (new_state, acc["id"]))
+        try:
+            c.execute("UPDATE metaapi_cloud_accounts SET metaapi_state=? WHERE id=? OR metaapi_account_id=?", (new_state, acc["id"], meta_id))
+        except Exception:
+            pass
+
+    return {
+        "id": acc["id"],
+        "action": act,
+        "deployment_state": new_state,
+        "success": True,
+        "message": f"Đã {'kích hoạt' if act == 'deploy' else 'tạm ngưng'} trạm Cloud thành công."
+    }
+
+
 @router.post("/api/v1/accounts/{account_id}/sync")
 @router.post("/api/metaapi/accounts/{account_id}/sync")
 async def sync_account(account_id: str, u: dict = Depends(get_current_user)):

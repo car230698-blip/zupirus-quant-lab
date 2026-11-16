@@ -876,21 +876,22 @@ def ui_message_stream(text, data_type=None, data=None):
 def chat_assistant(payload: ChatPayload, u=Depends(user)):
     question = payload.question()
     snapshot = dashboard(u)
-    accounts, orders = snapshot['accounts'], snapshot['orders']
+    accounts = snapshot.get('accounts') or []
+    orders = snapshot.get('orders') or []
     card_type = tool = None
     card = None
     if any(word in question.lower() for word in ('tài khoản', 'số dư', 'balance', 'equity', 'vốn', 'danh mục')):
         card_type, tool = 'portfolio', 'renderPortfolioCard'
         card = {
             'accountsCount': len(accounts),
-            'accounts': [{k: a[k] for k in ('id', 'login', 'server', 'mode', 'balance', 'equity', 'positions')} for a in accounts[:5]],
-            'totalBalance': sum(a['balance'] for a in accounts),
-            'totalEquity': sum(a['equity'] for a in accounts),
+            'accounts': [{k: a.get(k, 0 if k in ('balance', 'equity', 'positions') else '') for k in ('id', 'login', 'server', 'mode', 'balance', 'equity', 'positions')} for a in accounts[:5]],
+            'totalBalance': sum(float(a.get('balance') or 0.0) for a in accounts),
+            'totalEquity': sum(float(a.get('equity') or 0.0) for a in accounts),
         }
     elif any(word in question.lower() for word in ('lệnh', 'giao dịch', 'order', 'deal', 'lịch sử')):
         card_type, tool = 'orders', 'renderRecentOrdersCard'
         card = {'orders': [
-            {k: o[k] for k in ('id', 'source', 'side', 'price', 'state', 'ticket', 'deal', 'created')}
+            {k: o.get(k, '') for k in ('id', 'source', 'side', 'price', 'state', 'ticket', 'deal', 'created', 'created_at')}
             for o in orders[:10]
         ]}
 
@@ -903,27 +904,53 @@ def chat_assistant(payload: ChatPayload, u=Depends(user)):
 
     summary = {
         'accounts': len(accounts), 'orders': len(orders),
-        'balance': sum(a['balance'] for a in accounts),
-        'equity': sum(a['equity'] for a in accounts),
-        'positions': sum(a['positions'] for a in accounts),
-        'recent_order_statuses': [o['state'] for o in orders[:10]],
+        'balance': sum(float(a.get('balance') or 0.0) for a in accounts),
+        'equity': sum(float(a.get('equity') or 0.0) for a in accounts),
+        'positions': sum(int(a.get('positions') or a.get('open_positions') or 0) for a in accounts),
+        'recent_order_statuses': [o.get('state', '') for o in orders[:10]],
     }
     answer = ai_text('Giải thích dữ liệu danh mục cho người dùng. Dữ liệu: ' +
                      json.dumps(summary, ensure_ascii=False) + mem_ctx + '\nCâu hỏi: ' + question)
+
+    q_low = question.lower()
+    if any(k in q_low for k in ('drawdown', 'sụt giảm', 'rủi ro', 'bảo vệ', 'giáp')):
+        advisor_hint = (
+            "Trạng thái 4 Lớp Giáp Bảo Vệ Vốn:\n"
+            "1. Idempotency Lock băm SHA-256 triệt tiêu trùng lệnh.\n"
+            "2. Bắt buộc Hard Stop-Loss (100% lệnh phải có SL hợp lệ) và tự động dời hòa vốn Auto Break-Even (1R).\n"
+            "3. Lá chắn Macro USD phong tỏa lệnh trước/sau 30 phút tin đỏ (CPI, NFP, FOMC).\n"
+            "4. Cầu dao Drawdown Circuit-Breaker ngắt khẩn cấp khi chạm ngưỡng sụt giảm ngày 4.5%."
+        )
+    elif any(k in q_low for k in ('m15', 'thị trường', 'xu hướng', 'xau', 'vàng', 'gold')):
+        advisor_hint = (
+            "Phân tích chế độ thị trường XAU/USD (M15):\n"
+            "Khung thời gian M15 ưu tiên cấu trúc thanh khoản và biến động phiên London/New York. "
+            "Hệ thống kiểm tra spread động và đối chiếu trượt giá trước khi khớp lệnh qua cầu nối Zero-VPS London G2."
+        )
+    elif any(k in q_low for k in ('kết nối', 'mt5', 'tài khoản', 'cấu hình', 'broker')):
+        advisor_hint = (
+            "Hướng dẫn kết nối MT5 Cloud:\n"
+            "Đăng ký tài khoản MT5 tại mục 'Tài khoản Cloud MT5' với thông tin Server Broker, Login ID và Mật khẩu. "
+            "Cầu nối Cloud Bridge sẽ duy trì heartbeat và kiểm soát khối lượng lot theo đúng cấu hình rủi ro của bạn."
+        )
+    else:
+        advisor_hint = "Hệ thống tự động phân bổ tín hiệu theo mức quản trị rủi ro đã cấu hình. Tạm dừng copy ngăn lệnh mới; SL/TP hiện hữu vẫn do sàn xử lý."
+
     base_summary = (
-        f"Trợ lý quy tắc · Danh mục có {len(accounts)} tài khoản, "
-        f"{summary['positions']} vị thế đang mở và {len(orders)} lệnh gần đây."
+        f"Trợ lý định lượng ZUPIRUS · Danh mục có {len(accounts)} tài khoản, "
+        f"{summary['positions']} vị thế đang mở và {len(orders)} lệnh gần đây.\n\n"
+        f"{advisor_hint}"
     )
-    text = f"{base_summary}\n\n{answer['text']}" if answer['available'] else base_summary
+    text = f"{base_summary}\n\n{answer['text']}" if answer.get('available') and answer.get('text') else base_summary
     try:
-        store_memory('episodic', f"User chat: '{question[:100]}' -> Response: '{text[:120]}'", metadata={'user': u.get('user')})
+        store_memory(category='episodic', content=f"User chat: '{question[:100]}' -> Response: '{text[:120]}'", metadata={'user': u.get('user')})
     except Exception:
         pass
     if payload.uses_ui_message_stream():
         return ui_message_stream(text, card_type, card)
 
     def legacy_events():
-        yield f'0:{json.dumps(text)}\n'
+        yield f'0:{json.dumps(text, ensure_ascii=False)}\n'
         if tool:
             call_id = f"tool_{secrets.token_hex(6)}"
             yield f'9:{json.dumps({"toolCallId": call_id, "toolName": tool, "args": card})}\n'
@@ -948,7 +975,9 @@ def chat_admin_agent(payload: ChatPayload, u=Depends(admin)):
     def legacy_events():
         yield f'0:{json.dumps(text)}\n'
         if proposal:
-            yield f'9:{json.dumps({"toolCallId": f"call_approval_{proposal['jobId']}", "toolName": "requestStrategyApproval", "args": {**proposal, "needsApproval": True}})}\n'
+            call_id = f"call_approval_{proposal['jobId']}"
+            call_payload = {"toolCallId": call_id, "toolName": "requestStrategyApproval", "args": {**proposal, "needsApproval": True}}
+            yield f'9:{json.dumps(call_payload)}\n'
         yield 'd:{"finishReason":"stop"}\n'
 
     return StreamingResponse(legacy_events(), media_type='text/plain', headers={'x-vercel-ai-data-stream': 'v1'})
@@ -1565,8 +1594,8 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
             'signal_id': signal_id,
             'symbol': p.symbol.upper(),
             'action': p.action.upper(),
-            'executed': report['executed'],
-            'failed': report['failed'],
+            'executed': report.get('executed', 0),
+            'failed': report.get('failed', 0),
             'avg_latency_ms': report.get('avg_latency_ms')
         })
 

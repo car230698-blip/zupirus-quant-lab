@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.db import tx
 from app.routers.deps import get_current_admin, fail
 from app.services.sources.curator import (
     list_sources,
@@ -28,15 +29,57 @@ class CreateSourceRequest(BaseModel):
     config_json: Optional[Dict[str, Any]] = None
 
 
+class SetSignalModeRequest(BaseModel):
+    mode: str = Field(..., description="EXTERNAL_FEED, HYBRID, or ZUPIRUS_AGENT")
+
+
 @router.get("")
 def get_sources(status: Optional[str] = None, _admin=Depends(get_current_admin)):
-    """List all registered signal sources and their metrics."""
+    """List all registered signal sources, learning progress, and active operational mode."""
     sources = list_sources(status=status)
+    with tx() as c:
+        mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+        active_mode = mode_row[0] if mode_row else "HYBRID"
+        try:
+            closed_trades = c.execute(
+                "SELECT count(*) FROM dispatches WHERE state IN ('FILLED', 'SUCCESS', 'EXECUTED', 'CLOSED')"
+            ).fetchone()[0]
+        except Exception:
+            closed_trades = 0
+
+    target = 500
+    readiness = round(min(100.0, (closed_trades / target) * 100.0), 1)
+
     return {
         "sources": sources,
         "max_active_limit": MAX_ACTIVE_LIVE_SOURCES,
         "active_count": sum(1 for s in sources if s.get("status") == "ACTIVE_LIVE"),
+        "active_signal_mode": active_mode,
+        "learning_progress": {
+            "closed_trades_analyzed": closed_trades,
+            "target_trades_for_autonomy": target,
+            "readiness_pct": readiness,
+        },
     }
+
+
+@router.post("/signal-mode")
+def set_signal_mode(req: SetSignalModeRequest, _admin=Depends(get_current_admin)):
+    """Set the system-wide quantitative decision mode (EXTERNAL_FEED, HYBRID, ZUPIRUS_AGENT)."""
+    mode = req.mode.upper().strip()
+    if mode not in ("EXTERNAL_FEED", "HYBRID", "ZUPIRUS_AGENT"):
+        fail(400, "Chế độ không hợp lệ. Chọn EXTERNAL_FEED, HYBRID, hoặc ZUPIRUS_AGENT.")
+
+    with tx() as c:
+        c.execute(
+            """
+            INSERT INTO kv (key, value) VALUES ('signal_mode', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (mode,)
+        )
+
+    return {"message": f"Đã chuyển sang chế độ {mode}.", "active_signal_mode": mode}
 
 
 @router.post("")
