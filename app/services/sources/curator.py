@@ -92,9 +92,10 @@ def get_sources_counts() -> Dict[str, int]:
         }
 
 
-def promote_source_to_live(source_id: str) -> Tuple[bool, str]:
+def promote_source_to_live(source_id: str, force: bool = False) -> Tuple[bool, str]:
     """Promote a SHADOW_ONLY source to ACTIVE_LIVE if eligible.
     Enforces maximum MAX_ACTIVE_LIVE_SOURCES (2-3) active sources.
+    Requires minimum observation data unless force=True.
     """
     now_ts = time.time()
     with tx() as c:
@@ -105,6 +106,20 @@ def promote_source_to_live(source_id: str) -> Tuple[bool, str]:
         src_d = dict(src)
         if src_d["status"] == "ACTIVE_LIVE":
             return True, "Nguồn tín hiệu đã ở trạng thái ACTIVE_LIVE."
+
+        if src_d["status"] == "SUSPENDED" and not force:
+            return False, "Nguồn tín hiệu đang bị TẠM ĐÌNH CHỈ (SUSPENDED). Cần gỡ đình chỉ trước khi thăng hạng."
+
+        # Verify historical shadow performance before auto-promoting
+        if not force:
+            shadow_stats = c.execute(
+                "SELECT COUNT(*) AS total, SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins FROM shadow_signals WHERE source_id = ?",
+                (source_id,)
+            ).fetchone()
+            if shadow_stats and shadow_stats["total"] >= 10:
+                win_rate = shadow_stats["wins"] / shadow_stats["total"]
+                if win_rate < 0.50:
+                    return False, f"Nguồn chưa đạt chuẩn thăng hạng (Tỷ lệ thắng {win_rate*100:.1f}% < 50% qua {shadow_stats['total']} lệnh)."
 
         # Count current active sources
         active_rows = c.execute("SELECT id, name, trust_score FROM signal_sources WHERE status = 'ACTIVE_LIVE' ORDER BY trust_score ASC").fetchall()

@@ -406,16 +406,33 @@ async def execute_fan_out_for_signal(
             logger.warning(f"Account {acc_id} rejected due to high spread: {spread_err}")
             continue
 
-        # 3. Check Redis Idempotency Lock
+        # 3. Check Idempotency Lock (Redis + DB Failsafe beyond 120s)
+        is_duplicate = False
         if redis_client:
             lock_key = f"zupirus:lock:signal:{signal_id}:{acc_id}"
             try:
                 is_new = redis_client.set(lock_key, "1", ex=120, nx=True)
                 if not is_new:
-                    logger.warning(f"Idempotency: Signal {signal_id} already executed for account {acc_id}. Skipping.")
-                    continue
+                    is_duplicate = True
             except Exception as e:
                 logger.error(f"Redis idempotency lock error: {e}")
+
+        if not is_duplicate:
+            try:
+                from app.db import tx
+                with tx() as c:
+                    existing = c.execute(
+                        "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (ticket = ? OR signal_id = ?)",
+                        (acc_id, signal_id, signal_id)
+                    ).fetchone()
+                    if existing:
+                        is_duplicate = True
+            except Exception:
+                pass
+
+        if is_duplicate:
+            logger.warning(f"Idempotency: Signal {signal_id} already executed for account {acc_id}. Skipping.")
+            continue
 
         # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
         is_comp = bool(acc.get("is_compounding", False))

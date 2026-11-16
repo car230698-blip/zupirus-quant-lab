@@ -37,6 +37,7 @@ class PositionWatcher:
                 """
                 SELECT t.id, t.user_id, t.metaapi_account_id, t.auto_trade,
                        t.balance, t.equity, t.risk_config,
+                       t.is_prop_firm_mode, t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
                        COALESCE(s.plan_tier, 'starter') AS plan_tier
                 FROM trading_accounts t
                 LEFT JOIN subscriptions s ON t.user_id = s.user_id
@@ -53,11 +54,13 @@ class PositionWatcher:
             "details": []
         }
 
-        for acc in accounts:
+        for raw_acc in accounts:
+            acc = dict(raw_acc)
             acc_id = acc["id"]
             meta_id = acc["metaapi_account_id"]
-            plan_tier = (acc["plan_tier"] or "starter").lower()
-            is_prop = plan_tier in ("alpha", "prop")
+            plan_tier = (acc.get("plan_tier") or "starter").lower()
+            is_prop = bool(acc.get("is_prop_firm_mode")) or plan_tier in ("alpha", "prop")
+            prop_dd_limit = float(acc.get("prop_daily_dd_limit_pct") or MAX_PROP_DAILY_DRAWDOWN_PCT)
 
             try:
                 # 1. Fetch live account info
@@ -78,12 +81,12 @@ class PositionWatcher:
                     else:
                         setkv(c, day_key, str(current_balance))
 
-                # 2. Prop Firm Daily Drawdown Check (Circuit Breaker at 4.5%)
+                # 2. Prop Firm Daily Drawdown Check (Circuit Breaker)
                 if is_prop and day_start_balance > 0:
                     drawdown_pct = ((day_start_balance - current_equity) / day_start_balance) * 100.0
-                    if drawdown_pct >= MAX_PROP_DAILY_DRAWDOWN_PCT:
+                    if drawdown_pct >= prop_dd_limit:
                         logger.warning(
-                            f"PROP FIRM BREACH: Account {acc_id} daily DD reached {drawdown_pct:.2f}% >= {MAX_PROP_DAILY_DRAWDOWN_PCT}%. "
+                            f"PROP FIRM BREACH: Account {acc_id} daily DD reached {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. "
                             f"Emergency closing all positions."
                         )
                         close_res = await self.client.close_all_positions(meta_id)
@@ -177,34 +180,38 @@ class PositionWatcher:
                             # Move SL of remaining to BE
                             modify_res = await self.client.modify_position_sl(meta_id, pos_id, new_sl)
 
-                            with tx() as c:
-                                setkv(c, be_key, "1")
-                                audit(c, "watcher", "auto_be_partial_tp", {
-                                    "account_id": acc_id,
-                                    "position_id": pos_id,
-                                    "open_price": open_price,
-                                    "close_50_volume": half_volume,
-                                    "new_sl": new_sl,
-                                    "partial_res": partial_res,
-                                    "modify_res": modify_res
-                                })
-                                audit(c, "watcher", "auto_be_partial_tp", {
-                                    "account_id": acc_id,
-                                    "position_id": pos_id,
-                                    "symbol": pos.get("symbol", "XAUUSD"),
-                                    "open_price": open_price,
-                                    "closed_volume": half_volume,
-                                    "new_sl": new_sl,
-                                    "partial_res": partial_res,
-                                    "modify_res": modify_res
-                                })
+                            # Verify that at least one operation succeeded
+                            partial_ok = bool(partial_res and not partial_res.get("error"))
+                            modify_ok = bool(modify_res and not modify_res.get("error"))
 
-                            results["partial_tp_executed"] += 1
-                            results["details"].append({
-                                "account_id": acc_id,
-                                "position_id": pos_id,
-                                "action": "AUTO_BE_PARTIAL_TP_1R"
-                            })
+                            if partial_ok or modify_ok:
+                                with tx() as c:
+                                    setkv(c, be_key, "1")
+                                    audit(c, "watcher", "auto_be_partial_tp", {
+                                        "account_id": acc_id,
+                                        "position_id": pos_id,
+                                        "symbol": pos.get("symbol", "XAUUSD"),
+                                        "open_price": open_price,
+                                        "closed_volume": half_volume,
+                                        "new_sl": new_sl,
+                                        "partial_success": partial_ok,
+                                        "modify_success": modify_ok,
+                                        "partial_res": partial_res,
+                                        "modify_res": modify_res
+                                    })
+
+                                results["partial_tp_executed"] += 1
+                                results["details"].append({
+                                    "account_id": acc_id,
+                                    "position_id": pos_id,
+                                    "action": "AUTO_BE_PARTIAL_TP_1R",
+                                    "partial_ok": partial_ok,
+                                    "modify_ok": modify_ok
+                                })
+                            else:
+                                logger.warning(
+                                    f"Failed Auto-BE/Partial TP on position {pos_id}: partial={partial_res}, modify={modify_res}"
+                                )
 
             except Exception as e:
                 logger.error(f"Error watching positions for account {acc_id}: {e}")

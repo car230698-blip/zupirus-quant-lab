@@ -71,9 +71,9 @@ def get_shadow_ledger(
 
 
 @router.post("/{source_id}/promote")
-def promote_source(source_id: str, _admin=Depends(get_current_admin)):
+def promote_source(source_id: str, force: bool = True, _admin=Depends(get_current_admin)):
     """Promote a shadow source to ACTIVE_LIVE."""
-    ok, msg = promote_source_to_live(source_id)
+    ok, msg = promote_source_to_live(source_id, force=force)
     if not ok:
         fail(400, msg)
     return {"message": msg, "source": get_source(source_id)}
