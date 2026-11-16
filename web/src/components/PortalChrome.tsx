@@ -90,7 +90,6 @@ export function PortalShell({
   email,
   switchPortal,
   onOpenLanding,
-  onPreviewAuth,
   logout,
   children,
 }: {
@@ -100,7 +99,6 @@ export function PortalShell({
   email: string;
   switchPortal?: () => void;
   onOpenLanding?: () => void;
-  onPreviewAuth?: () => void;
   logout: () => void;
   children: ReactNode;
 }) {
@@ -215,13 +213,13 @@ export function PortalShell({
                     <span aria-hidden="true">↗</span>
                   </button>
                 )}
-                {switchPortal && (
+                {portal === 'admin' && switchPortal && (
                   <button
                     type="button"
                     onClick={switchPortal}
                     className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-cyan-300 bg-cyan-950/45 hover:bg-cyan-900/60 border border-cyan-500/35 transition-colors flex items-center justify-between cursor-pointer"
                   >
-                    <span>{portal === 'admin' ? 'Chuyển sang Cổng User' : 'Chuyển sang Cổng Admin'}</span>
+                    <span>Chuyển sang Cổng User</span>
                     <span aria-hidden="true">⇄</span>
                   </button>
                 )}
@@ -247,11 +245,11 @@ export function PortalShell({
                   🌐
                 </button>
               )}
-              {switchPortal && (
+              {portal === 'admin' && switchPortal && (
                 <button
                   type="button"
                   onClick={switchPortal}
-                  title={portal === 'admin' ? 'Chuyển sang Cổng User' : 'Chuyển sang Cổng Admin'}
+                  title="Chuyển sang Cổng User"
                   className="flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-500/35 bg-cyan-950/45 text-cyan-300 hover:bg-cyan-900/60 transition cursor-pointer"
                 >
                   ⇄
@@ -294,28 +292,13 @@ export function PortalShell({
                 🌐 Landing Page
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => portal !== 'user' && switchPortal && switchPortal()}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                portal === 'user'
-                  ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 font-bold'
-                  : 'text-slate-400 hover:text-slate-100'
-              }`}
-            >
-              📊 Cổng Người Dùng
-            </button>
-            {switchPortal && (
+            {portal === 'admin' && switchPortal && (
               <button
                 type="button"
-                onClick={() => portal !== 'admin' && switchPortal()}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  portal === 'admin'
-                    ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 font-bold'
-                    : 'text-slate-400 hover:text-slate-100'
-                }`}
+                onClick={switchPortal}
+                className="px-3 py-1 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                ⚡ Trạm Chỉ Huy Admin
+                📊 Xem Cổng Khách Hàng ↗
               </button>
             )}
           </div>
@@ -363,51 +346,32 @@ export function PortalShell({
         </main>
       </div>
 
-      {/* Floating Quantum Portal Dock */}
-      <div className="fixed bottom-5 right-5 z-40 flex items-center gap-1.5 rounded-2xl border border-cyan-400/40 bg-[#030714]/90 p-1.5 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_25px_rgba(6,182,212,0.25)] font-mono text-xs">
-        {onOpenLanding && (
-          <button
-            type="button"
-            onClick={onOpenLanding}
-            className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
-          >
-            🌐 Landing
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => portal !== 'user' && switchPortal && switchPortal()}
-          className={`px-3 py-1.5 rounded-xl transition whitespace-nowrap cursor-pointer ${
-            portal === 'user'
-              ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 font-bold'
-              : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
-          }`}
-        >
-          📊 Cổng User
-        </button>
-        {switchPortal && (
-          <button
-            type="button"
-            onClick={() => portal !== 'admin' && switchPortal()}
-            className={`px-3 py-1.5 rounded-xl transition whitespace-nowrap cursor-pointer ${
-              portal === 'admin'
-                ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 font-bold'
-                : 'text-slate-300 hover:text-white hover:bg-white/[0.06]'
-            }`}
-          >
-            ⚡ Cổng Admin
-          </button>
-        )}
-        {onPreviewAuth && (
-          <button
-            type="button"
-            onClick={onPreviewAuth}
-            className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
-          >
-            🔐 Màn Hình Auth
-          </button>
-        )}
-      </div>
+      {/* Floating Dock (Only on Admin) */}
+      {portal === 'admin' && (
+        <div className="fixed bottom-5 right-5 z-40 flex items-center gap-1.5 rounded-2xl border border-cyan-400/40 bg-[#030714]/90 p-1.5 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_25px_rgba(6,182,212,0.25)] font-mono text-xs">
+          {onOpenLanding && (
+            <button
+              type="button"
+              onClick={onOpenLanding}
+              className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
+            >
+              🌐 Landing
+            </button>
+          )}
+          {switchPortal && (
+            <button
+              type="button"
+              onClick={switchPortal}
+              className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
+            >
+              📊 Cổng User ↗
+            </button>
+          )}
+          <span className="px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 font-bold whitespace-nowrap">
+            ⚡ Admin
+          </span>
+        </div>
+      )}
 
       {/* Quick Command Palette Modal (⌘K) */}
       {cmdOpen && (
@@ -449,26 +413,16 @@ export function PortalShell({
                     🌐 Trang Chủ Landing
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCmdOpen(false);
-                    if (portal !== 'user' && switchPortal) switchPortal();
-                  }}
-                  className="quant-btn-secondary py-2.5 px-3 text-xs justify-start"
-                >
-                  📊 Cổng Nhà Đầu Tư
-                </button>
-                {switchPortal && (
+                {portal === 'admin' && switchPortal && (
                   <button
                     type="button"
                     onClick={() => {
                       setCmdOpen(false);
-                      if (portal !== 'admin') switchPortal();
+                      switchPortal();
                     }}
                     className="quant-btn-secondary py-2.5 px-3 text-xs justify-start"
                   >
-                    ⚡ Trạm Chỉ Huy Admin
+                    📊 Xem Cổng Khách Hàng ↗
                   </button>
                 )}
               </div>
@@ -666,23 +620,18 @@ export function PortalAuth({
       {/* Right Column: High-End Auth Stage */}
       <div className="quant-auth-stage">
         <div className="quant-auth-box">
-          {onSwitchPortal && (
+          {portal === 'admin' && onSwitchPortal && (
             <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/90 border border-slate-800 mb-6 font-mono text-xs">
               <button
                 type="button"
                 onClick={() => onSwitchPortal('user')}
-                className={`flex-1 py-1.5 px-3 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                  portal === 'user' ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
-                }`}
+                className="flex-1 py-1.5 px-3 rounded-lg text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap cursor-pointer"
               >
-                Cổng Khách Hàng
+                Cổng Khách Hàng ↗
               </button>
               <button
                 type="button"
-                onClick={() => onSwitchPortal('admin')}
-                className={`flex-1 py-1.5 px-3 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
-                  portal === 'admin' ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200'
-                }`}
+                className="flex-1 py-1.5 px-3 rounded-lg bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30 whitespace-nowrap"
               >
                 Cổng Quản Trị
               </button>

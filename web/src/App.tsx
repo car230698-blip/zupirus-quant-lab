@@ -294,7 +294,6 @@ const AppContent: React.FC = () => {
     return (
       <LandingPage
         onEnterApp={() => navigateToPortal('user')}
-        onEnterAdmin={() => navigateToPortal('admin')}
       />
     );
   }
@@ -364,9 +363,8 @@ const AppContent: React.FC = () => {
       email={currentUser.email}
       onNavigate={(page) => (portal === 'admin' ? setAdminTab(page as AdminTabKey) : setUserTab(page as UserTabKey))}
       logout={handleLogout}
-      switchPortal={isAdmin ? switchPortal : undefined}
+      switchPortal={portal === 'admin' && isAdmin ? switchPortal : undefined}
       onOpenLanding={() => navigateToPortal('landing')}
-      onPreviewAuth={() => setPreviewAuth(true)}
     >
       {status === 'loading' && (
         <div className="quant-status" role="status">

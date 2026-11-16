@@ -3,10 +3,9 @@ import { useExchangeRate } from '../hooks/useQuantData.ts';
 
 interface LandingPageProps {
   onEnterApp: () => void;
-  onEnterAdmin: () => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdmin }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
   const [currency, setCurrency] = useState<'VND' | 'USD'>('VND');
   const { data: fxData } = useExchangeRate();
   const fxRate = fxData?.rate || 25730.0;
@@ -146,20 +145,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
               <span className="hidden sm:inline text-emerald-400">MetaApi London G2 (~28ms)</span>
             </div>
             <div className="flex items-center gap-2 font-mono text-xs">
-              <span className="text-slate-400 hidden sm:inline">Chuyển cổng trực tiếp:</span>
               <button
                 type="button"
                 onClick={onEnterApp}
                 className="quant-btn-secondary px-3.5 py-1.5 text-xs whitespace-nowrap shrink-0"
               >
                 Cổng Khách Hàng (User) ↗
-              </button>
-              <button
-                type="button"
-                onClick={onEnterAdmin}
-                className="quant-btn-secondary px-3.5 py-1.5 text-xs whitespace-nowrap shrink-0"
-              >
-                Trạm Chỉ Huy (Admin) ↗
               </button>
             </div>
           </div>
@@ -197,13 +188,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
                 >
                   <span>Kết Nối Tài Khoản MT5 Ngay</span>
                   <span aria-hidden="true">→</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={onEnterAdmin}
-                  className="quant-btn-secondary px-6 py-3.5 text-xs whitespace-nowrap shrink-0"
-                >
-                  Mở Trạm Chỉ Huy Admin ↗
                 </button>
               </div>
 
@@ -934,33 +918,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp, onEnterAdm
 
           <div className="flex items-center gap-6">
             <button type="button" onClick={onEnterApp} className="hover:text-cyan-300 transition-colors cursor-pointer">
-              Cổng Khách Hàng (User)
-            </button>
-            <button type="button" onClick={onEnterAdmin} className="hover:text-cyan-300 transition-colors cursor-pointer">
-              Trạm Chỉ Huy (Admin)
+              Cổng Khách Hàng (User) ↗
             </button>
           </div>
         </div>
       </footer>
 
-      {/* Floating Quantum Portal Dock */}
+      {/* Floating Action Button */}
       <div className="fixed bottom-5 right-5 z-50 flex items-center gap-1.5 rounded-2xl border border-cyan-400/40 bg-[#030714]/90 p-1.5 backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_25px_rgba(6,182,212,0.25)] font-mono text-xs">
-        <span className="px-3 py-1.5 rounded-xl bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 font-bold whitespace-nowrap">
-          🌐 Landing
-        </span>
         <button
           type="button"
           onClick={onEnterApp}
-          className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
+          className="px-3.5 py-2 rounded-xl bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 hover:bg-cyan-500/30 transition whitespace-nowrap font-bold cursor-pointer"
         >
-          📊 Cổng User
-        </button>
-        <button
-          type="button"
-          onClick={onEnterAdmin}
-          className="px-3 py-1.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/[0.06] transition whitespace-nowrap cursor-pointer"
-        >
-          ⚡ Cổng Admin
+          📊 Vào Không Gian Giao Dịch ↗
         </button>
       </div>
     </div>
