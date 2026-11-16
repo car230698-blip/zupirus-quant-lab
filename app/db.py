@@ -358,32 +358,48 @@ def insert_timescale_quote(source: str, ts: float, bid: float, ask: float, symbo
             )
 
 
-def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", source: str = "DEMO", limit: int = 100) -> List[Dict[str, Any]]:
+def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", source: str = "ALL", limit: int = 100) -> List[Dict[str, Any]]:
     """Query recent aggregated OHLCV candles from TimescaleDB or snapshots.
-    Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO vs REPLAY)."""
+    Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO, REPLAY, LIVE_FEED, ALL)."""
     if timeframe not in SUPPORTED_TIMEFRAMES:
         raise ValueError(f"Unsupported timeframe '{timeframe}'. Supported: {', '.join(SUPPORTED_TIMEFRAMES.keys())}")
-    if source not in ("DEMO", "REPLAY"):
-        raise ValueError(f"Unsupported source '{source}'. Supported: DEMO, REPLAY")
+    if source not in ("DEMO", "REPLAY", "LIVE_FEED", "ALL"):
+        raise ValueError(f"Unsupported source '{source}'. Supported: DEMO, REPLAY, LIVE_FEED, ALL")
 
     bucket_interval = SUPPORTED_TIMEFRAMES[timeframe]
 
     with tx() as c:
         if is_postgres():
-            rows = c.execute(f"""
-                SELECT 
-                    time_bucket('{bucket_interval}', time) AS bucket,
-                    first(bid, time) AS open,
-                    max(bid) AS high,
-                    min(bid) AS low,
-                    last(bid, time) AS close,
-                    count(*) AS volume
-                FROM quotes
-                WHERE symbol = ? AND source = ?
-                GROUP BY bucket
-                ORDER BY bucket DESC
-                LIMIT ?
-            """, (symbol, source, limit)).fetchall()
+            if source == "ALL":
+                rows = c.execute(f"""
+                    SELECT 
+                        time_bucket('{bucket_interval}', time) AS bucket,
+                        first(bid, time) AS open,
+                        max(bid) AS high,
+                        min(bid) AS low,
+                        last(bid, time) AS close,
+                        count(*) AS volume
+                    FROM quotes
+                    WHERE symbol = ?
+                    GROUP BY bucket
+                    ORDER BY bucket DESC
+                    LIMIT ?
+                """, (symbol, limit)).fetchall()
+            else:
+                rows = c.execute(f"""
+                    SELECT 
+                        time_bucket('{bucket_interval}', time) AS bucket,
+                        first(bid, time) AS open,
+                        max(bid) AS high,
+                        min(bid) AS low,
+                        last(bid, time) AS close,
+                        count(*) AS volume
+                    FROM quotes
+                    WHERE symbol = ? AND source = ?
+                    GROUP BY bucket
+                    ORDER BY bucket DESC
+                    LIMIT ?
+                """, (symbol, source, limit)).fetchall()
             return [dict(r) for r in rows]
         else:
             # SQLite fallback aggregation

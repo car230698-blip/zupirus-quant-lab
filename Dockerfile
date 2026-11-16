@@ -6,6 +6,7 @@ RUN npm ci
 COPY index.html tsconfig.json vite.config.ts ./
 COPY src src
 COPY web web
+COPY public public
 RUN npm run build
 
 # Stage 2: Production Python runtime

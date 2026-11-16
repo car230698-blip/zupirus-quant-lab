@@ -1,5 +1,6 @@
 import { useState, useEffect, type FormEvent, type ReactNode } from 'react';
 import type { PortalType } from '../App.tsx';
+import authTerminalImg from '../assets/images/auth_terminal_sculpture_1794792847915.jpg';
 
 export type Portal = 'user' | 'admin';
 
@@ -111,7 +112,13 @@ export function PortalShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quantTheme, setQuantTheme] = useState<'gold' | 'cyber'>('gold');
-  const [liveSpot, setLiveSpot] = useState({ bid: 2908.65, ask: 2908.83, spread: 1.8, latency: 24 });
+  const [liveSpot, setLiveSpot] = useState<{
+    bid: number;
+    ask: number;
+    spread: number;
+    latency: number;
+    loaded: boolean;
+  }>({ bid: 0, ask: 0, spread: 0, latency: 24, loaded: false });
 
   const currentNavLabel = navigation[portal].find(([key]) => key === page)?.[1] || 'Tổng quan';
 
@@ -120,17 +127,33 @@ export function PortalShell({
   }, [quantTheme]);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setLiveSpot((prev) => {
-        const delta = (Math.random() - 0.48) * 0.35;
-        const bid = Math.round((prev.bid + delta) * 100) / 100;
-        const spread = Math.round((1.6 + Math.random() * 0.6) * 10) / 10;
-        const ask = Math.round((bid + spread * 0.1) * 100) / 100;
-        const latency = Math.round(22 + Math.random() * 6);
-        return { bid, ask, spread, latency };
-      });
-    }, 3200);
-    return () => clearInterval(timer);
+    let active = true;
+    const fetchLivePrice = async () => {
+      try {
+        const res = await fetch('/api/v1/telemetry/topbar', { credentials: 'include' });
+        if (res.ok && active) {
+          const data = await res.json();
+          if (data?.xauusd?.bid > 0) {
+            setLiveSpot({
+              bid: Number(data.xauusd.bid),
+              ask: Number(data.xauusd.ask || data.xauusd.bid),
+              spread: Number(data.xauusd.spread_pips || 0),
+              latency: Number(data.metaapi_latency_ms || 24),
+              loaded: true,
+            });
+          }
+        }
+      } catch {
+        // fail silently
+      }
+    };
+
+    fetchLivePrice();
+    const timer = setInterval(fetchLivePrice, 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -215,8 +238,8 @@ export function PortalShell({
               <span className="text-emerald-400 font-bold tabular-nums">{liveSpot.latency}ms G2</span>
             </div>
             <div className="flex items-baseline justify-between font-mono tabular-nums">
-              <span className="text-lg font-extrabold text-white">${liveSpot.bid.toFixed(2)}</span>
-              <span className="text-[11px] text-amber-300">Spread {liveSpot.spread.toFixed(1)}p</span>
+              <span className="text-lg font-extrabold text-white">{liveSpot.loaded && liveSpot.bid > 0 ? `$${liveSpot.bid.toFixed(2)}` : "Đang nạp..."}</span>
+              <span className="text-[11px] text-amber-300">{liveSpot.loaded && liveSpot.spread > 0 ? `Spread ${liveSpot.spread.toFixed(1)}p` : "Real-time"}</span>
             </div>
             <div className="grid grid-cols-3 gap-1 pt-1 border-t border-white/[0.06] font-mono text-[9.5px] text-slate-400">
               <span>SL: <strong className="text-emerald-300">100%</strong></span>
@@ -300,7 +323,7 @@ export function PortalShell({
           <div className="flex items-center gap-4 tabular-nums">
             <span className="inline-flex items-center gap-1.5 text-amber-300 font-bold">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              XAU/USD: ${liveSpot.bid.toFixed(2)} / ${liveSpot.ask.toFixed(2)}
+              XAU/USD: {liveSpot.loaded && liveSpot.bid > 0 ? `$${liveSpot.bid.toFixed(2)} / $${liveSpot.ask.toFixed(2)}` : "Đang đồng bộ..."}
             </span>
             <span className="text-slate-600">·</span>
             <span>
@@ -720,7 +743,7 @@ export function PortalAuth({
           <div className="relative rounded-2xl overflow-hidden border border-amber-500/35 bg-[#070d1c] aspect-[16/10] shadow-2xl">
             {!imgError ? (
               <img
-                src="/src/assets/images/auth_terminal_sculpture_1794792847915.jpg"
+                src={authTerminalImg}
                 alt="Kiến trúc định lượng ZUPIRUS"
                 referrerPolicy="no-referrer"
                 onError={() => setImgError(true)}

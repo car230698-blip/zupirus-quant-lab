@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuantChat } from './useQuantChat';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { translateOrderStatus } from '../utils/stateMapping';
@@ -94,6 +94,38 @@ export const CustomerAssistant: React.FC<CustomerAssistantProps> = ({ onNavigate
   const { messages, status, error, sendMessage, regenerate, stop } = useQuantChat('customer');
   const [input, setInput] = useState('');
   const isStreaming = status === 'submitted' || status === 'streaming';
+  const [telemetry, setTelemetry] = useState<{ bid: number; spread: number; loaded: boolean }>({
+    bid: 0,
+    spread: 0,
+    loaded: false,
+  });
+
+  useEffect(() => {
+    let active = true;
+    const fetchTelem = async () => {
+      try {
+        const res = await fetch('/api/v1/telemetry/topbar', { credentials: 'include' });
+        if (res.ok && active) {
+          const d = await res.json();
+          if (d?.xauusd?.bid > 0) {
+            setTelemetry({
+              bid: Number(d.xauusd.bid),
+              spread: Number(d.xauusd.spread_pips || 0),
+              loaded: true,
+            });
+          }
+        }
+      } catch {
+        // fail silently
+      }
+    };
+    fetchTelem();
+    const timer = setInterval(fetchTelem, 4000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,7 +269,9 @@ export const CustomerAssistant: React.FC<CustomerAssistantProps> = ({ onNavigate
         <div className="space-y-2.5 font-mono text-xs">
           <div className="flex items-center justify-between rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3.5 py-2.5">
             <span className="text-slate-400">XAU/USD SPOT</span>
-            <strong className="text-amber-300 tabular-nums">2,908.62 USD (+0.48%)</strong>
+            <strong className="text-amber-300 tabular-nums">
+              {telemetry.loaded && telemetry.bid > 0 ? `${telemetry.bid.toFixed(2)} USD` : 'Đang cập nhật...'}
+            </strong>
           </div>
           <div className="flex items-center justify-between rounded-xl border border-white/[0.07] bg-[#040710]/90 px-3.5 py-2.5">
             <span className="text-slate-400">MARKET REGIME</span>

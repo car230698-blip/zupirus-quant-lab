@@ -114,7 +114,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
     dailyDdPct ??
     (totalBalance > 0 && computedOpenPnl < 0
       ? Math.abs((computedOpenPnl / totalBalance) * 100)
-      : 0.42);
+      : 0.0);
 
   useEffect(() => {
     let mounted = true;

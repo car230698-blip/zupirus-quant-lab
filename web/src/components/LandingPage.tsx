@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { calculateQuantLotSizing, calculateSubscriptionPricing, type AccountKind, type BillingCycle } from '../utils/quantMath';
+import guardMatrixImg from '../assets/images/guard_matrix_architecture_1794792845754.jpg';
 
 export interface LandingPageProps {
   onEnterPortal?: () => void;
   onEnterApp?: () => void;
-  onEnterAdmin?: () => void;
 }
 
 const GUARD_LAYERS = [
@@ -125,23 +125,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   useEffect(() => {
     let active = true;
-    fetch('/api/v1/telemetry/topbar')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!active || !d) return;
-        if (d.xauusd?.bid) setSpotPrice(Number(d.xauusd.bid));
-        if (d.xauusd?.spread_pips) setSpreadPips(Number(d.xauusd.spread_pips));
-        if (d.usd_vnd?.rate) setUsdVndRate(Number(d.usd_vnd.rate));
-      })
-      .catch(() => {});
+    const fetchMarketData = async () => {
+      try {
+        const res = await fetch('/api/v1/telemetry/topbar');
+        if (res.ok && active) {
+          const d = await res.json();
+          if (d?.xauusd?.bid > 0) setSpotPrice(Number(d.xauusd.bid));
+          if (d?.xauusd?.spread_pips) setSpreadPips(Number(d.xauusd.spread_pips));
+          if (d?.usd_vnd?.rate) setUsdVndRate(Number(d.usd_vnd.rate));
+        }
+      } catch {
+        // fail silently
+      }
+    };
 
-    const timer = setInterval(() => {
-      setSpotPrice((prev) => {
-        const delta = (Math.random() - 0.48) * 0.45;
-        return Math.round((prev + delta) * 100) / 100;
-      });
-      setSpreadPips(() => Math.round((1.6 + Math.random() * 0.6) * 10) / 10);
-    }, 2800);
+    fetchMarketData();
+    const timer = setInterval(fetchMarketData, 3000);
 
     return () => {
       active = false;
@@ -795,7 +794,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div className="relative h-48 w-full overflow-hidden rounded-xl border border-amber-500/25 bg-[#050914]">
                 {!guardImgError ? (
                   <img
-                    src="/src/assets/images/guard_matrix_architecture_1794792845754.jpg"
+                    src={guardMatrixImg}
                     alt="Kiến trúc 4 lớp giáp bảo vệ vốn"
                     referrerPolicy="no-referrer"
                     onError={() => setGuardImgError(true)}

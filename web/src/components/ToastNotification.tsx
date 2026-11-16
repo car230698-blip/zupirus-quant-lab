@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error';
 
@@ -13,7 +14,7 @@ export const ToastNotification: React.FC<ToastProps> = ({
   message,
   type = 'info',
   onClose,
-  duration = 5000,
+  duration = 4000,
 }) => {
   const [progress, setProgress] = useState(100);
 
@@ -33,7 +34,7 @@ export const ToastNotification: React.FC<ToastProps> = ({
     return () => clearInterval(interval);
   }, [message, duration, onClose]);
 
-  if (!message) return null;
+  if (!message || typeof document === 'undefined') return null;
 
   const typeConfig: Record<ToastType, { border: string; bg: string; text: string; glow: string; icon: string; bar: string }> = {
     info: {
@@ -72,10 +73,10 @@ export const ToastNotification: React.FC<ToastProps> = ({
 
   const cfg = typeConfig[type] || typeConfig.info;
 
-  return (
+  const toastElement = (
     <div
       role="alert"
-      className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] max-w-lg pointer-events-auto animate-toast"
+      className="fixed top-4 sm:top-6 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-1.5rem)] max-w-md pointer-events-auto animate-toast"
     >
       <div
         className={`relative overflow-hidden rounded-2xl border p-3.5 sm:p-4 backdrop-blur-2xl font-mono text-xs ${cfg.border} ${cfg.bg} ${cfg.text} ${cfg.glow}`}
@@ -106,4 +107,6 @@ export const ToastNotification: React.FC<ToastProps> = ({
       </div>
     </div>
   );
+
+  return createPortal(toastElement, document.body);
 };

@@ -963,7 +963,7 @@ def tracing_telemetry(u=Depends(admin)):
     return get_trace_summary()
 
 @app.get('/api/timescale/candles')
-def get_timescale_candles(symbol: str = 'XAUUSD', timeframe: str = 'M15', source: str = 'DEMO', limit: int = 100):
+def get_timescale_candles(symbol: str = 'XAUUSD', timeframe: str = 'M15', source: str = 'ALL', limit: int = 100):
     """Retrieve continuous candles aggregated by TimescaleDB.
     Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO vs REPLAY)."""
     try:

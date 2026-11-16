@@ -123,7 +123,7 @@ const AppContent: React.FC = () => {
 
   const loadCandles = useCallback(async (tf: string) => {
     try {
-      const res = await fetch(`/api/timescale/candles?symbol=XAUUSD&timeframe=${tf}&source=DEMO&limit=48`);
+      const res = await fetch(`/api/timescale/candles?symbol=XAUUSD&timeframe=${tf}&source=ALL&limit=48`);
       if (res.ok) {
         const d = await res.json();
         setCandles((d.candles || []).slice().reverse());
