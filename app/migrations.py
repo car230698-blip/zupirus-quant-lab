@@ -81,6 +81,11 @@ MIGRATIONS = [
         "version": 15,
         "name": "015_add_ticket_to_executions",
         "description": "Ensure ticket column exists in metaapi_trade_executions"
+    },
+    {
+        "version": 16,
+        "name": "016_architecture_isolation_locks_and_billing_states",
+        "description": "Isolate Hindsight memories by user_id/scope, add signal_dispatch_locks, add orders UNDERPAID/entitlement/cloud states, and remove master feed source"
     }
 ]
 
@@ -1126,10 +1131,10 @@ def apply_migration_013(c, is_pg: bool):
             except Exception:
                 pass
 
-    # Seed initial seed sources for Cold-Start Bootstrapping
+    # Seed initial seed sources for Cold-Start Bootstrapping (no Master Account copy source)
     initial_sources = [
         ("src_tv_primary", "TradingView Webhook Primary", "tradingview_webhook", "ACTIVE_LIVE", "XAUUSD,EURUSD,GBPUSD,USDJPY", 86.5, 1.82, 0.64, 45.0, 120, 120),
-        ("src_metaapi_feed", "MetaApi Demo Signal Feed", "metaapi_feed", "ACTIVE_LIVE", "XAUUSD,EURUSD", 82.0, 1.65, 0.58, 55.0, 95, 95),
+        ("src_zupirus_agent", "Zupirus AI Inductive Engine", "agent_inductive", "ACTIVE_LIVE", "XAUUSD", 88.5, 1.92, 0.66, 22.0, 110, 110),
         ("src_gold_momentum", "PineScript XAUUSD Trend Seeker", "pinescript_scraper", "SHADOW_ONLY", "XAUUSD", 74.0, 1.48, 0.53, 72.0, 48, 48),
         ("src_fx_breakout", "London FX Squeeze Alpha", "external_feed", "SHADOW_ONLY", "EURUSD,GBPUSD", 71.5, 1.42, 0.51, 80.0, 36, 36),
     ]
@@ -1274,6 +1279,79 @@ def apply_migration_015(c, is_pg: bool):
             pass
 
 
+def apply_migration_016(c, is_pg: bool):
+    """Migration 016: Customer isolation on hindsight_memories, signal_dispatch_locks table, orders payment/entitlement/cloud states, trading_accounts full risk fields, and remove master feed source."""
+    now_ts = time.time()
+    if is_pg:
+        c.execute("""
+            ALTER TABLE hindsight_memories ADD COLUMN IF NOT EXISTS user_id TEXT;
+            ALTER TABLE hindsight_memories ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'user';
+            CREATE INDEX IF NOT EXISTS idx_hindsight_user_scope ON hindsight_memories(user_id, scope);
+
+            CREATE TABLE IF NOT EXISTS signal_dispatch_locks (
+                id TEXT PRIMARY KEY,
+                signal_fingerprint TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                worker_id TEXT,
+                created_at DOUBLE PRECISION NOT NULL,
+                UNIQUE(signal_fingerprint, account_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_signal_dispatch_locks_fp ON signal_dispatch_locks(signal_fingerprint, account_id);
+
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_amount_vnd BIGINT NOT NULL DEFAULT 0;
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'PENDING';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS entitlement_status TEXT NOT NULL DEFAULT 'PENDING';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS cloud_deploy_status TEXT NOT NULL DEFAULT 'PENDING';
+
+            ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS max_lot DOUBLE PRECISION DEFAULT 5.0;
+            ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS daily_profit_target_usd DOUBLE PRECISION DEFAULT 0.0;
+            ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS symbol_mapping_custom TEXT DEFAULT '';
+        """)
+    else:
+        for alter_sql in [
+            "ALTER TABLE hindsight_memories ADD COLUMN user_id TEXT",
+            "ALTER TABLE hindsight_memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'user'",
+            "ALTER TABLE orders ADD COLUMN paid_amount_vnd INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'PENDING'",
+            "ALTER TABLE orders ADD COLUMN entitlement_status TEXT NOT NULL DEFAULT 'PENDING'",
+            "ALTER TABLE orders ADD COLUMN cloud_deploy_status TEXT NOT NULL DEFAULT 'PENDING'",
+            "ALTER TABLE trading_accounts ADD COLUMN max_lot REAL DEFAULT 5.0",
+            "ALTER TABLE trading_accounts ADD COLUMN daily_profit_target_usd REAL DEFAULT 0.0",
+            "ALTER TABLE trading_accounts ADD COLUMN symbol_mapping_custom TEXT DEFAULT ''",
+        ]:
+            try:
+                c.execute(alter_sql)
+            except Exception:
+                pass
+
+        c.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_hindsight_user_scope ON hindsight_memories(user_id, scope);
+            CREATE TABLE IF NOT EXISTS signal_dispatch_locks (
+                id TEXT PRIMARY KEY,
+                signal_fingerprint TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                worker_id TEXT,
+                created_at REAL NOT NULL,
+                UNIQUE(signal_fingerprint, account_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_signal_dispatch_locks_fp ON signal_dispatch_locks(signal_fingerprint, account_id);
+        """)
+
+    # Clean up legacy master feed source if present and ensure Zupirus AI Inductive Engine exists
+    try:
+        c.execute("DELETE FROM signal_sources WHERE id = 'src_metaapi_feed' OR source_type = 'metaapi_feed'")
+        c.execute("""
+            INSERT INTO signal_sources (
+                id, name, source_type, status, symbol_universe,
+                trust_score, profit_factor, win_rate, max_drawdown_pips,
+                total_signals, evaluated_signals, config_json, created_at, updated_at
+            ) VALUES ('src_zupirus_agent', 'Zupirus AI Inductive Engine', 'agent_inductive', 'ACTIVE_LIVE', 'XAUUSD', 88.5, 1.92, 0.66, 22.0, 110, 110, '{}', ?, ?)
+            ON CONFLICT (id) DO NOTHING
+        """, (now_ts, now_ts))
+    except Exception:
+        pass
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -1295,6 +1373,7 @@ def run_all_migrations(c, is_pg: bool):
         13: apply_migration_013,
         14: apply_migration_014,
         15: apply_migration_015,
+        16: apply_migration_016,
     }
 
     for m in MIGRATIONS:

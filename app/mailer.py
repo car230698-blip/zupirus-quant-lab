@@ -5,7 +5,6 @@ and daily quant performance digests via Resend REST API (https://api.resend.com)
 """
 import os
 import json
-import base64
 import logging
 import urllib.request
 import urllib.error
@@ -13,18 +12,12 @@ from typing import Dict, Any, List, Union
 
 logger = logging.getLogger("zupirus.mailer")
 
-_DEFAULT_RESEND_B64 = "cmVfOW4zVzM0dG9fRHFTYUdQbUxHUVdqY3p6bVUxdHBnUGMx"
 RESEND_API_URL = "https://api.resend.com/emails"
 
+
 def get_resend_api_key() -> str:
-    """Load Resend API Key from environment or resilient base64 fallback."""
-    key = os.getenv("RESEND_API_KEY", "").strip()
-    if key:
-        return key
-    try:
-        return base64.b64decode(_DEFAULT_RESEND_B64).decode("utf-8").strip()
-    except Exception:
-        return ""
+    """Load Resend API Key strictly from environment."""
+    return os.getenv("RESEND_API_KEY", "").strip()
 
 def get_email_from() -> str:
     """Sender identity with verified domain zupirus.com."""

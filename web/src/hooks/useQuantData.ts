@@ -41,9 +41,18 @@ export interface EquityPoint {
   balance?: number;
 }
 
-export function useEquityHistory(days: number = 30) {
+function getActiveUserKey(explicitKey?: string | null): string {
+  if (explicitKey) return explicitKey;
+  if (typeof window !== 'undefined' && (window as any).__ZUPIRUS_USER_KEY__) {
+    return String((window as any).__ZUPIRUS_USER_KEY__);
+  }
+  return 'anonymous';
+}
+
+export function useEquityHistory(days: number = 30, userKey?: string | null) {
+  const uKey = getActiveUserKey(userKey);
   return useQuery<EquityPoint[]>({
-    queryKey: ['equity-history', days],
+    queryKey: ['equity-history', uKey, days],
     queryFn: async () => {
       const res = await fetch(`/api/dashboard?days=${days}`, {
         headers: { 'X-Zupirus': '1' },
@@ -52,9 +61,9 @@ export function useEquityHistory(days: number = 30) {
       const data = await res.json();
       if (Array.isArray(data.series) && data.series.length > 0) {
         return data.series.map((item: any) => ({
-          timestamp: item.timestamp || item.time || item.bucket,
-          equity: Number(item.equity ?? item.balance ?? 10000),
-          balance: Number(item.balance ?? item.equity ?? 10000),
+          timestamp: item.timestamp || item.time || item.ts || item.bucket,
+          equity: Number(item.equity ?? item.balance ?? 0),
+          balance: Number(item.balance ?? item.equity ?? 0),
         }));
       }
       return [];
@@ -75,9 +84,10 @@ export function useExchangeRate() {
   });
 }
 
-export function useCloudAccounts() {
+export function useCloudAccounts(userKey?: string | null) {
+  const uKey = getActiveUserKey(userKey);
   return useQuery<{ accounts: CloudAccountItem[]; total: number }>({
-    queryKey: ['accounts'],
+    queryKey: ['accounts', uKey],
     queryFn: async () => {
       const res = await fetch('/api/v1/accounts', {
         headers: { 'X-Zupirus': '1' },
@@ -89,9 +99,10 @@ export function useCloudAccounts() {
   });
 }
 
-export function useUserSubscription() {
+export function useUserSubscription(userKey?: string | null) {
+  const uKey = getActiveUserKey(userKey);
   return useQuery({
-    queryKey: ['subscription'],
+    queryKey: ['subscription', uKey],
     queryFn: async () => {
       const res = await fetch('/api/v1/billing/subscription', {
         headers: { 'X-Zupirus': '1' },
@@ -167,6 +178,15 @@ export interface LiveTopbarTelemetry {
     distance_mins: number;
     nearest_title: string | null;
   };
+  shields?: Array<{
+    layer: string;
+    name: string;
+    detail: string;
+    status: string;
+    latency_ms: number;
+  }>;
+  redis_ping_ms?: number;
+  db_ping_ms?: number;
   metaapi_latency_ms: number;
   region: string;
   active_sources_count: number;

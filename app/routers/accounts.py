@@ -22,11 +22,34 @@ router = APIRouter(tags=["accounts"])
 
 def _row_to_account_response(row: dict) -> dict:
     """Format database row to standard account response dict."""
+    import json
+    row = dict(row)
     now_ts = time.time()
     cloud_exp = row.get("cloud_expires_at") or row.get("subscription_expires_at")
     is_cloud_active = (cloud_exp is None or float(cloud_exp) > now_ts)
     login_val = str(row.get("mt5_login") or row.get("login") or "")
     server_val = str(row.get("broker_server") or row.get("server") or "")
+
+    rc = {}
+    raw_rc = row.get("risk_config")
+    if raw_rc:
+        try:
+            rc = json.loads(raw_rc) if isinstance(raw_rc, str) else dict(raw_rc)
+        except Exception:
+            rc = {}
+
+    max_lot_val = row.get("max_lot")
+    if max_lot_val is None:
+        max_lot_val = rc.get("max_lot", 1.0)
+    daily_profit_usd = row.get("daily_profit_target_usd")
+    if daily_profit_usd is None:
+        daily_profit_usd = rc.get("daily_profit_target_usd", 0.0)
+    sym_map_custom = row.get("symbol_mapping_custom")
+    if sym_map_custom is None:
+        sym_map_custom = rc.get("symbol_mapping_custom", "")
+
+    mult_val = float(row.get("risk_multiplier") or row.get("multiplier") or rc.get("multiplier") or 1.0)
+    dd_val = float(row.get("prop_daily_dd_limit_pct") or rc.get("prop_daily_dd_limit_pct") or 4.5)
 
     return {
         "id": row["id"],
@@ -43,16 +66,21 @@ def _row_to_account_response(row: dict) -> dict:
         "metaapi_account_id": row.get("metaapi_account_id"),
         "cloud_expires_at": float(cloud_exp) if cloud_exp else None,
         "is_cloud_active": is_cloud_active,
-        "risk_percent": float(row.get("risk_percent") or 1.0),
-        "max_lot": float(row.get("max_lot") or 1.0),
-        "multiplier": float(row.get("multiplier") or row.get("risk_multiplier") or 1.0),
-        "risk_multiplier": float(row.get("risk_multiplier") or row.get("multiplier") or 1.0),
+        "risk_percent": float(row.get("risk_percent") or rc.get("risk_percent") or 1.0),
+        "max_lot": float(max_lot_val or 1.0),
+        "multiplier": mult_val,
+        "risk_multiplier": mult_val,
+        "lot_multiplier": mult_val,
         "is_compounding": bool(row.get("is_compounding", 0)),
         "is_prop_firm_mode": bool(row.get("is_prop_firm_mode", 0)),
         "auto_be_partial_tp": bool(row.get("auto_be_partial_tp", 0)),
-        "prop_daily_dd_limit_pct": float(row.get("prop_daily_dd_limit_pct") or 4.5),
-        "prop_profit_target_pct": float(row.get("prop_profit_target_pct") or 8.0),
+        "prop_daily_dd_limit_pct": dd_val,
+        "max_daily_dd_pct": dd_val,
+        "prop_profit_target_pct": float(row.get("prop_profit_target_pct") or rc.get("prop_profit_target_pct") or 8.0),
+        "daily_profit_target_usd": float(daily_profit_usd or 0.0),
+        "symbol_mapping_custom": str(sym_map_custom or ""),
         "auto_trade": int(row.get("auto_trade", 1)),
+        "enabled": bool(int(row.get("auto_trade", 1))),
         "account_type": row.get("account_type") or "STANDARD",
         "currency": row.get("currency") or "USD",
         "contract_size": float(row.get("contract_size") or 100.0),
@@ -154,6 +182,7 @@ async def create_account(
         ).fetchone()[0]
 
     if existing_same_acc:
+        existing_same_acc = dict(existing_same_acc)
         owner_id = existing_same_acc["user_id"]
         owner_email = existing_same_acc.get("owner_email") or ""
         # If owned by another active non-test user and current user is not admin, reject with 409
@@ -290,6 +319,31 @@ async def create_account(
     }
 
 
+def _resolve_target_account(c, account_id: str, u: dict) -> dict:
+    """Resolve an account row with strict tenant isolation (WHERE id=? AND user_id=?)."""
+    is_admin = u.get("role") == "admin"
+    user_id = u["id"]
+    row = c.execute(
+        "SELECT * FROM trading_accounts WHERE (id=? OR mt5_login=?) AND user_id=?",
+        (account_id, account_id, user_id),
+    ).fetchone()
+    if row:
+        return dict(row)
+
+    # Check if account exists under another user
+    any_row = c.execute(
+        "SELECT * FROM trading_accounts WHERE id=? OR mt5_login=? OR metaapi_account_id=?",
+        (account_id, account_id, account_id),
+    ).fetchone()
+    if any_row:
+        acc = dict(any_row)
+        if is_admin:
+            return acc
+        fail(403, "Không có quyền thao tác trên tài khoản này.")
+
+    fail(404, "Tài khoản không tồn tại.")
+
+
 @router.patch("/api/v1/accounts/{account_id}")
 def update_account_risk(
     account_id: str,
@@ -297,17 +351,21 @@ def update_account_risk(
     u: dict = Depends(get_current_user)
 ):
     """Update risk management parameters with subscription tier validation."""
+    import json
     user_id = u["id"]
     sub = get_user_subscription(user_id)
 
     with tx() as c:
-        acc_row = c.execute("SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id)).fetchone()
-        if not acc_row:
-            fail(404, "Tài khoản không tồn tại.")
-        acc = dict(acc_row)
+        acc = _resolve_target_account(c, account_id, u)
         real_id = acc["id"]
-        if u.get("role") != "admin" and acc["user_id"] != user_id:
-            fail(403, "Không có quyền chỉnh sửa tài khoản này.")
+        owner_id = acc["user_id"]
+
+        rc = {}
+        if acc.get("risk_config"):
+            try:
+                rc = json.loads(acc["risk_config"]) if isinstance(acc["risk_config"], str) else dict(acc["risk_config"])
+            except Exception:
+                rc = {}
 
         updates = []
         params = []
@@ -317,38 +375,62 @@ def update_account_risk(
                 fail(403, "Cần nâng cấp lên gói Growth hoặc Prop Firm Alpha để dùng Risk Multiplier > 1.0x.")
             updates.append("risk_multiplier=?")
             params.append(p.risk_multiplier)
+            rc["multiplier"] = p.risk_multiplier
+            rc["risk_multiplier"] = p.risk_multiplier
+
+        if p.max_lot is not None:
+            updates.append("max_lot=?")
+            params.append(p.max_lot)
+            rc["max_lot"] = p.max_lot
+
+        if p.daily_profit_target_usd is not None:
+            updates.append("daily_profit_target_usd=?")
+            params.append(p.daily_profit_target_usd)
+            rc["daily_profit_target_usd"] = p.daily_profit_target_usd
+
+        if p.symbol_mapping_custom is not None:
+            updates.append("symbol_mapping_custom=?")
+            params.append(p.symbol_mapping_custom)
+            rc["symbol_mapping_custom"] = p.symbol_mapping_custom
 
         if p.is_compounding is not None:
             if p.is_compounding and not sub.get("allow_compounding") and u.get("role") != "admin":
                 fail(403, "Cần nâng cấp lên gói Growth hoặc Prop Firm Alpha để bật Lãi Kép (Auto-Compounding).")
             updates.append("is_compounding=?")
             params.append(1 if p.is_compounding else 0)
+            rc["is_compounding"] = bool(p.is_compounding)
 
         if p.is_prop_firm_mode is not None:
             if p.is_prop_firm_mode and not sub.get("allow_prop_firm_mode") and u.get("role") != "admin":
                 fail(403, "Cần nâng cấp lên gói Prop Firm Alpha để kích hoạt Chế Độ Thi Quỹ (Prop Firm Guard).")
             updates.append("is_prop_firm_mode=?")
             params.append(1 if p.is_prop_firm_mode else 0)
+            rc["is_prop_firm_mode"] = bool(p.is_prop_firm_mode)
 
         if p.auto_be_partial_tp is not None:
             updates.append("auto_be_partial_tp=?")
             params.append(1 if p.auto_be_partial_tp else 0)
+            rc["auto_be_partial_tp"] = bool(p.auto_be_partial_tp)
 
         if p.prop_daily_dd_limit_pct is not None:
             updates.append("prop_daily_dd_limit_pct=?")
             params.append(p.prop_daily_dd_limit_pct)
+            rc["prop_daily_dd_limit_pct"] = p.prop_daily_dd_limit_pct
 
         if p.prop_profit_target_pct is not None:
             updates.append("prop_profit_target_pct=?")
             params.append(p.prop_profit_target_pct)
+            rc["prop_profit_target_pct"] = p.prop_profit_target_pct
 
         if p.auto_trade is not None:
             updates.append("auto_trade=?")
             params.append(1 if p.auto_trade else 0)
 
         if updates:
-            params.append(real_id)
-            c.execute(f"UPDATE trading_accounts SET {', '.join(updates)} WHERE id=?", params)
+            updates.append("risk_config=?")
+            params.append(json.dumps(rc))
+            params.extend([real_id, owner_id])
+            c.execute(f"UPDATE trading_accounts SET {', '.join(updates)} WHERE id=? AND user_id=?", params)
 
             # Sync matching fields to metaapi_cloud_accounts
             cloud_updates = []
@@ -363,33 +445,48 @@ def update_account_risk(
                 cloud_updates.append("auto_trade=?")
                 cloud_params.append(1 if p.auto_trade else 0)
             if cloud_updates:
-                cloud_params.append(real_id)
-                c.execute(f"UPDATE metaapi_cloud_accounts SET {', '.join(cloud_updates)} WHERE id=?", cloud_params)
+                cloud_params.extend([real_id, owner_id])
+                c.execute(f"UPDATE metaapi_cloud_accounts SET {', '.join(cloud_updates)} WHERE id=? AND user_id=?", cloud_params)
             audit(c, user_id, "trading_account_risk_updated", {
                 "account_id": real_id,
                 "updates": p.model_dump(exclude_unset=True)
             })
 
-    return {"id": real_id, "status": "UPDATED", "message": "Đã cập nhật cấu hình rủi ro thành công."}
+        updated_row = c.execute("SELECT * FROM trading_accounts WHERE id=? AND user_id=?", (real_id, owner_id)).fetchone()
+        account_data = _row_to_account_response(dict(updated_row)) if updated_row else {"id": real_id}
+
+    return {
+        "id": real_id,
+        "status": "UPDATED",
+        "account": account_data,
+        "message": "Đã cập nhật cấu hình rủi ro thành công."
+    }
 
 
 @router.post("/api/v1/accounts/{account_id}/toggle")
 @router.post("/api/metaapi/accounts/{account_id}/toggle")
-def toggle_account(account_id: str, u: dict = Depends(get_current_user)):
-    """Toggle auto-trading state for a cloud MT5 terminal."""
-    with tx() as c:
-        acc = c.execute("SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id)).fetchone()
-        if not acc:
-            fail(404, "Tài khoản không tồn tại.")
-        acc_d = dict(acc)
-        if u.get("role") != "admin" and acc_d["user_id"] != u["id"]:
-            fail(403, "Không có quyền.")
+async def toggle_account(account_id: str, request: Request, u: dict = Depends(get_current_user)):
+    """Toggle or deterministically set auto-trading state for a cloud MT5 terminal."""
+    explicit_active: Optional[bool] = None
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and "is_active" in body and body["is_active"] is not None:
+            explicit_active = bool(body["is_active"])
+    except Exception:
+        pass
 
+    with tx() as c:
+        acc_d = _resolve_target_account(c, account_id, u)
         real_id = acc_d["id"]
-        new_state = 1 if acc_d["auto_trade"] == 0 else 0
-        c.execute("UPDATE trading_accounts SET auto_trade=? WHERE id=?", (new_state, real_id))
+        owner_id = acc_d["user_id"]
+        if explicit_active is not None:
+            new_state = 1 if explicit_active else 0
+        else:
+            new_state = 1 if int(acc_d.get("auto_trade") or 0) == 0 else 0
+
+        c.execute("UPDATE trading_accounts SET auto_trade=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
         try:
-            c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=?", (new_state, real_id))
+            c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
         except Exception:
             pass
         audit(c, u["id"], "trading_account_toggle_auto_trade", {
@@ -400,6 +497,7 @@ def toggle_account(account_id: str, u: dict = Depends(get_current_user)):
     return {
         "id": real_id,
         "auto_trade": new_state,
+        "is_active": bool(new_state),
         "status": "ACTIVE" if new_state else "PAUSED"
     }
 
@@ -413,33 +511,31 @@ async def cloud_deploy_action(account_id: str, action: str, u: dict = Depends(ge
         fail(400, "Hành động không hợp lệ (chỉ chấp nhận 'deploy' hoặc 'undeploy').")
 
     with tx() as c:
-        acc_row = c.execute("SELECT * FROM trading_accounts WHERE id=?", (account_id,)).fetchone()
-        if not acc_row:
-            acc_row = c.execute("SELECT * FROM trading_accounts WHERE mt5_login=? OR metaapi_account_id=?", (account_id, account_id)).fetchone()
-        if not acc_row:
-            fail(404, "Tài khoản không tồn tại.")
-        acc = dict(acc_row)
-        if u.get("role") != "admin" and acc["user_id"] != u["id"]:
-            fail(403, "Không có quyền.")
+        acc = _resolve_target_account(c, account_id, u)
 
+    real_id = acc["id"]
+    owner_id = acc["user_id"]
     meta_id = acc.get("metaapi_account_id")
     client = MetaApiClient()
     new_state = "DEPLOYED" if act == "deploy" else "UNDEPLOYED"
     if meta_id:
         if act == "deploy":
-            await client.deploy_account(meta_id)
+            ok = await client.deploy_account(meta_id)
         else:
-            await client.undeploy_account(meta_id)
+            ok = await client.undeploy_account(meta_id)
+        if not ok:
+            logger.error(f"MetaApi cloud {act} failed for account {real_id} (meta_id={meta_id})")
+            fail(502, f"Thao tác {act.upper()} trên MetaApi Cloud thất bại. Trạng thái hiện tại được giữ nguyên.")
 
     with tx() as c:
-        c.execute("UPDATE trading_accounts SET deployment_state=? WHERE id=?", (new_state, acc["id"]))
+        c.execute("UPDATE trading_accounts SET deployment_state=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
         try:
-            c.execute("UPDATE metaapi_cloud_accounts SET metaapi_state=? WHERE id=? OR metaapi_account_id=?", (new_state, acc["id"], meta_id))
+            c.execute("UPDATE metaapi_cloud_accounts SET metaapi_state=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
         except Exception:
             pass
 
     return {
-        "id": acc["id"],
+        "id": real_id,
         "action": act,
         "deployment_state": new_state,
         "success": True,
@@ -452,15 +548,11 @@ async def cloud_deploy_action(account_id: str, action: str, u: dict = Depends(ge
 async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     """Sync real-time equity & balance from MetaApi Cloud terminal."""
     with tx() as c:
-        acc_row = c.execute("SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id)).fetchone()
-        if not acc_row:
-            fail(404, "Tài khoản không tồn tại.")
-        acc = dict(acc_row)
-        if u.get("role") != "admin" and acc["user_id"] != u["id"]:
-            fail(403, "Không có quyền.")
+        acc = _resolve_target_account(c, account_id, u)
 
     client = MetaApiClient()
     real_id = acc["id"]
+    owner_id = acc["user_id"]
     meta_id = acc.get("metaapi_account_id") or real_id
     eq = float(acc.get("equity") or 0.0)
     bal = float(acc.get("balance") or 0.0)
@@ -472,13 +564,13 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
 
     with tx() as c:
         c.execute(
-            "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
-            (eq, bal, now_ts, real_id)
+            "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
+            (eq, bal, now_ts, real_id, owner_id)
         )
         try:
             c.execute(
-                "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
-                (eq, bal, now_ts, real_id)
+                "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
+                (eq, bal, now_ts, real_id, owner_id)
             )
         except Exception:
             pass
@@ -489,47 +581,97 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
 @router.delete("/api/v1/accounts/{account_id}")
 @router.delete("/api/metaapi/accounts/{account_id}")
 async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
-    """Undeploy cloud terminal on MetaApi and remove account from platform across all tables."""
+    """Undeploy and delete cloud terminal on MetaApi and remove account strictly for the owning user."""
     is_admin = u.get("role") == "admin"
+    user_id = u["id"]
     found = False
     meta_id = None
     target_user_id = None
+    resolved_trading_id = None
+    resolved_real_id = None
+    resolved_legacy_id = None
+    resolved_cloud_id = None
 
     with tx() as c:
-        # Check trading_accounts
-        acc = c.execute("SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id)).fetchone()
-        if acc:
+        # 1. Check trading_accounts (prefer current user's row first to avoid cross-tenant collision on login)
+        acc_row = c.execute(
+            "SELECT * FROM trading_accounts WHERE (id=? OR mt5_login=?) AND user_id=?",
+            (account_id, account_id, user_id),
+        ).fetchone()
+        if not acc_row:
+            acc_row = c.execute(
+                "SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?",
+                (account_id, account_id),
+            ).fetchone()
+        if acc_row:
+            acc = dict(acc_row)
+            if not is_admin and acc["user_id"] != user_id:
+                fail(403, "Không có quyền xoá tài khoản này.")
             found = True
             target_user_id = acc["user_id"]
+            resolved_trading_id = acc["id"]
             meta_id = acc.get("metaapi_account_id")
 
         if not found:
-            # Check real_accounts
-            racc = c.execute("SELECT * FROM real_accounts WHERE id=? OR login=?", (account_id, account_id)).fetchone()
-            if racc:
+            # 2. Check real_accounts
+            racc_row = c.execute(
+                "SELECT * FROM real_accounts WHERE (id=? OR login=?) AND user_id=?",
+                (account_id, account_id, user_id),
+            ).fetchone()
+            if not racc_row:
+                racc_row = c.execute(
+                    "SELECT * FROM real_accounts WHERE id=? OR login=?",
+                    (account_id, account_id),
+                ).fetchone()
+            if racc_row:
+                racc = dict(racc_row)
+                if not is_admin and racc["user_id"] != user_id:
+                    fail(403, "Không có quyền xoá tài khoản này.")
                 found = True
                 target_user_id = racc["user_id"]
+                resolved_real_id = racc["id"]
 
         if not found:
-            # Check accounts
-            lacc = c.execute("SELECT * FROM accounts WHERE id=? OR login=?", (account_id, account_id)).fetchone()
-            if lacc:
+            # 3. Check legacy accounts
+            lacc_row = c.execute(
+                "SELECT * FROM accounts WHERE (id=? OR login=?) AND user_id=?",
+                (account_id, account_id, user_id),
+            ).fetchone()
+            if not lacc_row:
+                lacc_row = c.execute(
+                    "SELECT * FROM accounts WHERE id=? OR login=?",
+                    (account_id, account_id),
+                ).fetchone()
+            if lacc_row:
+                lacc = dict(lacc_row)
+                if not is_admin and lacc["user_id"] != user_id:
+                    fail(403, "Không có quyền xoá tài khoản này.")
                 found = True
                 target_user_id = lacc["user_id"]
+                resolved_legacy_id = lacc["id"]
 
         if not found:
-            # Check metaapi_cloud_accounts
-            macc = c.execute("SELECT * FROM metaapi_cloud_accounts WHERE id=? OR login=?", (account_id, account_id)).fetchone()
-            if macc:
+            # 4. Check metaapi_cloud_accounts
+            macc_row = c.execute(
+                "SELECT * FROM metaapi_cloud_accounts WHERE (id=? OR login=?) AND user_id=?",
+                (account_id, account_id, user_id),
+            ).fetchone()
+            if not macc_row:
+                macc_row = c.execute(
+                    "SELECT * FROM metaapi_cloud_accounts WHERE id=? OR login=?",
+                    (account_id, account_id),
+                ).fetchone()
+            if macc_row:
+                macc = dict(macc_row)
+                if not is_admin and macc["user_id"] != user_id:
+                    fail(403, "Không có quyền xoá tài khoản này.")
                 found = True
                 target_user_id = macc["user_id"]
+                resolved_cloud_id = macc["id"]
                 meta_id = macc.get("metaapi_account_id")
 
         if not found:
             fail(404, "Tài khoản không tồn tại.")
-
-        if not is_admin and target_user_id != u["id"]:
-            fail(403, "Không có quyền xoá tài khoản này.")
 
     if meta_id:
         client = MetaApiClient()
@@ -537,51 +679,57 @@ async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
             await client.undeploy_account(meta_id)
         except Exception as e:
             logger.warning(f"Could not undeploy MetaApi account {meta_id}: {e}")
+        try:
+            await client.delete_account(meta_id)
+        except Exception as e:
+            logger.warning(f"Could not delete MetaApi account {meta_id}: {e}")
 
     with tx() as c:
-        # Resolve all matching accounts.id
-        matching_acc_ids = [r[0] for r in c.execute("SELECT id FROM accounts WHERE id=? OR login=?", (account_id, account_id)).fetchall()]
+        # Resolve only matching legacy accounts.id belonging to target_user_id
+        if resolved_legacy_id:
+            matching_acc_ids = [resolved_legacy_id]
+        else:
+            matching_acc_ids = [
+                r[0] for r in c.execute(
+                    "SELECT id FROM accounts WHERE id=? AND user_id=?",
+                    (account_id, target_user_id),
+                ).fetchall()
+            ]
         for aid in matching_acc_ids:
-            try:
-                c.execute("DELETE FROM snapshots WHERE account_id=?", (aid,))
-            except Exception:
-                pass
-            try:
-                c.execute("DELETE FROM sim_positions WHERE account_id=?", (aid,))
-            except Exception:
-                pass
-            try:
-                c.execute("DELETE FROM dispatches WHERE account_id=?", (aid,))
-            except Exception:
-                pass
-            try:
-                c.execute("DELETE FROM metaapi_trade_executions WHERE account_id=?", (aid,))
-            except Exception:
-                pass
-            try:
-                c.execute("DELETE FROM account_symbol_map WHERE account_id=?", (aid,))
-            except Exception:
-                pass
-            c.execute("DELETE FROM accounts WHERE id=?", (aid,))
+            for dep_table in ("snapshots", "sim_positions", "dispatches", "metaapi_trade_executions", "account_symbol_map"):
+                try:
+                    c.execute(f"DELETE FROM {dep_table} WHERE account_id=?", (aid,))
+                except Exception:
+                    pass
+            c.execute("DELETE FROM accounts WHERE id=? AND user_id=?", (aid, target_user_id))
 
-        # Delete from real_accounts
-        c.execute("DELETE FROM real_accounts WHERE id=? OR login=?", (account_id, account_id))
+        # Delete from real_accounts strictly by id and user_id
+        target_rid = resolved_real_id or account_id
+        c.execute("DELETE FROM real_accounts WHERE id=? AND user_id=?", (target_rid, target_user_id))
 
-        # Delete from metaapi_trade_executions for trading_accounts
+        # Delete from trading_accounts and dependent tables strictly by id and user_id
+        target_tid = resolved_trading_id or account_id
+        for dep_table in ("metaapi_trade_executions", "account_symbol_map", "signal_dispatch_locks"):
+            try:
+                c.execute(
+                    f"DELETE FROM {dep_table} WHERE account_id IN (SELECT id FROM trading_accounts WHERE id=? AND user_id=?)",
+                    (target_tid, target_user_id),
+                )
+            except Exception:
+                pass
+        c.execute("DELETE FROM trading_accounts WHERE id=? AND user_id=?", (target_tid, target_user_id))
+
+        # Delete from metaapi_cloud_accounts strictly by id and user_id
+        target_cid = resolved_cloud_id or target_tid
         try:
-            c.execute("DELETE FROM metaapi_trade_executions WHERE account_id IN (SELECT id FROM trading_accounts WHERE id=? OR mt5_login=?)", (account_id, account_id))
+            c.execute("DELETE FROM metaapi_cloud_accounts WHERE id=? AND user_id=?", (target_cid, target_user_id))
         except Exception:
             pass
 
-        # Delete from trading_accounts
-        c.execute("DELETE FROM trading_accounts WHERE id=? OR mt5_login=?", (account_id, account_id))
+        audit(c, u["id"], "trading_account_deleted", {
+            "account_id": target_tid,
+            "target_user_id": target_user_id,
+            "metaapi_account_id": meta_id,
+        })
 
-        # Delete from metaapi_cloud_accounts
-        try:
-            c.execute("DELETE FROM metaapi_cloud_accounts WHERE id=? OR login=?", (account_id, account_id))
-        except Exception:
-            pass
-
-        audit(c, u["id"], "trading_account_deleted", {"account_id": account_id, "target_user_id": target_user_id})
-
-    return {"ok": True, "id": account_id, "status": "DELETED", "message": "Đã xoá tài khoản MT5 thành công."}
+    return {"ok": True, "id": resolved_trading_id or account_id, "status": "DELETED", "message": "Đã xoá tài khoản MT5 thành công."}

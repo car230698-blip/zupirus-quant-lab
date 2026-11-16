@@ -106,6 +106,15 @@ class MetaApiClient:
             resp = await client.post(url, headers=self._headers())
             return resp.status_code in (200, 204)
 
+    async def delete_account(self, metaapi_account_id: str) -> bool:
+        """Delete cloud MT5 account from MetaApi Provisioning API to stop all cloud billing."""
+        if self.is_mock:
+            return True
+        url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.delete(url, headers=self._headers())
+            return resp.status_code in (200, 202, 204, 404)
+
     async def get_account_information(self, metaapi_account_id: str) -> Dict[str, Any]:
         """Retrieve real-time account metrics (balance, equity, margin, freeMargin)."""
         if self.is_mock:
@@ -408,14 +417,15 @@ async def execute_fan_out_for_signal(
     from app.services.symbol_mapper import resolve_broker_symbol
     from app.services.account_classifier import calculate_normalized_lot_size
     from app.services.signal_ingestion.sanitizer import check_live_spread_guard
+    from app.services.execution.watcher import is_account_drawdown_halted
 
     for acc in accounts:
         acc_id = acc["id"]
         meta_id = acc.get("metaapi_account_id") or acc_id
 
-        # 0. Check per-account Prop Drawdown Lock
+        # 0. Check per-account Prop Drawdown Lock (unified key check)
         with tx() as c:
-            is_dd_locked = bool(getkv(c, f"drawdown_locked:{acc_id}"))
+            is_dd_locked = is_account_drawdown_halted(c, acc_id)
         if is_dd_locked:
             logger.warning(f"Account {acc_id} skipped: Prop drawdown circuit breaker is LOCKED.")
             continue
@@ -451,7 +461,7 @@ async def execute_fan_out_for_signal(
             logger.warning(f"Account {acc_id} rejected due to high spread: {spread_err}")
             continue
 
-        # 3. Check Idempotency Lock (Redis + DB Failsafe beyond 120s)
+        # 3. Check Idempotency Lock (Redis + Atomic DB Lock in signal_dispatch_locks + metaapi_trade_executions)
         is_duplicate = False
         if redis_client:
             lock_key = f"zupirus:lock:signal:{signal_id}:{acc_id}"
@@ -472,11 +482,21 @@ async def execute_fan_out_for_signal(
                     ).fetchone()
                     if existing:
                         is_duplicate = True
+                    else:
+                        try:
+                            lock_cur = c.execute(
+                                "INSERT INTO signal_dispatch_locks (id, signal_fingerprint, account_id, worker_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (signal_fingerprint, account_id) DO NOTHING",
+                                (f"lck_{uuid.uuid4().hex[:12]}", str(signal_id), acc_id, str(os.getpid()), time.time())
+                            )
+                            if getattr(lock_cur, "rowcount", 1) == 0:
+                                is_duplicate = True
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
         if is_duplicate:
-            logger.warning(f"Idempotency: Signal {signal_id} already executed for account {acc_id}. Skipping.")
+            logger.warning(f"Idempotency: Signal {signal_id} already locked/executed for account {acc_id}. Skipping.")
             continue
 
         # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
@@ -556,10 +576,13 @@ async def execute_fan_out_for_signal(
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
     total_elapsed_ms = int((time.time() - start_all) * 1000)
 
+    from app.services.execution.watcher import _is_metaapi_success
+
     executions = []
     latencies = []
     executed_count = 0
     failed_count = 0
+    now_ts = time.time()
 
     for meta, res in zip(account_metas, raw_results):
         if isinstance(res, Exception):
@@ -570,12 +593,13 @@ async def execute_fan_out_for_signal(
                 "status": "FAILED",
                 "volume": meta["volume"],
                 "error": str(res),
-                "latency_ms": 0
+                "latency_ms": 0,
+                "persisted": True
             })
         else:
             lat = res.get("latency_ms", 0)
             latencies.append(lat)
-            is_success = res.get("numericCode") in (10009, 200, 201) or bool(res.get("orderId"))
+            is_success = _is_metaapi_success(res) or bool(res.get("orderId"))
             if is_success:
                 executed_count += 1
                 status = "FILLED"
@@ -591,8 +615,48 @@ async def execute_fan_out_for_signal(
                 "order_id": res.get("orderId"),
                 "position_id": res.get("positionId"),
                 "latency_ms": lat,
-                "message": res.get("message")
+                "message": res.get("message"),
+                "persisted": True
             })
+
+    # Persist all executions directly into metaapi_trade_executions
+    try:
+        with tx() as c:
+            for ex in executions:
+                exec_id = f"exec_{uuid.uuid4().hex[:16]}"
+                acc_id_val = ex["account_id"]
+                # Ensure metaapi_cloud_accounts has a row for acc_id_val so SQLite FK constraint on metaapi_trade_executions is satisfied
+                try:
+                    has_cloud = c.execute("SELECT 1 FROM metaapi_cloud_accounts WHERE id = ?", (acc_id_val,)).fetchone()
+                    if not has_cloud:
+                        u_row = c.execute("SELECT id FROM users LIMIT 1").fetchone()
+                        fallback_uid = u_row[0] if u_row else "system"
+                        c.execute(
+                            """
+                            INSERT OR IGNORE INTO metaapi_cloud_accounts(
+                                id, user_id, login, server, platform, account_name,
+                                metaapi_account_id, metaapi_state, auto_trade, created_at
+                            ) VALUES(?, ?, ?, 'MT5-Cloud', 'mt5', ?, ?, 'DEPLOYED', 1, ?)
+                            """,
+                            (acc_id_val, fallback_uid, acc_id_val, acc_id_val, ex.get("metaapi_account_id") or acc_id_val, now_ts)
+                        )
+                except Exception:
+                    pass
+                c.execute("""
+                    INSERT INTO metaapi_trade_executions(
+                        id, signal_id, account_id, metaapi_account_id, symbol,
+                        action, volume, entry_price, sl, tp, position_id,
+                        order_id, status, latency_ms, error_message, executed_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (
+                    exec_id, signal_id, acc_id_val, ex.get("metaapi_account_id"),
+                    symbol, action, ex["volume"], entry_price,
+                    sl, tp, ex.get("position_id"), ex.get("order_id"),
+                    ex["status"], ex.get("latency_ms", 0),
+                    ex.get("error") or ex.get("message"), now_ts
+                ))
+    except Exception as persist_err:
+        logger.error(f"Error persisting trade executions inside execute_fan_out_for_signal: {persist_err}")
 
     avg_lat = int(sum(latencies) / len(latencies)) if latencies else total_elapsed_ms
 

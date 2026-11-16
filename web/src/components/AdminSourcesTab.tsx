@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { ToastNotification } from './ToastNotification.tsx';
 import { formatApiError } from '../utils/formatError.ts';
+import { AdminApprovalQueue } from './AdminApprovalQueue.tsx';
 
 export const AdminSourcesTab: React.FC = () => {
   const [data, setData] = useState<any>({
@@ -574,7 +575,7 @@ export const AdminSourcesTab: React.FC = () => {
           >
             <option value="TELEGRAM">TELEGRAM STREAM</option>
             <option value="TRADINGVIEW">TRADINGVIEW WEBHOOK</option>
-            <option value="MT5_MASTER">MT5 MASTER ACCOUNT</option>
+            <option value="AI_AGENT">ZUPIRUS AI AGENT</option>
           </select>
           <button type="submit" className="quant-btn-primary py-2.5 text-xs whitespace-nowrap shrink-0">
             + Thêm Vào Sandbox
@@ -769,6 +770,11 @@ export const AdminSourcesTab: React.FC = () => {
             </table>
           </div>
         </div>
+      </div>
+
+      {/* Row 4: Walk-Forward Strategy Approval Queue */}
+      <div className="quant-panel p-6">
+        <AdminApprovalQueue decision={null} />
       </div>
 
       {/* Skill Spec Modal */}

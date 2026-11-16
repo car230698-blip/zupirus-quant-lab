@@ -15,8 +15,7 @@ FALLBACK_USD_VND_RATE = float(os.getenv("FALLBACK_USD_VND_RATE", "25500.0"))
 # Signal Source & Ingestion Pipeline
 SignalSourceType = Literal["EXTERNAL_FEED", "HYBRID_AGENT_SCORER", "ZUPIRUS_AGENT"]
 SIGNAL_SOURCE: SignalSourceType = os.getenv("SIGNAL_SOURCE", "EXTERNAL_FEED") # type: ignore
-TRADINGVIEW_WEBHOOK_SECRET = os.getenv("TRADINGVIEW_WEBHOOK_SECRET", "zupirus_tv_secret_2026")
-METAAPI_SIGNAL_FEED_ACCOUNT_ID = os.getenv("METAAPI_SIGNAL_FEED_ACCOUNT_ID", "")
+TRADINGVIEW_WEBHOOK_SECRET = os.getenv("TRADINGVIEW_WEBHOOK_SECRET", "")
 
 # 4 Mandatory Safety Guards Configuration
 AUTO_ATTACH_ATR_SL = os.getenv("AUTO_ATTACH_ATR_SL", "true").lower() in ("true", "1", "yes")

@@ -239,7 +239,8 @@ def sanitize_and_audit_signal(
                     "status": status,
                     "reject_reason": reject_reason,
                     "context": context_snapshot,
-                }
+                },
+                scope="system",
             )
     except Exception as e:
         logger.error(f"Error auditing signal or storing Tabula Rasa memory: {e}")

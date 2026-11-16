@@ -1,11 +1,10 @@
 """Runtime Position Watcher & Real-Time Risk Protection Engine.
-Monitors all open positions across user MetaApi terminals:
+Monitors all open positions across user MetaApi terminals (including accounts with auto_trade=0):
 1. Auto Break-Even & Partial TP (50% TP1) at 1R profit milestone for Growth & Alpha accounts.
 2. Prop Firm Pass Guard:
-   - Real-time Daily Drawdown circuit breaker (auto-close all & lock at 4.5% drawdown).
+   - Real-time Daily Drawdown circuit breaker (auto-close all & lock at configured drawdown limit).
    - Friday 21:00 UTC weekend holding closure (strictly avoids gap risk on prop accounts).
 """
-import time
 import json
 import logging
 import datetime
@@ -15,12 +14,53 @@ from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.watcher")
 
+SUCCESS_NUMERIC_CODES = {0, 200, 201, 10008, 10009}
+SUCCESS_STRING_CODES = {
+    "TRADE_RETCODE_PLACED",
+    "TRADE_RETCODE_DONE",
+    "TRADE_RETCODE_DONE_PARTIAL",
+    "ERR_NO_ERROR",
+    "OK",
+}
+
+
 def _is_metaapi_success(res: Optional[Dict[str, Any]]) -> bool:
+    """Validate whether a MetaApi trade/modify response succeeded."""
     if not res or not isinstance(res, dict):
         return False
-    if "error" in res or "numericCode" in res or "stringCode" in res:
+    if res.get("error"):
+        return False
+
+    has_num = "numericCode" in res and res["numericCode"] is not None
+    has_str = "stringCode" in res and res["stringCode"] is not None
+
+    if has_num or has_str:
+        num_ok = (not has_num) or (int(res["numericCode"]) in SUCCESS_NUMERIC_CODES)
+        str_ok = (not has_str) or (str(res["stringCode"]).upper() in SUCCESS_STRING_CODES)
+        return num_ok and str_ok
+
+    status_val = str(res.get("status", "")).upper()
+    if status_val in ("FAILED", "ERROR", "REJECTED"):
         return False
     return True
+
+
+def get_drawdown_halt_key(account_id: str, date_str: Optional[str] = None) -> str:
+    """Return canonical daily drawdown halt key for an account."""
+    if not date_str:
+        date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    return f"prop_dd_halt:{account_id}:{date_str}"
+
+
+def is_account_drawdown_halted(c, account_id: str, date_str: Optional[str] = None) -> bool:
+    """Check whether an account is locked by the Daily Drawdown Circuit Breaker."""
+    halt_key = get_drawdown_halt_key(account_id, date_str)
+    if getkv(c, halt_key):
+        return True
+    if getkv(c, f"drawdown_locked:{account_id}"):
+        return True
+    return False
+
 
 MAX_PROP_DAILY_DRAWDOWN_PCT = 4.5
 WEEKEND_CLOSE_FRIDAY_HOUR_UTC = 21
@@ -33,22 +73,23 @@ class PositionWatcher:
         self.client = metaapi_client or MetaApiClient()
 
     async def run_cycle(self, now_dt: Optional[datetime.datetime] = None) -> Dict[str, Any]:
-        """Execute one complete monitoring and protection pass across all active accounts."""
+        """Execute one complete monitoring and protection pass across all deployed accounts."""
         now_utc = now_dt or datetime.datetime.now(datetime.timezone.utc)
         date_str = now_utc.strftime("%Y-%m-%d")
         is_friday_weekend = (now_utc.weekday() == 4 and now_utc.hour >= WEEKEND_CLOSE_FRIDAY_HOUR_UTC)
 
         with tx() as c:
-            # Query deployed accounts with auto_trade enabled and associated plan tier
+            # Monitor ALL deployed accounts (even if auto_trade=0 so existing open positions stay protected)
             accounts = c.execute(
                 """
                 SELECT t.id, t.user_id, t.metaapi_account_id, t.auto_trade,
-                       t.balance, t.equity, t.risk_config,
+                       t.balance, t.equity, t.risk_config, t.auto_be_partial_tp,
                        t.is_prop_firm_mode, t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
                        COALESCE(s.plan_tier, 'starter') AS plan_tier
                 FROM trading_accounts t
                 LEFT JOIN subscriptions s ON t.user_id = s.user_id
-                WHERE t.auto_trade = 1 AND t.metaapi_account_id IS NOT NULL
+                WHERE t.metaapi_account_id IS NOT NULL
+                  AND COALESCE(t.deployment_state, 'DEPLOYED') != 'UNDEPLOYED'
                 """
             ).fetchall()
 
@@ -56,6 +97,7 @@ class PositionWatcher:
             "timestamp": now_utc.isoformat(),
             "accounts_checked": len(accounts),
             "partial_tp_executed": 0,
+            "be_sl_moved": 0,
             "prop_breakers_triggered": 0,
             "weekend_closes_triggered": 0,
             "details": []
@@ -97,9 +139,11 @@ class PositionWatcher:
                             f"Emergency closing all positions."
                         )
                         close_res = await self.client.close_all_positions(meta_id)
+                        halt_key = get_drawdown_halt_key(acc_id, date_str)
                         with tx() as c:
                             c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
-                            setkv(c, f"prop_dd_halt:{acc_id}:{date_str}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
+                            setkv(c, halt_key, f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
+                            setkv(c, f"drawdown_locked:{acc_id}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
                             audit(c, "prop_guard", "circuit_breaker_triggered", {
                                 "account_id": acc_id,
                                 "drawdown_pct": round(drawdown_pct, 2),
@@ -111,7 +155,7 @@ class PositionWatcher:
                         results["details"].append({"account_id": acc_id, "action": "PROP_CIRCUIT_BREAKER_LOCKED"})
                         continue
 
-                # 3. Friday 21:00 UTC Weekend Risk Close (Avoid holding over weekend for prop accounts)
+                # 3. Friday 21:00 UTC Weekend Risk Close
                 if is_prop and is_friday_weekend:
                     positions = await self.client.get_open_positions(meta_id)
                     if positions:
@@ -128,8 +172,8 @@ class PositionWatcher:
                         results["details"].append({"account_id": acc_id, "action": "FRIDAY_WEEKEND_POSITIONS_CLOSED"})
                         continue
 
-                # 4. Auto Break-Even & Partial TP (50% TP1) at 1R for Growth and Alpha
-                allow_auto_be = plan_tier in ("growth", "alpha")
+                # 4. Auto Break-Even & Partial TP (50% TP1) at 1R for Growth, Alpha, or explicit auto_be_partial_tp
+                allow_auto_be = bool(acc.get("auto_be_partial_tp")) or plan_tier in ("growth", "alpha", "pro")
                 if allow_auto_be:
                     positions = await self.client.get_open_positions(meta_id)
                     for pos in positions:
@@ -137,7 +181,7 @@ class PositionWatcher:
                         if not pos_id:
                             continue
 
-                        # Check origin: only touch ZUPIRUS automated orders
+                        # Check origin: only manage ZUPIRUS automated orders
                         pos_comment = str(pos.get("comment") or "").upper()
                         with tx() as c:
                             is_zupirus_trade = c.execute(
@@ -147,12 +191,13 @@ class PositionWatcher:
                         if not is_zupirus_trade and "ZUPIRUS" not in pos_comment and "ZP-" not in pos_comment:
                             continue
 
-                        # Check if BE already executed for this position
-                        be_key = f"be_executed:{acc_id}:{pos_id}"
+                        be_sl_key = f"be_sl_moved:{acc_id}:{pos_id}"
+                        tp1_key = f"partial_tp1_executed:{acc_id}:{pos_id}"
+                        legacy_be_key = f"be_executed:{acc_id}:{pos_id}"
+
                         with tx() as c:
-                            already_done = getkv(c, be_key)
-                        if already_done:
-                            continue
+                            be_sl_done = bool(getkv(c, be_sl_key) or getkv(c, legacy_be_key))
+                            tp1_done = bool(getkv(c, tp1_key) or getkv(c, legacy_be_key))
 
                         pos_type = pos.get("type", "POSITION_TYPE_BUY")
                         volume = float(pos.get("volume", 0.01))
@@ -160,56 +205,75 @@ class PositionWatcher:
                         current_price = float(pos.get("currentPrice") or open_price)
                         sl = float(pos.get("stopLoss") or 0.0)
 
-                        if open_price <= 0 or sl <= 0 or volume < 0.02:
+                        if open_price <= 0 or sl <= 0:
                             continue
 
-                        # 1R milestone calculation
                         is_buy = "BUY" in pos_type.upper()
+                        # Check if SL on broker is already at or better than open_price
+                        sl_already_at_be = (is_buy and sl >= open_price) or (not is_buy and sl > 0 and sl <= open_price)
+                        if sl_already_at_be and not be_sl_done:
+                            with tx() as c:
+                                setkv(c, be_sl_key, "1")
+                            be_sl_done = True
+
+                        if be_sl_done and (tp1_done or volume < 0.02):
+                            continue
+
                         risk_distance = abs(open_price - sl)
-                        if risk_distance <= 0:
+                        if risk_distance <= 0 and not be_sl_done:
                             continue
 
                         profit_distance = (current_price - open_price) if is_buy else (open_price - current_price)
 
-                        # Trigger if reached 1R
-                        if profit_distance >= risk_distance:
-                            half_volume = round(volume / 2.0, 2)
-                            buffer = 0.10  # 1 pip spread buffer
+                        # Trigger if reached 1R (or if BE SL was already moved and we are retrying TP1 partial close)
+                        if (risk_distance > 0 and profit_distance >= risk_distance) or be_sl_done:
+                            buffer = 0.10
                             new_sl = round(open_price + buffer if is_buy else open_price - buffer, 2)
+                            modify_ok = be_sl_done
+                            partial_ok = tp1_done
+                            modify_res = None
+                            partial_res = None
 
-                            logger.info(
-                                f"1R REACHED: Position {pos_id} on Account {acc_id} (+{profit_distance:.2f} >= {risk_distance:.2f}). "
-                                f"Closing 50% ({half_volume} lots) and moving SL to BE ({new_sl})."
-                            )
+                            # Step 1 (Safe Order): Move SL to Break-Even FIRST
+                            if not be_sl_done:
+                                modify_res = await self.client.modify_position_sl(meta_id, pos_id, new_sl)
+                                modify_ok = _is_metaapi_success(modify_res)
+                                if modify_ok:
+                                    with tx() as c:
+                                        setkv(c, be_sl_key, "1")
+                                    results["be_sl_moved"] += 1
 
-                            # Partial close 50%
-                            partial_res = await self.client.close_partial_position(meta_id, pos_id, half_volume)
-                            # Move SL of remaining to BE
-                            modify_res = await self.client.modify_position_sl(meta_id, pos_id, new_sl)
+                            # Step 2: Only after SL is safe at BE, close 50% partial volume if volume >= 0.02
+                            if modify_ok and not tp1_done:
+                                if volume >= 0.02:
+                                    half_volume = round(volume / 2.0, 2)
+                                    partial_res = await self.client.close_partial_position(meta_id, pos_id, half_volume)
+                                    partial_ok = _is_metaapi_success(partial_res)
+                                    if partial_ok:
+                                        with tx() as c:
+                                            setkv(c, tp1_key, "1")
+                                            setkv(c, legacy_be_key, "1")
+                                        results["partial_tp_executed"] += 1
+                                else:
+                                    # Volume < 0.02 cannot be split; mark complete once BE SL is moved
+                                    partial_ok = True
+                                    with tx() as c:
+                                        setkv(c, tp1_key, "SKIPPED_MIN_VOL")
+                                        setkv(c, legacy_be_key, "1")
 
-                            # Verify operations with robust MetaApi error checking
-                            partial_ok = _is_metaapi_success(partial_res)
-                            modify_ok = _is_metaapi_success(modify_res)
-
-                            # Only mark BE as completed if the Stop-Loss modification was successful
-                            # If partial close succeeded but modify failed, don't lock BE yet so next cycle can retry modify SL
-                            if modify_ok:
+                            if modify_ok or partial_ok:
                                 with tx() as c:
-                                    setkv(c, be_key, "1")
                                     audit(c, "watcher", "auto_be_partial_tp", {
                                         "account_id": acc_id,
                                         "position_id": pos_id,
                                         "symbol": pos.get("symbol", "XAUUSD"),
                                         "open_price": open_price,
-                                        "closed_volume": half_volume,
                                         "new_sl": new_sl,
                                         "partial_success": partial_ok,
                                         "modify_success": modify_ok,
                                         "partial_res": partial_res,
                                         "modify_res": modify_res
                                     })
-
-                                results["partial_tp_executed"] += 1
                                 results["details"].append({
                                     "account_id": acc_id,
                                     "position_id": pos_id,
@@ -217,10 +281,6 @@ class PositionWatcher:
                                     "partial_ok": partial_ok,
                                     "modify_ok": modify_ok
                                 })
-                            else:
-                                logger.warning(
-                                    f"Failed Auto-BE/Partial TP on position {pos_id}: partial={partial_res}, modify={modify_res}"
-                                )
 
             except Exception as e:
                 logger.error(f"Error watching positions for account {acc_id}: {e}")
@@ -230,6 +290,7 @@ class PositionWatcher:
 
 # Global singleton instance
 _watcher_instance: Optional[PositionWatcher] = None
+
 
 def get_position_watcher() -> PositionWatcher:
     global _watcher_instance

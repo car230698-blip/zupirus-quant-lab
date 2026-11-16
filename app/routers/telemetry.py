@@ -151,6 +151,73 @@ def get_topbar_telemetry():
         except Exception:
             pass
 
+    # 4. Measure real Redis & DB latency and query average MetaApi execution latency
+    redis_ok = False
+    redis_ping_ms = 0.0
+    try:
+        from app.redis_client import get_redis_client
+        t_r = time.perf_counter()
+        rc = get_redis_client()
+        redis_ok = bool(rc.ping())
+        redis_ping_ms = round((time.perf_counter() - t_r) * 1000.0, 2)
+    except Exception:
+        pass
+
+    db_ping_ms = 0.0
+    avg_exec_lat_ms = 0
+    is_halted = False
+    try:
+        t_db = time.perf_counter()
+        with tx() as c:
+            c.execute("SELECT 1").fetchone()
+            db_ping_ms = round((time.perf_counter() - t_db) * 1000.0, 2)
+            lat_row = c.execute(
+                "SELECT AVG(latency_ms) FROM metaapi_trade_executions WHERE latency_ms > 0"
+            ).fetchone()
+            if lat_row and lat_row[0]:
+                avg_exec_lat_ms = int(round(float(lat_row[0])))
+            h_row = c.execute("SELECT value FROM kv WHERE key='halted'").fetchone()
+            if h_row and str(h_row[0]).strip() in ("1", "true", "True"):
+                is_halted = True
+    except Exception:
+        pass
+
+    spread_val = quote.get("spread_pips")
+    spread_ok = spread_val is not None and float(spread_val) <= 4.5
+    shields = [
+        {
+            "layer": "L1",
+            "name": "Chống Lặp Tín Hiệu (Idempotency Lock)",
+            "detail": f"Redis + DB Lock ({redis_ping_ms}ms)" if redis_ok else "DB Atomic Lock Fallback",
+            "status": "ACTIVE" if not is_halted else "HALTED",
+            "latency_ms": redis_ping_ms,
+        },
+        {
+            "layer": "L2",
+            "name": "Bắt Buộc SL & Kiểm Soát Spread",
+            "detail": f"ATR(14) Auto-SL · Spread {spread_val}p" if spread_val is not None else "ATR(14) Auto-SL · Chờ giá live",
+            "status": "ACTIVE" if spread_ok else ("WARNING" if spread_val is not None else "IDLE"),
+            "latency_ms": db_ping_ms,
+        },
+        {
+            "layer": "L3",
+            "name": "Lá Chắn Tin Đỏ USD (News Shield)",
+            "detail": (
+                f"ĐANG CHẶN ({nearest_title})" if news_status == "BLACKOUT"
+                else (f"Cảnh báo sau {round(news_dist_mins)}p ({nearest_title})" if news_status == "WARNING" else "Không có tin đỏ ±15p")
+            ),
+            "status": "BLOCKED" if news_status == "BLACKOUT" else ("WARNING" if news_status == "WARNING" else "ACTIVE"),
+            "latency_ms": db_ping_ms,
+        },
+        {
+            "layer": "L4",
+            "name": "Kiểm Soát Trượt Giá (Slippage Guard)",
+            "detail": "Biên độ khớp tối đa ≤ 20 pips ($2.00)",
+            "status": "ACTIVE" if quote.get("live") else "STANDBY",
+            "latency_ms": avg_exec_lat_ms or int(round(db_ping_ms + redis_ping_ms)),
+        },
+    ]
+
     return {
         "xauusd": {
             "symbol": "XAUUSD",
@@ -172,11 +239,14 @@ def get_topbar_telemetry():
             "distance_mins": round(news_dist_mins, 1),
             "nearest_title": nearest_title,
         },
-        "metaapi_latency_ms": 28,
+        "shields": shields,
+        "redis_ping_ms": redis_ping_ms,
+        "db_ping_ms": db_ping_ms,
+        "metaapi_latency_ms": avg_exec_lat_ms if avg_exec_lat_ms > 0 else int(round(db_ping_ms + redis_ping_ms)),
         "region": "London G2",
         "active_sources_count": sources_counts.get("active_live", 0),
         "shadow_sources_count": sources_counts.get("shadow_only", 0),
-        "system_status": "OPERATIONAL",
+        "system_status": "HALTED" if is_halted else "OPERATIONAL",
         "server_time": now_ts,
     }
 

@@ -34,7 +34,7 @@ async def test_fanout_handles_network_hiccups_without_duplicate_orders():
         {"id": "acc_retry_1", "metaapi_account_id": "meta_retry_1", "equity": 5000.0, "risk_percent": 1.0},
     ]
     sig = {
-        "id": "sig_idempotent_order_01",
+        "id": f"sig_idempotent_order_{int(time.time() * 1000)}",
         "symbol": "XAUUSD",
         "action": "BUY",
         "entry_price": 2650.0,
@@ -47,7 +47,7 @@ async def test_fanout_handles_network_hiccups_without_duplicate_orders():
     assert report1["executed"] == 1
     assert report1["failed"] == 0
 
-    # 2nd dispatch of identical signal
+    # 2nd dispatch of identical signal MUST be blocked by idempotency lock (zero duplicate executions)
     report2 = await execute_fan_out_for_signal(sig, accounts, client)
-    # Both executions report status
-    assert len(report2["executions"]) == 1
+    assert report2["executed"] == 0
+    assert report2["skipped"] == 1

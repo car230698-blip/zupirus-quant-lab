@@ -155,6 +155,7 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
     t0 = time.perf_counter()
 
     # 1. Try Gemini if provider is GEMINI or HYBRID
+    gem_error = None
     if provider in ("GEMINI", "HYBRID"):
         try:
             with tx() as c:
@@ -172,22 +173,27 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
                         "latency_ms": latency,
                         "response": gem_res,
                     }
+                gem_error = "Chưa có Gemini API Key hoạt động trong Pool hoặc tất cả các Key đều bị từ chối."
         except Exception as e:
             logger.warning(f"Gemini call failed in test_ai_connection: {e}")
-            if provider == "GEMINI":
-                # If pure Gemini failed, provide sandbox fallback with note
-                latency = round((time.perf_counter() - t0) * 1000, 1) or 22.0
-                return {
-                    "success": True,
-                    "provider": "Google Gemini (Sandbox Fallback)",
+            gem_error = str(e)
+        if provider == "GEMINI":
+            from fastapi.responses import JSONResponse
+            latency = round((time.perf_counter() - t0) * 1000, 1)
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "success": False,
+                    "provider": "Google Gemini",
                     "model": gemini_model,
                     "latency_ms": latency,
-                    "response": f"Gemini Pool phản hồi: Chế độ thị trường XAU/USD M15 ổn định, chưa ghi nhận biến động bất thường. (Lưu ý: {e})",
-                    "note": "Đã sử dụng bộ nhớ đệm Sandbox Quant do hạn ngạch API ngoài tạm thời gián đoạn.",
-                }
+                    "error": f"Kết nối Google Gemini thất bại: {gem_error}",
+                    "detail": f"Kết nối Google Gemini thất bại: {gem_error}",
+                },
+            )
 
-    # 2. Try OpenAI / OpenRouter / Custom LLM if key is provided and not a placeholder
-    is_real_key = bool(key and len(key) >= 10 and not any(x in key.lower() for x in ("demo", "test", "sandbox", "chua_cau_hinh")))
+    # 2. Try OpenAI / OpenRouter / Custom LLM if key is provided
+    is_real_key = bool(key and len(key) >= 10 and not any(x in key.lower() for x in ("chua_cau_hinh",)))
 
     if is_real_key:
         try:
@@ -218,29 +224,33 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
                 }
         except Exception as e:
             logger.error(f"Live AI test connection error: {e}")
-            # If live API key failed (e.g. invalid key or network block), return graceful sandbox report
-            latency = round((time.perf_counter() - t0) * 1000, 1) or 35.0
-            return {
-                "success": False,
-                "provider": provider,
-                "model": model,
-                "latency_ms": latency,
-                "error": f"Lỗi kết nối tới mô hình '{model}' ({base_url}): {str(e)}",
-            }
+            from fastapi.responses import JSONResponse
+            latency = round((time.perf_counter() - t0) * 1000, 1)
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "success": False,
+                    "provider": provider,
+                    "model": model,
+                    "latency_ms": latency,
+                    "error": f"Lỗi kết nối tới mô hình '{model}' ({base_url}): {str(e)}",
+                    "detail": f"Lỗi kết nối tới mô hình '{model}' ({base_url}): {str(e)}",
+                },
+            )
 
-    # 3. If no live key or sandbox test requested, return instant verified Quant Sandbox response
-    latency = round((time.perf_counter() - t0) * 1000, 1) or 18.5
-    return {
-        "success": True,
-        "provider": f"Zupirus Quant Co-Pilot ({provider} Sandbox)",
-        "model": model,
-        "latency_ms": latency,
-        "response": (
-            "Chế độ thị trường XAU/USD M15 hiện tại: Pha tích luỹ vi mô biên độ 2898.00 - 2914.50. "
-            "Cấu trúc thanh khoản hai đầu cân bằng, độ giãn spread 1.2 pip. "
-            "Hệ thống không ghi nhận tin tức vĩ mô USD High-Impact (CPI / NFP / FOMC) trong 30 phút tới. "
-            "Khuyến nghị: Sẵn sàng thực thi tín hiệu Momentum kết hợp lá chắn 4 lớp và cơ chế Auto Break-Even 1R."
-        ),
-        "note": "Kết nối thành công qua Sandbox Agent nội bộ. Nhập API Key chính thức của OpenAI/OpenRouter và bấm 'Lưu Cấu Hình AI' để kích hoạt kết nối live ra ngoài.",
-    }
+    # 3. No valid key configured -> fail honestly with HTTP 400 (never fake success: True)
+    from fastapi.responses import JSONResponse
+    latency = round((time.perf_counter() - t0) * 1000, 1)
+    err_msg = "Chưa cấu hình API Key hợp lệ cho AI Agent. Vui lòng nhập API Key (OpenAI / OpenRouter / Gemini) và bấm 'Lưu Cấu Hình AI'."
+    return JSONResponse(
+        status_code=400,
+        content={
+            "success": False,
+            "provider": provider,
+            "model": model,
+            "latency_ms": latency,
+            "error": err_msg,
+            "detail": err_msg,
+        },
+    )
 

@@ -139,18 +139,21 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!checkoutModalOpen || !checkoutOrder?.id || checkoutOrder?.status === 'PAID') return;
+    if (!checkoutModalOpen || !checkoutOrder?.id || checkoutOrder?.status === 'PAID' || checkoutOrder?.status === 'EXPIRED') return;
     setPollingPaid(true);
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`/api/v1/billing/orders/${checkoutOrder.id}`, { credentials: 'include' });
         if (res.ok) {
           const data = await res.json();
+          setCheckoutOrder(data);
           if (data.status === 'PAID') {
-            setCheckoutOrder(data);
             setPollingPaid(false);
             fetchCloudSub();
             refetchAccounts();
+            clearInterval(interval);
+          } else if (data.status === 'EXPIRED') {
+            setPollingPaid(false);
             clearInterval(interval);
           }
         }
@@ -266,7 +269,12 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
             : `Đã tạm ngưng trạm Cloud cho tài khoản #${accountId}`
         );
         refetchAccounts();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setCloudMsg(`Lỗi thao tác Cloud (${action}): ${formatApiError(d, res.status)}`);
       }
+    } catch (e: any) {
+      setCloudMsg(`Lỗi kết nối Cloud: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -274,15 +282,20 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 
   const handleToggleAccount = async (accountId: string, currentActive: boolean) => {
     try {
-      await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/toggle`, {
+      const res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({ is_active: !currentActive }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setCloudMsg(`Lỗi bật/tắt tự động giao dịch: ${formatApiError(d, res.status)}`);
+        return;
+      }
       refetchAccounts();
-    } catch {
-      // ignore
+    } catch (e: any) {
+      setCloudMsg(`Lỗi kết nối: ${e.message}`);
     }
   };
 
@@ -1018,13 +1031,42 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                     </div>
                     <div className="flex justify-between items-center border-t border-white/[0.05] pt-1.5">
                       <span className="text-slate-400">Trạng thái:</span>
-                      <strong className={checkoutOrder.status === 'PAID' ? 'text-emerald-400' : 'text-amber-300'}>
-                        {checkoutOrder.status === 'PAID' ? '✓ ĐÃ THANH TOÁN (KÍCH HOẠT CLOUD)' : '⏳ ĐANG CHỜ WEBHOOK SEPAY...'}
+                      <strong
+                        className={
+                          checkoutOrder.status === 'PAID'
+                            ? 'text-emerald-400'
+                            : checkoutOrder.status === 'UNDERPAID' || checkoutOrder.status === 'EXPIRED'
+                            ? 'text-rose-400'
+                            : 'text-amber-300'
+                        }
+                      >
+                        {checkoutOrder.status === 'PAID'
+                          ? '✓ ĐÃ THANH TOÁN (KÍCH HOẠT CLOUD)'
+                          : checkoutOrder.status === 'UNDERPAID'
+                          ? '⚠ CHUYỂN THIẾU TIỀN (CHỜ BÙ)'
+                          : checkoutOrder.status === 'EXPIRED'
+                          ? '✕ ĐƠN HÀNG ĐÃ HẾT HẠN'
+                          : '⏳ ĐANG CHỜ WEBHOOK SEPAY...'}
                       </strong>
                     </div>
+                    {checkoutOrder.status === 'UNDERPAID' && (
+                      <div className="mt-2 rounded-lg border border-rose-500/40 bg-rose-950/30 p-2.5 text-[11px] text-rose-200">
+                        Đã nhận:{' '}
+                        <strong>{Number(checkoutOrder.paid_amount_vnd || 0).toLocaleString('vi-VN')} VND</strong>. Vui lòng chuyển khoản bù thêm{' '}
+                        <strong className="text-amber-300">
+                          {Math.max(0, displayAmountVnd - Number(checkoutOrder.paid_amount_vnd || 0)).toLocaleString('vi-VN')} VND
+                        </strong>{' '}
+                        với cùng nội dung <strong className="text-cyan-300">{displayMemo}</strong> để hệ thống tự động kích hoạt.
+                      </div>
+                    )}
+                    {checkoutOrder.status === 'EXPIRED' && (
+                      <div className="mt-2 rounded-lg border border-rose-500/40 bg-rose-950/30 p-2.5 text-[11px] text-rose-200">
+                        Đơn thanh toán đã quá thời hạn giữ tỷ giá (15 phút). Vui lòng đóng cửa sổ này và bấm Tạo Mã QR SePay mới.
+                      </div>
+                    )}
                   </div>
 
-                  {pollingPaid && checkoutOrder.status !== 'PAID' && (
+                  {pollingPaid && checkoutOrder.status !== 'PAID' && checkoutOrder.status !== 'EXPIRED' && (
                     <div className="pt-1 text-[11px] font-mono text-slate-400">
                       Hệ thống tự động kiểm tra giao dịch SePay mỗi 3 giây...
                     </div>

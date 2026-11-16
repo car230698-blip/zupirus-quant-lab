@@ -192,20 +192,28 @@ export const AdminRiskShieldUsersTab: React.FC<AdminRiskShieldUsersTabProps> = (
     props.handleClearNews ??
     (async () => {
       try {
+        let allDeleted = true;
         for (const ev of localNews) {
           if (ev.id) {
-            await fetch(`/api/admin/news/${encodeURIComponent(ev.id)}`, {
+            const res = await fetch(`/api/admin/news/${encodeURIComponent(ev.id)}`, {
               method: 'DELETE',
               headers: { 'X-Zupirus': '1' },
               credentials: 'include',
             });
+            if (!res.ok) {
+              allDeleted = false;
+            }
           }
         }
-        setLocalNews([]);
-        setLocalNewsMsg('Đã xoá danh sách sự kiện tin tức khỏi hệ thống.');
+        await fetchMonitorData();
+        setLocalNewsMsg(
+          allDeleted
+            ? 'Đã xoá danh sách sự kiện tin tức khỏi hệ thống.'
+            : 'Một số sự kiện chưa xoá được trên máy chủ. Đã đồng bộ lại danh sách.'
+        );
+      } catch (err: any) {
+        setLocalNewsMsg(`Lỗi kết nối khi xoá tin tức: ${err.message}`);
         fetchMonitorData();
-      } catch {
-        setLocalNews([]);
       }
     });
 

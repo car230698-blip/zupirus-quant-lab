@@ -172,6 +172,25 @@ def record_shadow_signal(
     ctx_str = json.dumps(ctx) if ctx else None
 
     def _do_insert(c):
+        # Ensure source_id exists in signal_sources to satisfy FK constraint on PostgreSQL
+        src_row = c.execute(
+            "SELECT id FROM signal_sources WHERE id = ? OR name = ?",
+            (source_id, source_id)
+        ).fetchone()
+        resolved_source_id = src_row[0] if src_row else source_id
+        if not src_row:
+            c.execute(
+                """
+                INSERT INTO signal_sources (
+                    id, name, source_type, status, symbol_universe,
+                    trust_score, profit_factor, win_rate, max_drawdown_pips,
+                    total_signals, evaluated_signals, config_json, created_at, updated_at
+                ) VALUES (?, ?, 'webhook', 'SHADOW_ONLY', ?, 50.0, 1.0, 0.5, 0.0, 0, 0, '{}', ?, ?)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (resolved_source_id, str(source_id), symbol.upper(), now_ts, now_ts)
+            )
+
         c.execute(
             """
             INSERT INTO shadow_signals (
@@ -179,11 +198,11 @@ def record_shadow_signal(
                 signal_time, eval_status, context_snapshot, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
             """,
-            (sig_id, source_id, symbol.upper(), effective_side, entry_price, effective_sl, effective_tp, now_ts, ctx_str, now_ts)
+            (sig_id, resolved_source_id, symbol.upper(), effective_side, entry_price, effective_sl, effective_tp, now_ts, ctx_str, now_ts)
         )
         c.execute(
             "UPDATE signal_sources SET total_signals = total_signals + 1, updated_at = ? WHERE id = ?",
-            (now_ts, source_id)
+            (now_ts, resolved_source_id)
         )
 
     if db_cursor:
@@ -218,9 +237,9 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
         if not pending:
             return {"evaluated": 0, "status": "no_pending_signals"}
 
-        # Fetch recent M1 candles for evaluation (from candles table or synthetic replay)
+        # Fetch recent M1 candles for evaluation (from candles table)
         candles = c.execute(
-            "SELECT time, open, high, low, close FROM candles WHERE timeframe = 'M1' ORDER BY time ASC"
+            "SELECT symbol, time, open, high, low, close FROM candles WHERE timeframe = 'M1' ORDER BY time ASC"
         ).fetchall()
         candle_list = [dict(cd) for cd in candles]
 
@@ -231,10 +250,13 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
             tp = float(p["take_profit"]) if p["take_profit"] else None
             side = p["side"]
             sig_t = float(p["signal_time"])
-            symbol = p["symbol"]
+            symbol = str(p["symbol"] or "XAUUSD").upper()
 
-            # Filter candles that occurred after signal_time
-            future_candles = [c_item for c_item in candle_list if float(c_item["time"]) >= sig_t]
+            # Filter candles for matching symbol that occurred after signal_time
+            future_candles = [
+                c_item for c_item in candle_list
+                if str(c_item.get("symbol") or "XAUUSD").upper() == symbol and float(c_item["time"]) >= sig_t
+            ]
             
             # If no stored M1 candles yet, keep in PENDING awaiting live candle ingestion
             if not future_candles:

@@ -234,8 +234,9 @@ def test_strategy_closed_candle_evaluation_and_rationale(client):
         assert last_decision['timeframe'] == 'M15'
 
 
-def test_resend_mailer_and_otp_workflow(client):
+def test_resend_mailer_and_otp_workflow(client, monkeypatch):
     """Verify Resend mailer status, test send endpoint, and OTP generation + verification."""
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key_1234567890")
     # 1. Admin mailer status
     admin_login = {'email': 'admin@zupirus.local', 'password': 'test-only-admin-password-123'}
     assert client.post('/api/login', json=admin_login).status_code == 200

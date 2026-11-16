@@ -165,6 +165,13 @@ const AppContent: React.FC = () => {
   }, [checkAuth]);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__ZUPIRUS_USER_KEY__ = currentUser?.email || 'anonymous';
+    }
+    queryClient.clear();
+  }, [currentUser?.email]);
+
+  useEffect(() => {
     if (currentUser) {
       loadDashboard();
       if (portal === 'user' && userTab === 'overview') loadCandles(timeframe);
@@ -229,6 +236,10 @@ const AppContent: React.FC = () => {
     } catch {
       // ignore
     }
+    if (typeof window !== 'undefined') {
+      (window as any).__ZUPIRUS_USER_KEY__ = 'anonymous';
+    }
+    queryClient.clear();
     setCurrentUser(null);
     setDashboard({ accounts: [], orders: [], series: [], health: {} });
     setMonitorData({ accounts: [], audit: [], jobs: [], news: [], halted: null });
@@ -386,6 +397,7 @@ const AppContent: React.FC = () => {
               totalEquity={totalEquity}
               totalPnl={totalPnl}
               totalPositions={totalPositions}
+              mt5Connected={accounts.some((a: any) => a.deployment_state === 'DEPLOYED' || a.enabled || Number(a.auto_trade ?? 0) === 1)}
               chartMode={chartMode}
               setChartMode={setChartMode}
               selectedAccount={selectedAccount}

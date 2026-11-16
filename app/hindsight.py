@@ -23,13 +23,18 @@ def store_memory(
     tags: Optional[List[str]] = None,
     relevance_score: float = 1.0,
     metadata: Optional[Dict[str, Any]] = None,
+    user_id: Optional[str] = None,
+    scope: Optional[str] = None,
 ) -> str:
-    """Stores a memory entry in the Hindsight long-term storage."""
+    """Stores a memory entry in the Hindsight long-term storage with strict tenant isolation."""
     if not content and title:
         content = title
         title = content[:60]
     elif not title and content:
         title = content[:60]
+
+    resolved_user_id = user_id or (metadata or {}).get("user_id") or (metadata or {}).get("user")
+    resolved_scope = scope or ("user" if resolved_user_id else "system")
 
     if c is None:
         try:
@@ -44,6 +49,8 @@ def store_memory(
                     tags=tags,
                     relevance_score=relevance_score,
                     metadata=metadata,
+                    user_id=resolved_user_id,
+                    scope=resolved_scope,
                 )
         except Exception as e:
             logger.warning(f"Could not open transaction to store memory: {e}")
@@ -59,13 +66,20 @@ def store_memory(
 
     try:
         c.execute(
-            """INSERT INTO hindsight_memories (id, category, entity_id, title, content, tags, relevance_score, created)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (mid, category, entity_id, title, full_content, tag_str, float(relevance_score), now),
+            """INSERT INTO hindsight_memories (id, category, entity_id, title, content, tags, relevance_score, created, user_id, scope)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (mid, category, entity_id, title, full_content, tag_str, float(relevance_score), now, resolved_user_id, resolved_scope),
         )
         logger.info(f"Hindsight stored [{category}] {title} ({mid})")
-    except Exception as e:
-        logger.warning(f"Failed to store hindsight memory: {e}")
+    except Exception:
+        try:
+            c.execute(
+                """INSERT INTO hindsight_memories (id, category, entity_id, title, content, tags, relevance_score, created)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (mid, category, entity_id, title, full_content, tag_str, float(relevance_score), now),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to store hindsight memory: {e}")
     return mid
 
 
@@ -75,8 +89,9 @@ def recall_memories(
     category: Optional[str] = None,
     entity_id: Optional[str] = None,
     limit: int = 10,
+    user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Retrieves contextually relevant long-term memories for an Agent's reasoning context."""
+    """Retrieves contextually relevant long-term memories with strict tenant isolation when user_id is specified."""
     if c is None:
         try:
             from .db import tx
@@ -87,12 +102,17 @@ def recall_memories(
                     category=category,
                     entity_id=entity_id,
                     limit=limit,
+                    user_id=user_id,
                 )
         except Exception as e:
             logger.warning(f"Could not open transaction to recall memories: {e}")
             return []
     clauses = ["1=1"]
     params: List[Any] = []
+
+    if user_id:
+        clauses.append("(user_id = ? OR scope = 'system')")
+        params.append(user_id)
 
     if category:
         clauses.append("category = ?")
@@ -108,7 +128,7 @@ def recall_memories(
         params.extend([q_term, q_term, q_term])
 
     where_sql = " AND ".join(clauses)
-    sql = f"""SELECT id, category, entity_id, title, content, tags, relevance_score, created
+    sql = f"""SELECT id, category, entity_id, title, content, tags, relevance_score, created, user_id, scope
               FROM hindsight_memories
               WHERE {where_sql}
               ORDER BY created DESC
@@ -121,9 +141,10 @@ def recall_memories(
         for r in rows:
             d = dict(r) if hasattr(r, 'keys') else {
                 "id": r[0], "category": r[1], "entity_id": r[2], "title": r[3],
-                "content": r[4], "tags": r[5], "relevance_score": r[6], "created": r[7]
+                "content": r[4], "tags": r[5], "relevance_score": r[6], "created": r[7],
+                "user_id": r[8] if len(r) > 8 else None,
+                "scope": r[9] if len(r) > 9 else "system",
             }
-            # Parse tags
             d["tag_list"] = [t.strip() for t in (d.get("tags") or "").split(",") if t.strip()]
             results.append(d)
         return results

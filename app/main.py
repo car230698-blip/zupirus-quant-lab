@@ -104,25 +104,36 @@ def register(p: RegisterPayload):
         if existing:
             fail(409, 'Email already registered')
 
-        # OTP Verification check
-        if p.otp_code:
-            now = time.time()
+    # OTP Verification check (commit attempt updates in an isolated transaction before raising errors)
+    if p.otp_code:
+        now = time.time()
+        otp_err_code = None
+        otp_err_msg = None
+        with tx() as c:
             row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
             if not row:
-                fail(400, "Mã xác thực OTP không tồn tại hoặc đã hết hạn")
-            if row['expires_at'] < now:
+                otp_err_code, otp_err_msg = 400, "Mã xác thực OTP không tồn tại hoặc đã hết hạn"
+            elif row['expires_at'] < now:
                 c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
-                fail(400, "Mã OTP đã hết hạn. Vui lòng nhận mã mới")
-            if row['attempts'] >= 5:
+                otp_err_code, otp_err_msg = 400, "Mã OTP đã hết hạn. Vui lòng nhận mã mới"
+            elif row['attempts'] >= 5:
                 c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
-                fail(429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã")
-            if row['code'] != p.otp_code.strip():
-                c.execute("UPDATE otp_codes SET attempts=attempts+1 WHERE email=?", (email_clean,))
-                fail(400, "Mã OTP xác thực không chính xác")
-            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
-        elif os.environ.get("REQUIRE_REGISTRATION_OTP", "1") == "1" and not os.environ.get("PYTEST_CURRENT_TEST"):
-            fail(400, "Vui lòng nhập mã xác thực OTP gửi qua email")
+                otp_err_code, otp_err_msg = 429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã"
+            elif row['code'] != p.otp_code.strip():
+                new_attempts = int(row['attempts']) + 1
+                c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (new_attempts, email_clean))
+                if new_attempts >= 5:
+                    otp_err_code, otp_err_msg = 429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã"
+                else:
+                    otp_err_code, otp_err_msg = 400, "Mã OTP xác thực không chính xác"
+            else:
+                c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+        if otp_err_code:
+            fail(otp_err_code, otp_err_msg)
+    elif os.environ.get("REQUIRE_REGISTRATION_OTP", "1") == "1" and not os.environ.get("PYTEST_CURRENT_TEST"):
+        fail(400, "Vui lòng nhập mã xác thực OTP gửi qua email")
 
+    with tx() as c:
         try:
             c.execute('INSERT INTO users VALUES(?,?,?,?)', (secrets.token_hex(16), email_clean, password_hash(p.password), 'customer'))
         except (sqlite3.IntegrityError, Exception):
@@ -390,7 +401,9 @@ def feed(p: Quote, request: Request):
     return {'ok': True}
 
 @app.get('/api/dashboard')
-def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional[str] = None):
+def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional[str] = None, days: int = 30):
+    now_ts = time.time()
+    cutoff_ts = now_ts - max(1, min(days, 365)) * 86400
     with tx() as c:
         accounts = []
         try:
@@ -400,6 +413,7 @@ def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional
                 ca['server'] = ca.get('broker_server', ca.get('server'))
                 ca['mode'] = 'REAL'
                 ca['is_real'] = True
+                ca['enabled'] = bool(ca.get('auto_trade', 1))
             accounts.extend(cloud_accs)
         except Exception:
             pass
@@ -485,8 +499,8 @@ def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional
                     'volume': rd.get('volume') or 0.01,
                     'price': rd.get('entry_price') or 0.0,
                     'fill_price': rd.get('entry_price') or 0.0,
-                    'sl': rd.get('stop_loss'),
-                    'tp': rd.get('take_profit'),
+                    'sl': rd.get('sl') or rd.get('stop_loss'),
+                    'tp': rd.get('tp') or rd.get('take_profit'),
                     'ticket': rd.get('position_id') or '',
                     'deal': rd.get('order_id') or '',
                     'state': mapped_state,
@@ -498,7 +512,46 @@ def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional
                 })
         except Exception:
             pass
-        series = [dict(r) for r in c.execute('SELECT s.* FROM snapshots s JOIN accounts a ON a.id=s.account_id WHERE a.user_id=? ORDER BY s.id DESC LIMIT 400', (u['id'],))][::-1]
+
+        if account_id:
+            raw_series = [
+                dict(r) for r in c.execute(
+                    'SELECT s.* FROM snapshots s JOIN accounts a ON a.id=s.account_id WHERE a.user_id=? AND s.account_id=? AND s.ts>=? ORDER BY s.ts DESC LIMIT 400',
+                    (u['id'], account_id, cutoff_ts)
+                )
+            ][::-1]
+            series = raw_series
+        else:
+            raw_series = [
+                dict(r) for r in c.execute(
+                    'SELECT s.* FROM snapshots s JOIN accounts a ON a.id=s.account_id WHERE a.user_id=? AND s.ts>=? ORDER BY s.ts ASC LIMIT 1200',
+                    (u['id'], cutoff_ts)
+                )
+            ]
+            distinct_acc_ids = {str(pt.get('account_id') or 'default') for pt in raw_series}
+            if len(distinct_acc_ids) <= 1:
+                series = raw_series[-400:]
+            else:
+                # Aggregate multi-account snapshots by 60-second time buckets so the portfolio curve is monotonic in time
+                buckets: Dict[int, Dict[str, Dict[str, float]]] = {}
+                for pt in raw_series:
+                    b_ts = int(float(pt.get('ts') or 0) // 60) * 60
+                    acc_key = str(pt.get('account_id') or 'default')
+                    if b_ts not in buckets:
+                        buckets[b_ts] = {}
+                    buckets[b_ts][acc_key] = {
+                        'balance': float(pt.get('balance') or 0.0),
+                        'equity': float(pt.get('equity') or 0.0),
+                    }
+                series = []
+                last_known: Dict[str, Dict[str, float]] = {}
+                for b_ts in sorted(buckets.keys()):
+                    last_known.update(buckets[b_ts])
+                    tot_bal = round(sum(v['balance'] for v in last_known.values()), 2)
+                    tot_eq = round(sum(v['equity'] for v in last_known.values()), 2)
+                    series.append({'ts': b_ts, 'balance': tot_bal, 'equity': tot_eq})
+                series = series[-400:]
+
         health = dict(c.execute("SELECT key,value FROM kv WHERE key IN ('execution_heartbeat','research_heartbeat','replay_price','strategy_last_decision','halted')").fetchall())
         return {'accounts': accounts, 'orders': orders, 'series': series, 'health': health, 'real_trading': False}
 
@@ -512,7 +565,7 @@ def admin_orders(
     limit: int = 50,
     offset: int = 0
 ):
-    """System-wide order queries with role authorization, multi-parameter filtering, and controlled pagination."""
+    """System-wide order queries merging both Cloud MT5 executions (metaapi_trade_executions) and legacy dispatches."""
     limit = min(max(limit, 1), 200)
     offset = max(offset, 0)
     with tx() as c:
@@ -526,45 +579,90 @@ def admin_orders(
             JOIN users u ON u.id=a.user_id
             WHERE 1=1
         '''
-        count_query = '''
-            SELECT count(*)
-            FROM dispatches d
-            JOIN signals s ON s.id=d.signal_id
-            JOIN accounts a ON a.id=d.account_id
-            JOIN users u ON u.id=a.user_id
-            WHERE 1=1
-        '''
         params: List[Any] = []
         if account_id:
             query += ' AND d.account_id=?'
-            count_query += ' AND d.account_id=?'
             params.append(account_id)
         if state:
             query += ' AND d.state=?'
-            count_query += ' AND d.state=?'
             params.append(state)
         if team and team != 'all':
             if team == 'execution':
                 query += " AND s.source='DEMO'"
-                count_query += " AND s.source='DEMO'"
             elif team == 'replay':
                 query += " AND s.source='REPLAY'"
-                count_query += " AND s.source='REPLAY'"
         if search and search.strip():
             s_val = f"%{search.strip()}%"
             clause = " AND (d.signal_id LIKE ? OR d.ticket LIKE ? OR d.deal LIKE ? OR CAST(d.id AS TEXT) LIKE ? OR a.login LIKE ? OR u.email LIKE ?)"
             query += clause
-            count_query += clause
             params.extend([s_val, s_val, s_val, s_val, s_val, s_val])
 
-        total = c.execute(count_query, tuple(params)).fetchone()[0]
-
-        query += ' ORDER BY d.id DESC LIMIT ? OFFSET ?'
-        params.extend([limit, offset])
+        query += ' ORDER BY d.id DESC LIMIT 200'
         rows = [dict(r) for r in c.execute(query, tuple(params))]
         for r in rows:
             r.pop('nonce', None)
-        return {'total': total, 'orders': rows, 'limit': limit, 'offset': offset}
+
+        # Merge Cloud MT5 executions from metaapi_trade_executions
+        try:
+            cloud_q = """
+                SELECT e.*,
+                       COALESCE(ta.mt5_login, ma.login, e.account_id) AS account_login,
+                       COALESCE(ta.broker_server, ma.server, 'MT5-Cloud') AS account_server,
+                       COALESCE(u1.email, u2.email, 'trader@zupirus.com') AS user_email
+                FROM metaapi_trade_executions e
+                LEFT JOIN trading_accounts ta ON e.account_id = ta.id
+                LEFT JOIN users u1 ON ta.user_id = u1.id
+                LEFT JOIN metaapi_cloud_accounts ma ON e.account_id = ma.id
+                LEFT JOIN users u2 ON ma.user_id = u2.id
+                ORDER BY e.executed_at DESC LIMIT 200
+            """
+            cloud_rows = c.execute(cloud_q).fetchall()
+            for cr in cloud_rows:
+                cd = dict(cr)
+                mapped_state = 'filled' if str(cd.get('status', '')).upper() == 'FILLED' else 'rejected'
+                if account_id and cd.get('account_id') != account_id:
+                    continue
+                if state and mapped_state != state:
+                    continue
+                if team == 'replay':
+                    continue
+                item = {
+                    'id': cd.get('id'),
+                    'signal_id': cd.get('signal_id'),
+                    'account_id': cd.get('account_id'),
+                    'account_login': cd.get('account_login'),
+                    'account_server': cd.get('account_server'),
+                    'user_email': cd.get('user_email'),
+                    'symbol': cd.get('symbol') or 'XAUUSD',
+                    'side': cd.get('action') or 'BUY',
+                    'volume': cd.get('volume') or 0.01,
+                    'price': cd.get('entry_price') or 0.0,
+                    'fill_price': cd.get('entry_price') or 0.0,
+                    'sl': cd.get('sl') or cd.get('stop_loss'),
+                    'tp': cd.get('tp') or cd.get('take_profit'),
+                    'ticket': cd.get('position_id') or '',
+                    'deal': cd.get('order_id') or '',
+                    'state': mapped_state,
+                    'status': cd.get('status') or 'FILLED',
+                    'source': 'CLOUD_MT5',
+                    'reason': cd.get('error_message') or '',
+                    'latency_ms': cd.get('latency_ms') or 0,
+                    'created': cd.get('executed_at'),
+                    'updated': cd.get('executed_at'),
+                }
+                if search and search.strip():
+                    sq = search.strip().lower()
+                    haystack = f"{item['id']} {item['signal_id']} {item['ticket']} {item['deal']} {item['account_login']} {item['user_email']}".lower()
+                    if sq not in haystack:
+                        continue
+                rows.append(item)
+        except Exception as e:
+            logger.warning(f"Error merging metaapi_trade_executions into /api/admin/orders: {e}")
+
+        rows.sort(key=lambda x: float(x.get('updated') or x.get('created') or 0), reverse=True)
+        total = len(rows)
+        paged = rows[offset:offset + limit]
+        return {'total': total, 'orders': paged, 'limit': limit, 'offset': offset}
 
 @app.get('/api/admin/monitor')
 def monitor(u=Depends(admin)):
@@ -757,44 +855,60 @@ def reset_user_password(target_uid: str, p: UpdateUserPassword, u=Depends(admin)
     return {'ok': True}
 
 @app.delete('/api/admin/users/{target_uid}')
-def delete_admin_user(target_uid: str, u=Depends(admin)):
+async def delete_admin_user(target_uid: str, u=Depends(admin)):
     if target_uid == u['id']:
         fail(400, 'Không thể xóa tài khoản của chính mình')
+    meta_ids_to_cleanup = set()
+    user_email = ""
     with tx() as c:
         row = c.execute('SELECT id, email, role FROM users WHERE id=?', (target_uid,)).fetchone()
         if not row:
             fail(404, 'Không tìm thấy người dùng')
+        user_email = row[1]
 
+        try:
+            for r in c.execute('SELECT metaapi_account_id FROM trading_accounts WHERE user_id=?', (target_uid,)).fetchall():
+                if r and r[0]:
+                    meta_ids_to_cleanup.add(str(r[0]))
+        except Exception:
+            pass
+        try:
+            for r in c.execute('SELECT metaapi_account_id FROM metaapi_cloud_accounts WHERE user_id=?', (target_uid,)).fetchall():
+                if r and r[0]:
+                    meta_ids_to_cleanup.add(str(r[0]))
+        except Exception:
+            pass
+
+    if meta_ids_to_cleanup:
+        from .metaapi import MetaApiClient
+        client = MetaApiClient()
+        for mid in meta_ids_to_cleanup:
+            try:
+                await client.undeploy_account(mid)
+            except Exception as e:
+                logger.warning(f"Failed to undeploy MetaApi account {mid} during user deletion: {e}")
+            try:
+                await client.delete_account(mid)
+            except Exception as e:
+                logger.warning(f"Failed to delete MetaApi account {mid} during user deletion: {e}")
+
+    with tx() as c:
         # 1. Accounts belonging to user & their foreign key children
         acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
         for aid in acc_ids:
-            try:
-                c.execute('DELETE FROM snapshots WHERE account_id=?', (aid,))
-            except Exception:
-                pass
-            try:
-                c.execute('DELETE FROM sim_positions WHERE account_id=?', (aid,))
-            except Exception:
-                pass
-            try:
-                c.execute('DELETE FROM dispatches WHERE account_id=?', (aid,))
-            except Exception:
-                pass
-            try:
-                c.execute('DELETE FROM metaapi_trade_executions WHERE account_id=?', (aid,))
-            except Exception:
-                pass
-            try:
-                c.execute('DELETE FROM account_symbol_map WHERE account_id=?', (aid,))
-            except Exception:
-                pass
-            c.execute('DELETE FROM accounts WHERE id=?', (aid,))
+            for dep_t in ('snapshots', 'sim_positions', 'dispatches', 'metaapi_trade_executions', 'account_symbol_map'):
+                try:
+                    c.execute(f'DELETE FROM {dep_t} WHERE account_id=?', (aid,))
+                except Exception:
+                    pass
+            c.execute('DELETE FROM accounts WHERE id=? AND user_id=?', (aid, target_uid))
 
         # 2. Cloud trading accounts & executions
-        try:
-            c.execute('DELETE FROM metaapi_trade_executions WHERE account_id IN (SELECT id FROM trading_accounts WHERE user_id=?)', (target_uid,))
-        except Exception:
-            pass
+        for dep_t in ('metaapi_trade_executions', 'account_symbol_map', 'signal_dispatch_locks'):
+            try:
+                c.execute(f'DELETE FROM {dep_t} WHERE account_id IN (SELECT id FROM trading_accounts WHERE user_id=?)', (target_uid,))
+            except Exception:
+                pass
         try:
             c.execute('DELETE FROM trading_accounts WHERE user_id=?', (target_uid,))
         except Exception:
@@ -810,32 +924,17 @@ def delete_admin_user(target_uid: str, u=Depends(admin)):
         except Exception:
             pass
 
-        # 4. User level records (orders, subscriptions, transactions, disclaimers, sessions)
-        try:
-            c.execute('DELETE FROM orders WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-        try:
-            c.execute('DELETE FROM subscriptions WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-        try:
-            c.execute('DELETE FROM payment_transactions WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-        try:
-            c.execute('DELETE FROM legal_disclaimers WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-        try:
-            c.execute('DELETE FROM sessions WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
+        # 4. User level records (orders, subscriptions, transactions, disclaimers, sessions, memories)
+        for usr_t in ('orders', 'subscriptions', 'payment_transactions', 'legal_disclaimers', 'sessions', 'hindsight_memories'):
+            try:
+                c.execute(f'DELETE FROM {usr_t} WHERE user_id=?', (target_uid,))
+            except Exception:
+                pass
 
         # 5. Delete user record
         c.execute('DELETE FROM users WHERE id=?', (target_uid,))
-        audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': row[1]})
-    return {'ok': True, 'message': f'Đã xoá người dùng {row[1]} thành công.'}
+        audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': user_email, 'cleaned_metaapi_ids': list(meta_ids_to_cleanup)})
+    return {'ok': True, 'message': f'Đã xoá người dùng {user_email} thành công.'}
 
 # ---------------------------------------------------------------------------
 # Admin Gemini API Keys Pool Endpoints
@@ -1060,7 +1159,7 @@ def chat_assistant(payload: ChatPayload, u=Depends(user)):
 
     from .research import ai_text
     from .hindsight import recall_memories, store_memory
-    memories = recall_memories(query=question, limit=3)
+    memories = recall_memories(query=question, limit=3, user_id=u['id'])
     mem_ctx = ""
     if memories:
         mem_ctx = "\nNgữ cảnh bộ nhớ dài hạn Hindsight:\n" + "\n".join(f"- [{m.get('category')}]: {m.get('content')}" for m in memories)
@@ -1106,7 +1205,7 @@ def chat_assistant(payload: ChatPayload, u=Depends(user)):
     )
     text = f"{base_summary}\n\n{answer['text']}" if answer.get('available') and answer.get('text') else base_summary
     try:
-        store_memory(category='episodic', content=f"User chat: '{question[:100]}' -> Response: '{text[:120]}'", metadata={'user': u.get('user')})
+        store_memory(category='episodic', content=f"User chat: '{question[:100]}' -> Response: '{text[:120]}'", user_id=u['id'], scope='user', metadata={'user': u.get('id')})
     except Exception:
         pass
     if payload.uses_ui_message_stream():
@@ -1180,8 +1279,8 @@ def healthz():
 @app.get('/readyz')
 @app.get('/api/health')
 def readyz():
-    """Readiness probe strictly verifying real connections to PostgreSQL, TimescaleDB, and Redis.
-    Fails closed (HTTP 503) if primary storage is unreachable."""
+    """Readiness probe strictly verifying real connections to PostgreSQL, TimescaleDB, Redis, and background workers.
+    Fails closed (HTTP 503) if primary storage or active worker heartbeat is unhealthy."""
     db_info = check_db_health()
     db_ok = db_info.get("status") == "up"
 
@@ -1194,20 +1293,32 @@ def readyz():
     except Exception as e:
         redis_err = str(e)
 
-    # Check TimescaleDB if postgres and db is up
+    # Check TimescaleDB and Worker Heartbeats if db is up
     timescale_info = {"timescaledb_available": False, "connected": False}
     engine_ok = False
+    research_ok = False
+    has_hb_records = False
     if db_ok:
         timescale_info = check_timescale_metadata()
         try:
+            now_ts = time.time()
             with tx() as c:
                 hb = c.execute("SELECT value FROM kv WHERE key='execution_heartbeat'").fetchone()
-                if hb and time.time() - float(hb[0]) < 60:
+                rhb = c.execute("SELECT value FROM kv WHERE key='research_heartbeat'").fetchone()
+                if hb is not None or rhb is not None:
+                    has_hb_records = True
+                if hb and now_ts - float(hb[0]) < 120:
                     engine_ok = True
+                elif hb is None and not is_postgres():
+                    engine_ok = True
+                if rhb and now_ts - float(rhb[0]) < 120:
+                    research_ok = True
+                elif rhb is None and not is_postgres():
+                    research_ok = True
         except Exception:
             pass
 
-    overall_ready = db_ok and redis_ok
+    overall_ready = db_ok and redis_ok and (engine_ok if has_hb_records else True) and (research_ok if has_hb_records else True)
 
     payload = {
         'status': 'ready' if overall_ready else 'not_ready',
@@ -1224,6 +1335,9 @@ def readyz():
         },
         'execution_worker': {
             'heartbeat_active': engine_ok
+        },
+        'research_worker': {
+            'heartbeat_active': research_ok
         },
         'langsmith': {
             'enabled': bool(os.getenv('LANGSMITH_API_KEY'))
@@ -1372,23 +1486,32 @@ class VerifyOtpPayload(BaseModel):
 
 @app.post('/api/auth/verify-otp')
 def auth_verify_otp(p: VerifyOtpPayload):
-    """Verifies user-submitted 6-digit OTP code."""
+    """Verifies user-submitted 6-digit OTP code (committing failed attempts in an isolated transaction)."""
     now = time.time()
     email_clean = p.email.strip().lower()
+    err_code = None
+    err_msg = None
     with tx() as c:
         row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
         if not row:
-            fail(400, "Mã OTP không tồn tại hoặc đã hết hạn")
-        if row['expires_at'] < now:
+            err_code, err_msg = 400, "Mã OTP không tồn tại hoặc đã hết hạn"
+        elif row['expires_at'] < now:
             c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
-            fail(400, "Mã OTP đã hết hạn. Vui lòng lấy mã mới")
-        if row['attempts'] >= 5:
+            err_code, err_msg = 400, "Mã OTP đã hết hạn. Vui lòng lấy mã mới"
+        elif row['attempts'] >= 5:
             c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
-            fail(429, "Bạn đã nhập sai mã quá 5 lần. Vui lòng yêu cầu mã OTP mới")
-        if row['code'] != p.code.strip():
-            c.execute("UPDATE otp_codes SET attempts=attempts+1 WHERE email=?", (email_clean,))
-            fail(400, "Mã OTP không chính xác")
-        c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            err_code, err_msg = 429, "Bạn đã nhập sai mã quá 5 lần. Vui lòng yêu cầu mã OTP mới"
+        elif row['code'] != p.code.strip():
+            new_attempts = int(row['attempts']) + 1
+            c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (new_attempts, email_clean))
+            if new_attempts >= 5:
+                err_code, err_msg = 429, "Bạn đã nhập sai mã quá 5 lần. Vui lòng yêu cầu mã OTP mới"
+            else:
+                err_code, err_msg = 400, "Mã OTP không chính xác"
+        else:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+    if err_code:
+        fail(err_code, err_msg)
     return {"ok": True, "verified": True, "message": "Xác thực email thành công"}
 
 @app.get('/api/admin/payments')
@@ -1750,9 +1873,11 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
         redis_client=redis_cli
     )
 
-    # Persist execution records into database
+    # Persist execution records into database (if not already persisted by execute_fan_out_for_signal)
     with tx() as c:
         for ex in report.get("executions", []):
+            if ex.get("persisted"):
+                continue
             exec_id = f"exec_{secrets.token_hex(8)}"
             try:
                 c.execute("""

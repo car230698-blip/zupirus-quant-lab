@@ -160,13 +160,14 @@ async def process_successful_payment(
     raw_payload: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Process paid webhook from SePay:
-    - Verifies received amount >= order expected amount
-    - Atomically transitions order status PENDING -> PAID (concurrency & idempotency safe)
-    - Persists audit record to payment_transactions
-    - Activates / extends subscription and unlocks features
+    - Atomically inserts payment_transactions with ON CONFLICT (sepay_id) DO NOTHING first to block concurrent duplicate webhooks
+    - Accumulates paid_amount_vnd for PENDING or UNDERPAID orders
+    - Transitions order status -> PAID only when cumulative paid_amount_vnd >= (amount_vnd - 50)
+    - Tracks separated payment_status, entitlement_status, and cloud_deploy_status
     """
     now_ts = time.time()
     order = None
+    accounts_to_deploy = []
 
     with tx() as c:
         # 1. Exact match first
@@ -187,83 +188,96 @@ async def process_successful_payment(
             logger.info(f"Order {order['id']} is already fulfilled (idempotent return).")
             return True
 
-        # Ensure order is in PENDING state and not expired
-        if order["status"] != "PENDING":
-            logger.warning(f"Order {order['id']} cannot be fulfilled: status is '{order['status']}' (must be PENDING).")
+        # Ensure order is in PENDING or UNDERPAID state and not expired
+        if order["status"] not in ("PENDING", "UNDERPAID"):
+            logger.warning(f"Order {order['id']} cannot be fulfilled: status is '{order['status']}' (must be PENDING or UNDERPAID).")
             return False
 
-        if order.get("expires_at") and float(order["expires_at"]) < now_ts:
+        if order["status"] == "PENDING" and order.get("expires_at") and float(order["expires_at"]) < now_ts:
             logger.warning(f"Order {order['id']} has expired (expired at {order['expires_at']}).")
-            c.execute("UPDATE orders SET status = 'EXPIRED' WHERE id = ? AND status = 'PENDING'", (order["id"],))
+            c.execute("UPDATE orders SET status = 'EXPIRED', payment_status = 'EXPIRED' WHERE id = ? AND status = 'PENDING'", (order["id"],))
             return False
 
-        # Ensure SePay transaction id has not been used previously
-        if sepay_trans_id:
-            existing_tx = c.execute("SELECT id FROM payment_transactions WHERE sepay_id = ?", (sepay_trans_id,)).fetchone()
-            if existing_tx:
-                logger.info(f"SePay transaction {sepay_trans_id} was already used in a previous transaction.")
-                return True
-
-        # 2. Strict amount verification (allow max 50 VND rounding delta)
         expected_vnd = float(order.get("amount_vnd") or 0.0)
-        if amount_received_vnd is not None and amount_received_vnd < (expected_vnd - 50.0):
+        received_now = float(amount_received_vnd) if amount_received_vnd is not None else expected_vnd
+
+        # 2. Atomic deduplication on sepay_trans_id FIRST before any state mutation
+        tx_id = f"tx_{secrets.token_hex(8)}"
+        eff_sepay_id = str(sepay_trans_id).strip() if sepay_trans_id else f"manual_{order['id']}_{int(now_ts * 1000)}"
+        ins_cur = c.execute(
+            """
+            INSERT INTO payment_transactions (
+                id, sepay_id, user_id, amount, currency, gateway, content, status, created_at
+            ) VALUES (?, ?, ?, ?, 'VND', 'SEPAY', ?, 'completed', ?)
+            ON CONFLICT (sepay_id) DO NOTHING
+            """,
+            (
+                tx_id,
+                eff_sepay_id,
+                order["user_id"],
+                received_now,
+                f"Order {order['id']}",
+                now_ts
+            )
+        )
+        if getattr(ins_cur, "rowcount", 1) <= 0:
+            logger.info(f"SePay transaction {eff_sepay_id} was already processed (atomic ON CONFLICT DO NOTHING).")
+            return order["status"] == "PAID"
+
+        # 3. Accumulate paid_amount_vnd and verify cumulative amount
+        prev_paid = float(order.get("paid_amount_vnd") or 0.0)
+        new_paid_total = int(round(prev_paid + received_now))
+
+        if new_paid_total < (expected_vnd - 50.0):
             logger.error(
                 f"REJECTED_UNDERPAID: Order {order['id']} expected {expected_vnd} VND, "
-                f"received {amount_received_vnd} VND."
+                f"cumulative paid {new_paid_total} VND (received {received_now} VND)."
             )
-            c.execute("UPDATE orders SET status = 'UNDERPAID' WHERE id = ?", (order["id"],))
-            return False
-
-        # 3. Atomic state transition: Ensure one transaction fulfill once
-        c.execute(
-            """
-            UPDATE orders SET status = 'PAID', sepay_transaction_id = ?, paid_at = ?
-            WHERE id = ? AND status != 'PAID'
-            """,
-            (sepay_trans_id, now_ts, order["id"])
-        )
-        if c.rowcount <= 0:
-            logger.info(f"Order {order['id']} was already processed by another concurrent worker.")
-            return True
-
-        # 4. Record to payment_transactions ledger
-        tx_id = f"tx_{secrets.token_hex(8)}"
-        try:
             c.execute(
                 """
-                INSERT INTO payment_transactions (
-                    id, sepay_id, user_id, amount, currency, gateway, content, status, created_at
-                ) VALUES (?, ?, ?, ?, 'VND', 'SEPAY', ?, 'completed', ?)
-                ON CONFLICT DO NOTHING
+                UPDATE orders
+                SET status = 'UNDERPAID', payment_status = 'UNDERPAID', paid_amount_vnd = ?
+                WHERE id = ?
                 """,
-                (
-                    tx_id,
-                    sepay_trans_id,
-                    order["user_id"],
-                    amount_received_vnd if amount_received_vnd is not None else expected_vnd,
-                    f"Order {order['id']}",
-                    now_ts
-                )
+                (new_paid_total, order["id"])
             )
-        except Exception as e:
-            logger.warning(f"Error recording payment transaction: {e}")
+            return False
+
+        # 4. Atomic state transition to PAID + ENTITLEMENT GRANTED
+        upd_cur = c.execute(
+            """
+            UPDATE orders
+            SET status = 'PAID',
+                payment_status = 'PAID',
+                entitlement_status = 'GRANTED',
+                paid_amount_vnd = ?,
+                sepay_transaction_id = ?,
+                paid_at = ?
+            WHERE id = ? AND status != 'PAID'
+            """,
+            (new_paid_total, eff_sepay_id, now_ts, order["id"])
+        )
+        if getattr(upd_cur, "rowcount", 1) <= 0:
+            logger.info(f"Order {order['id']} was already fulfilled by another concurrent worker.")
+            return True
 
         user_id = order["user_id"]
         tier = order["plan_tier"].lower()
         cloud_slots = order["cloud_slots_count"]
         duration_sec = 30 * 86400  # 30 days
 
-        # 1. Update or create subscription
+        # 5. Update or create subscription
         sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
-        current_sub_exp = float(sub["service_expires_at"] or 0) if sub and sub["service_expires_at"] else 0.0
+        sub_d = dict(sub) if sub else None
+        current_sub_exp = float(sub_d["service_expires_at"] or 0) if sub_d and sub_d.get("service_expires_at") else 0.0
         new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
 
         is_growth = tier in ("growth", "alpha")
         is_alpha = tier == "alpha"
-        max_accounts = TIER_MAX_ACCOUNTS.get(tier, 1)
+        max_accounts = max(int(cloud_slots or 1), TIER_MAX_ACCOUNTS.get(tier, 1))
 
-        sub_id = sub["id"] if sub else f"sub_{secrets.token_hex(6)}"
-        if sub:
+        sub_id = sub_d["id"] if sub_d else f"sub_{secrets.token_hex(6)}"
+        if sub_d:
             c.execute(
                 """
                 UPDATE subscriptions SET
@@ -308,38 +322,65 @@ async def process_successful_payment(
                 )
             )
 
-        # 2. Update cloud_expires_at on user's trading_accounts
-        acc_rows = c.execute("SELECT id, metaapi_account_id, cloud_expires_at FROM trading_accounts WHERE user_id = ? LIMIT ?", (user_id, cloud_slots)).fetchall()
-        accounts_to_deploy = []
-        for a in acc_rows:
-            curr_c_exp = float(a["cloud_expires_at"] or 0) if a["cloud_expires_at"] else 0.0
+        # 6. Extend cloud_expires_at on user's trading_accounts
+        acc_rows = c.execute(
+            "SELECT id, metaapi_account_id, cloud_expires_at FROM trading_accounts WHERE user_id = ? LIMIT ?",
+            (user_id, max_accounts)
+        ).fetchall()
+        for a_row in acc_rows:
+            a = dict(a_row)
+            curr_c_exp = float(a["cloud_expires_at"] or 0) if a.get("cloud_expires_at") else 0.0
             new_c_exp = max(curr_c_exp, now_ts) + duration_sec
-            c.execute("UPDATE trading_accounts SET cloud_expires_at = ?, deployment_state = 'DEPLOYED' WHERE id = ?", (new_c_exp, a["id"]))
-            if a["metaapi_account_id"]:
-                accounts_to_deploy.append(a["metaapi_account_id"])
+            c.execute("UPDATE trading_accounts SET cloud_expires_at = ? WHERE id = ? AND user_id = ?", (new_c_exp, a["id"], user_id))
+            if a.get("metaapi_account_id"):
+                accounts_to_deploy.append((a["id"], a["metaapi_account_id"]))
 
-    # 3. MetaApi Auto-Deploy with 3 retries (10s intervals)
+        if not accounts_to_deploy:
+            c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))
+
+    # 7. MetaApi Auto-Deploy with 3 retries and truthful status persistence
     if accounts_to_deploy:
-        asyncio.create_task(_deploy_with_retries(accounts_to_deploy))
+        await _deploy_with_retries(accounts_to_deploy, order_id=order["id"], max_retries=3, delay=1)
 
     logger.info(f"Order {order['id']} fulfilled successfully for user {order['user_id']}.")
     return True
 
 
-async def _deploy_with_retries(metaapi_ids: list, max_retries: int = 3, delay: int = 10):
-    """Attempt deployment with backoff to accommodate MetaApi auto-recharge."""
+async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = None, max_retries: int = 3, delay: int = 2):
+    """Attempt deployment with backoff and only mark DEPLOYED when MetaApi confirms True."""
     client = MetaApiClient()
-    for meta_id in metaapi_ids:
+    all_ok = True
+    for item in account_pairs:
+        if isinstance(item, tuple):
+            acc_id, meta_id = item
+        else:
+            acc_id, meta_id = None, item
+        deployed_ok = False
         for attempt in range(1, max_retries + 1):
             try:
                 logger.info(f"MetaApi deploy attempt {attempt}/{max_retries} for account {meta_id}...")
-                await client.deploy_account(meta_id)
-                logger.info(f"MetaApi account {meta_id} successfully deployed.")
-                break
+                res_ok = await client.deploy_account(meta_id)
+                if res_ok:
+                    deployed_ok = True
+                    logger.info(f"MetaApi account {meta_id} successfully deployed.")
+                    break
             except Exception as e:
                 logger.warning(f"MetaApi deploy attempt {attempt} failed for {meta_id}: {e}")
-                if attempt < max_retries:
-                    await asyncio.sleep(delay)
+            if attempt < max_retries:
+                await asyncio.sleep(delay)
+
+        if deployed_ok and acc_id:
+            with tx() as c:
+                c.execute("UPDATE trading_accounts SET deployment_state = 'DEPLOYED' WHERE id = ?", (acc_id,))
+        elif not deployed_ok:
+            all_ok = False
+
+    if order_id:
+        with tx() as c:
+            c.execute(
+                "UPDATE orders SET cloud_deploy_status = ? WHERE id = ?",
+                ("DEPLOYED" if all_ok else "FAILED", order_id)
+            )
 
 
 def get_user_subscription(user_id: str) -> Dict[str, Any]:

@@ -27,9 +27,10 @@ def test_point_1_db_sql_adapter_metaapi_cloud_accounts():
 
 
 def test_point_2_streamer_imports_and_constructor():
-    """Verify MarketDataStreamer accepts feed_account_id and aliases resolve correctly."""
-    streamer = MarketDataStreamer(feed_account_id="feed_12345")
-    assert streamer.feed_account_id == "feed_12345"
+    """Verify MarketDataStreamer only handles market quote/candle ingestion (Master Account polling removed)."""
+    streamer = MarketDataStreamer()
+    assert not hasattr(streamer, "poll_master_feed_signals")
+    assert not hasattr(streamer, "known_master_positions")
     assert callable(log_shadow_signal)
     assert callable(record_shadow_signal)
     assert callable(ingest_shadow_signal)

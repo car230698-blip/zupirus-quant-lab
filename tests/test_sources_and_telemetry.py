@@ -17,7 +17,8 @@ def test_topbar_telemetry_endpoint(client: TestClient):
     assert d["usd_vnd"]["rate"] >= 1000.0
     assert "news_shield" in d
     assert d["news_shield"]["status"] in ("CLEAR", "WARNING", "BLACKOUT")
-    assert d["metaapi_latency_ms"] == 28
+    assert d["metaapi_latency_ms"] >= 0
+    assert "shields" in d and len(d["shields"]) == 4
 
 
 def test_sources_curator_and_leaderboard_endpoints(client: TestClient):

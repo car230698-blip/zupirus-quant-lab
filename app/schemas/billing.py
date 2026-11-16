@@ -57,7 +57,11 @@ class OrderResponse(BaseModel):
     amount_usd: float
     locked_exchange_rate: float
     amount_vnd: int
-    status: Literal['PENDING', 'PAID', 'EXPIRED']
+    paid_amount_vnd: int = 0
+    status: Literal['PENDING', 'UNDERPAID', 'PAID', 'EXPIRED']
+    payment_status: str = "PENDING"
+    entitlement_status: str = "PENDING"
+    cloud_deploy_status: str = "PENDING"
     qr_code_url: Optional[str] = None
     qr_url: Optional[str] = None
     account_number: Optional[str] = None
@@ -77,6 +81,14 @@ class OrderResponse(BaseModel):
                 values["order_id"] = order_id
             if not values.get("order_code"):
                 values["order_code"] = order_id
+            if values.get("paid_amount_vnd") is None:
+                values["paid_amount_vnd"] = int(values.get("amount_vnd") or 0) if values.get("status") == "PAID" else 0
+            if not values.get("payment_status"):
+                values["payment_status"] = values.get("status") or "PENDING"
+            if not values.get("entitlement_status"):
+                values["entitlement_status"] = "GRANTED" if values.get("status") == "PAID" else "PENDING"
+            if not values.get("cloud_deploy_status"):
+                values["cloud_deploy_status"] = "DEPLOYED" if values.get("status") == "PAID" else "PENDING"
             qr = values.get("qr_code_url") or values.get("qr_url")
             if not values.get("qr_url"):
                 values["qr_url"] = qr

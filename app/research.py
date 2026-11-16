@@ -216,6 +216,11 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
 
     net_oos = round(sum(all_returns), 4)
     max_dd = round(dd, 4)
+    base_price = float(prices[0]) if prices and float(prices[0]) > 0 else 2650.0
+    max_dd_pct = round((dd / base_price) * 100.0, 2)
+    if folds:
+        best_fold = max(folds, key=lambda f: f.get("oos_net_price_units", 0.0))
+        rules = {**rules, "min_slope": best_fold.get("tuned_slope", rules.get("min_slope", 0.20))}
     trades_count = len(all_returns)
     wins = sum(1 for r in all_returns if r > 0)
     win_rate = round(wins / max(trades_count, 1), 2)
@@ -251,6 +256,7 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         'folds': folds,
         'oos_net_price_units': net_oos,
         'max_drawdown_price_units': max_dd,
+        'max_drawdown_pct': max_dd_pct,
         'win_rate': win_rate,
         'profit_factor': profit_factor,
         'sharpe_ratio': sharpe_ratio,
@@ -337,17 +343,18 @@ def graph(saver):
                     c.execute(
                         """
                         UPDATE strategy_candidates
-                        SET status = ?, win_rate = ?, profit_factor = ?,
+                        SET status = ?, rules_json = ?, win_rate = ?, profit_factor = ?,
                             sharpe_ratio = ?, max_drawdown_pct = ?,
                             oos_net_units = ?, updated_at = ?
                         WHERE id = ?
                         """,
                         (
                             new_status,
+                            json.dumps(rep.get('rules', {})),
                             rep.get('win_rate'),
                             rep.get('profit_factor'),
                             rep.get('sharpe_ratio'),
-                            rep.get('max_drawdown_price_units'),
+                            rep.get('max_drawdown_pct', rep.get('max_drawdown_price_units')),
                             rep.get('oos_net_price_units'),
                             time.time(),
                             cand_id

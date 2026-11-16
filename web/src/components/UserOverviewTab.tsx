@@ -79,7 +79,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   activeAccountsCount,
   totalAccountsCount,
   runtimeModeLabel = 'Zero-VPS Cloud MetaAPI',
-  mt5Connected = true,
+  mt5Connected,
   safetyLockLabel = '4 Lớp Bảo Vệ Hoạt Động',
   safetyTone = 'emerald',
   latestAction = 'MUA THEO XU HƯỚNG (M15)',
@@ -106,22 +106,57 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
 
   const { data: telemetryData } = useLiveTopbarTelemetry();
   const liveBid = Number(telemetryData?.xauusd?.bid || 0);
+  const liveLatencyMs = Number(telemetryData?.metaapi_latency_ms || 0);
 
   const computedOpenPnl = openPnl ?? totalPnl ?? totalEquity - totalBalance;
   const computedTotalAccounts = totalAccountsCount ?? accounts.length;
   const computedActiveAccounts =
     activeAccountsCount ??
-    accounts.filter((a) => a.is_active !== false && a.copy_enabled !== false).length;
+    accounts.filter((a) => a.is_active !== false && a.copy_enabled !== false && Number(a.auto_trade ?? 1) !== 0).length;
+  const isMt5Connected =
+    mt5Connected ??
+    (accounts.length > 0 &&
+      accounts.some((a) => a.deployment_state === 'DEPLOYED' || a.enabled || Number(a.auto_trade ?? 0) === 1));
   const computedDailyDd =
     dailyDdPct ??
-    (totalBalance > 0 && computedOpenPnl < 0
-      ? Math.abs((computedOpenPnl / totalBalance) * 100)
+    (totalBalance > 0 && totalEquity < totalBalance
+      ? Math.max(0, ((totalBalance - totalEquity) / totalBalance) * 100)
       : 0.0);
 
+  // Compute real ATR(14) from OHLC candles
+  const validCandlesForAtr = candles
+    .slice(-48)
+    .filter((c) => [c.open, c.high, c.low, c.close].every((v) => Number.isFinite(Number(v))));
+  const liveAtr14 = React.useMemo(() => {
+    if (validCandlesForAtr.length < 2) return 0;
+    const trs: number[] = [];
+    for (let i = 1; i < validCandlesForAtr.length; i++) {
+      const h = Number(validCandlesForAtr[i].high);
+      const l = Number(validCandlesForAtr[i].low);
+      const prevC = Number(validCandlesForAtr[i - 1].close);
+      const tr = Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC));
+      trs.push(tr);
+    }
+    const recent = trs.slice(-14);
+    return recent.length > 0 ? recent.reduce((a, b) => a + b, 0) / recent.length : 0;
+  }, [validCandlesForAtr]);
+
+  const dynamicShieldLayers = React.useMemo(() => {
+    if (telemetryData?.shields && telemetryData.shields.length === 4) {
+      return telemetryData.shields.map((s, i) => ({
+        id: `0${i + 1}`,
+        code: SHIELD_LAYERS[i]?.code || s.layer,
+        title: s.name || SHIELD_LAYERS[i]?.title,
+        status: s.status || SHIELD_LAYERS[i]?.status,
+        latency: `${Number(s.latency_ms ?? 0).toFixed(1)} ms`,
+        detail: s.detail || SHIELD_LAYERS[i]?.detail,
+      }));
+    }
+    return SHIELD_LAYERS;
+  }, [telemetryData]);
+
   const renderCandlestickSvg = () => {
-    const valid = candles
-      .slice(-48)
-      .filter((c) => [c.open, c.high, c.low, c.close].every((v) => Number.isFinite(Number(v))));
+    const valid = validCandlesForAtr;
     if (!valid.length) {
       return (
         <div className="flex h-72 items-center justify-center rounded-xl border border-amber-500/20 bg-[#040710]/90 text-xs font-mono uppercase tracking-[0.2em] text-amber-300">
@@ -141,18 +176,19 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
     const currentPrice = liveBid || Number(lastCandle.close);
     const currentY = 18 + ((max - currentPrice) / span) * 204;
 
-    // Calculate EMA-10 smooth overlay points & Volatility Band
+    // Calculate EMA-10 smooth overlay points & real ATR(14) Volatility Band
     const emaPoints: string[] = [];
     const upperBandPoints: string[] = [];
     const lowerBandPoints: string[] = [];
     let ema = Number(valid[0].close);
     const k = 2 / (10 + 1);
+    const effectiveAtr = liveAtr14 > 0 ? liveAtr14 : span * 0.12;
+    const bandOffset = Math.max(4, Math.min(48, (effectiveAtr / span) * 204));
     valid.forEach((c, idx) => {
       const closeVal = Number(c.close);
       ema = idx === 0 ? closeVal : closeVal * k + ema * (1 - k);
       const x = 20 + (idx / Math.max(valid.length - 1, 1)) * 725;
       const y = 18 + ((max - ema) / span) * 204;
-      const bandOffset = 18;
       emaPoints.push(`${x.toFixed(1)},${y.toFixed(1)}`);
       upperBandPoints.push(`${x.toFixed(1)},${Math.max(12, y - bandOffset).toFixed(1)}`);
       lowerBandPoints.push(`${x.toFixed(1)},${Math.min(228, y + bandOffset).toFixed(1)}`);
@@ -342,7 +378,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
 
   const ddProgressPct = Math.min((computedDailyDd / Math.max(maxDdLimitPct, 0.1)) * 100, 100);
   const ddDanger = computedDailyDd >= maxDdLimitPct * 0.8;
-  const activeShield = SHIELD_LAYERS[activeShieldIdx] || SHIELD_LAYERS[0];
+  const activeShield = dynamicShieldLayers[activeShieldIdx] || dynamicShieldLayers[0];
 
   return (
     <div className="space-y-6">
@@ -454,7 +490,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             <span className="text-[11px] font-mono font-bold uppercase tracking-[0.14em] text-emerald-400">
               04 // TRẠM CLOUD MT5
             </span>
-            <span className="font-mono text-[10px] font-bold text-amber-300">24ms LONDON G2</span>
+            <span className="font-mono text-[10px] font-bold text-amber-300">
+              {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : 'LIVE'} LONDON G2
+            </span>
           </div>
           <div className="mt-2.5 flex items-baseline gap-2">
             <span className="font-mono text-2xl font-extrabold tracking-tight text-white tabular-nums">
@@ -465,8 +503,8 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
           <div className="mt-3 flex items-center justify-between border-t border-white/[0.08] pt-2.5 text-xs text-slate-300">
             <span className="truncate">{runtimeModeLabel}</span>
             <span className="inline-flex items-center gap-1.5 font-mono font-bold text-emerald-300 shrink-0">
-              <span className={`h-2 w-2 rounded-full ${mt5Connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              {mt5Connected ? 'ĐÃ KẾT NỐI' : 'CHỜ ĐỒNG BỘ'}
+              <span className={`h-2 w-2 rounded-full ${isMt5Connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              {isMt5Connected ? 'ĐÃ KẾT NỐI' : 'CHỜ ĐỒNG BỘ'}
             </span>
           </div>
         </div>
@@ -523,7 +561,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-white/[0.08] font-mono text-xs">
-          {SHIELD_LAYERS.map((layer, idx) => {
+          {dynamicShieldLayers.map((layer, idx) => {
             const isSelected = activeShieldIdx === idx;
             return (
               <button
@@ -649,7 +687,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             </div>
             <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-3">
               <div className="text-[10px] text-slate-400">BIÊN ĐỘ ATR(14)</div>
-              <div className="mt-0.5 font-bold text-cyan-300">4.45 USD (44.5p)</div>
+              <div className="mt-0.5 font-bold text-cyan-300">
+                {liveAtr14 > 0 ? `${fmtNum(liveAtr14, 2)} USD (${fmtNum(liveAtr14 * 10, 1)}p)` : 'Đang đo ATR(14)...'}
+              </div>
             </div>
             <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-3">
               <div className="text-[10px] text-slate-400">AUTO BREAK-EVEN</div>
@@ -657,7 +697,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             </div>
             <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-3">
               <div className="text-[10px] text-slate-400">ĐỘ TRỄ KHỚP LỆNH</div>
-              <div className="mt-0.5 font-bold text-white">~24.0 ms G2</div>
+              <div className="mt-0.5 font-bold text-white">
+                {liveLatencyMs > 0 ? `~${fmtNum(liveLatencyMs, 1)} ms G2` : 'G2 READY'}
+              </div>
             </div>
           </div>
         </div>
@@ -693,9 +735,16 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             ) : (
               <div className="mt-4 space-y-3">
                 {accounts.slice(0, 4).map((acc: any) => {
-                  const isActive = acc.is_active !== false && acc.copy_enabled !== false;
-                  const accDd = Number(acc.daily_dd_pct ?? 0.0);
-                  const accMaxDd = Number(acc.max_daily_dd_pct ?? 4.0);
+                  const isActive = acc.is_active !== false && acc.copy_enabled !== false && Number(acc.auto_trade ?? 1) !== 0;
+                  const accBal = Number(acc.balance ?? 0);
+                  const accEq = Number(acc.equity ?? accBal);
+                  const accDd =
+                    acc.daily_dd_pct !== undefined
+                      ? Number(acc.daily_dd_pct)
+                      : accBal > 0 && accEq < accBal
+                      ? Math.max(0, ((accBal - accEq) / accBal) * 100)
+                      : 0.0;
+                  const accMaxDd = Number(acc.max_daily_dd_pct ?? acc.prop_daily_dd_limit_pct ?? 4.0);
                   const accId = acc.account_id || acc.login || acc.id;
                   return (
                     <div
@@ -749,7 +798,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
 
           <div className="mt-4 border-t border-white/[0.08] pt-3.5 flex items-center justify-between text-xs font-mono text-slate-400">
             <span>Cầu nối MetaAPI London G2</span>
-            <span className="text-amber-300 font-bold">24ms · ZERO-VPS</span>
+            <span className="text-amber-300 font-bold">
+              {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : 'LIVE'} · ZERO-VPS
+            </span>
           </div>
         </div>
       </div>

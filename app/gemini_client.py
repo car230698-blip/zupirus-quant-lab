@@ -9,22 +9,11 @@ import urllib.request
 import urllib.error
 from typing import List, Dict, Any, Optional, Tuple
 
-import base64
-
 logger = logging.getLogger("zupirus.gemini")
-
-# Default provided keys pool (encoded to prevent automated git-push false-positive secret block)
-_DEFAULT_KEYS_B64 = [
-    "QVEuQWI4Uk42SVRLaWFuMmF2dk5Yc1VjWkxHT2VzQ2FBT1k3aVh0S25OU3RWMnBJbGZYVkE=",
-    "QVEuQWI4Uk42SkVLRzVvaldyVTBIRGVDYTg0M2tVU0JGSWUzVkN6dTMtdGRDMUNYVTZzX0E=",
-    "QVEuQWI4Uk42STJLRUFaVjlvb0EtQU9oMVJvejR0V0wwZmd1ejRqTGFXMnhxalhZclZpSXc=",
-    "QVEuQWI4Uk42SnJ3bjkwQ19TSzYtX1Nmci1YWFNtNXlibDNoMnpKUnc4OG9PQ21MMXlGZkE=",
-    "QVEuQWI4Uk42TDNmTWxnRWwzdHpGa0ZkZjF3WjJaRHlFN08yY2lpdzBRanRVSkNqaWhTQUE=",
-]
 
 DEFAULT_GEMINI_KEYS = [
     k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()
-] or [base64.b64decode(b).decode("utf-8") for b in _DEFAULT_KEYS_B64]
+]
 
 
 def mask_key(key: str) -> str:

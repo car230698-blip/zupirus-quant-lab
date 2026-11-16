@@ -1,40 +1,23 @@
-"""MetaApi Market Data Streamer & Master Signal Feeder (24/5 Worker).
+"""Market Data Streamer (24/5 Worker).
 Maintains live XAUUSD tick ingestion into quotes & candle aggregation (M1, M5, M15, H1)
-and synchronizes signals from the master signal feed terminal into the Quant Lab curator funnel.
+for charting, ATR computation, and AI Agent quantitative research.
+Note: Master MT5 account position copying is strictly eliminated per ZUPIRUS architecture.
 """
-import os
 import time
-import json
-import uuid
-import asyncio
 import logging
-from typing import Dict, Any, List, Optional
-import httpx
+from typing import Dict, Any, Optional
 
-from app.db import tx, audit, is_postgres
-from app.metaapi import MetaApiClient, execute_fan_out_for_signal
-from app.services.sources.curator import log_shadow_signal, record_shadow_signal, list_sources
-from app.services.signal_ingestion.sanitizer import (
-    check_redis_deduplication,
-    check_mandatory_sl,
-    check_news_shield,
-    check_entry_slippage,
-    check_live_spread_guard,
-    sanitize_and_audit_signal,
-)
+from app.db import tx
+from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.streamer")
 
-FEED_ACCOUNT_ID = os.getenv("METAAPI_SIGNAL_FEED_ACCOUNT_ID", "").strip()
-
 
 class MarketDataStreamer:
-    """Streams live quotes and copies master feed signals into ZUPIRUS Quant Lab."""
+    """Streams live quotes and aggregates M1 candles into ZUPIRUS Quant Lab."""
 
-    def __init__(self, metaapi_client: Optional[MetaApiClient] = None, feed_account_id: Optional[str] = None):
+    def __init__(self, metaapi_client: Optional[MetaApiClient] = None):
         self.client = metaapi_client or MetaApiClient()
-        self.feed_account_id = (feed_account_id or FEED_ACCOUNT_ID).strip()
-        self.known_master_positions = set()
         self.current_m1_bar = None
 
     def ingest_tick(self, symbol: str, bid: float, ask: float, ts: Optional[float] = None, source: str = "METAAPI"):
@@ -83,8 +66,7 @@ class MarketDataStreamer:
                     """,
                     (bar["symbol"], bar["timeframe"], bar["time"], bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"])
                 )
-        except Exception as e:
-            # If sqlite table doesn't have unique constraint, fallback to standard insert
+        except Exception:
             try:
                 with tx() as c:
                     c.execute(
@@ -94,122 +76,13 @@ class MarketDataStreamer:
             except Exception:
                 pass
 
-    async def poll_master_feed_signals(self):
-        """Poll open positions on master signal feed account and route to ACTIVE_LIVE or SHADOW_ONLY."""
-        if not self.feed_account_id or self.client.is_mock:
-            return
-
-        try:
-            positions = await self.client.get_open_positions(self.feed_account_id)
-            current_ids = {str(p.get("id")) for p in positions if p.get("id")}
-            new_position_ids = current_ids - self.known_master_positions
-
-            for pos in positions:
-                pos_id = str(pos.get("id"))
-                if pos_id in new_position_ids:
-                    self.known_master_positions.add(pos_id)
-                    await self._process_master_signal(pos)
-
-        except Exception as e:
-            logger.error(f"Error polling master signal feed: {e}")
-
-    async def _process_master_signal(self, pos: Dict[str, Any]):
-        """Process a detected position on the master feed terminal."""
-        symbol = pos.get("symbol", "XAUUSD")
-        pos_type = pos.get("type", "POSITION_TYPE_BUY")
-        action = "BUY" if "BUY" in pos_type.upper() else "SELL"
-        entry_price = float(pos.get("openPrice") or 0.0)
-        sl = float(pos.get("stopLoss") or 0.0) if pos.get("stopLoss") else None
-        tp = float(pos.get("takeProfit") or 0.0) if pos.get("takeProfit") else None
-        pos_id = str(pos.get("id", uuid.uuid4().hex[:8]))
-
-        # Find registered source
-        sources = list_sources()
-        target_source = None
-        for s in sources:
-            if s.get("source_type") == "METAAPI_FEED":
-                target_source = s
-                break
-
-        if not target_source:
-            # Default to shadow observation only (0 broker cost)
-            target_source = {"id": "src_metaapi_master", "status": "SHADOW_ONLY", "name": "MetaApi Master Feed"}
-
-        source_id = target_source["id"]
-        source_status = target_source.get("status", "SHADOW_ONLY")
-
-        logger.info(f"MASTER FEED SIGNAL DETECTED: {action} {symbol} @ {entry_price} (Source: {target_source['name']}, Status: {source_status})")
-
-        # Route A: SHADOW_ONLY (0 execution cost, record to shadow ledger)
-        if source_status != "ACTIVE_LIVE":
-            log_shadow_signal(
-                source_id=source_id,
-                symbol=symbol,
-                action=action,
-                entry_price=entry_price,
-                sl=sl,
-                tp=tp,
-                metadata={"master_position_id": pos_id}
-            )
-            return
-
-        # Route B: ACTIVE_LIVE (Verify through 4 Safety Guards then execute to clients)
-        # Query actual latest tick quote from database
-        current_market_price = entry_price
-        with tx() as c:
-            q_row = c.execute("SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1", (symbol,)).fetchone()
-            if q_row and q_row[0] and q_row[1]:
-                current_market_price = round((float(q_row[0]) + float(q_row[1])) / 2.0, 2)
-
-        from app.schemas.signals import NormalizedSignalSchema
-        sig_obj = NormalizedSignalSchema(
-            id=pos_id,
-            symbol=symbol,
-            action=action,
-            entry_price=entry_price,
-            stop_loss=sl,
-            take_profit=tp,
-            source=source_id,
-            strategy_tier="CORE"
-        )
-        now_ts = time.time()
-        approved, reject_reason, sanitized = sanitize_and_audit_signal(
-            signal=sig_obj,
-            live_price=current_market_price,
-            current_time=now_ts
-        )
-        if not approved:
-            logger.warning(f"Master feed signal {pos_id} rejected by guard: {reject_reason}")
-            return
-
-        # Execute fan-out to all deployed active accounts
-        with tx() as c:
-            accounts = [dict(r) for r in c.execute(
-                "SELECT * FROM trading_accounts WHERE auto_trade = 1 AND metaapi_account_id IS NOT NULL"
-            ).fetchall()]
-
-        if accounts:
-            signal_payload = {
-                "id": pos_id,
-                "symbol": symbol,
-                "action": action,
-                "entry_price": entry_price,
-                "sl": sanitized.stop_loss,
-                "tp": sanitized.take_profit,
-                "source": "METAAPI_FEED"
-            }
-            res = await execute_fan_out_for_signal(signal_payload, accounts, self.client)
-            with tx() as c:
-                audit(c, "master_feed", "live_execution_fanout", res)
-            logger.info(f"Live Execution Fan-Out Finished: {res.get('executed')}/{res.get('total_accounts')} filled.")
-
 
 # Singleton instance
 _streamer_instance: Optional[MarketDataStreamer] = None
 
+
 def get_streamer() -> MarketDataStreamer:
     global _streamer_instance
     if _streamer_instance is None:
-        from app.config import METAAPI_SIGNAL_FEED_ACCOUNT_ID
-        _streamer_instance = MarketDataStreamer(feed_account_id=METAAPI_SIGNAL_FEED_ACCOUNT_ID)
+        _streamer_instance = MarketDataStreamer()
     return _streamer_instance

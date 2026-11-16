@@ -86,6 +86,12 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
         if u["role"] != "admin" and d["user_id"] != u["id"]:
             fail(403, "Không có quyền xem đơn hàng này.")
 
+        now_ts = time.time()
+        if d.get("status") == "PENDING" and d.get("expires_at") and float(d["expires_at"]) < now_ts:
+            c.execute("UPDATE orders SET status = 'EXPIRED', payment_status = 'EXPIRED' WHERE id = ? AND status = 'PENDING'", (d["id"],))
+            d["status"] = "EXPIRED"
+            d["payment_status"] = "EXPIRED"
+
         content_memo = f"ZP {d['id'][-6:].upper()}"
         encoded_memo = quote(content_memo)
         bank_name, bank_acc, bank_holder = get_effective_sepay_config()

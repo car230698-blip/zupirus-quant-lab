@@ -60,32 +60,34 @@ def test_cloud_mt5_account_creation_with_aliases(client: TestClient):
         pytest.fail(f"Validation failed unexpectedly: {r_conn.json()}")
 
 
-def test_admin_ai_test_bench_sandbox_and_params(client: TestClient):
+def test_admin_ai_test_bench_honest_failure_without_key(client: TestClient, monkeypatch):
+    monkeypatch.delenv("AI_API_KEY", raising=False)
     admin_email = f"admin_ai_{secrets.token_hex(4)}@example.com"
     pwd = "password12345678"
     client.post("/api/register", json={"email": admin_email, "password": pwd})
     client.post("/api/login", json={"email": admin_email, "password": pwd})
     with tx() as c:
         c.execute("UPDATE users SET role = 'admin' WHERE email = ?", (admin_email,))
+        c.execute("DELETE FROM kv WHERE key = 'ai:settings'")
+        c.execute("UPDATE gemini_keys SET is_active = 0")
 
     csrf = {"x-zupirus": "1"}
 
-    # 1-Click test with live form inputs
+    # 1-Click test with empty API key must honestly fail with 400 and success=False (no fake Sandbox fallback)
     r_ai = client.post(
         "/api/admin/ai/test",
         headers=csrf,
         json={
             "prompt": "Đánh giá điều kiện rủi ro XAU/USD",
-            "provider": "HYBRID",
+            "provider": "OPENAI",
             "model": "gpt-4o-mini",
             "api_key": ""
         }
     )
-    assert r_ai.status_code == 200
+    assert r_ai.status_code == 400
     d = r_ai.json()
-    assert d["success"] is True
-    assert "response" in d
-    assert len(d["response"]) > 0
+    assert d["success"] is False
+    assert "error" in d
 
 
 def test_vietqr_checkout_order_response_fields(client: TestClient):

@@ -19,7 +19,7 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
     try {
       if (approved) {
         await onApprove(jobId);
-        setStatus('ĐÃ PHÊ DUYỆT (Lưu trữ ứng viên nghiên cứu)');
+        setStatus('ĐÃ PHÊ DUYỆT (Đưa vào vận hành APPROVED_FOR_PROD nếu đạt chuẩn WFO)');
       } else {
         await onReject(jobId);
         setStatus('ĐÃ TỪ CHỐI (Loại bỏ ứng viên)');
@@ -113,7 +113,7 @@ export const StrategyApprovalCardUI: React.FC<StrategyApprovalCardProps> = ({
       ) : (
         <div className="flex items-center justify-between gap-3 pt-2">
           <span className="text-[11px] text-slate-400 font-mono">
-            Phê duyệt chỉ lưu trữ ứng viên nghiên cứu; không tự động thay đổi chiến lược đang chạy.
+            Khi phê duyệt ứng viên đạt chuẩn (Production Qualified), chiến lược sẽ chuyển sang APPROVED_FOR_PROD và được AI Agent kích hoạt tạo tín hiệu thực tế.
           </span>
           <div className="flex items-center gap-3">
             <button
