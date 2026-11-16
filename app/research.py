@@ -385,10 +385,53 @@ def ai_text(prompt, image=None):
         'text': None,
     }
 
+_last_eod_eval_ts = 0.0
+
+def run_eod_shadow_evaluation_cycle():
+    """Periodic & End-of-Day Shadow Signal Grader Scheduler.
+    Runs every 4 hours and evaluates pending shadow signals against M1 candles,
+    updating Trust Scores and recommending promotion when shadow signals >= 30.
+    """
+    global _last_eod_eval_ts
+    now = time.time()
+    # Check every 4 hours
+    if now - _last_eod_eval_ts < 14400.0:
+        return
+
+    _last_eod_eval_ts = now
+    try:
+        from app.services.sources.curator import evaluate_shadow_signals_eod, list_sources
+        eval_res = evaluate_shadow_signals_eod()
+        logger.info(f"EOD Shadow Evaluation completed: {eval_res}")
+
+        # Check if any SHADOW_ONLY source qualifies to surpass live sources
+        sources = list_sources()
+        live_sources = [s for s in sources if s.get("status") == "ACTIVE_LIVE"]
+        min_live_score = min([float(s.get("trust_score") or 50.0) for s in live_sources]) if live_sources else 0.0
+
+        for s in sources:
+            if s.get("status") == "SHADOW_ONLY" and int(s.get("total_signals") or 0) >= 30:
+                score = float(s.get("trust_score") or 0.0)
+                pf = float(s.get("profit_factor") or 0.0)
+                if score > min_live_score and pf > 1.3:
+                    with tx() as c:
+                        audit(c, "curator", "shadow_promotion_recommended", {
+                            "source_id": s["id"],
+                            "name": s["name"],
+                            "trust_score": score,
+                            "profit_factor": pf,
+                            "total_signals": s["total_signals"],
+                            "message": f"Nguồn ẩn '{s['name']}' đã đạt {s['total_signals']} tín hiệu và Trust Score ({score:.1f}) vượt nguồn live. Sẵn sàng phê duyệt sang ACTIVE_LIVE."
+                        })
+    except Exception as e:
+        logger.warning(f"EOD shadow evaluation error: {e}")
+
 def main():
     init()
     while True:
-        try: process_once()
+        try:
+            process_once()
+            run_eod_shadow_evaluation_cycle()
         except Exception as e: print('research error', type(e).__name__, flush=True)
         time.sleep(3)
 

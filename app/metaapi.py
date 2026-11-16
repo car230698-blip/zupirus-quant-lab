@@ -178,6 +178,136 @@ class MetaApiClient:
             data["latency_ms"] = latency_ms
             return data
 
+    async def get_open_positions(self, metaapi_account_id: str) -> List[Dict[str, Any]]:
+        """Retrieve all currently active open positions on MT5 via MetaApi."""
+        if self.is_mock:
+            return []
+
+        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/positions"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers=self._headers())
+            if resp.status_code == 200:
+                data = resp.json()
+                return data if isinstance(data, list) else []
+            return []
+
+    async def modify_position_sl(
+        self,
+        metaapi_account_id: str,
+        position_id: str,
+        new_sl: float,
+        take_profit: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """Modify Stop Loss (e.g., Auto Break-Even) of an open position."""
+        start_ts = time.time()
+        if self.is_mock:
+            return {
+                "numericCode": 10009,
+                "stringCode": "TRADE_RETCODE_DONE",
+                "positionId": position_id,
+                "stopLoss": new_sl,
+                "latency_ms": int((time.time() - start_ts) * 1000),
+                "simulated": True
+            }
+
+        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+        payload: Dict[str, Any] = {
+            "actionType": "POSITION_MODIFY",
+            "positionId": position_id,
+            "stopLoss": round(new_sl, 2)
+        }
+        if take_profit is not None:
+            payload["takeProfit"] = round(take_profit, 2)
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, headers=self._headers(), json=payload)
+            lat = int((time.time() - start_ts) * 1000)
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                data["latency_ms"] = lat
+                return data
+            return {
+                "numericCode": resp.status_code,
+                "stringCode": "MODIFY_ERROR",
+                "message": resp.text,
+                "latency_ms": lat
+            }
+
+    async def close_partial_position(
+        self,
+        metaapi_account_id: str,
+        position_id: str,
+        volume_to_close: float
+    ) -> Dict[str, Any]:
+        """Close partial lot (e.g. 50% TP1) of an open position."""
+        start_ts = time.time()
+        vol = max(0.01, round(volume_to_close, 2))
+        if self.is_mock:
+            return {
+                "numericCode": 10009,
+                "stringCode": "TRADE_RETCODE_DONE",
+                "positionId": position_id,
+                "closedVolume": vol,
+                "latency_ms": int((time.time() - start_ts) * 1000),
+                "simulated": True
+            }
+
+        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+        payload = {
+            "actionType": "POSITION_PARTIAL",
+            "positionId": position_id,
+            "volume": vol
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, headers=self._headers(), json=payload)
+            lat = int((time.time() - start_ts) * 1000)
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                data["latency_ms"] = lat
+                return data
+            # Fallback to POSITION_CLOSE with volume
+            fallback_payload = {
+                "actionType": "POSITION_CLOSE",
+                "positionId": position_id,
+                "volume": vol
+            }
+            resp2 = await client.post(url, headers=self._headers(), json=fallback_payload)
+            if resp2.status_code in (200, 201):
+                data = resp2.json()
+                data["latency_ms"] = int((time.time() - start_ts) * 1000)
+                return data
+            return {
+                "numericCode": resp.status_code,
+                "stringCode": "CLOSE_PARTIAL_ERROR",
+                "message": resp.text,
+                "latency_ms": lat
+            }
+
+    async def close_all_positions(self, metaapi_account_id: str) -> Dict[str, Any]:
+        """Emergency circuit breaker: close all open positions on this account immediately."""
+        positions = await self.get_open_positions(metaapi_account_id)
+        if not positions:
+            return {"closed_count": 0, "status": "NO_OPEN_POSITIONS"}
+
+        tasks = []
+        for pos in positions:
+            pos_id = pos.get("id")
+            if not pos_id:
+                continue
+            if self.is_mock:
+                continue
+            url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+            payload = {"actionType": "POSITION_CLOSE", "positionId": str(pos_id)}
+            async def _close(u, p):
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    return await client.post(u, headers=self._headers(), json=p)
+            tasks.append(_close(url, payload))
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        return {"closed_count": len(positions), "status": "ALL_POSITIONS_CLOSED"}
+
 
 def calculate_lot_size(
     equity: float,

@@ -376,7 +376,10 @@ def flush_outbox(c):
             c.execute("UPDATE outbox SET retry_count=retry_count+1, error=? WHERE id=?", (str(e), oid))
 
 
+_last_watcher_ts = 0.0
+
 def tick():
+    global _last_watcher_ts
     with tx() as c:
         now = time.time()
         flush_outbox(c)
@@ -387,6 +390,16 @@ def tick():
         setkv(c, 'execution_heartbeat', now)
         c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 7,))
         c.execute('DELETE FROM quotes WHERE ts<?', (now - 86400 * 2,))
+
+    # Periodically run Position Watcher (Auto-BE, Partial TP, Prop DD Guard) every 5s
+    if now - _last_watcher_ts >= 5.0:
+        _last_watcher_ts = now
+        try:
+            import asyncio
+            from app.services.execution.watcher import get_position_watcher
+            asyncio.run(get_position_watcher().run_cycle())
+        except Exception as e:
+            logger.debug(f"Position watcher cycle error: {e}")
 
 def main():
     init()

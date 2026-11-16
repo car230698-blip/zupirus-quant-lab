@@ -17,7 +17,18 @@ logger = logging.getLogger("zupirus.sepay")
 _DEFAULT_SEPAY_SECRET_B64 = "d2hzZWNfNWQ1ODM2ODRiZjhiNGY5ZDM3ZDg0ZDYxMTJiNzIwNmRiODY1ZGU1OGQ1N2M4ZGUy"
 
 def get_sepay_secret() -> str:
-    """Load SePay Webhook Secret from environment or resilient base64 fallback."""
+    """Load SePay Webhook Secret with priority from dynamic DB settings, env var, or fallback."""
+    try:
+        from app.db import tx
+        with tx() as c:
+            row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
+            if row and row[0]:
+                d = json.loads(row[0])
+                if d.get("webhook_secret"):
+                    return str(d["webhook_secret"]).strip()
+    except Exception:
+        pass
+
     key = os.getenv("SEPAY_WEBHOOK_SECRET", "").strip()
     if key:
         return key
