@@ -90,9 +90,9 @@ export function calculateSubscriptionPricing(
   totalVnd: number;
   months: number;
 } {
-  const base = Math.max(0, Number(tierBaseUsd) || 20);
-  const slots = Math.max(1, Number(slotsCount) || 1);
-  const monthlyRaw = base + slots * 10;
+  const base = Math.max(0, Number(tierBaseUsd) || 25);
+  const extraSlots = Math.max(0, (Number(slotsCount) || 1) - 1);
+  const monthlyRaw = base + extraSlots * 10;
 
   const cycleConfig: Record<BillingCycleType, { months: number; discount: number }> = {
     MONTHLY: { months: 1, discount: 0 },

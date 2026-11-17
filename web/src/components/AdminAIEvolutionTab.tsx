@@ -3,7 +3,7 @@ import { ToastNotification } from './ToastNotification.tsx';
 
 export const AdminAIEvolutionTab: React.FC = () => {
   const [evo, setEvo] = useState<any>({
-    stage: { active_mode: 'HYBRID', auto_promote: false, samples_learned: 0, target_samples: 500, readiness_pct: 0 },
+    stage: { active_mode: 'EXTERNAL_FEED', auto_promote: false, samples_learned: 0, target_samples: 500, readiness_pct: 0 },
     shadow_summary: { total_evaluated: 0, overall_win_rate_pct: 0, sources: [] },
     hindsight_lessons: [],
     wfo_candidates: [],
@@ -132,7 +132,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
     }
   };
 
-  const activeMode = String(evo.stage?.active_mode || 'HYBRID').toUpperCase();
+  const activeMode = String(evo.stage?.active_mode || 'EXTERNAL_FEED').toUpperCase();
   const stages = [
     { key: 'EXTERNAL_FEED', title: 'Chặng 1: EXTERNAL_FEED', desc: 'Học từ nguồn chuẩn & cào ngầm nến M1' },
     { key: 'HYBRID', title: 'Chặng 2: HYBRID_AGENT_SCORER', desc: 'AI lọc nhiễu & đúc kết quy luật Hindsight' },

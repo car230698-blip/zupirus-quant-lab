@@ -571,7 +571,7 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
     Hindsight Lessons, Walk-Forward Results, and Built-in vs Self-Learned Skills."""
     with tx() as c:
         mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
-        active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "HYBRID"
+        active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "EXTERNAL_FEED"
         auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
         auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
 

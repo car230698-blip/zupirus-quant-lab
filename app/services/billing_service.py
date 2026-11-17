@@ -66,7 +66,9 @@ def calculate_order_totals(
     cycle_cfg = BILLING_CYCLE_CONFIG.get(cycle_u, BILLING_CYCLE_CONFIG["MONTHLY"])
 
     tier_price = TIER_PRICES.get(plan_tier.lower(), TIER_STARTER_MONTHLY_USD)
-    cloud_price = cloud_slots * CLOUD_SLOT_MONTHLY_USD
+    # First Cloud MT5 slot is included in the package price; additional slots are billed at cost ($10/slot)
+    extra_slots = max(0, int(cloud_slots) - 1)
+    cloud_price = extra_slots * CLOUD_SLOT_MONTHLY_USD
     monthly_usd = tier_price + cloud_price
     total_usd = round(monthly_usd * cycle_cfg["months"] * cycle_cfg["discount"], 2)
 

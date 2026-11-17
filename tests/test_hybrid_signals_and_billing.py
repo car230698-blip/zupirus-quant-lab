@@ -37,29 +37,31 @@ def test_fx_rate_conversion_and_rounding():
 
 
 def test_order_totals_calculation():
-    """Test cloud infrastructure slot ($10) + copy-trade tier calculation."""
-    # Starter: $20 + $10 cloud slot = $30
+    """Test all-inclusive package pricing (1st cloud slot included) + extra cloud slots ($10/slot)."""
+    # Starter: $25 (includes 1st cloud slot)
     tot_starter = calculate_order_totals("starter", cloud_slots_count=1)
-    assert tot_starter["copy_trade_usd"] == 20.0
-    assert tot_starter["cloud_bridge_usd"] == 10.0
-    assert tot_starter["total_usd"] == 30.0
+    assert tot_starter["copy_trade_usd"] == 25.0
+    assert tot_starter["cloud_bridge_usd"] == 0.0
+    assert tot_starter["total_usd"] == 25.0
 
-    # Growth: $35 + $10 cloud slot = $45
+    # Growth: $39 (includes 1st cloud slot)
     tot_growth = calculate_order_totals("growth", cloud_slots_count=1)
-    assert tot_growth["copy_trade_usd"] == 35.0
-    assert tot_growth["cloud_bridge_usd"] == 10.0
-    assert tot_growth["total_usd"] == 45.0
+    assert tot_growth["copy_trade_usd"] == 39.0
+    assert tot_growth["cloud_bridge_usd"] == 0.0
+    assert tot_growth["total_usd"] == 39.0
 
-    # Prop Firm Alpha: $49 + 2 cloud slots ($20) = $69
+    # Prop Firm Alpha: $59 + 1 extra cloud slot ($10) = $69 for 2 slots
     tot_alpha = calculate_order_totals("alpha", cloud_slots_count=2)
-    assert tot_alpha["copy_trade_usd"] == 49.0
-    assert tot_alpha["cloud_bridge_usd"] == 20.0
+    assert tot_alpha["copy_trade_usd"] == 59.0
+    assert tot_alpha["cloud_bridge_usd"] == 10.0
     assert tot_alpha["total_usd"] == 69.0
 
 
 @pytest.mark.asyncio
 async def test_create_checkout_order_and_sepay_fulfillment():
     """Test end-to-end checkout order creation with locked FX rate and SePay payment fulfillment."""
+    from app.db import init
+    init()
     user_id = f"user_test_{secrets.token_hex(4)}"
     with tx() as c:
         c.execute(
@@ -67,15 +69,15 @@ async def test_create_checkout_order_and_sepay_fulfillment():
             (user_id, f"{user_id}@example.com")
         )
 
-    # 1. Create checkout order for Growth tier ($45 total)
+    # 1. Create checkout order for Growth tier ($39 all-inclusive)
     order = create_checkout_order(
         user_id=user_id,
         plan_tier="growth",
         cloud_slots_count=1
     )
     assert order["status"] == "PENDING"
-    assert order["amount_usd"] == 45.0
-    assert order["amount_vnd"] > 1000000
+    assert order["amount_usd"] == 39.0
+    assert order["amount_vnd"] > 900000
     assert order["amount_vnd"] % 1000 == 0
     assert order["qr_url"].startswith("https://qr.sepay.vn/")
 

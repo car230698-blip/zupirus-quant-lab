@@ -137,8 +137,8 @@ class PositionWatcher:
                     else:
                         setkv(c, day_key, str(current_balance))
 
-                # 2. Prop Firm Daily Drawdown Check (Circuit Breaker)
-                if is_prop and day_start_balance > 0:
+                # 2. Universal Daily Drawdown Check (Circuit Breaker for all accounts)
+                if day_start_balance > 0 and prop_dd_limit > 0:
                     drawdown_pct = ((day_start_balance - current_equity) / day_start_balance) * 100.0
                     if drawdown_pct >= prop_dd_limit:
                         logger.warning(

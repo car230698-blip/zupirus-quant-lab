@@ -393,11 +393,11 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   };
 
   const calculateEstimateUsd = () => {
-    const basePrices: Record<string, number> = { STARTER: 20, PRO: 35, INSTITUTIONAL: 49 };
+    const basePrices: Record<string, number> = { STARTER: 25, PRO: 39, INSTITUTIONAL: 59 };
     const slotAddonPrice = 10;
-    const base = basePrices[subTier] || 20;
-    const slotsCount = Math.max(1, subCloudSlots);
-    const monthly = base + slotsCount * slotAddonPrice;
+    const base = basePrices[subTier] || 25;
+    const extraSlots = Math.max(0, subCloudSlots - 1);
+    const monthly = base + extraSlots * slotAddonPrice;
     const cycleMult: Record<string, number> = {
       MONTHLY: 1,
       QUARTERLY: 3 * 0.9,
@@ -466,26 +466,55 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: 'STARTER', name: 'STARTER', price: '$30/th' },
-                    { id: 'PRO', name: 'GROWTH PRO', price: '$45/th' },
-                    { id: 'INSTITUTIONAL', name: 'ALPHA VIP', price: '$59/th' },
+                    { id: 'STARTER', name: 'Khởi Đầu / Cent', price: '$25/th', badge: 'Trọn gói 1 TK' },
+                    { id: 'PRO', name: 'Tăng Trưởng', price: '$39/th', badge: 'Phổ biến nhất' },
+                    { id: 'INSTITUTIONAL', name: 'Thi Quỹ Alpha', price: '$59/th', badge: 'Chuyên Quỹ' },
                   ].map((t) => (
                     <button
                       key={t.id}
                       type="button"
                       onClick={() => setSubTier(t.id)}
-                      className={`rounded-xl border p-2.5 text-left transition ${
+                      className={`rounded-xl border p-2.5 text-left transition cursor-pointer ${
                         subTier === t.id
-                          ? 'border-cyan-400/50 bg-cyan-500/15 text-white shadow-[0_0_20px_rgba(6,182,212,0.15)]'
+                          ? 'border-cyan-400/60 bg-cyan-500/15 text-white shadow-[0_0_20px_rgba(6,182,212,0.18)]'
                           : 'border-white/[0.07] bg-[#040710]/60 text-slate-400 hover:border-white/20 hover:text-slate-200'
                       }`}
                     >
-                      <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                      <div className="font-mono text-[10px] font-bold text-cyan-300">
                         {t.name}
                       </div>
                       <div className="mt-1 font-mono text-sm font-extrabold text-white tabular-nums">{t.price}</div>
+                      <div className="mt-0.5 text-[9px] text-slate-400">{t.badge}</div>
                     </button>
                   ))}
+                </div>
+
+                {/* Chi tiết quyền lợi gói đang chọn */}
+                <div className="mt-3 rounded-xl border border-cyan-500/20 bg-[#040710]/70 p-3 text-xs text-slate-300 space-y-1.5">
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                    Quyền lợi gói đang chọn (Đã gồm 01 tài khoản Cloud MT5):
+                  </div>
+                  {subTier === 'STARTER' && (
+                    <ul className="space-y-1 text-[11px] text-slate-300">
+                      <li>✓ Tối đa <strong className="text-white">01 tài khoản MT5</strong> (phù hợp tài khoản Cent / Standard nhỏ, không cần thuê VPS).</li>
+                      <li>✓ Tự động chia Lot theo số dư, gắn SL theo biến động ATR &amp; chặn tin đỏ ±15 phút.</li>
+                      <li>✓ Tự động cắt lỗ bảo vệ ngày <strong className="text-emerald-300">5.0%</strong> an toàn.</li>
+                    </ul>
+                  )}
+                  {subTier === 'PRO' && (
+                    <ul className="space-y-1 text-[11px] text-slate-300">
+                      <li>✓ Gồm sẵn 01 tài khoản Cloud (mở rộng thêm chỉ +$10/TK phụ).</li>
+                      <li>✓ <strong className="text-amber-300">Tự động dời Hòa Vốn (+1R) &amp; Chốt 50% TP1</strong> khóa lợi nhuận.</li>
+                      <li>✓ <strong className="text-emerald-300">Tự động Lãi Kép</strong> theo tăng trưởng vốn + Cắt lỗ ngày 5.0%.</li>
+                    </ul>
+                  )}
+                  {subTier === 'INSTITUTIONAL' && (
+                    <ul className="space-y-1 text-[11px] text-slate-300">
+                      <li>✓ Chuyên dụng cho thi &amp; giữ quỹ <strong className="text-white">FTMO, FundedNext, The5ers</strong>.</li>
+                      <li>✓ Ngắt mạch cứng <strong className="text-rose-300">Daily Drawdown 4.0%</strong> + Tự đóng lệnh trước cuối tuần (T6 21:00 UTC).</li>
+                      <li>✓ Mở khóa <strong className="text-amber-300">AI Swarm tự chủ</strong> &amp; Kiểm toán chuyên sâu MAE/MFE.</li>
+                    </ul>
+                  )}
                 </div>
               </div>
 
@@ -639,29 +668,13 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   className="quant-input font-mono text-sm"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-300">Hệ số nhân khối lượng (Lot Multiplier)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.01"
-                  max="20"
-                  value={cloudForm.lot_multiplier}
-                  onChange={(e) => setCloudForm({ ...cloudForm, lot_multiplier: e.target.value })}
-                  className="quant-input font-mono text-sm tabular-nums"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-300">Cắt lỗ bảo vệ ngày (Max Daily DD %)</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  max="20"
-                  value={cloudForm.max_daily_dd_pct}
-                  onChange={(e) => setCloudForm({ ...cloudForm, max_daily_dd_pct: e.target.value })}
-                  className="quant-input font-mono text-sm tabular-nums"
-                />
+              <div className="sm:col-span-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-200 flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-bold text-emerald-300">🛡️ Quản trị Rủi ro &amp; Chia Lot Tự Động 100%</div>
+                  <div className="mt-0.5 text-[11px] text-slate-300">
+                    Hệ thống tự động nhận diện loại tài khoản (<strong className="text-white">Cent / Standard / Quỹ Prop</strong>), tự chia Lot theo số dư (<strong className="text-white">1.0x</strong>) và tự khóa cắt lỗ ngày (<strong className="text-white">4.0%</strong> cho Quỹ / <strong className="text-white">5.0%</strong> cho TK thường).
+                  </div>
+                </div>
               </div>
             </div>
 

@@ -46,45 +46,45 @@ const GUARD_LAYERS = [
 const PRICING_TIERS = [
   {
     id: 'STARTER' as const,
-    code: 'TIER 01 // RETAIL & CENT',
-    name: 'Cloud Starter',
-    baseUsd: 20,
+    code: 'GÓI 01 // TRẢI NGHIỆM & CENT',
+    name: 'Khởi Đầu / Cent',
+    baseUsd: 25,
     slots: 1,
-    badge: 'Khởi Đầu Chuẩn',
+    badge: 'Trọn Gói 1 TK Cloud',
     features: [
-      '01 Khe cắm tài khoản Cloud MT5 ($20 gói + $10 Cloud)',
-      'Đấu nối trực tiếp MetaApi London G2',
-      'Kích hoạt đầy đủ 4 Lớp Giáp Bảo Vệ Vốn Fail-Closed',
-      'Hỗ trợ đa cặp XAUUSD, EURUSD, GBPUSD, USDJPY',
+      'Đã bao gồm sẵn 01 Tài khoản Cloud MT5 London G2 (tiết kiệm $10 VPS)',
+      'Tự động nhận diện Cent / Standard và chia Lot an toàn theo số dư',
+      'Kích hoạt 3 Lớp Giáp: Tự gắn SL theo ATR, Chặn tin đỏ ±15 phút',
+      'Tự động cắt lỗ bảo vệ ngày (Max Daily DD 5.0%)',
     ],
   },
   {
     id: 'PRO' as const,
-    code: 'TIER 02 // GROWTH & MULTI-ACCOUNT',
-    name: 'Growth Pro',
-    baseUsd: 35,
-    slots: 3,
+    code: 'GÓI 02 // TĂNG TRƯỞNG VỐN',
+    name: 'Tăng Trưởng & Lãi Kép',
+    baseUsd: 39,
+    slots: 1,
     popular: true,
     badge: 'Phổ Biến Nhất',
     features: [
-      'Tối đa 03 Khe cắm Cloud MT5 ($35 gói + $10/slot)',
-      'Tự động dời hòa vốn 1R (Auto BE) & Chốt 50% TP1',
-      'Tự động quy đổi hệ số Lot riêng & Auto-Compounding',
-      'Truy cập Trợ lý AI phân tích cấu trúc thị trường',
+      'Đã bao gồm sẵn 01 Tài khoản Cloud (thêm TK phụ chỉ +$10/TK)',
+      'Tự động Dời Hòa Vốn (+1R) & Chốt lời 50% TP1 khóa lợi nhuận',
+      'Tự động Lãi Kép (Auto-Compounding) tăng Lot theo tăng trưởng vốn',
+      'Tín hiệu chọn lọc qua AI lọc nhiễu + Cắt lỗ ngày tự động 5.0%',
     ],
   },
   {
     id: 'INSTITUTIONAL' as const,
-    code: 'TIER 03 // PROP FIRM ALPHA',
-    name: 'Prop Firm Alpha',
-    baseUsd: 49,
-    slots: 5,
-    badge: 'Hiệu Suất Cao Nhất',
+    code: 'GÓI 03 // CHUYÊN THI QUỸ PROP FIRM',
+    name: 'Thi Quỹ Prop Firm Alpha',
+    baseUsd: 59,
+    slots: 1,
+    badge: 'Bảo Vệ Quỹ Tối Đa',
     features: [
-      'Tối đa 05 Khe cắm Cloud MT5 ($49 gói + $10/slot)',
-      'Lá chắn Daily Drawdown 4.5% & Đóng lệnh cuối tuần',
-      'Báo cáo kiểm toán MAE / MFE & Profit Factor chuyên sâu',
-      'Truy cập chiến lược AI Swarm ZUPIRUS_AGENT',
+      'Đã bao gồm sẵn 01 Tài khoản Cloud (thêm TK phụ chỉ +$10/TK)',
+      'Ngắt mạch cứng Daily Drawdown 4.0% (an toàn dưới luật 5% FTMO/FundedNext)',
+      'Tự động đóng toàn bộ lệnh trước cuối tuần (Thứ 6 lúc 21:00 UTC)',
+      'Mở khóa AI Swarm tự chủ & Kiểm toán chuyên sâu MAE / MFE',
     ],
   },
 ];
@@ -560,6 +560,64 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
           ))}
+        </section>
+
+        {/* SECTION 2B: SO SÁNH & QUY TRÌNH 3 BƯỚC */}
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <div className="quant-panel p-6 sm:p-8 lg:col-span-7 space-y-5">
+            <div>
+              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-amber-300">
+                SO SÁNH THỰC TẾ
+              </span>
+              <h2 className="mt-1 text-2xl font-extrabold text-white">Vì Sao Trader Chọn ZUPIRUS Thay Vì Copy Bot Thường?</h2>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+              <div className="rounded-xl border border-rose-500/25 bg-rose-950/20 p-4 space-y-2.5">
+                <div className="font-mono font-bold text-rose-300 uppercase">✕ Tự Trade / Bot VPS Thường</div>
+                <ul className="space-y-2 text-slate-300">
+                  <li>• Phải thuê VPS $8-$15/tháng, hay treo EA mất kết nối.</li>
+                  <li>• Gồng lỗ hoặc quên đặt Stop Loss khi thị trường giật mạnh.</li>
+                  <li>• Dính quét 2 đầu khi ra tin NFP, CPI, FOMC.</li>
+                  <li>• Dễ vi phạm luật Daily Drawdown 5% khi thi quỹ Prop Firm.</li>
+                </ul>
+              </div>
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 space-y-2.5">
+                <div className="font-mono font-bold text-emerald-300 uppercase">✓ ZUPIRUS Cloud Quant</div>
+                <ul className="space-y-2 text-slate-200">
+                  <li>• Chạy Cloud London G2 24/7 — không cần cài đặt hay treo máy.</li>
+                  <li>• 100% lệnh có SL cứng, tự dời Hòa Vốn (+1R) &amp; chốt 50% TP1.</li>
+                  <li>• Tự động phong tỏa trước/sau tin đỏ USD ±15 phút.</li>
+                  <li>• Tự chia Lot theo Cent/Standard/Quỹ &amp; ngắt mạch DD ngày 4–5%.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="quant-panel p-6 sm:p-8 lg:col-span-5 space-y-4">
+            <div>
+              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-300">
+                BẮT ĐẦU TRONG 2 PHÚT
+              </span>
+              <h2 className="mt-1 text-2xl font-extrabold text-white">Quy Trình 3 Bước Đơn Giản</h2>
+            </div>
+            <div className="space-y-3 text-xs">
+              {[
+                { step: '01', title: 'Đăng Ký & Xác Thực OTP (30s)', desc: 'Tạo tài khoản bảo mật qua email, không giữ tiền nạp của bạn.' },
+                { step: '02', title: 'Chọn Gói & Quét VietQR SePay', desc: 'Tài khoản Cloud kích hoạt tự động sau 3 giây chuyển khoản.' },
+                { step: '03', title: 'Nhập MT5 — Hệ Thống Tự Chạy', desc: 'Hệ thống tự chia Lot & đặt cắt lỗ ngày an toàn cho tài khoản của bạn.' },
+              ].map((s) => (
+                <div key={s.step} className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#040710]/70 p-3.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 font-mono text-xs font-extrabold text-amber-300">
+                    {s.step}
+                  </span>
+                  <div>
+                    <div className="font-bold text-white">{s.title}</div>
+                    <div className="mt-0.5 text-slate-400 leading-relaxed">{s.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
 
         {/* SECTION 3: INTERACTIVE 4-STAGE QUANTUM FAN-OUT SIMULATOR */}
@@ -1081,6 +1139,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
               );
             })}
+          </div>
+        </section>
+
+        {/* SECTION 6: FAQ & CAM KẾT AN TOÀN */}
+        <section className="quant-panel p-6 sm:p-10 space-y-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-300">
+                MINH BẠCH &amp; BẢO MẬT
+              </span>
+              <h2 className="mt-1 text-2xl font-extrabold text-white">Câu Hỏi Thường Gặp</h2>
+            </div>
+            <span className="font-mono text-xs text-slate-400">Tiền luôn nằm trên sàn MT5 của riêng bạn</span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 text-xs">
+            {[
+              {
+                q: 'ZUPIRUS có giữ tiền nạp của tôi không?',
+                a: 'Không. Tiền giao dịch nằm 100% trong tài khoản MT5 tại sàn của bạn (Exness, ICMarkets, FTMO...). ZUPIRUS chỉ kết nối qua MetaApi Cloud để truyền tín hiệu và bảo vệ lệnh.',
+              },
+              {
+                q: 'Mật khẩu MT5 của tôi có an toàn không?',
+                a: 'Mật khẩu giao dịch được mã hóa AES-256 trước khi lưu và không bao giờ hiển thị lại dưới dạng văn bản thuần trên bất kỳ giao diện hay log nào.',
+              },
+              {
+                q: 'Tôi dùng tài khoản Cent ($50-$100) có chạy được không?',
+                a: 'Có. Hệ thống tự động nhận diện loại tài khoản Cent hay Standard để quy đổi contract size (1.0 vs 100.0) và chia Lot đúng rủi ro % số dư.',
+              },
+              {
+                q: 'Nếu gặp biến động mạnh hoặc mất kết nối sàn thì sao?',
+                a: 'Mọi lệnh vào đều có Stop Loss cứng ngay trên máy chủ sàn. Khi phát hiện sụt giảm chạm ngưỡng ngày (4% Quỹ / 5% TK thường), hệ thống tự động đóng lệnh và khóa giao dịch trong ngày.',
+              },
+            ].map((item) => (
+              <div key={item.q} className="rounded-xl border border-white/10 bg-[#040710]/70 p-4 space-y-1.5">
+                <div className="font-bold text-amber-200">{item.q}</div>
+                <p className="text-slate-300 leading-relaxed">{item.a}</p>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-white/10 pt-4 text-[11px] text-slate-400 leading-relaxed">
+            <strong>Lưu ý rủi ro:</strong> Giao dịch ngoại hối và vàng (XAU/USD) sử dụng đòn bẩy có mức độ rủi ro cao. ZUPIRUS cung cấp hạ tầng tự động hóa và lớp giáp quản trị rủi ro kỹ thuật, không cam kết lợi nhuận cố định.
           </div>
         </section>
       </main>

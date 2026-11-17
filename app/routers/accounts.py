@@ -213,6 +213,11 @@ async def create_account(
     if is_prop and not sub.get("allow_prop_firm_mode") and u.get("role") != "admin":
         fail(403, "Tính năng Bảo Vệ Quỹ (Prop Firm Pass Guard) chỉ dành cho gói Prop Firm Alpha.")
 
+    # Auto-detect Prop Firm server to apply safe Daily Drawdown limit (4.0% Prop vs 5.0% Standard/Cent)
+    srv_lower = (p.server or "").lower()
+    is_prop_server = is_prop or any(k in srv_lower for k in ("ftmo", "fundednext", "5ers", "the5ers", "alpha", "e8", "fundingpips", "prop"))
+    effective_dd_limit = float(p.prop_daily_dd_limit_pct) if p.prop_daily_dd_limit_pct not in (None, 4.5, 4.0) else (4.0 if is_prop_server else 5.0)
+
     # 4. Provision & Auto-Deploy terminal on MetaApi Cloud (with 3-attempt transient retry)
     client = MetaApiClient()
     prov = None
@@ -276,7 +281,7 @@ async def create_account(
                     user_id, enc_pwd, meta_id,
                     meta_state, cloud_expiry, cloud_expiry,
                     now_ts, risk_mult, 1 if is_compounding else 0,
-                    1 if is_prop else 0, p.prop_daily_dd_limit_pct, p.prop_profit_target_pct,
+                    1 if is_prop else 0, effective_dd_limit, p.prop_profit_target_pct,
                     account_id
                 ))
             else:
@@ -293,7 +298,7 @@ async def create_account(
                     meta_id, meta_state, '{"risk_percent": 1.0, "max_lot": 1.0, "multiplier": 1.0}', cloud_expiry,
                     cloud_expiry, 1, 0.0, 0.0, now_ts, now_ts,
                     risk_mult, 1 if is_compounding else 0, 1 if is_prop else 0,
-                    p.prop_daily_dd_limit_pct, p.prop_profit_target_pct
+                    effective_dd_limit, p.prop_profit_target_pct
                 ))
             # Also keep metaapi_cloud_accounts in sync for backwards compatibility
             c.execute("""

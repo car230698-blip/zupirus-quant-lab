@@ -41,7 +41,7 @@ def get_sources(status: Optional[str] = None, _admin=Depends(get_current_admin))
     sources = list_sources(status=status)
     with tx() as c:
         mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
-        active_mode = mode_row[0] if mode_row else "HYBRID"
+        active_mode = mode_row[0] if mode_row else "EXTERNAL_FEED"
         auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
         auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
         try:
