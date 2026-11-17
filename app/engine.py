@@ -347,7 +347,7 @@ def demo_step(c):
         }
     else:
         prices = [bar['close'] for bar in closed_candles]
-        decision = coordinate_strategies(prices, timeframe=tf)
+        decision = coordinate_strategies(prices, timeframe=tf, db_cursor=c)
         decision['candle_time'] = closed_candles[-1]['time']
         decision['version'] = STRATEGY_VERSION
 
@@ -434,7 +434,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         setkv(c, last_ts_key, str(latest_bar_ts))
 
         prices = [float(b["close"]) for b in bars_asc]
-        decision = coordinate_strategies(prices, timeframe="M15")
+        decision = coordinate_strategies(prices, timeframe="M15", db_cursor=c)
         side = force_side or decision.get("side")
         if not side:
             setkv(c, "strategy_last_decision", json.dumps(decision, ensure_ascii=False))
@@ -596,6 +596,17 @@ def tick():
         setkv(c, 'execution_heartbeat', now)
         c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 7,))
         c.execute('DELETE FROM quotes WHERE ts<?', (now - 86400 * 2,))
+        if now - _last_sub_lifecycle_ts >= 3600.0:
+            for tbl, col in (
+                ('sessions', 'expires'),
+                ('otp_codes', 'expires_at'),
+                ('login_limits', 'locked_until'),
+                ('signal_dispatch_locks', 'expires_at'),
+            ):
+                try:
+                    c.execute(f'DELETE FROM {tbl} WHERE {col} IS NOT NULL AND {col} > 0 AND {col} < ?', (now,))
+                except Exception:
+                    pass
 
     # 1. Fetch live market quotes & M1/M15 candles round-robin across XAUUSD & major FX pairs (outside pytest)
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_market_feed_ts >= 3.0:

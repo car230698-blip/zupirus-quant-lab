@@ -270,6 +270,28 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     }
   };
 
+  const handleSyncAccount = async (accountId: string) => {
+    setCloudBusy(true);
+    try {
+      const res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/sync`, {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+        credentials: 'include',
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setCloudMsg(`Đã đồng bộ số dư mới nhất từ sàn cho tài khoản #${accountId}.`);
+        refetchAccounts();
+      } else {
+        setCloudMsg(`Lỗi đồng bộ số dư: ${formatApiError(d, res.status)}`);
+      }
+    } catch (e: any) {
+      setCloudMsg(`Lỗi kết nối đồng bộ: ${e.message}`);
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
   const handleCloudDeployToggle = async (accountId: string, action: 'deploy' | 'undeploy') => {
     setCloudBusy(true);
     try {
@@ -409,7 +431,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 
   const estimatedUsd = calculateEstimateUsd();
   const currentRate = fxRateData?.usd_vnd_rate || 25500;
-  const estimatedVnd = Math.round((estimatedUsd * currentRate) / 1000) * 1000;
+  const estimatedVnd = Math.ceil((estimatedUsd * currentRate) / 1000) * 1000;
 
   return (
     <div className="space-y-6">
@@ -776,6 +798,16 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={cloudBusy}
+                        onClick={() => handleSyncAccount(id)}
+                        className="quant-btn-secondary px-3 py-1.5 text-xs whitespace-nowrap shrink-0"
+                        title="Đồng bộ Balance/Equity từ MetaApi"
+                      >
+                        Đồng bộ
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => handleOpenEditConfig(acc)}

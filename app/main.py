@@ -40,9 +40,14 @@ ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://zupirus.com,https://app.zupirus.
 @app.middleware('http')
 async def perimeter(request: Request, call_next):
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
-        length = request.headers.get('content-length', '0')
-        if not length.isdigit() or int(length) > 3_000_000:
-            return JSONResponse({'detail': 'Body too large'}, 413)
+        raw_len = request.headers.get('content-length')
+        if raw_len is not None:
+            if not raw_len.isdigit() or int(raw_len) > 3_000_000:
+                return JSONResponse({'detail': 'Body too large'}, 413)
+        elif 'chunked' in request.headers.get('transfer-encoding', '').lower():
+            body_bytes = await request.body()
+            if len(body_bytes) > 3_000_000:
+                return JSONResponse({'detail': 'Body too large'}, 413)
         # External webhooks bypass browser origin checks
         if request.url.path.startswith('/api/v1/webhooks') or request.url.path.startswith('/api/sepay') or request.url.path == '/api/webhooks/sepay':
             return await call_next(request)
@@ -2077,8 +2082,11 @@ class CombinedStaticFiles(StaticFiles):
     def lookup_path(self, path: str):
         full_path, stat_result = super().lookup_path(path)
         if stat_result is None and self.fallback_dir:
+            clean_rel = path.lstrip("/\\")
+            if clean_rel.endswith((".ts", ".tsx", ".map")) or clean_rel.split("/")[-1] in ("tsconfig.json", "package.json"):
+                return full_path, None
             base_dir = self.fallback_dir.resolve()
-            fallback_file = (base_dir / path.lstrip("/\\")).resolve()
+            fallback_file = (base_dir / clean_rel).resolve()
             if fallback_file.is_relative_to(base_dir) and fallback_file.is_file():
                 try:
                     return str(fallback_file), os.stat(fallback_file)

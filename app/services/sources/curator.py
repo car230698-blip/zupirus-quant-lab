@@ -574,7 +574,7 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
             new_status = "ACTIVE_LIVE" if is_qualified and active_count < MAX_ACTIVE_LIVE_SOURCES else source["status"]
             c.execute("UPDATE signal_sources SET updated_at = ? WHERE id = ?", (now_ts, source_id))
 
-            trades_sim = max(len(signals), 25) if (candle_count > 0 or len(signals) > 0 or days >= 30) else len(signals)
+            trades_sim = len(signals)
             return {
                 "ok": True,
                 "source_id": source_id,
@@ -590,7 +590,7 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
                 "simulated_trades": trades_sim,
                 "days_replayed": days,
                 "candles_available": candle_count,
-                "note": "Kiểm định dựa trên dữ liệu thực tế đã ghi nhận trong hệ thống."
+                "note": "Kiểm định dựa trên dữ liệu thực tế đã ghi nhận trong hệ thống." if len(signals) >= 5 else "Chưa đủ >= 5 tín hiệu thực tế để đánh giá thăng hạng.",
             }
 
 

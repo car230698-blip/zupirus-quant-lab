@@ -1045,7 +1045,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   [
                     ['MONTHLY', '1 Tháng'],
                     ['QUARTERLY', '3 Tháng (-10%)'],
-                    ['ANNUAL', '12 Tháng (-25%)'],
+                    ['ANNUAL', '12 Tháng (-20%)'],
                   ] as [BillingCycle, string][]
                 ).map(([cycle, label]) => (
                   <button

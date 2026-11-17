@@ -309,6 +309,25 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                     <button
                       type="button"
                       onClick={async () => {
+                        const np = window.prompt(`Nhập mật khẩu mới (>= 12 ký tự) cho ${usr.email}:`);
+                        if (!np || np.length < 12) {
+                          if (np !== null) setMsg('Mật khẩu mới phải tối thiểu 12 ký tự.');
+                          return;
+                        }
+                        const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}/password`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                          body: JSON.stringify({ new_password: np }),
+                        });
+                        setMsg(r.ok ? `Đã đặt lại mật khẩu cho ${usr.email}.` : 'Không thể đặt lại mật khẩu.');
+                      }}
+                      className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500/20 cursor-pointer"
+                    >
+                      Đặt lại MK
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
                         const nextRole = usr.role === 'admin' ? 'customer' : 'admin';
                         const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}/role`, {
                           method: 'PUT',

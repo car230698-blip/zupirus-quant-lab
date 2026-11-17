@@ -134,7 +134,7 @@ def send_sentinel_alert(
     email: str,
     event_title: str,
     impact: str,
-    blackout_minutes: int = 30
+    blackout_minutes: int = 15
 ) -> Dict[str, Any]:
     """Send an urgent Sentinel Agent Macro Blackout notification."""
     subject = f"🚨 [SENTINEL BLACKOUT] Kích hoạt khóa vị thế vĩ mô: {event_title}"

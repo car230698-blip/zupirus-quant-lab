@@ -56,6 +56,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
       REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zupirus.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin_secure_change_me_2026}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
@@ -72,13 +74,9 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
       TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET:-}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
     ports: ["127.0.0.1:8080:8000"]
     networks:
-      private:
-      npm_default:
-        aliases:
-          - zupirus-api
+      - private
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz',timeout=3)"]
       interval: 10s
@@ -97,6 +95,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
       REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
     healthcheck:
       test: [CMD, python, scripts/worker_health.py, execution_heartbeat]
       interval: 15s
@@ -115,6 +115,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
       REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
       AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
@@ -126,7 +128,6 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
       TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET:-}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
     healthcheck:
       test: [CMD, python, scripts/worker_health.py, research_heartbeat]
       interval: 15s
@@ -173,5 +174,3 @@ volumes:
 
 networks:
   private:
-  npm_default:
-    external: true

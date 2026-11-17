@@ -102,6 +102,11 @@ export function PortalShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [quantTheme, setQuantTheme] = useState<'gold' | 'cyber'>('gold');
+  const [pwdModalOpen, setPwdModalOpen] = useState(false);
+  const [curPwd, setCurPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [pwdBusy, setPwdBusy] = useState(false);
+  const [pwdMsg, setPwdMsg] = useState<string | null>(null);
   const { data: telemetryData } = useLiveTopbarTelemetry();
 
   const liveSpot = {
@@ -168,7 +173,7 @@ export function PortalShell({
         <div className={`flex items-center ${sidebarCollapsed ? 'flex-col gap-3' : 'justify-between gap-2'}`}>
           <Brand
             collapsed={sidebarCollapsed}
-            onClick={() => onNavigate('overview')}
+            onClick={() => onNavigate(portal === 'admin' ? 'radar' : 'overview')}
           />
           <button
             type="button"
@@ -379,6 +384,18 @@ export function PortalShell({
               {email}
             </span>
             <button
+              type="button"
+              onClick={() => {
+                setPwdMsg(null);
+                setCurPwd('');
+                setNewPwd('');
+                setPwdModalOpen(true);
+              }}
+              className="quant-quiet hover:border-cyan-500/50 hover:text-cyan-300"
+            >
+              Đổi MK
+            </button>
+            <button
               className="quant-quiet hover:border-rose-500/50 hover:text-rose-300"
               onClick={logout}
             >
@@ -572,6 +589,95 @@ export function PortalShell({
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password Modal */}
+      {pwdModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md"
+          onClick={() => setPwdModalOpen(false)}
+        >
+          <div
+            className="quant-panel w-full max-w-md border-cyan-500/40 p-5 space-y-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <span className="font-mono text-xs font-bold uppercase tracking-widest text-cyan-300">
+                Đổi Mật Khẩu Bảo Mật
+              </span>
+              <button
+                type="button"
+                onClick={() => setPwdModalOpen(false)}
+                className="rounded-lg border border-white/10 px-2 py-0.5 text-[11px] font-mono text-slate-400 hover:text-white cursor-pointer"
+              >
+                ESC
+              </button>
+            </div>
+            <form
+              className="space-y-3"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setPwdBusy(true);
+                setPwdMsg(null);
+                try {
+                  const res = await fetch('/api/auth/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                    credentials: 'include',
+                    body: JSON.stringify({ current_password: curPwd, new_password: newPwd }),
+                  });
+                  const d = await res.json().catch(() => ({}));
+                  if (res.ok) {
+                    setPwdMsg('✓ Đã đổi mật khẩu thành công.');
+                    setCurPwd('');
+                    setNewPwd('');
+                  } else {
+                    setPwdMsg(`Lỗi: ${d.detail || res.status}`);
+                  }
+                } catch (err: any) {
+                  setPwdMsg(`Lỗi mạng: ${err.message}`);
+                } finally {
+                  setPwdBusy(false);
+                }
+              }}
+            >
+              <input
+                type="password"
+                required
+                value={curPwd}
+                onChange={(e) => setCurPwd(e.target.value)}
+                placeholder="Mật khẩu hiện tại"
+                className="quant-input text-xs"
+              />
+              <input
+                type="password"
+                required
+                minLength={12}
+                value={newPwd}
+                onChange={(e) => setNewPwd(e.target.value)}
+                placeholder="Mật khẩu mới (tối thiểu 12 ký tự)"
+                className="quant-input text-xs"
+              />
+              {pwdMsg && (
+                <div className="rounded-lg border border-cyan-500/30 bg-cyan-950/30 px-3 py-2 text-xs text-cyan-200">
+                  {pwdMsg}
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPwdModalOpen(false)}
+                  className="quant-btn-secondary px-3 py-1.5 text-xs"
+                >
+                  Đóng
+                </button>
+                <button type="submit" disabled={pwdBusy} className="quant-btn-primary px-4 py-1.5 text-xs">
+                  {pwdBusy ? 'Đang lưu...' : 'Cập nhật mật khẩu'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -914,8 +1020,8 @@ export function PortalAuth({
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
                 autoComplete={register || forgotMode ? 'new-password' : 'current-password'}
-                minLength={forgotMode ? 12 : register ? 8 : undefined}
-                placeholder={forgotMode ? 'Tối thiểu 12 ký tự' : register ? 'Tối thiểu 8 ký tự' : 'Nhập mật khẩu bảo mật'}
+                minLength={forgotMode || register ? 12 : undefined}
+                placeholder={forgotMode || register ? 'Tối thiểu 12 ký tự' : 'Nhập mật khẩu bảo mật'}
                 required
                 className="mt-1.5"
               />

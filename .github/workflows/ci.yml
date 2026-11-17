@@ -84,4 +84,6 @@ jobs:
         run: npm run build
 
       - name: Run Frontend Tests
-        run: npm test
+        run: |
+          npm test
+          npx --yes tsx --test web/src/utils/quantMath.test.ts

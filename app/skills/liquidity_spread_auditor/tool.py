@@ -37,14 +37,16 @@ def audit_liquidity_and_spread(
                 (symbol, now_ts - 300, now_ts + 60)
             ).fetchone()
             if row and row[0] and row[1]:
+                from app.services.symbol_precision import pip_multiplier_for_symbol
                 diff = abs(float(row[1]) - float(row[0]))
-                observed_spread_pips = round(diff * (10 if "XAU" in symbol else 10000), 1)
+                observed_spread_pips = round(diff * pip_multiplier_for_symbol(symbol), 1)
     except Exception:
         observed_spread_pips = 3.5
 
     # 3. Calculate distance between exit and stop loss
+    from app.services.symbol_precision import pip_multiplier_for_symbol
     diff_val = abs(exit_price - stop_loss) if stop_loss > 0 else 0.0
-    mult = 10 if "XAU" in symbol or "GOLD" in symbol else 10000
+    mult = pip_multiplier_for_symbol(symbol)
     dist_pips = round(diff_val * mult, 1)
 
     # 4. Diagnose loss category
@@ -54,7 +56,7 @@ def audit_liquidity_and_spread(
             f"Lệnh bị đóng trong khung giờ giao phiên / giãn spread ({observed_spread_pips} pips). "
             f"Giá mid thị trường có thể chưa thực sự phá vỡ cấu trúc kỹ thuật."
         )
-    elif dist_pips <= 3.5 and dist_pips >= 0.0:
+    elif dist_pips <= 3.0 and dist_pips >= 0.0:
         category = "LIQUIDITY_SWEEP"
         notes = (
             f"Vị thế chỉ bị quét qua SL {dist_pips} pips. Mô hình điển hình của Liquidity Sweep "

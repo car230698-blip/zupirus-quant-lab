@@ -462,6 +462,101 @@ export const AdminAIEvolutionTab: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Learned Skills & Research WFO Operations */}
+      <div className="quant-panel p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+          <div>
+            <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">
+              Quản Trị Kỹ Năng Tự Học &amp; Kiểm Định WFO
+            </div>
+            <h3 className="mt-1 text-base font-bold text-white">
+              Bật/Tắt Agent Skills, Chạy Walk-Forward &amp; Test Ingest Tín Hiệu
+            </h3>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const r = await fetch('/api/admin/research/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                  });
+                  const d = await r.json().catch(() => ({}));
+                  setMsg(r.ok ? 'Đã kích hoạt chạy kiểm định WFO Research.' : `Lỗi WFO: ${d.detail || r.status}`);
+                  await loadAll();
+                } catch (e: any) {
+                  setMsg(`Lỗi mạng: ${e.message}`);
+                }
+              }}
+              className="rounded-xl border border-cyan-500/40 bg-cyan-500/15 px-3 py-1.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/25 cursor-pointer"
+            >
+              + Chạy WFO Research
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const r = await fetch('/api/v1/signals/test-ingest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                    body: JSON.stringify({ symbol: 'XAUUSD', action: 'BUY', source: 'ADMIN_BENCH' }),
+                  });
+                  const d = await r.json().catch(() => ({}));
+                  setMsg(r.ok ? `Test Ingest: ${d.status || 'OK'} (${d.reason || '4-Layer Checked'})` : `Lỗi Test Ingest: ${d.detail || r.status}`);
+                } catch (e: any) {
+                  setMsg(`Lỗi mạng: ${e.message}`);
+                }
+              }}
+              className="rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-bold text-amber-300 hover:bg-amber-500/25 cursor-pointer"
+            >
+              Test Ingest 4-Layer
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {[...(evo.skills_builtin || []), ...(evo.skills_learned || [])].map((sk: any) => (
+            <div
+              key={sk.skill_id}
+              className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-[#040710]/70 px-3 py-2 text-xs"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-mono font-bold text-slate-200">{sk.name || sk.skill_id}</div>
+                <div className="text-[10px] text-slate-400">
+                  {sk.is_builtin ? 'Builtin' : 'Learned'} · Dùng {sk.usage_count || 0} lần
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const r = await fetch(`/api/admin/skills/${encodeURIComponent(sk.skill_id)}/toggle`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                      body: JSON.stringify({ enabled: !sk.enabled }),
+                    });
+                    if (r.ok) {
+                      setMsg(`Đã ${sk.enabled ? 'tắt' : 'bật'} skill ${sk.skill_id}.`);
+                      await loadAll();
+                    }
+                  } catch (e: any) {
+                    setMsg(`Lỗi toggle skill: ${e.message}`);
+                  }
+                }}
+                className={`rounded-lg px-2.5 py-1 text-[10px] font-bold cursor-pointer ${
+                  sk.enabled
+                    ? 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                    : 'border border-slate-600 bg-slate-800 text-slate-400'
+                }`}
+              >
+                {sk.enabled ? 'ACTIVE' : 'DISABLED'}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };

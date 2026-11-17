@@ -66,7 +66,7 @@ def calculate_normalized_lot_size(
     if equity <= 0 or sl_distance_points <= 0 or contract_size <= 0:
         return 0.0
 
-    eff_multiplier = max(0.5, min(risk_multiplier, 3.0))
+    eff_multiplier = max(0.01, min(risk_multiplier, 10.0))
     risk_amount = equity * (risk_pct * eff_multiplier / 100.0)
 
     # For XAUUSD: 1 point = 0.01 USD. 1 standard lot = 100 oz.

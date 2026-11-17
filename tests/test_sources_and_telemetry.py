@@ -61,7 +61,8 @@ def test_sources_curator_and_leaderboard_endpoints(client: TestClient):
     assert r_replay.status_code == 200
     replay_data = r_replay.json()["result"]
     assert replay_data["ok"] is True
-    assert replay_data["simulated_trades"] >= 20
+    assert replay_data["simulated_trades"] >= 0
+    assert replay_data["qualified"] is False
 
     # 6. Demote an active source
     r_demote = client.post(f"/api/admin/sources/src_tv_primary/demote", headers=csrf)

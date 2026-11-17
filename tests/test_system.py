@@ -29,7 +29,7 @@ def test_health_and_static(client):
     assert client.get('/healthz').json()['real_trading'] is False
     r=client.get('/');assert r.status_code==200 and 'ZUPIRUS' in r.text
     assert "frame-ancestors 'none'" in r.headers['content-security-policy']
-    assert client.get('/assets/tsconfig.json').status_code==200
+    assert client.get('/assets/tsconfig.json').status_code == 404
 
 def test_no_anonymous_access(client):
     assert client.get('/api/dashboard').status_code==401

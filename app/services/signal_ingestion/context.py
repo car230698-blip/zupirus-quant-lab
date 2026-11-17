@@ -104,7 +104,8 @@ def capture_market_context_snapshot(
     atr_14 = get_market_atr14(c, signal.symbol, "M15")
     news_dist_mins, news_title = get_nearest_news_info(c, current_time)
     spread_pips = get_live_spread(c, signal.symbol)
-    drift_pips = round(abs(live_price - signal.entry_price) * 10.0, 1)
+    from app.services.symbol_precision import pip_multiplier_for_symbol
+    drift_pips = round(abs(live_price - signal.entry_price) * pip_multiplier_for_symbol(signal.symbol), 1)
 
     return {
         "session": session,

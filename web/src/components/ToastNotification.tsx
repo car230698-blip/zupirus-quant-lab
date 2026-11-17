@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error';
@@ -17,6 +17,8 @@ export const ToastNotification: React.FC<ToastProps> = ({
   duration = 4000,
 }) => {
   const [progress, setProgress] = useState(100);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!message) return;
@@ -28,11 +30,11 @@ export const ToastNotification: React.FC<ToastProps> = ({
       setProgress(remaining);
       if (remaining <= 0) {
         clearInterval(interval);
-        onClose();
+        onCloseRef.current();
       }
     }, 40);
     return () => clearInterval(interval);
-  }, [message, duration, onClose]);
+  }, [message, duration]);
 
   if (!message || typeof document === 'undefined') return null;
 
