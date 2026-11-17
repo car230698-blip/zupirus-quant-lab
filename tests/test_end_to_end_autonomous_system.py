@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app import db, research
 from app.db import tx
 from app.calendar_sync import sync_economic_calendar
 from app.services.sources.streamer import MarketDataStreamer
@@ -31,6 +32,17 @@ from app.services.billing_service import create_checkout_order, process_successf
 from app.services.subscription_lifecycle import run_subscription_lifecycle_cycle
 from app.research import run_autonomous_induction_and_wfo
 from app.engine import autonomous_agent_step_async
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(db, "_pg_pool", None)
+    monkeypatch.setattr(db, "DB", tmp_path / "lab.sqlite3")
+    monkeypatch.setattr(db, "DATA", tmp_path)
+    monkeypatch.setattr(research, "DATA", tmp_path)
+    db.init()
 
 
 @pytest.mark.asyncio

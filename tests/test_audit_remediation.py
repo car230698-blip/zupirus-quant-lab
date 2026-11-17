@@ -6,9 +6,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app import db, research
 from app.db import tx, setkv
 from app.routers.telemetry import get_live_xauusd_quote
 from app.research import discover_candidate_from_observations
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(db, "_pg_pool", None)
+    monkeypatch.setattr(db, "DB", tmp_path / "lab.sqlite3")
+    monkeypatch.setattr(db, "DATA", tmp_path)
+    monkeypatch.setattr(research, "DATA", tmp_path)
+    db.init()
 
 
 @pytest.fixture

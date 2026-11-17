@@ -133,6 +133,7 @@ export function zupirusApiPlugin(): Plugin {
 
   let replayIdx = 42;
   let halted = false;
+  let devSession: { email: string; role: string } | null = null;
 
   const accounts: Array<Record<string, any>> = [
     {
@@ -544,17 +545,32 @@ export function zupirusApiPlugin(): Plugin {
 
     // Auth & Session endpoints
     if (pathname === '/api/me' && method === 'GET') {
-      return sendJson(res, 200, { email: 'admin@zupirus.local', role: 'admin' });
+      if (!devSession) {
+        return sendJson(res, 401, { detail: 'Authentication required' });
+      }
+      return sendJson(res, 200, devSession);
     }
     if (pathname === '/api/login' && method === 'POST') {
       const body = await readJsonBody(req);
-      return sendJson(res, 200, { email: body.email || 'admin@zupirus.local', role: 'admin' });
+      const email = String(body.email || 'user@example.com');
+      const role = email.includes('admin') ? 'admin' : 'customer';
+      devSession = { email, role };
+      return sendJson(res, 200, devSession);
     }
     if (pathname === '/api/register' && method === 'POST') {
       return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/logout' && method === 'POST') {
+      devSession = null;
       return sendJson(res, 200, { ok: true });
+    }
+    if (
+      (pathname === '/api/auth/forgot-password' ||
+        pathname === '/api/auth/reset-password' ||
+        pathname === '/api/auth/change-password') &&
+      method === 'POST'
+    ) {
+      return sendJson(res, 200, { ok: true, message: 'OK' });
     }
 
     // Dashboard
@@ -2185,6 +2201,30 @@ export function zupirusApiPlugin(): Plugin {
           },
         },
       });
+    }
+
+    if (pathname === '/api/admin/research' && method === 'POST') {
+      return sendJson(res, 200, { id: 'job_dev_01' });
+    }
+    if (pathname === '/api/admin/news/sync' && method === 'POST') {
+      return sendJson(res, 200, { ok: true, synced: 3 });
+    }
+    if (pathname === '/api/v1/signals/test-ingest' && method === 'POST') {
+      return sendJson(res, 200, { status: 'APPROVED', reason: '4-Layer Checked (Dev)' });
+    }
+    if (pathname?.startsWith('/api/admin/skills/') && method === 'PATCH') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, { ok: true, enabled: Boolean(body.enabled) });
+    }
+    if (pathname === '/api/admin/users' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, { id: 'usr_dev_new', email: body.email, role: body.role || 'customer' });
+    }
+    if (pathname?.startsWith('/api/admin/users/') && pathname.endsWith('/password') && method === 'PUT') {
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname?.startsWith('/api/admin/users/') && pathname.endsWith('/role') && method === 'PUT') {
+      return sendJson(res, 200, { ok: true });
     }
 
     return sendJson(res, 404, { detail: `Endpoint not found: ${method} ${pathname}` });

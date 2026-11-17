@@ -479,7 +479,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
               type="button"
               onClick={async () => {
                 try {
-                  const r = await fetch('/api/admin/research/run', {
+                  const r = await fetch('/api/admin/research', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
                   });
@@ -550,8 +550,8 @@ export const AdminAIEvolutionTab: React.FC = () => {
                 type="button"
                 onClick={async () => {
                   try {
-                    const r = await fetch(`/api/admin/skills/${encodeURIComponent(sk.skill_id)}/toggle`, {
-                      method: 'POST',
+                    const r = await fetch(`/api/admin/skills/${encodeURIComponent(sk.skill_id)}`, {
+                      method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
                       body: JSON.stringify({ enabled: !sk.enabled }),
                     });

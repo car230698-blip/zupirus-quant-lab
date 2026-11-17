@@ -10,6 +10,7 @@ import time
 from unittest.mock import AsyncMock
 import pytest
 
+from app import db, research
 from app.db import tx
 from app.calendar_sync import sync_economic_calendar
 from app.services.sources.streamer import MarketDataStreamer
@@ -21,6 +22,17 @@ from app.metaapi import MetaApiClient, execute_fan_out_for_signal
 from app.services.execution.watcher import PositionWatcher
 from app.research import run_autonomous_induction_and_wfo
 from app.engine import autonomous_agent_step_async
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(db, "_pg_pool", None)
+    monkeypatch.setattr(db, "DB", tmp_path / "lab.sqlite3")
+    monkeypatch.setattr(db, "DATA", tmp_path)
+    monkeypatch.setattr(research, "DATA", tmp_path)
+    db.init()
 
 
 @pytest.mark.asyncio
