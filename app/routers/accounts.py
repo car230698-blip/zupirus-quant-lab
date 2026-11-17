@@ -73,6 +73,7 @@ def _row_to_account_response(row: dict) -> dict:
         "lot_multiplier": mult_val,
         "is_compounding": bool(row.get("is_compounding", 0)),
         "is_prop_firm_mode": bool(row.get("is_prop_firm_mode", 0)),
+        "prop_stage": str(row.get("prop_stage") or rc.get("prop_stage") or "CHALLENGE").upper(),
         "auto_be_partial_tp": bool(row.get("auto_be_partial_tp", 0)),
         "prop_daily_dd_limit_pct": dd_val,
         "max_daily_dd_pct": dd_val,
@@ -266,6 +267,10 @@ async def create_account(
     # Cloud expiration defaults to 30 days or matches subscription
     cloud_expiry = sub.get("service_expires_at") or (now_ts + 30 * 86400)
 
+    prop_stage_val = str(p.prop_stage or "CHALLENGE").upper()
+    if prop_stage_val not in ("CHALLENGE", "LIVE"):
+        prop_stage_val = "CHALLENGE"
+
     with tx() as c:
         try:
             if existing_same_acc:
@@ -274,13 +279,13 @@ async def create_account(
                         user_id=?, encrypted_master_password=?, metaapi_account_id=?,
                         deployment_state=?, subscription_expires_at=?, cloud_expires_at=?,
                         auto_trade=1, last_sync=?, risk_multiplier=?, is_compounding=?,
-                        is_prop_firm_mode=?, prop_daily_dd_limit_pct=?, prop_profit_target_pct=?
+                        is_prop_firm_mode=?, prop_stage=?, prop_daily_dd_limit_pct=?, prop_profit_target_pct=?
                     WHERE id=?
                 """, (
                     user_id, enc_pwd, meta_id,
                     meta_state, cloud_expiry, cloud_expiry,
                     now_ts, risk_mult, 1 if is_compounding else 0,
-                    1 if is_prop else 0, effective_dd_limit, p.prop_profit_target_pct,
+                    1 if is_prop else 0, prop_stage_val, effective_dd_limit, p.prop_profit_target_pct,
                     account_id
                 ))
             else:
@@ -289,14 +294,14 @@ async def create_account(
                         id, user_id, mt5_login, encrypted_master_password, broker_server,
                         metaapi_account_id, deployment_state, risk_config, subscription_expires_at,
                         cloud_expires_at, auto_trade, balance, equity, created_at, last_sync,
-                        risk_multiplier, is_compounding, is_prop_firm_mode,
+                        risk_multiplier, is_compounding, is_prop_firm_mode, prop_stage,
                         prop_daily_dd_limit_pct, prop_profit_target_pct
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     account_id, user_id, p.login, enc_pwd, p.server,
                     meta_id, meta_state, '{"risk_percent": 1.0, "max_lot": 1.0, "multiplier": 1.0}', cloud_expiry,
                     cloud_expiry, 1, 0.0, 0.0, now_ts, now_ts,
-                    risk_mult, 1 if is_compounding else 0, 1 if is_prop else 0,
+                    risk_mult, 1 if is_compounding else 0, 1 if is_prop else 0, prop_stage_val,
                     effective_dd_limit, p.prop_profit_target_pct
                 ))
             # Also keep metaapi_cloud_accounts in sync for backwards compatibility
@@ -470,6 +475,13 @@ def update_account_risk(
             updates.append("is_prop_firm_mode=?")
             params.append(1 if p.is_prop_firm_mode else 0)
             rc["is_prop_firm_mode"] = bool(p.is_prop_firm_mode)
+
+        if p.prop_stage is not None:
+            stage_clean = str(p.prop_stage).upper()
+            if stage_clean in ("CHALLENGE", "LIVE"):
+                updates.append("prop_stage=?")
+                params.append(stage_clean)
+                rc["prop_stage"] = stage_clean
 
         if p.auto_be_partial_tp is not None:
             updates.append("auto_be_partial_tp=?")

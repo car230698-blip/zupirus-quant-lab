@@ -482,7 +482,8 @@ async def execute_fan_out_for_signal(
                         (symbol,)
                     ).fetchone()
                     if q_row and q_row[0] and q_row[1]:
-                        broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * 10, 1)
+                        from app.services.symbol_precision import pip_multiplier_for_symbol
+                        broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * pip_multiplier_for_symbol(symbol), 1)
             except Exception:
                 pass
         if broker_spread <= 0 and metaapi_client and getattr(metaapi_client, "is_mock", False):
@@ -552,15 +553,84 @@ async def execute_fan_out_for_signal(
         t_val = float(acc.get("tick_value") or 1.0)
         is_cent_acc = acc.get("account_type") == "CENT" or acc.get("currency") in ("USC", "EUC") or c_size <= 1.0
 
+        is_prop_mode = bool(acc.get("is_prop_firm_mode"))
+        prop_stage = str(acc.get("prop_stage") or "CHALLENGE").upper()
+        effective_risk_pct = risk_pct
+        effective_mult = mult
+
+        if is_prop_mode:
+            # Check profit-target throttle flag (halve risk when >= 80% of prop profit target achieved)
+            try:
+                from app.db import tx, getkv
+                with tx() as c:
+                    if getkv(c, f"prop_target_throttle:{acc_id}") == "1":
+                        effective_risk_pct = effective_risk_pct * 0.5
+            except Exception:
+                pass
+
+        if is_prop_mode and prop_stage == "LIVE" and metaapi_client:
+            try:
+                from app.config import MAX_CONCURRENT_TRADES_PER_ACCOUNT
+                from app.services.symbol_precision import quote_to_usd_rate
+                open_positions = await metaapi_client.get_open_positions(meta_id) or []
+                if len(open_positions) >= MAX_CONCURRENT_TRADES_PER_ACCOUNT:
+                    logger.info(
+                        f"Account {acc_id} (PROP LIVE) skipped: PROP_MAX_CONCURRENT_TRADES_REACHED "
+                        f"({len(open_positions)} >= {MAX_CONCURRENT_TRADES_PER_ACCOUNT})."
+                    )
+                    continue
+
+                is_xau_sym = any(k in symbol.upper() for k in ("XAU", "GOLD", "XAG", "SILVER"))
+                eff_contract = c_size if is_xau_sym else (1000.0 if is_cent_acc else 100000.0)
+                open_idea_risk_pct = 0.0
+                sym_upper = symbol.upper()
+                broker_upper = broker_sym.upper()
+
+                for pos in open_positions:
+                    pos_sym = str(pos.get("symbol") or "").upper()
+                    if pos_sym != broker_upper and not pos_sym.startswith(sym_upper):
+                        continue
+                    pos_type = str(pos.get("type") or "").upper()
+                    pos_side = "BUY" if "BUY" in pos_type else ("SELL" if "SELL" in pos_type else "")
+                    if pos_side != action:
+                        continue
+                    pos_open = float(pos.get("openPrice") or 0.0)
+                    pos_sl = float(pos.get("stopLoss") or 0.0)
+                    pos_vol = float(pos.get("volume") or 0.0)
+                    if pos_open <= 0 or pos_vol <= 0:
+                        continue
+                    if pos_sl <= 0:
+                        open_idea_risk_pct += effective_risk_pct * effective_mult
+                        continue
+                    is_pos_buy = (pos_side == "BUY")
+                    still_at_risk = (is_pos_buy and pos_sl < pos_open) or (not is_pos_buy and pos_sl > pos_open)
+                    if still_at_risk:
+                        pos_risk_usd = abs(pos_open - pos_sl) * pos_vol * eff_contract * quote_to_usd_rate(symbol, pos_open)
+                        open_idea_risk_pct += (pos_risk_usd / base_capital) * 100.0
+
+                remaining_idea_risk_pct = max(0.0, 1.0 - open_idea_risk_pct)
+                if remaining_idea_risk_pct <= 0.05:
+                    logger.info(
+                        f"Account {acc_id} (PROP LIVE) skipped: PROP_LIVE_IDEA_RISK_CAP_1PCT "
+                        f"(open={open_idea_risk_pct:.2f}%, remaining={remaining_idea_risk_pct:.2f}%)."
+                    )
+                    continue
+                capped_risk = min(effective_risk_pct * effective_mult, remaining_idea_risk_pct)
+                effective_risk_pct = capped_risk
+                effective_mult = 1.0
+            except Exception as prop_err:
+                logger.warning(f"Prop Live idea risk check note for {acc_id}: {prop_err}")
+
         volume = calculate_normalized_lot_size(
             equity=base_capital,
-            risk_pct=risk_pct,
+            risk_pct=effective_risk_pct,
             sl_distance_points=sl_points,
             contract_size=c_size,
             tick_value=t_val,
-            risk_multiplier=mult,
+            risk_multiplier=effective_mult,
             max_lot=max_lot,
-            is_cent=is_cent_acc
+            is_cent=is_cent_acc,
+            symbol=symbol,
         )
 
         if volume <= 0:

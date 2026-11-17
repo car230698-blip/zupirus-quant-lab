@@ -496,7 +496,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 """
                 SELECT a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
                        a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
-                       a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
+                       a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
                        a.account_type, a.contract_size,
                        s.allow_alpha_strategies
                 FROM trading_accounts a

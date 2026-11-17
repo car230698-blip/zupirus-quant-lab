@@ -85,7 +85,7 @@ class PositionWatcher:
                 """
                 SELECT t.id, t.user_id, t.metaapi_account_id, t.auto_trade,
                        t.balance, t.equity, t.risk_config, t.auto_be_partial_tp,
-                       t.is_prop_firm_mode, t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
+                       t.is_prop_firm_mode, t.prop_stage, t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
                        t.account_type, t.contract_size,
                        COALESCE(s.plan_tier, 'starter') AS plan_tier
                 FROM trading_accounts t
@@ -169,6 +169,68 @@ class PositionWatcher:
                         except Exception:
                             pass
                         continue
+
+                # 2B. Prop Firm Exclusive Protections (only when is_prop_firm_mode is explicitly enabled; personal accounts unaffected)
+                if bool(acc.get("is_prop_firm_mode")):
+                    hwm_equity = current_equity
+                    init_bal = current_balance
+                    with tx() as c:
+                        hwm_key = f"prop_hwm_equity:{acc_id}"
+                        hwm_val = getkv(c, hwm_key)
+                        if hwm_val:
+                            try:
+                                hwm_equity = max(float(hwm_val), current_equity)
+                            except Exception:
+                                hwm_equity = current_equity
+                        if not hwm_val or current_equity > float(hwm_val or 0.0):
+                            setkv(c, hwm_key, str(hwm_equity))
+
+                        init_key = f"prop_initial_bal:{acc_id}"
+                        init_val = getkv(c, init_key)
+                        if init_val:
+                            try:
+                                init_bal = float(init_val)
+                            except Exception:
+                                init_bal = current_balance
+                        else:
+                            setkv(c, init_key, str(current_balance))
+
+                        # Profit Target >= 80% -> halve new order risk
+                        target_pct = float(acc.get("prop_profit_target_pct") or 0.0)
+                        if target_pct > 0 and init_bal > 0:
+                            gain_pct = ((current_equity - init_bal) / init_bal) * 100.0
+                            if gain_pct >= 0.8 * target_pct:
+                                setkv(c, f"prop_target_throttle:{acc_id}", "1")
+
+                    # Max Overall / Trailing Drawdown >= 8.0% from HWM
+                    if hwm_equity > 0:
+                        trailing_dd_pct = ((hwm_equity - current_equity) / hwm_equity) * 100.0
+                        if trailing_dd_pct >= 8.0:
+                            logger.warning(
+                                f"PROP HWM BREACH: Account {acc_id} trailing DD {trailing_dd_pct:.2f}% >= 8.0% (HWM={hwm_equity:.2f}). Closing all."
+                            )
+                            close_res = await self.client.close_all_positions(meta_id)
+                            with tx() as c:
+                                c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
+                                setkv(c, f"drawdown_locked:{acc_id}", f"HWM_TRAILING_DD_{trailing_dd_pct:.2f}")
+                                audit(c, "prop_guard", "hwm_trailing_dd_triggered", {
+                                    "account_id": acc_id,
+                                    "trailing_dd_pct": round(trailing_dd_pct, 2),
+                                    "hwm_equity": hwm_equity,
+                                    "equity": current_equity,
+                                    "close_result": close_res,
+                                })
+                            results["prop_breakers_triggered"] += 1
+                            results["details"].append({"account_id": acc_id, "action": "PROP_HWM_TRAILING_LOCKED"})
+                            try:
+                                from app.mailer import send_admin_alert_email
+                                send_admin_alert_email(
+                                    f"Ngắt mạch HWM Trailing DD 8% tài khoản {acc_id}",
+                                    f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã đóng toàn bộ lệnh và khóa giao dịch.",
+                                )
+                            except Exception:
+                                pass
+                            continue
 
                 # 3. Friday 21:00 UTC Weekend Risk Close
                 if is_prop and is_friday_weekend:

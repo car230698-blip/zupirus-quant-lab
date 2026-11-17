@@ -86,6 +86,11 @@ MIGRATIONS = [
         "version": 16,
         "name": "016_architecture_isolation_locks_and_billing_states",
         "description": "Isolate Hindsight memories by user_id/scope, add signal_dispatch_locks, add orders UNDERPAID/entitlement/cloud states, and remove master feed source"
+    },
+    {
+        "version": 17,
+        "name": "017_prop_stage_classification",
+        "description": "Add prop_stage (CHALLENGE vs LIVE) to trading_accounts for Prop Firm Live risk caps"
     }
 ]
 
@@ -1352,6 +1357,16 @@ def apply_migration_016(c, is_pg: bool):
         pass
 
 
+def apply_migration_017(c, is_pg: bool):
+    """Add prop_stage column ('CHALLENGE' | 'LIVE') to trading_accounts."""
+    if is_pg:
+        c.execute("ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS prop_stage TEXT NOT NULL DEFAULT 'CHALLENGE';")
+    else:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(trading_accounts)").fetchall()]
+        if "prop_stage" not in cols:
+            c.execute("ALTER TABLE trading_accounts ADD COLUMN prop_stage TEXT NOT NULL DEFAULT 'CHALLENGE'")
+
+
 def run_all_migrations(c, is_pg: bool):
     """Run all pending migrations in order."""
     ensure_migration_table(c, is_pg)
@@ -1374,6 +1389,7 @@ def run_all_migrations(c, is_pg: bool):
         14: apply_migration_014,
         15: apply_migration_015,
         16: apply_migration_016,
+        17: apply_migration_017,
     }
 
     for m in MIGRATIONS:

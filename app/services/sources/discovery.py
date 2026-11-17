@@ -207,7 +207,7 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
                 """
                 SELECT t.id, t.user_id, t.metaapi_account_id, t.balance, t.equity,
                        t.risk_config, t.risk_multiplier, t.is_compounding, t.is_prop_firm_mode,
-                       t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
+                       t.prop_stage, t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
                        t.account_type, t.contract_size, t.max_lot, t.symbol_mapping_custom,
                        s.plan_tier, s.allow_alpha_strategies
                 FROM trading_accounts t

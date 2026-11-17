@@ -53,6 +53,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     mt5_server: '',
     lot_multiplier: '1.0',
     max_daily_dd_pct: '4.0',
+    is_prop_firm_mode: false,
+    prop_stage: 'CHALLENGE' as 'CHALLENGE' | 'LIVE',
   });
   const [cloudMsg, setCloudMsg] = useState('');
   const [cloudBusy, setCloudBusy] = useState(false);
@@ -76,6 +78,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     max_lot: '5.0',
     daily_profit_target_usd: '0',
     symbol_mapping_custom: '',
+    is_prop_firm_mode: false,
+    prop_stage: 'CHALLENGE' as 'CHALLENGE' | 'LIVE',
   });
 
   const fetchFxRate = async () => {
@@ -242,6 +246,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
           connection_type: 'CLOUD_METAAPI',
           risk_multiplier: mult,
           lot_multiplier: mult,
+          is_prop_firm_mode: cloudForm.is_prop_firm_mode,
+          prop_stage: cloudForm.is_prop_firm_mode ? cloudForm.prop_stage : 'CHALLENGE',
           prop_daily_dd_limit_pct: dd,
           max_daily_dd_pct: dd,
           disclaimer_accepted: true,
@@ -257,6 +263,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
           mt5_server: '',
           lot_multiplier: '1.0',
           max_daily_dd_pct: '4.0',
+          is_prop_firm_mode: false,
+          prop_stage: 'CHALLENGE',
         });
         refetchAccounts();
         fetchCloudSub();
@@ -376,6 +384,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       max_lot: String(acc.max_lot ?? 5.0),
       daily_profit_target_usd: String(acc.daily_profit_target_usd ?? 0),
       symbol_mapping_custom: String(acc.symbol_mapping_custom ?? ''),
+      is_prop_firm_mode: Boolean(acc.is_prop_firm_mode),
+      prop_stage: (String(acc.prop_stage || 'CHALLENGE').toUpperCase() === 'LIVE' ? 'LIVE' : 'CHALLENGE'),
     });
   };
 
@@ -397,6 +407,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
           max_lot: Number(editConfigForm.max_lot) || 5.0,
           daily_profit_target_usd: Number(editConfigForm.daily_profit_target_usd) || 0,
           symbol_mapping_custom: editConfigForm.symbol_mapping_custom.trim(),
+          is_prop_firm_mode: editConfigForm.is_prop_firm_mode,
+          prop_stage: editConfigForm.is_prop_firm_mode ? editConfigForm.prop_stage : 'CHALLENGE',
         }),
       });
       if (res.ok) {
@@ -690,6 +702,31 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   className="quant-input font-mono text-sm"
                 />
               </div>
+              <div className="sm:col-span-2 rounded-xl border border-white/10 bg-[#040710]/70 px-4 py-3 text-xs space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="inline-flex items-center gap-2 font-semibold text-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={cloudForm.is_prop_firm_mode}
+                      onChange={(e) => setCloudForm({ ...cloudForm, is_prop_firm_mode: e.target.checked })}
+                      className="rounded border-white/20 bg-slate-900"
+                    />
+                    <span>Tài khoản Quỹ (Prop Firm Guard — bỏ tick nếu là tài khoản Cá nhân)</span>
+                  </label>
+                  {cloudForm.is_prop_firm_mode && (
+                    <select
+                      value={cloudForm.prop_stage}
+                      onChange={(e) =>
+                        setCloudForm({ ...cloudForm, prop_stage: e.target.value as 'CHALLENGE' | 'LIVE' })
+                      }
+                      className="rounded-lg border border-amber-500/40 bg-[#050914] px-2.5 py-1 font-mono text-xs text-amber-300"
+                    >
+                      <option value="CHALLENGE">Đang thi (Challenge)</option>
+                      <option value="LIVE">Tài khoản Live (Funded — Trần 1%/ý tưởng)</option>
+                    </select>
+                  )}
+                </div>
+              </div>
               <div className="sm:col-span-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-200 flex items-center justify-between gap-3">
                 <div>
                   <div className="font-bold text-emerald-300">🛡️ Quản trị Rủi ro &amp; Chia Lot Tự Động 100%</div>
@@ -920,7 +957,35 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                           />
                         </div>
                       </div>
-                      <div className="mt-3 flex justify-end gap-2">
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-3 text-xs">
+                          <label className="inline-flex items-center gap-2 text-slate-300 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={editConfigForm.is_prop_firm_mode}
+                              onChange={(e) =>
+                                setEditConfigForm({ ...editConfigForm, is_prop_firm_mode: e.target.checked })
+                              }
+                            />
+                            <span>Chế độ Quỹ (Prop Firm)</span>
+                          </label>
+                          {editConfigForm.is_prop_firm_mode && (
+                            <select
+                              value={editConfigForm.prop_stage}
+                              onChange={(e) =>
+                                setEditConfigForm({
+                                  ...editConfigForm,
+                                  prop_stage: e.target.value as 'CHALLENGE' | 'LIVE',
+                                })
+                              }
+                              className="rounded-lg border border-amber-500/40 bg-[#050914] px-2 py-1 font-mono text-[11px] text-amber-300"
+                            >
+                              <option value="CHALLENGE">Đang thi (Challenge)</option>
+                              <option value="LIVE">Live (Funded — Trần 1%)</option>
+                            </select>
+                          )}
+                        </div>
+                        <div className="flex justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => setExpandedConfigId(null)}
@@ -935,6 +1000,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                         >
                           Lưu Tham Số Bảo Vệ
                         </button>
+                        </div>
                       </div>
                     </div>
                   )}

@@ -18,6 +18,7 @@ class TradingAccountCreate(BaseModel):
     lot_multiplier: Optional[float] = Field(default=None, ge=0.01, le=10.0)
     is_compounding: bool = False
     is_prop_firm_mode: bool = False
+    prop_stage: Literal["CHALLENGE", "LIVE"] = "CHALLENGE"
     max_daily_dd_pct: Optional[float] = None
     prop_daily_dd_limit_pct: float = Field(default=4.5, ge=0.5, le=20.0)
     prop_profit_target_pct: float = Field(default=8.0, ge=1.0, le=50.0)
@@ -90,6 +91,7 @@ class TradingAccountUpdate(BaseModel):
     max_lot: Optional[float] = Field(default=None, ge=0.01, le=50.0)
     is_compounding: Optional[bool] = None
     is_prop_firm_mode: Optional[bool] = None
+    prop_stage: Optional[Literal["CHALLENGE", "LIVE"]] = None
     auto_be_partial_tp: Optional[bool] = None
     prop_daily_dd_limit_pct: Optional[float] = Field(default=None, ge=0.5, le=20.0)
     max_daily_dd_pct: Optional[float] = Field(default=None, ge=0.5, le=20.0)
@@ -119,6 +121,7 @@ class TradingAccountResponse(BaseModel):
     risk_multiplier: float = 1.0
     is_compounding: bool = False
     is_prop_firm_mode: bool = False
+    prop_stage: Literal["CHALLENGE", "LIVE"] = "CHALLENGE"
     auto_be_partial_tp: bool = False
     prop_daily_dd_limit_pct: float = 4.5
     prop_profit_target_pct: float = 8.0
