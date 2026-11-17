@@ -2080,11 +2080,11 @@ class CombinedStaticFiles(StaticFiles):
         self.fallback_dir = Path(fallback_dir) if fallback_dir else None
 
     def lookup_path(self, path: str):
+        clean_rel = path.lstrip("/\\")
+        if clean_rel.endswith((".ts", ".tsx", ".map")) or clean_rel.split("/")[-1] in ("tsconfig.json", "package.json"):
+            return "", None
         full_path, stat_result = super().lookup_path(path)
         if stat_result is None and self.fallback_dir:
-            clean_rel = path.lstrip("/\\")
-            if clean_rel.endswith((".ts", ".tsx", ".map")) or clean_rel.split("/")[-1] in ("tsconfig.json", "package.json"):
-                return full_path, None
             base_dir = self.fallback_dir.resolve()
             fallback_file = (base_dir / clean_rel).resolve()
             if fallback_file.is_relative_to(base_dir) and fallback_file.is_file():
@@ -2098,7 +2098,7 @@ class CombinedStaticFiles(StaticFiles):
 if (DIST_DIR / 'assets').exists():
     app.mount('/assets', CombinedStaticFiles(DIST_DIR / 'assets', WEB_DIR), name='assets')
 elif WEB_DIR.exists():
-    app.mount('/assets', StaticFiles(directory=WEB_DIR), name='assets')
+    app.mount('/assets', CombinedStaticFiles(WEB_DIR, WEB_DIR), name='assets')
 
 @app.get('/{full_path:path}')
 async def spa_fallback(request: Request, full_path: str):
