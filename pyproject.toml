@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "zupirus-quant-lab"
 version = "0.2.0"
 description = "ZUPIRUS Quant Lab CLI-Anything agent-native operations"
-readme = "README_VI.md"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 

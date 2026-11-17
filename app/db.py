@@ -357,8 +357,8 @@ def insert_timescale_quote(source: str, ts: float, bid: float, ask: float, symbo
             )
         else:
             c.execute(
-                "INSERT OR IGNORE INTO quotes(source, ts, bid, ask) VALUES(?,?,?,?)",
-                (source, ts, bid, ask)
+                "INSERT OR IGNORE INTO quotes(source, symbol, ts, bid, ask) VALUES(?,?,?,?,?)",
+                (source, symbol, ts, bid, ask)
             )
 
 
@@ -527,27 +527,31 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
             return _sanitize_candle_outliers(ordered)
         else:
             # SQLite fallback aggregation
-            rows = c.execute("""
-                SELECT 
-                    time,
-                    open,
-                    high,
-                    low,
-                    close,
-                    volume
-                FROM candles
-                WHERE symbol = ? AND source = ? AND timeframe = ?
-                ORDER BY time DESC
-                LIMIT ?
-            """, (symbol, source, timeframe, limit)).fetchall()
+            if source == "ALL":
+                rows = c.execute("""
+                    SELECT time, open, high, low, close, volume
+                    FROM candles
+                    WHERE symbol = ? AND timeframe = ?
+                    ORDER BY time DESC
+                    LIMIT ?
+                """, (symbol, timeframe, limit)).fetchall()
+            else:
+                rows = c.execute("""
+                    SELECT time, open, high, low, close, volume
+                    FROM candles
+                    WHERE symbol = ? AND source = ? AND timeframe = ?
+                    ORDER BY time DESC
+                    LIMIT ?
+                """, (symbol, source, timeframe, limit)).fetchall()
             if rows:
                 return _sanitize_candle_outliers([dict(r) for r in rows])
 
             # Aggregate from quotes if candles table is empty
             tf_seconds = {"M1": 60, "M5": 300, "M15": 900, "H1": 3600, "D1": 86400}.get(timeframe, 900)
-            quote_rows = c.execute("""
-                SELECT ts, bid FROM quotes WHERE source = ? ORDER BY ts ASC
-            """, (source,)).fetchall()
+            if source == "ALL":
+                quote_rows = c.execute("SELECT ts, bid FROM quotes ORDER BY ts ASC").fetchall()
+            else:
+                quote_rows = c.execute("SELECT ts, bid FROM quotes WHERE source = ? ORDER BY ts ASC", (source,)).fetchall()
             if not quote_rows:
                 return []
             buckets: Dict[int, List[float]] = {}

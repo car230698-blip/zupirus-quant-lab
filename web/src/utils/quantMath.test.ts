@@ -33,16 +33,16 @@ test('calculateQuantLotSizing computes accurate Standard, Cent, and Prop lot siz
 });
 
 test('calculateSubscriptionPricing applies cycle discounts and rounds VND to nearest thousand', () => {
-  const monthly = calculateSubscriptionPricing(35, 1, 'MONTHLY', 25500);
-  assert.equal(monthly.usdTotal, 35);
+  const monthly = calculateSubscriptionPricing(25, 1, 'MONTHLY', 25500);
+  assert.equal(monthly.usdTotal, 25);
   assert.equal(monthly.discountPct, 0);
-  assert.equal(monthly.vndTotal, 893000);
+  assert.equal(monthly.vndTotal, 638000);
 
   const annual = calculateSubscriptionPricing(59, 2, 'ANNUAL', 25500);
-  // (59 + 15) * 12 * 0.75 = 666 USD
-  assert.equal(annual.usdTotal, 666);
-  assert.equal(annual.discountPct, 25);
-  assert.equal(annual.effectiveMonthlyUsd, 55.5);
+  // (59 + 10) * 12 * 0.80 = 662.4 USD
+  assert.equal(annual.usdTotal, 662.4);
+  assert.equal(annual.discountPct, 20);
+  assert.equal(annual.effectiveMonthlyUsd, 55.2);
 });
 
 test('computeOrderLedgerMetrics calculates win rate, net PnL, and profit factor accurately', () => {

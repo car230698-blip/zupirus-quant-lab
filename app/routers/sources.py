@@ -46,7 +46,7 @@ def get_sources(status: Optional[str] = None, _admin=Depends(get_current_admin))
         auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
         try:
             closed_trades = c.execute(
-                "SELECT count(*) FROM dispatches WHERE state IN ('FILLED', 'SUCCESS', 'EXECUTED', 'CLOSED')"
+                "SELECT count(*) FROM dispatches WHERE lower(state) IN ('filled', 'success', 'executed', 'closed')"
             ).fetchone()[0]
         except Exception:
             closed_trades = 0

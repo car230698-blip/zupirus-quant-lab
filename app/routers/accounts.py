@@ -184,9 +184,8 @@ async def create_account(
     if existing_same_acc:
         existing_same_acc = dict(existing_same_acc)
         owner_id = existing_same_acc["user_id"]
-        owner_email = existing_same_acc.get("owner_email") or ""
-        # If owned by another active non-test user and current user is not admin, reject with 409
-        if owner_id != user_id and owner_email and not owner_email.endswith("@example.com") and u.get("role") != "admin":
+        # Strictly prevent cross-tenant account takeover regardless of owner_email format
+        if owner_id != user_id and u.get("role") != "admin":
             fail(409, "Tài khoản MT5 trên Server này đã được liên kết hoặc xảy ra xung đột dữ liệu.")
 
     import os
@@ -326,20 +325,30 @@ async def create_account(
 
         from app.services.account_classifier import detect_account_type
         from app.services.symbol_mapper import discover_and_map_account_symbols
-        acc_currency = "USD"
-        acc_info = None
-        try:
-            acc_info = await client.get_account_information(meta_id)
-            if acc_info and acc_info.get("currency"):
-                acc_currency = str(acc_info.get("currency")).upper()
-        except Exception:
-            pass
 
-        acc_type = detect_account_type(currency=acc_currency, server=p.server, name=p.account_name)
-        contract_size = 1.0 if acc_type == "CENT" else 100.0
-        auto_be_default = 1 if sub.get("allow_partial_tp_be") else 0
-        auto_prop_default = 1 if (is_prop or (sub.get("allow_prop_firm_mode") and acc_type in ("PROP", "PROP_FIRM"))) else 0
+    # Perform MetaApi network calls outside the database transaction lock
+    acc_currency = "USD"
+    acc_info = None
+    try:
+        acc_info = await client.get_account_information(meta_id)
+        if acc_info and acc_info.get("currency"):
+            acc_currency = str(acc_info.get("currency")).upper()
+    except Exception:
+        pass
 
+    broker_symbols_list = None
+    try:
+        if hasattr(client, "get_symbols"):
+            broker_symbols_list = await client.get_symbols(meta_id)
+    except Exception:
+        broker_symbols_list = None
+
+    acc_type = detect_account_type(currency=acc_currency, server=p.server, name=p.account_name)
+    contract_size = 1.0 if acc_type == "CENT" else 100.0
+    auto_be_default = 1 if sub.get("allow_partial_tp_be") else 0
+    auto_prop_default = 1 if (is_prop or (sub.get("allow_prop_firm_mode") and acc_type in ("PROP", "PROP_FIRM"))) else 0
+
+    with tx() as c:
         c.execute(
             """
             UPDATE trading_accounts
@@ -348,12 +357,6 @@ async def create_account(
             """,
             (acc_type, contract_size, auto_be_default, auto_prop_default, account_id),
         )
-        broker_symbols_list = None
-        try:
-            if hasattr(client, "get_symbols"):
-                broker_symbols_list = await client.get_symbols(meta_id)
-        except Exception:
-            broker_symbols_list = None
         discover_and_map_account_symbols(account_id, broker_symbols_list or ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"], db_cursor=c)
 
         # Attempt immediate live balance synchronization from broker
@@ -531,8 +534,10 @@ async def toggle_account(account_id: str, request: Request, u: dict = Depends(ge
     explicit_active: Optional[bool] = None
     try:
         body = await request.json()
-        if isinstance(body, dict) and "is_active" in body and body["is_active"] is not None:
-            explicit_active = bool(body["is_active"])
+        if isinstance(body, dict):
+            raw_val = body.get("is_active") if body.get("is_active") is not None else body.get("active")
+            if raw_val is not None:
+                explicit_active = bool(raw_val)
     except Exception:
         pass
 

@@ -41,13 +41,9 @@ jobs:
             git pull origin main
 
             echo "================================================================="
-            echo " [2/4] Executing Safe Database Migrations"
+            echo " [2/4] Preparing Database Schema (Auto-Migrated on Startup)"
             echo "================================================================="
-            if [ -f alembic.ini ]; then
-              alembic upgrade head || true
-            else
-              echo "Alembic not configured; native TimescaleDB migrations applied automatically on container startup."
-            fi
+            echo "Native TimescaleDB/PostgreSQL migrations are applied automatically on container startup."
 
             echo "================================================================="
             echo " [3/4] Rebuilding and Restarting Docker Containers"
@@ -59,7 +55,7 @@ jobs:
             echo "================================================================="
             # Allow uvicorn and background workers time to finish initial startup
             sleep 8
-            docker exec zupirus-prod-api-1 python -m cli healthcheck --json || curl -f http://127.0.0.1:8080/healthz
+            docker exec zupirus-prod-api-1 python -m cli healthcheck --json || curl -f http://127.0.0.1:8080/readyz
 
             echo "================================================================="
             echo " [SUCCESS] ZUPIRUS Quant Lab Deployment Verified on Production!"

@@ -557,11 +557,13 @@ def _run_coro(coro):
     global _ENGINE_LOOP
     try:
         asyncio.get_running_loop()
-        return asyncio.run(coro)
     except RuntimeError:
         if _ENGINE_LOOP is None or _ENGINE_LOOP.is_closed():
             _ENGINE_LOOP = asyncio.new_event_loop()
         return _ENGINE_LOOP.run_until_complete(coro)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 def autonomous_agent_step(force_side: Optional[str] = None, symbol: Optional[str] = None) -> Dict[str, Any]:

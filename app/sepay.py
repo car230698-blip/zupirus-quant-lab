@@ -6,6 +6,7 @@ records transactions, and dispatches confirmation emails via Resend.
 """
 import os
 import hmac
+import html as html_mod
 import json
 import base64
 import hashlib
@@ -23,6 +24,12 @@ def get_sepay_secret() -> str:
             row = c.execute("SELECT value FROM kv WHERE key IN ('billing:settings', 'billing_settings')").fetchone()
             if row and row[0]:
                 d = json.loads(row[0])
+                enc_sec = d.get("sepay_webhook_secret_encrypted")
+                if enc_sec:
+                    from app.security import decrypt_secret
+                    dec = decrypt_secret(str(enc_sec))
+                    if dec:
+                        return dec.strip()
                 sec = d.get("webhook_secret") or d.get("sepay_webhook_secret")
                 if sec:
                     return str(sec).strip()
@@ -119,15 +126,15 @@ def build_payment_success_email(
                     </tr>
                     <tr>
                       <td style="color:#64748b;font-size:12px;padding:6px 0;">Ngân hàng:</td>
-                      <td style="color:#f8fafc;font-weight:600;font-size:13px;padding:6px 0;">{gateway or 'VietQR'}</td>
+                      <td style="color:#f8fafc;font-weight:600;font-size:13px;padding:6px 0;">{html_mod.escape(str(gateway or 'VietQR'))}</td>
                     </tr>
                     <tr>
                       <td style="color:#64748b;font-size:12px;padding:6px 0;">Mã tham chiếu:</td>
-                      <td style="color:#38bdf8;font-family:monospace;font-size:12px;padding:6px 0;">{ref_code or 'N/A'}</td>
+                      <td style="color:#38bdf8;font-family:monospace;font-size:12px;padding:6px 0;">{html_mod.escape(str(ref_code or 'N/A'))}</td>
                     </tr>
                     <tr>
                       <td style="color:#64748b;font-size:12px;padding:6px 0;">Nội dung:</td>
-                      <td style="color:#cbd5e1;font-size:12px;padding:6px 0;">{content or 'N/A'}</td>
+                      <td style="color:#cbd5e1;font-size:12px;padding:6px 0;">{html_mod.escape(str(content or 'N/A'))}</td>
                     </tr>
                     <tr>
                       <td style="color:#64748b;font-size:12px;padding:6px 0;">Trạng thái:</td>

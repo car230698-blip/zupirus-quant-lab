@@ -580,10 +580,10 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => activeTabSetter('assistant')}
+                onClick={() => activeTabSetter('signals')}
                 className="quant-btn-primary px-3.5 py-2 text-xs whitespace-nowrap shrink-0"
               >
-                ✦ Hỏi Trợ Lý AI
+                ✦ Tín Hiệu AI
               </button>
             </div>
           )}

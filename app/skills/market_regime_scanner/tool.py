@@ -41,11 +41,11 @@ def scan_market_regime(
                 """
                 SELECT open, high, low, close, time
                 FROM candles
-                WHERE symbol = ? AND time <= ?
+                WHERE symbol = ? AND timeframe = ? AND time <= ?
                 ORDER BY time DESC
                 LIMIT 20
                 """,
-                (symbol, now_ts)
+                (symbol, timeframe, now_ts)
             ).fetchall()
             candles = [dict(r) for r in reversed(rows)]
     except Exception:

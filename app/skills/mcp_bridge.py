@@ -312,7 +312,9 @@ def execute_mcp_tool(server_id: str, **kwargs) -> Dict[str, Any]:
 
         if server_id == "mcp_web_fetch":
             target_url = str(kwargs.get("url") or srv["endpoint_url"]).strip()
-            with httpx.Client(timeout=7.0, headers=headers, follow_redirects=True) as client:
+            if not _is_safe_external_url(target_url):
+                return {"ok": False, "server_id": server_id, "error": "URL bị chặn bởi bộ lọc bảo mật SSRF."}
+            with httpx.Client(timeout=7.0, headers=headers, follow_redirects=False) as client:
                 r = client.get(target_url)
                 raw_text = re.sub(r"<[^>]+>", " ", r.text)
                 clean_text = re.sub(r"\s+", " ", raw_text).strip()[:800]

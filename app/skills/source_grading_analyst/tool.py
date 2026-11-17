@@ -22,7 +22,7 @@ def grade_signal_sources(
 
     return {
         "status": "success",
-        "evaluated_count": eval_result.get("evaluated_count", 0),
+        "evaluated_count": eval_result.get("evaluated", eval_result.get("evaluated_count", 0)),
         "total_sources_tracked": len(sources),
         "active_live_count": sum(1 for s in sources if s.get("status") == "ACTIVE_LIVE"),
         "top_source": top_source,

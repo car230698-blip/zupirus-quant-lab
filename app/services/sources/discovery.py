@@ -273,7 +273,8 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
                     "sl": sanitized.stop_loss,
                     "tp": sanitized.take_profit,
                 }
-                asyncio.run(execute_fan_out_for_signal(sig_dict, accounts, client, redis_client=rc))
+                from app.engine import _run_coro
+                _run_coro(execute_fan_out_for_signal(sig_dict, accounts, client, redis_client=rc))
                 logger.info(f"Autonomous scanner dispatched {side} {sym} -> {len(accounts)} account(s)")
     except Exception as e:
         logger.debug(f"Scanner live dispatch note: {e}")

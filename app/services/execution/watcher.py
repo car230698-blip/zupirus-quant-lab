@@ -242,8 +242,11 @@ class PositionWatcher:
 
                         # Trigger if reached 1R (or if BE SL was already moved and we are retrying TP1 partial close)
                         if (risk_distance > 0 and profit_distance >= risk_distance) or be_sl_done:
-                            buffer = 0.10
-                            new_sl = round(open_price + buffer if is_buy else open_price - buffer, 2)
+                            from app.services.symbol_precision import digits_for_symbol, pip_size_for_symbol, quote_to_usd_rate
+                            pos_sym = str(pos.get("symbol") or "XAUUSD").upper()
+                            buffer = pip_size_for_symbol(pos_sym)
+                            pos_dec = digits_for_symbol(pos_sym)
+                            new_sl = round(open_price + buffer if is_buy else open_price - buffer, pos_dec)
                             modify_ok = be_sl_done
                             partial_ok = tp1_done
                             modify_res = None
@@ -277,7 +280,8 @@ class PositionWatcher:
                                                 if ex_row and ex_row[0]:
                                                     is_cent = str(acc.get("account_type") or "").upper() == "CENT"
                                                     contract_mult = float(acc.get("contract_size") or (1.0 if is_cent else 100.0))
-                                                    realized_usd = abs(current_price - open_price) * half_volume * contract_mult
+                                                    usd_conv = quote_to_usd_rate(pos_sym, current_price)
+                                                    realized_usd = abs(current_price - open_price) * half_volume * contract_mult * usd_conv
                                                     reflect_on_signal_outcome(c, signal_id=ex_row[0], pnl=round(realized_usd, 2), exit_price=current_price, exit_reason="PARTIAL_TP1")
                                             except Exception:
                                                 pass

@@ -148,7 +148,7 @@ def promote_source_to_live(source_id: str, force: bool = False) -> Tuple[bool, s
         # Verify historical shadow performance before auto-promoting
         if not force:
             shadow_stats = c.execute(
-                "SELECT COUNT(*) AS total, SUM(CASE WHEN pnl_pips > 0 THEN 1 ELSE 0 END) AS wins FROM shadow_signals WHERE source_id = ?",
+                "SELECT COUNT(*) AS total, SUM(CASE WHEN pnl_pips > 0 THEN 1 ELSE 0 END) AS wins FROM shadow_signals WHERE source_id = ? AND eval_status != 'PENDING'",
                 (source_id,)
             ).fetchone()
             if shadow_stats and shadow_stats["total"] >= 10:
@@ -359,7 +359,7 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
             if not future_candles:
                 continue
 
-            outcome = _evaluate_against_candles(future_candles, entry, sl, tp, side)
+            outcome = _evaluate_against_candles(future_candles, entry, sl, tp, side, symbol=symbol)
 
             c.execute(
                 """
@@ -403,9 +403,12 @@ def _evaluate_against_candles(
     entry: float,
     sl: float,
     tp: Optional[float],
-    side: str
+    side: str,
+    symbol: str = "XAUUSD",
 ) -> Dict[str, Any]:
     """Evaluate against actual M1 high/low bars with conservative dual-touch rule."""
+    from app.services.symbol_precision import pip_multiplier_for_symbol
+    pip_mult = pip_multiplier_for_symbol(symbol)
     is_buy = side == "BUY"
     mae = 0.0
     mfe = 0.0
@@ -431,9 +434,9 @@ def _evaluate_against_candles(
                     "exit_price": sl,
                     "exit_time": bar_time,
                     "exit_reason": "CONSERVATIVE_DUAL_HIT_SL",
-                    "pnl_pips": round((sl - entry) * 10, 1),
-                    "mae": round(mae * 10, 1),
-                    "mfe": round(mfe * 10, 1)
+                    "pnl_pips": round((sl - entry) * pip_mult, 1),
+                    "mae": round(mae * pip_mult, 1),
+                    "mfe": round(mfe * pip_mult, 1)
                 }
             if hit_sl:
                 return {
@@ -441,9 +444,9 @@ def _evaluate_against_candles(
                     "exit_price": sl,
                     "exit_time": bar_time,
                     "exit_reason": "SL_HIT",
-                    "pnl_pips": round((sl - entry) * 10, 1),
-                    "mae": round(mae * 10, 1),
-                    "mfe": round(mfe * 10, 1)
+                    "pnl_pips": round((sl - entry) * pip_mult, 1),
+                    "mae": round(mae * pip_mult, 1),
+                    "mfe": round(mfe * pip_mult, 1)
                 }
             if hit_tp:
                 return {
@@ -451,9 +454,9 @@ def _evaluate_against_candles(
                     "exit_price": tp,
                     "exit_time": bar_time,
                     "exit_reason": "TP_HIT",
-                    "pnl_pips": round((tp - entry) * 10, 1),
-                    "mae": round(mae * 10, 1),
-                    "mfe": round(mfe * 10, 1)
+                    "pnl_pips": round((tp - entry) * pip_mult, 1),
+                    "mae": round(mae * pip_mult, 1),
+                    "mfe": round(mfe * pip_mult, 1)
                 }
         else:
             # SELL
@@ -471,9 +474,9 @@ def _evaluate_against_candles(
                     "exit_price": sl,
                     "exit_time": bar_time,
                     "exit_reason": "CONSERVATIVE_DUAL_HIT_SL",
-                    "pnl_pips": round((entry - sl) * 10, 1),
-                    "mae": round(mae * 10, 1),
-                    "mfe": round(mfe * 10, 1)
+                    "pnl_pips": round((entry - sl) * pip_mult, 1),
+                    "mae": round(mae * pip_mult, 1),
+                    "mfe": round(mfe * pip_mult, 1)
                 }
             if hit_sl:
                 return {
@@ -481,9 +484,9 @@ def _evaluate_against_candles(
                     "exit_price": sl,
                     "exit_time": bar_time,
                     "exit_reason": "SL_HIT",
-                    "pnl_pips": round((entry - sl) * 10, 1),
-                    "mae": round(mae * 10, 1),
-                    "mfe": round(mfe * 10, 1)
+                    "pnl_pips": round((entry - sl) * pip_mult, 1),
+                    "mae": round(mae * pip_mult, 1),
+                    "mfe": round(mfe * pip_mult, 1)
                 }
             if hit_tp:
                 return {
@@ -491,9 +494,9 @@ def _evaluate_against_candles(
                     "exit_price": tp,
                     "exit_time": bar_time,
                     "exit_reason": "TP_HIT",
-                    "pnl_pips": round((entry - tp) * 10, 1),
-                    "mae": round(mae * 10, 1),
-                    "mfe": round(mfe * 10, 1)
+                    "pnl_pips": round((entry - tp) * pip_mult, 1),
+                    "mae": round(mae * pip_mult, 1),
+                    "mfe": round(mfe * pip_mult, 1)
                 }
 
     # Still open within available candles
@@ -505,9 +508,9 @@ def _evaluate_against_candles(
         "exit_price": last_close,
         "exit_time": last_time,
         "exit_reason": "SESSION_CLOSED",
-        "pnl_pips": round(pnl * 10, 1),
-        "mae": round(mae * 10, 1),
-        "mfe": round(mfe * 10, 1)
+        "pnl_pips": round(pnl * pip_mult, 1),
+        "mae": round(mae * pip_mult, 1),
+        "mfe": round(mfe * pip_mult, 1)
     }
 
 

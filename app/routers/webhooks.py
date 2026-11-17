@@ -261,7 +261,7 @@ async def handle_sepay_webhook(
 
     if not auth_valid and authorization:
         token = authorization.replace("Apikey ", "").strip()
-        if token == expected_secret:
+        if secrets.compare_digest(token, str(expected_secret)):
             auth_valid = True
 
     if not auth_valid:
@@ -317,7 +317,6 @@ async def handle_sepay_webhook(
 
     # 4. Fallback: match by customer email or user identifier in memo
     from app.sepay import extract_user_identifier
-    import secrets
 
     user_identifier = extract_user_identifier(content)
     matched_user_id = None

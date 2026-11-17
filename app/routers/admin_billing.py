@@ -152,9 +152,13 @@ def _save_settings(req: FlexibleBillingSettingsUpdate):
         "fx_rate_cache_ttl_seconds": ttl,
     }
     if req.sepay_webhook_secret:
-        payload["sepay_webhook_secret"] = req.sepay_webhook_secret.strip()
+        from app.security import encrypt_secret
+        payload["sepay_webhook_secret_encrypted"] = encrypt_secret(req.sepay_webhook_secret.strip())
+    elif "sepay_webhook_secret_encrypted" in existing:
+        payload["sepay_webhook_secret_encrypted"] = existing["sepay_webhook_secret_encrypted"]
     elif "sepay_webhook_secret" in existing:
-        payload["sepay_webhook_secret"] = existing["sepay_webhook_secret"]
+        from app.security import encrypt_secret
+        payload["sepay_webhook_secret_encrypted"] = encrypt_secret(str(existing["sepay_webhook_secret"]).strip())
 
     with tx() as c:
         c.execute(

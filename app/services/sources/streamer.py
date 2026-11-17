@@ -152,8 +152,10 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                     if rm.status_code == 200:
                         dm = rm.json()
                         if dm.get("bid") and dm.get("ask"):
-                            bid = round(float(dm["bid"]), 2)
-                            ask = round(float(dm["ask"]), 2)
+                            from app.services.symbol_precision import digits_for_symbol
+                            s_dec = digits_for_symbol(symbol)
+                            bid = round(float(dm["bid"]), s_dec)
+                            ask = round(float(dm["ask"]), s_dec)
                             source_name = "METAAPI_STREAM"
         except Exception as e:
             logger.debug(f"MetaApi live price fallback to market feed: {e}")

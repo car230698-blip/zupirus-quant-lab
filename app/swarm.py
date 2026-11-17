@@ -180,10 +180,9 @@ def run_risk_guardian_cycle(c) -> Dict[str, Any]:
     total_positions = sum(int(a["positions"] or 0) for a in accounts)
 
     # Run Monte Carlo for portfolio risk using real closed trades if available
-    with tx() as c:
-        pnl_rows = c.execute(
-            "SELECT pnl FROM signal_audit_logs WHERE pnl IS NOT NULL ORDER BY id DESC LIMIT 100"
-        ).fetchall()
+    pnl_rows = c.execute(
+        "SELECT pnl FROM signal_audit_logs WHERE pnl IS NOT NULL ORDER BY id DESC LIMIT 100"
+    ).fetchall()
     real_trades = [float(r[0]) for r in pnl_rows] if pnl_rows else []
     mc = run_monte_carlo_simulation(trades=real_trades, initial_equity=max(1000.0, total_equity), iterations=1000)
     var_99 = mc["var_99_max_drawdown_pct"]
@@ -214,69 +213,81 @@ def trigger_swarm_cycle(c=None) -> Dict[str, Any]:
     _SWARM_STATE["cycles_count"] += 1
     _SWARM_STATE["last_cycle_ts"] = now
 
-    def _execute(conn):
+    def _execute_db(conn):
         sentinel_res = run_sentinel_cycle(conn)
         alpha_res = run_alpha_cycle(conn)
         guardian_res = run_risk_guardian_cycle(conn)
+        return sentinel_res, alpha_res, guardian_res
 
-        # Invoke built-in Agent Skills + Cross-Asset Context (DXY / US10Y)
-        skills_telemetry = {}
+    if c:
+        sentinel_res, alpha_res, guardian_res = _execute_db(c)
+    else:
+        with tx() as conn:
+            sentinel_res, alpha_res, guardian_res = _execute_db(conn)
+
+    # Invoke built-in Agent Skills + Cross-Asset Context (DXY / US10Y) outside DB lock
+    skills_telemetry = {}
+    try:
+        from app.skills.registry import execute_skill
+        skills_telemetry["macro"] = execute_skill("macro_news_interpreter")
+        skills_telemetry["regime"] = execute_skill("market_regime_scanner")
+        skills_telemetry["liquidity"] = execute_skill("liquidity_spread_auditor")
+    except Exception as sk_err:
+        logger.debug(f"Swarm skill invocation note: {sk_err}")
+
+    cross_asset = {}
+    try:
+        from app.services.sources.discovery import fetch_cross_asset_context
+        cross_asset = fetch_cross_asset_context()
+    except Exception as ca_err:
+        logger.debug(f"Cross-asset context note: {ca_err}")
+
+    msg = (
+        f"Chu kỳ #{_SWARM_STATE['cycles_count']}: Sentinel={sentinel_res.get('events_count')} sự kiện | "
+        f"Alpha={alpha_res.get('top_asset')} ({alpha_res.get('bias')}) | "
+        f"Macro={cross_asset.get('gold_macro_bias', 'NEUTRAL')} | "
+        f"Risk VaR 99%={guardian_res.get('var_99')}%"
+    )
+
+    _SWARM_STATE["recent_messages"].insert(0, {
+        "ts": now,
+        "from": "swarm_coordinator",
+        "agent": "Swarm Coordinator",
+        "message": msg,
+        "type": "cycle",
+    })
+    _SWARM_STATE["recent_messages"] = _SWARM_STATE["recent_messages"][:20]
+
+    # Save reflective memory every 10 cycles
+    if _SWARM_STATE["cycles_count"] % 10 == 0:
         try:
-            from app.skills.registry import execute_skill
-            skills_telemetry["macro"] = execute_skill("macro_news_interpreter")
-            skills_telemetry["regime"] = execute_skill("market_regime_scanner")
-            skills_telemetry["liquidity"] = execute_skill("liquidity_spread_auditor")
-        except Exception as sk_err:
-            logger.debug(f"Swarm skill invocation note: {sk_err}")
-
-        cross_asset = {}
-        try:
-            from app.services.sources.discovery import fetch_cross_asset_context
-            cross_asset = fetch_cross_asset_context()
-        except Exception as ca_err:
-            logger.debug(f"Cross-asset context note: {ca_err}")
-
-        msg = (
-            f"Chu kỳ #{_SWARM_STATE['cycles_count']}: Sentinel={sentinel_res.get('events_count')} sự kiện | "
-            f"Alpha={alpha_res.get('top_asset')} ({alpha_res.get('bias')}) | "
-            f"Macro={cross_asset.get('gold_macro_bias', 'NEUTRAL')} | "
-            f"Risk VaR 99%={guardian_res.get('var_99')}%"
-        )
-
-        _SWARM_STATE["recent_messages"].insert(0, {
-            "ts": now,
-            "from": "swarm_coordinator",
-            "agent": "Swarm Coordinator",
-            "message": msg,
-            "type": "cycle",
-        })
-        _SWARM_STATE["recent_messages"] = _SWARM_STATE["recent_messages"][:20]
-
-        # Save reflective memory every 10 cycles
-        if _SWARM_STATE["cycles_count"] % 10 == 0:
-            try:
+            if c:
                 store_memory(
-                    conn,
+                    c,
                     category=CATEGORY_REFLECTIVE,
                     title=f"Đúc kết chu kỳ Swarm #{_SWARM_STATE['cycles_count']}",
                     content=msg,
                     tags=["swarm_cycle", "autonomous_reflection"],
                 )
-            except Exception:
-                pass
+            else:
+                with tx() as conn:
+                    store_memory(
+                        conn,
+                        category=CATEGORY_REFLECTIVE,
+                        title=f"Đúc kết chu kỳ Swarm #{_SWARM_STATE['cycles_count']}",
+                        content=msg,
+                        tags=["swarm_cycle", "autonomous_reflection"],
+                    )
+        except Exception:
+            pass
 
-        return {
-            "ok": True,
-            "cycle": _SWARM_STATE["cycles_count"],
-            "sentinel": sentinel_res,
-            "alpha": alpha_res,
-            "risk_guardian": guardian_res,
-            "skills_telemetry": skills_telemetry,
-            "cross_asset": cross_asset,
-        }
-
-    if c:
-        return _execute(c)
-    with tx() as conn:
-        return _execute(conn)
+    return {
+        "ok": True,
+        "cycle": _SWARM_STATE["cycles_count"],
+        "sentinel": sentinel_res,
+        "alpha": alpha_res,
+        "risk_guardian": guardian_res,
+        "skills_telemetry": skills_telemetry,
+        "cross_asset": cross_asset,
+    }
 

@@ -74,7 +74,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
       const res = await fetch(url, {
         method: action === 'delete' ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: action === 'toggle' ? JSON.stringify({ active: !currentlyActive }) : undefined,
+        body: action === 'toggle' ? JSON.stringify({ is_active: !currentlyActive }) : undefined,
       });
       if (res.ok) {
         setMsg(action === 'delete' ? 'Đã xóa tài khoản vi phạm.' : 'Đã cập nhật trạng thái nhận lệnh của tài khoản.');

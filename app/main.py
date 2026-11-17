@@ -40,16 +40,16 @@ ORIGINS = os.getenv('ALLOWED_ORIGINS', 'https://zupirus.com,https://app.zupirus.
 @app.middleware('http')
 async def perimeter(request: Request, call_next):
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        length = request.headers.get('content-length', '0')
+        if not length.isdigit() or int(length) > 3_000_000:
+            return JSONResponse({'detail': 'Body too large'}, 413)
         # External webhooks bypass browser origin checks
         if request.url.path.startswith('/api/v1/webhooks') or request.url.path.startswith('/api/sepay') or request.url.path == '/api/webhooks/sepay':
             return await call_next(request)
         origin = request.headers.get('origin')
         if origin and origin not in ORIGINS:
             return JSONResponse({'detail': 'Origin denied'}, 403)
-        length = request.headers.get('content-length', '0')
-        if not length.isdigit() or int(length) > 3_000_000:
-            return JSONResponse({'detail': 'Body too large'}, 413)
-        if request.cookies.get('session') and not request.headers.get('authorization') and request.headers.get('x-zupirus') != '1':
+        if request.cookies.get('session') and request.headers.get('x-zupirus') != '1':
             return JSONResponse({'detail': 'CSRF header required'}, 403)
     response = await call_next(request)
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -186,14 +186,33 @@ class ChangePasswordPayload(Model):
 
 
 @app.post('/api/auth/forgot-password')
-def forgot_password(p: ForgotPasswordPayload):
+def forgot_password(p: ForgotPasswordPayload, request: Request):
+    import re
     email_clean = p.email.strip().lower()
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email_clean):
+        fail(422, "Định dạng email không hợp lệ")
+    client_ip = (request.client.host if request.client else "") or "unknown"
+    try:
+        r = get_redis_client()
+        ip_key = f"fp_ip_rl:{client_ip}"
+        cnt = r.incr(ip_key)
+        if cnt == 1:
+            r.expire(ip_key, 60)
+        if cnt > 5:
+            fail(429, "Quá nhiều yêu cầu. Vui lòng thử lại sau 60 giây")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     now = time.time()
     code = f"{secrets.randbelow(900000) + 100000}"
     with tx() as c:
         usr = c.execute('SELECT id FROM users WHERE email=?', (email_clean,)).fetchone()
         if not usr:
             return {'ok': True, 'message': 'Nếu email tồn tại, mã OTP đặt lại mật khẩu đã được gửi.'}
+        prev = c.execute('SELECT expires_at FROM otp_codes WHERE email=?', (email_clean,)).fetchone()
+        if prev and (prev['expires_at'] - 540.0) > now:
+            fail(429, "Vui lòng chờ 60 giây trước khi yêu cầu mã OTP mới")
         c.execute(
             "INSERT INTO otp_codes (email, code, expires_at, attempts) VALUES (?, ?, ?, 0) "
             "ON CONFLICT(email) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0",
@@ -1047,6 +1066,7 @@ def list_gemini_keys(u=Depends(admin)):
 @app.post('/api/admin/gemini/keys')
 def add_gemini_key(p: AddGeminiKey, u=Depends(admin)):
     from .gemini_client import hash_key, mask_key
+    from .security import encrypt_secret
     raw_key = p.key.strip()
     k_hash = hash_key(raw_key)
     k_masked = mask_key(raw_key)
@@ -1058,7 +1078,7 @@ def add_gemini_key(p: AddGeminiKey, u=Depends(admin)):
         c.execute("""
             INSERT INTO gemini_keys (id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created)
             VALUES (?, ?, ?, ?, 1, 0, NULL, 'active', ?)
-        """, (kid, k_hash, k_masked, raw_key, time.time()))
+        """, (kid, k_hash, k_masked, encrypt_secret(raw_key), time.time()))
         audit(c, u['id'], 'gemini_key_added', {'id': kid, 'masked': k_masked})
     return {'ok': True, 'id': kid, 'masked': k_masked}
 
@@ -1640,7 +1660,7 @@ def admin_manual_approve_payment(p: ManualPaymentPayload, u=Depends(admin)):
     from .mailer import send_resend_email
     email_clean = p.user_email.strip().lower()
     tx_id = f"manual_{secrets.token_hex(8)}"
-    now_iso = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    now_ts = time.time()
 
     with tx() as c:
         user_row = c.execute("SELECT id, email FROM users WHERE email=?", (email_clean,)).fetchone()
@@ -1651,7 +1671,7 @@ def admin_manual_approve_payment(p: ManualPaymentPayload, u=Depends(admin)):
             VALUES(?,?,?,?,?,?,?,?,?,?)
         """, (
             tx_id,
-            f"MANUAL-{int(time.time())}-{secrets.randbelow(10000)}",
+            f"MANUAL-{int(now_ts)}-{secrets.randbelow(10000)}",
             user_id,
             p.amount_vnd,
             'VND',
@@ -1659,7 +1679,7 @@ def admin_manual_approve_payment(p: ManualPaymentPayload, u=Depends(admin)):
             f"DUYỆT THỦ CÔNG: {p.note}",
             p.reference_code,
             'manual_approved',
-            now_iso
+            now_ts
         ))
         audit(c, u['id'], 'manual_payment_approved', {
             'tx_id': tx_id,

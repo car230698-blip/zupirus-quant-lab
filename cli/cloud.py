@@ -36,7 +36,7 @@ def cmd_cloud_list(as_json: bool = False):
         except Exception:
             pass
 
-        exp = r["subscription_expires_at"]
+        exp = r.get("cloud_expires_at") if isinstance(r, dict) else (r["cloud_expires_at"] if "cloud_expires_at" in r.keys() else None)
         exp_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(exp)) if exp else "LIFETIME"
         is_expired = bool(exp and exp < now)
 
@@ -150,8 +150,8 @@ def cmd_cloud_undeploy_expired(as_json: bool = False):
     with tx() as c:
         rows = c.execute("""
             SELECT * FROM trading_accounts
-            WHERE subscription_expires_at IS NOT NULL
-              AND subscription_expires_at < ?
+            WHERE cloud_expires_at IS NOT NULL
+              AND cloud_expires_at < ?
               AND deployment_state = 'DEPLOYED'
         """, (now,)).fetchall()
 
@@ -245,7 +245,9 @@ def cmd_cloud_dispatch_test(
     if as_json:
         emit_json({
             "success": True,
-            "report": report
+            "executed": report.get("executed", 0),
+            "total_accounts": report.get("total_accounts", 0),
+            "report": report,
         })
 
     print(f"\n================================================================================")

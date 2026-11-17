@@ -49,6 +49,7 @@ def set_signal_pipeline_config(p: SignalConfigUpdate, admin=Depends(get_current_
 
     with tx() as c:
         c.execute("INSERT INTO kv(key, value) VALUES('signal_source', ?) ON CONFLICT(key) DO UPDATE SET value = ?", (clean, clean))
+        c.execute("INSERT INTO kv(key, value) VALUES('signal_mode', ?) ON CONFLICT(key) DO UPDATE SET value = ?", (clean, clean))
 
     return {"ok": True, "signal_source": clean}
 
@@ -186,7 +187,7 @@ def test_ingest_signal(p: TestIngestPayload, admin=Depends(get_current_admin)):
         action = (p.action or "BUY").upper()
         if action not in ("BUY", "SELL"):
             action = "BUY"
-        entry_price = float(p.price or p.entry_price or live_price)
+        entry_price = float(p.price if p.price is not None else live_price)
         norm_signal = NormalizedSignalSchema(
             id=f"test_{secrets.token_hex(4)}",
             source=p.source or "ADMIN_TEST_BENCH",
@@ -194,8 +195,8 @@ def test_ingest_signal(p: TestIngestPayload, admin=Depends(get_current_admin)):
             symbol=p.symbol or p.ticker or "XAUUSD",
             action=action,
             entry_price=entry_price,
-            stop_loss=p.sl or p.stop_loss,
-            take_profit=p.tp or p.take_profit,
+            stop_loss=p.sl,
+            take_profit=p.tp,
             created_at=now_ts,
             raw_payload={"source": p.source},
         )

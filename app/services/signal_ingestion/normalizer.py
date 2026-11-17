@@ -3,6 +3,7 @@ import time
 import secrets
 from typing import Dict, Any
 from app.schemas.signals import NormalizedSignalSchema, TradingViewWebhookPayload
+from app.services.symbol_precision import digits_for_symbol
 
 
 def normalize_tradingview_signal(p: TradingViewWebhookPayload) -> NormalizedSignalSchema:
@@ -19,7 +20,8 @@ def normalize_tradingview_signal(p: TradingViewWebhookPayload) -> NormalizedSign
     # Deterministic signal deduplication key over 60s window if no explicit id is supplied
     source_name = getattr(p, "source", None) or (p.strategy if p.strategy and p.strategy != "STANDARD" else "TRADINGVIEW")
     time_bucket_60s = int(now_ts // 60)
-    raw_sig_str = f"{source_name}:{symbol}:{action}:{round(float(p.price), 2)}:{p.sl}:{p.tp}:{time_bucket_60s}"
+    dec = digits_for_symbol(symbol)
+    raw_sig_str = f"{source_name}:{symbol}:{action}:{round(float(p.price), dec)}:{p.sl}:{p.tp}:{time_bucket_60s}"
     sig_hash = hashlib.sha256(raw_sig_str.encode("utf-8")).hexdigest()[:12]
     sid = f"tv_{sig_hash}"
 
@@ -29,9 +31,9 @@ def normalize_tradingview_signal(p: TradingViewWebhookPayload) -> NormalizedSign
         strategy_tier=strategy_tier,
         symbol=symbol,
         action=action, # type: ignore
-        entry_price=round(float(p.price), 2),
-        stop_loss=round(float(p.sl), 2) if p.sl is not None else None,
-        take_profit=round(float(p.tp), 2) if p.tp is not None else None,
+        entry_price=round(float(p.price), dec),
+        stop_loss=round(float(p.sl), dec) if p.sl is not None else None,
+        take_profit=round(float(p.tp), dec) if p.tp is not None else None,
         created_at=now_ts,
         raw_payload=p.model_dump(),
     )
@@ -48,15 +50,16 @@ def normalize_metaapi_demo_signal(data: Dict[str, Any]) -> NormalizedSignalSchem
     now_ts = time.time()
     sid = f"demo_{secrets.token_hex(6)}"
 
+    dec = digits_for_symbol(symbol)
     return NormalizedSignalSchema(
         id=sid,
         source="METAAPI_DEMO",
         strategy_tier="STANDARD",
         symbol=symbol,
         action=action, # type: ignore
-        entry_price=round(price, 2),
-        stop_loss=round(sl, 2) if sl is not None else None,
-        take_profit=round(tp, 2) if tp is not None else None,
+        entry_price=round(price, dec),
+        stop_loss=round(sl, dec) if sl is not None else None,
+        take_profit=round(tp, dec) if tp is not None else None,
         created_at=now_ts,
         raw_payload=data,
     )

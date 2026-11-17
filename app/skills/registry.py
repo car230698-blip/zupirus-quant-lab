@@ -221,9 +221,12 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
     """Execute the Python tool or MCP connector corresponding to the requested skill.
     Increments usage_count and returns structured observation for Agent reasoning.
     """
-    # Track usage in DB
+    # Track usage & verify enabled state in DB
     try:
         with tx() as c:
+            sk_row = c.execute("SELECT enabled FROM agent_skills WHERE skill_id = ?", (skill_id,)).fetchone()
+            if sk_row is not None and int(sk_row["enabled"] or 0) == 0:
+                return {"error": f"Skill '{skill_id}' hiện đang bị vô hiệu hóa.", "status": "disabled"}
             c.execute(
                 "UPDATE agent_skills SET usage_count = usage_count + 1, updated_at = ? WHERE skill_id = ?",
                 (time.time(), skill_id)

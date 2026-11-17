@@ -80,8 +80,9 @@ def get_live_xauusd_quote() -> Dict[str, Any]:
                 "SELECT close, time FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1"
             ).fetchone()
             if c_row and c_row[0]:
+                from app.db import to_epoch_ts
                 close_p = float(c_row[0])
-                candle_ts = float(c_row[1]) if c_row[1] else 0.0
+                candle_ts = to_epoch_ts(c_row[1]) if c_row[1] else 0.0
                 age_seconds = now_ts - candle_ts
                 bid = close_p
                 ask = close_p
@@ -616,7 +617,7 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
         hindsight_lessons = []
         try:
             h_rows = c.execute(
-                "SELECT id, category, content, confidence, created_at FROM hindsight_memories ORDER BY created_at DESC LIMIT 10"
+                "SELECT id, category, content, relevance_score, created FROM hindsight_memories ORDER BY created DESC LIMIT 10"
             ).fetchall()
             for hr in h_rows:
                 hindsight_lessons.append({

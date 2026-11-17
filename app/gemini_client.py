@@ -8,8 +8,20 @@ import logging
 import urllib.request
 import urllib.error
 from typing import List, Dict, Any, Optional, Tuple
+from app.security import encrypt_secret, decrypt_secret
 
 logger = logging.getLogger("zupirus.gemini")
+
+
+def _decrypt_gemini_key(raw: str) -> str:
+    val = str(raw or "").strip()
+    if not val:
+        return ""
+    try:
+        dec = decrypt_secret(val)
+        return dec if dec else val
+    except Exception:
+        return val
 
 DEFAULT_GEMINI_KEYS = [
     k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()
@@ -42,7 +54,7 @@ def seed_default_keys(c):
                 c.execute(
                     """INSERT INTO gemini_keys (id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created)
                        VALUES (?, ?, ?, ?, 1, 0, NULL, 'active', ?)""",
-                    (kid, k_hash, k_masked, raw_key.strip(), now),
+                    (kid, k_hash, k_masked, encrypt_secret(raw_key.strip()), now),
                 )
         except Exception as e:
             logger.debug(f"Key seed note: {e}")
@@ -153,7 +165,7 @@ def call_gemini(
         for k_item in keys:
             if attempt >= max_tries * 2:
                 break
-            api_key = str(k_item.get("key_cipher") or "").strip()
+            api_key = _decrypt_gemini_key(k_item.get("key_cipher") or "")
             kid = k_item.get("id", "unknown")
             if not api_key:
                 continue

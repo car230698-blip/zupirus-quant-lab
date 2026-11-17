@@ -5,6 +5,7 @@ import time
 import json
 import uuid
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 from contextlib import contextmanager
 
@@ -21,6 +22,7 @@ KEY_DISPATCH_LOCK_PREFIX = "lock:dispatch:"
 class InMemoryRedisMock:
     """Thread-safe in-memory Redis mock for unit tests and offline operation."""
     def __init__(self):
+        self._lock = threading.RLock()
         self._data: Dict[str, Any] = {}
         self._expires: Dict[str, float] = {}
         self._streams: Dict[str, List[Dict[str, Any]]] = {STREAM_SIGNALS: []}
@@ -37,65 +39,71 @@ class InMemoryRedisMock:
         return True
 
     def set(self, name: str, value: Any, ex: Optional[int] = None, nx: bool = False, px: Optional[int] = None) -> bool:
-        self._purge_expired()
-        now = time.time()
-        if nx and name in self._data:
-            return False
-        self._data[name] = str(value)
-        if px:
-            self._expires[name] = now + (px / 1000.0)
-        elif ex:
-            self._expires[name] = now + ex
-        else:
-            self._expires.pop(name, None)
-        return True
+        with self._lock:
+            self._purge_expired()
+            now = time.time()
+            if nx and name in self._data:
+                return False
+            self._data[name] = str(value)
+            if px:
+                self._expires[name] = now + (px / 1000.0)
+            elif ex:
+                self._expires[name] = now + ex
+            else:
+                self._expires.pop(name, None)
+            return True
 
     def get(self, name: str) -> Optional[str]:
-        self._purge_expired()
-        return self._data.get(name)
+        with self._lock:
+            self._purge_expired()
+            return self._data.get(name)
 
     def delete(self, *names: str) -> int:
-        count = 0
-        for name in names:
-            if name in self._data:
-                del self._data[name]
-                self._expires.pop(name, None)
-                count += 1
-        return count
+        with self._lock:
+            count = 0
+            for name in names:
+                if name in self._data:
+                    del self._data[name]
+                    self._expires.pop(name, None)
+                    count += 1
+            return count
 
     def eval(self, script: str, numkeys: int, *keys_and_args: Any) -> Any:
         # Atomic lock release simulation: if get(k1) == arg1 then del(k1) return 1 else return 0
-        self._purge_expired()
-        key = str(keys_and_args[0])
-        val = str(keys_and_args[1]) if len(keys_and_args) > 1 else ""
-        if self._data.get(key) == val:
-            self.delete(key)
-            return 1
-        return 0
+        with self._lock:
+            self._purge_expired()
+            key = str(keys_and_args[0])
+            val = str(keys_and_args[1]) if len(keys_and_args) > 1 else ""
+            if self._data.get(key) == val:
+                self.delete(key)
+                return 1
+            return 0
 
     def xadd(self, name: str, fields: Dict[str, Any], id: str = "*", maxlen: Optional[int] = None) -> str:
-        if name not in self._streams:
-            self._streams[name] = []
-        entry_id = f"{int(time.time() * 1000)}-{len(self._streams[name])}"
-        entry = {"id": entry_id, "data": fields, "ts": time.time()}
-        self._streams[name].append(entry)
-        if maxlen and len(self._streams[name]) > maxlen:
-            self._streams[name] = self._streams[name][-maxlen:]
-        return entry_id
+        with self._lock:
+            if name not in self._streams:
+                self._streams[name] = []
+            entry_id = f"{int(time.time() * 1000)}-{len(self._streams[name])}"
+            entry = {"id": entry_id, "data": fields, "ts": time.time()}
+            self._streams[name].append(entry)
+            if maxlen and len(self._streams[name]) > maxlen:
+                self._streams[name] = self._streams[name][-maxlen:]
+            return entry_id
 
     def xread(self, streams: Dict[str, str], count: Optional[int] = None, block: Optional[int] = None) -> List[Any]:
-        results = []
-        for stream_name, last_id in streams.items():
-            entries = self._streams.get(stream_name, [])
-            filtered = [
-                (e["id"], {k: str(v) for k, v in e["data"].items()})
-                for e in entries
-            ]
-            if count:
-                filtered = filtered[-count:]
-            if filtered:
-                results.append((stream_name, filtered))
-        return results
+        with self._lock:
+            results = []
+            for stream_name, last_id in streams.items():
+                entries = self._streams.get(stream_name, [])
+                filtered = [
+                    (e["id"], {k: str(v) for k, v in e["data"].items()})
+                    for e in entries
+                ]
+                if count:
+                    filtered = filtered[-count:]
+                if filtered:
+                    results.append((stream_name, filtered))
+            return results
 
     def xgroup_create(self, name: str, groupname: str, id: str = "$", mkstream: bool = False) -> bool:
         if mkstream and name not in self._streams:
@@ -112,21 +120,24 @@ class InMemoryRedisMock:
         return 1
 
     def incr(self, key: str, amount: int = 1) -> int:
-        self._purge_expired()
-        cur = int(self._data.get(key) or 0) + amount
-        self._data[key] = str(cur)
-        return cur
+        with self._lock:
+            self._purge_expired()
+            cur = int(self._data.get(key) or 0) + amount
+            self._data[key] = str(cur)
+            return cur
 
     def expire(self, key: str, time_sec: int) -> bool:
-        if key in self._data:
-            self._expires[key] = time.time() + time_sec
-            return True
-        return False
+        with self._lock:
+            if key in self._data:
+                self._expires[key] = time.time() + time_sec
+                return True
+            return False
 
     def keys(self, pattern: str = "*") -> List[str]:
-        self._purge_expired()
-        import fnmatch
-        return [k for k in self._data.keys() if fnmatch.fnmatch(k, pattern)]
+        with self._lock:
+            self._purge_expired()
+            import fnmatch
+            return [k for k in self._data.keys() if fnmatch.fnmatch(k, pattern)]
 
 
 _redis_instance = None

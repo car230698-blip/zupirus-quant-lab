@@ -4,6 +4,7 @@ Dispatches transaction OTPs, Sentinel macro blackout alerts, Risk Guardian margi
 and daily quant performance digests via Resend REST API (https://api.resend.com).
 """
 import os
+import html as html_mod
 import json
 import logging
 import urllib.request
@@ -162,11 +163,11 @@ def send_sentinel_alert(
                   <table width="100%" style="background:#18181b;border-radius:8px;padding:16px;margin-bottom:20px;">
                     <tr>
                       <td style="color:#94a3b8;font-size:12px;padding:6px 0;">Sự kiện:</td>
-                      <td style="color:#f8fafc;font-weight:700;font-size:13px;padding:6px 0;">{event_title}</td>
+                      <td style="color:#f8fafc;font-weight:700;font-size:13px;padding:6px 0;">{html_mod.escape(str(event_title))}</td>
                     </tr>
                     <tr>
                       <td style="color:#94a3b8;font-size:12px;padding:6px 0;">Tác động:</td>
-                      <td style="color:#ef4444;font-weight:800;font-size:13px;padding:6px 0;">{impact.upper()}</td>
+                      <td style="color:#ef4444;font-weight:800;font-size:13px;padding:6px 0;">{html_mod.escape(str(impact).upper())}</td>
                     </tr>
                     <tr>
                       <td style="color:#94a3b8;font-size:12px;padding:6px 0;">Hành động:</td>
@@ -257,8 +258,8 @@ def send_admin_alert_email(title: str, detail: str) -> Dict[str, Any]:
         html = f"""
         <div style="background:#050811;color:#f8fafc;padding:24px;font-family:Arial,sans-serif;">
           <div style="max-width:540px;margin:0 auto;background:#0d1527;border:1px solid #ef4444;border-radius:12px;padding:24px;">
-            <h2 style="color:#ef4444;margin:0 0 12px;">[ZUPIRUS ALERT] {title}</h2>
-            <p style="color:#cbd5e1;font-size:13px;line-height:1.6;">{detail}</p>
+            <h2 style="color:#ef4444;margin:0 0 12px;">[ZUPIRUS ALERT] {html_mod.escape(str(title))}</h2>
+            <p style="color:#cbd5e1;font-size:13px;line-height:1.6;">{html_mod.escape(str(detail))}</p>
           </div>
         </div>
         """

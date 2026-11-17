@@ -48,6 +48,7 @@ class OrderTotals(dict):
 BILLING_CYCLE_CONFIG = {
     "MONTHLY": {"months": 1, "days": 30, "discount": 1.0},
     "QUARTERLY": {"months": 3, "days": 90, "discount": 0.90},
+    "BIANNUAL": {"months": 6, "days": 180, "discount": 0.85},
     "ANNUAL": {"months": 12, "days": 365, "discount": 0.80},
 }
 
