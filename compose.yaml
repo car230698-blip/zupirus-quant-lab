@@ -52,6 +52,7 @@ services:
       timescaledb: { condition: service_healthy }
       redis: { condition: service_healthy }
     environment:
+      APP_ENV: ${APP_ENV:-dev}
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
       REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
@@ -92,6 +93,7 @@ services:
       timescaledb: { condition: service_healthy }
       redis: { condition: service_healthy }
     environment:
+      APP_ENV: ${APP_ENV:-dev}
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
       REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
@@ -109,6 +111,7 @@ services:
       timescaledb: { condition: service_healthy }
       redis: { condition: service_healthy }
     environment:
+      APP_ENV: ${APP_ENV:-dev}
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
       REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
