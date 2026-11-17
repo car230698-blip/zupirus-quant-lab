@@ -498,6 +498,24 @@ export const AdminAIEvolutionTab: React.FC = () => {
               type="button"
               onClick={async () => {
                 try {
+                  const r = await fetch('/api/admin/news/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                  });
+                  const d = await r.json().catch(() => ({}));
+                  setMsg(r.ok ? `Đã đồng bộ News Shield (${d.synced ?? d.count ?? 'OK'}).` : `Lỗi News Sync: ${d.detail || r.status}`);
+                } catch (e: any) {
+                  setMsg(`Lỗi mạng: ${e.message}`);
+                }
+              }}
+              className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
+            >
+              Đồng bộ News Shield
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
                   const r = await fetch('/api/v1/signals/test-ingest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },

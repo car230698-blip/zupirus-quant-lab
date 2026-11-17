@@ -1030,9 +1030,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 
             {(() => {
               const displayOrderId = checkoutOrder.order_code || checkoutOrder.order_id || checkoutOrder.id || '';
-              const displayBank = checkoutOrder.bank_name || 'VietinBank';
-              const displayAccNum = checkoutOrder.account_number || '105887054819';
-              const displayHolder = checkoutOrder.account_holder || 'CTCP ZUPIRUS QUANT LAB';
+              const displayBank = checkoutOrder.bank_name || 'Chưa cấu hình';
+              const displayAccNum = checkoutOrder.account_number || 'Chưa cấu hình';
+              const displayHolder = checkoutOrder.account_holder || 'ZUPIRUS QUANT LAB';
               const displayMemo = checkoutOrder.payment_content || `ZP ${displayOrderId.slice(-6).toUpperCase()}`;
               const displayAmountVnd = Number(checkoutOrder.amount_vnd || estimatedVnd || 0);
               const qrCodeUrl =

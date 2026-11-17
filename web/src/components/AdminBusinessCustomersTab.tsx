@@ -283,13 +283,43 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
 
       {/* 4. User Compliance & Role Management */}
       <div className="quant-panel p-6 space-y-4">
-        <div>
-          <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">
-            Quản Trị Người Dùng ({users.length})
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">
+              Quản Trị Người Dùng ({users.length})
+            </div>
+            <h3 className="mt-1 text-base font-bold text-white">
+              Danh Sách Tài Khoản Hệ Thống (Phân Quyền &amp; Xử Lý Vi Phạm)
+            </h3>
           </div>
-          <h3 className="mt-1 text-base font-bold text-white">
-            Danh Sách Tài Khoản Hệ Thống (Phân Quyền &amp; Xử Lý Vi Phạm)
-          </h3>
+          <button
+            type="button"
+            onClick={async () => {
+              const email = window.prompt('Nhập Email người dùng mới:');
+              if (!email) return;
+              const password = window.prompt('Nhập mật khẩu (>= 12 ký tự):');
+              if (!password || password.length < 12) {
+                setMsg('Mật khẩu phải tối thiểu 12 ký tự.');
+                return;
+              }
+              const role = window.confirm('Cấp quyền ADMIN cho tài khoản này? (Cancel = customer)') ? 'admin' : 'customer';
+              const r = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                body: JSON.stringify({ email: email.trim(), password, role }),
+              });
+              const d = await r.json().catch(() => ({}));
+              if (r.ok) {
+                setMsg(`Đã tạo tài khoản ${email.trim()} (${role}).`);
+                await loadBilling();
+              } else {
+                setMsg(`Lỗi tạo user: ${d.detail || r.status}`);
+              }
+            }}
+            className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
+          >
+            + Tạo Người Dùng
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">

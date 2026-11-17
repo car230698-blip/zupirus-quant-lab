@@ -10,12 +10,15 @@ def verify(value, stored):
     actual=hashlib.scrypt(value.encode(),salt=salt.encode(),n=16384,r=8,p=1).hex()
     return hmac.compare_digest(actual,expected)
 
+_EPHEMERAL_DEV_KEY = secrets.token_hex(32)
+
+
 def _get_encryption_key() -> bytes:
     raw = os.getenv('ENCRYPTION_KEY') or os.getenv('SECRET_KEY')
     if not raw:
         if os.getenv('APP_ENV', '').lower() == 'production' and not os.getenv('PYTEST_CURRENT_TEST'):
             raise RuntimeError('ENCRYPTION_KEY must be configured in production environment')
-        raw = 'zupirus_dev_ephemeral_encryption_key'
+        raw = _EPHEMERAL_DEV_KEY
     return hashlib.sha256(raw.encode()).digest()
 
 def encrypt_secret(val: str) -> str:

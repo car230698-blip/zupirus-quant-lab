@@ -85,12 +85,10 @@ def calculate_order_totals(
 
 
 def get_effective_sepay_config() -> Tuple[str, str, str]:
-    """Retrieve active SePay bank configuration from dynamic kv settings or config constants.
-    Sanitizes any obsolete demo credentials to VietinBank / 105887054819 / LE NGUYEN NHU THUY.
-    """
-    bank_name = SEPAY_BANK_NAME or "VietinBank"
-    acc_num = SEPAY_ACCOUNT_NUMBER or "105887054819"
-    holder = SEPAY_ACCOUNT_HOLDER or "LE NGUYEN NHU THUY"
+    """Retrieve active SePay bank configuration from dynamic kv settings or environment config."""
+    bank_name = SEPAY_BANK_NAME or ""
+    acc_num = SEPAY_ACCOUNT_NUMBER or ""
+    holder = SEPAY_ACCOUNT_HOLDER or ""
 
     try:
         with tx() as c:
@@ -105,12 +103,6 @@ def get_effective_sepay_config() -> Tuple[str, str, str]:
                     holder = str(d["account_holder"]).strip().upper()
     except Exception as e:
         logger.warning(f"Failed to read billing:settings from kv: {e}")
-
-    # Enforce valid real banking credentials (eliminate legacy MBBank 0336230698)
-    if acc_num == "0336230698" or bank_name in ("MBBank", "MB"):
-        bank_name = "VietinBank"
-        acc_num = "105887054819"
-        holder = "LE NGUYEN NHU THUY"
 
     return bank_name, acc_num, holder
 

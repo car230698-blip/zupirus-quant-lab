@@ -52,7 +52,7 @@ def synthesize_strategy_candidate(
                     created_at, updated_at
                 ) VALUES (?, ?, 'DISCOVERED', ?, ?, NULL, NULL, NULL, ?, ?)
                 """,
-                (cand_id, cand_name, json.dumps(rules_payload), max(len(rules_found) * 5, min_samples), now_ts, now_ts)
+                (cand_id, cand_name, json.dumps(rules_payload), len(rules_found), now_ts, now_ts)
             )
     except Exception as e:
         return {"status": "error", "message": f"Could not save strategy candidate: {e}"}
@@ -62,6 +62,7 @@ def synthesize_strategy_candidate(
         "candidate_id": cand_id,
         "name": cand_name,
         "rules_json": rules_payload,
-        "ready_for_wfo": True,
-        "status_label": "DISCOVERED (Pending Walk-Forward Validation)",
+        "sample_size": len(rules_found),
+        "ready_for_wfo": len(rules_found) > 0,
+        "status_label": "DISCOVERED (Pending Walk-Forward Validation)" if rules_found else "DISCOVERED (Insufficient Evidence)",
     }
