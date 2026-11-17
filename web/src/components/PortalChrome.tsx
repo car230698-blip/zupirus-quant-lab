@@ -594,6 +594,9 @@ export function PortalAuth({
   onClosePreview?: () => void;
 }) {
   const [register, setRegister] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [resetOtp, setResetOtp] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [otpSent, setOtpSent] = useState(false);
@@ -623,7 +626,8 @@ export function PortalAuth({
     setOtpSending(true);
     setOtpNotice(null);
     try {
-      const res = await fetch('/api/auth/send-otp', {
+      const endpoint = forgotMode ? '/api/auth/forgot-password' : '/api/auth/send-otp';
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         body: JSON.stringify({ email: emailInput }),
@@ -643,11 +647,44 @@ export function PortalAuth({
     }
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const email = String(data.get('email') || emailInput);
     const password = String(data.get('password') || passwordInput);
+
+    if (forgotMode) {
+      if (!resetOtp || resetOtp.length !== 6) {
+        setOtpNotice('Vui lòng nhập đủ mã OTP 6 chữ số gửi về email.');
+        return;
+      }
+      setResetBusy(true);
+      setOtpNotice(null);
+      try {
+        const res = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+          body: JSON.stringify({ email, otp_code: resetOtp, new_password: password }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setForgotMode(false);
+          setResetOtp('');
+          setPasswordInput('');
+          setOtpSent(false);
+          setOtpCountdown(0);
+          setOtpNotice('✓ Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.');
+        } else {
+          setOtpNotice(d.detail || d.message || 'Không thể đặt lại mật khẩu.');
+        }
+      } catch (err: any) {
+        setOtpNotice(`Lỗi kết nối: ${err.message || String(err)}`);
+      } finally {
+        setResetBusy(false);
+      }
+      return;
+    }
+
     const otp = register ? String(data.get('otp') || '') : undefined;
 
     if (register && !otp) {
@@ -799,7 +836,7 @@ export function PortalAuth({
                   required
                   className="flex-1"
                 />
-                {register && (
+                {(register || forgotMode) && (
                   <button
                     type="button"
                     onClick={handleSendOtp}
@@ -834,42 +871,101 @@ export function PortalAuth({
               </div>
             )}
 
+            {forgotMode && (
+              <div>
+                <label htmlFor="auth-reset-otp">MÃ XÁC THỰC OTP KHÔI PHỤC (6 CHỮ SỐ)</label>
+                <input
+                  id="auth-reset-otp"
+                  name="reset_otp"
+                  type="text"
+                  value={resetOtp}
+                  onChange={(e) => setResetOtp(e.target.value)}
+                  placeholder="849201"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  required
+                  className="mt-1.5 font-mono tracking-widest text-center text-lg font-bold tabular-nums"
+                />
+              </div>
+            )}
+
             <div>
-              <label htmlFor="auth-password">MẬT KHẨU</label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="auth-password">{forgotMode ? 'MẬT KHẨU MỚI' : 'MẬT KHẨU'}</label>
+                {portal === 'user' && !register && !forgotMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotMode(true);
+                      setOtpNotice(null);
+                      setOtpSent(false);
+                      setOtpCountdown(0);
+                    }}
+                    className="text-[11px] font-mono text-cyan-300 hover:text-cyan-200 transition-colors cursor-pointer"
+                  >
+                    Quên mật khẩu?
+                  </button>
+                )}
+              </div>
               <input
                 id="auth-password"
                 name="password"
                 type="password"
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
-                autoComplete={register ? 'new-password' : 'current-password'}
-                minLength={register ? 8 : undefined}
-                placeholder={register ? 'Tối thiểu 8 ký tự' : 'Nhập mật khẩu bảo mật'}
+                autoComplete={register || forgotMode ? 'new-password' : 'current-password'}
+                minLength={forgotMode ? 12 : register ? 8 : undefined}
+                placeholder={forgotMode ? 'Tối thiểu 12 ký tự' : register ? 'Tối thiểu 8 ký tự' : 'Nhập mật khẩu bảo mật'}
                 required
                 className="mt-1.5"
               />
             </div>
 
-            <button className="quant-primary mt-2" disabled={loading}>
-              <span>{loading ? 'Đang xác thực…' : register ? 'Xác Nhận OTP & Tạo Tài Khoản' : 'Đăng Nhập Vào Hệ Thống'}</span>
+            <button className="quant-primary mt-2" disabled={loading || resetBusy}>
+              <span>
+                {resetBusy
+                  ? 'Đang đặt lại...'
+                  : loading
+                  ? 'Đang xác thực…'
+                  : forgotMode
+                  ? 'Xác Nhận Đặt Lại Mật Khẩu'
+                  : register
+                  ? 'Xác Nhận OTP & Tạo Tài Khoản'
+                  : 'Đăng Nhập Vào Hệ Thống'}
+              </span>
               <span aria-hidden="true">→</span>
             </button>
           </form>
 
           {portal === 'user' && (
-            <div className="mt-5 pt-4 border-t border-slate-800/80 text-center">
-              <button
-                type="button"
-                className="text-xs font-mono text-amber-300 hover:text-amber-200 transition-colors cursor-pointer"
-                onClick={() => {
-                  setRegister(!register);
-                  setOtpNotice(null);
-                  setOtpSent(false);
-                }}
-                disabled={loading}
-              >
-                {register ? '← Đã có tài khoản? Đăng nhập ngay' : 'Chưa có tài khoản? Đăng ký mới với OTP email →'}
-              </button>
+            <div className="mt-5 pt-4 border-t border-slate-800/80 text-center space-y-2">
+              {forgotMode ? (
+                <button
+                  type="button"
+                  className="text-xs font-mono text-amber-300 hover:text-amber-200 transition-colors cursor-pointer"
+                  onClick={() => {
+                    setForgotMode(false);
+                    setOtpNotice(null);
+                    setOtpSent(false);
+                  }}
+                  disabled={resetBusy}
+                >
+                  ← Quay lại đăng nhập
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="text-xs font-mono text-amber-300 hover:text-amber-200 transition-colors cursor-pointer"
+                  onClick={() => {
+                    setRegister(!register);
+                    setOtpNotice(null);
+                    setOtpSent(false);
+                  }}
+                  disabled={loading}
+                >
+                  {register ? '← Đã có tài khoản? Đăng nhập ngay' : 'Chưa có tài khoản? Đăng ký mới với OTP email →'}
+                </button>
+              )}
             </div>
           )}
 
