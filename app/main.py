@@ -2157,4 +2157,14 @@ async def spa_fallback(request: Request, full_path: str):
                 },
             )
 
+    if (ROOT / 'index.html').exists():
+        return FileResponse(
+            ROOT / 'index.html',
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
     return JSONResponse({'detail': 'Not Found'}, status_code=404)
