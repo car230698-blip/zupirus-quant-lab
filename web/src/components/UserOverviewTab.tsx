@@ -100,6 +100,16 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const [showBbChannel, setShowBbChannel] = useState(true);
   const [hoveredCandleIdx, setHoveredCandleIdx] = useState<number | null>(null);
   const [activeShieldIdx, setActiveShieldIdx] = useState<number>(0);
+  const [subInfo, setSubInfo] = useState<any>(null);
+
+  React.useEffect(() => {
+    fetch('/api/v1/billing/subscription', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setSubInfo(d);
+      })
+      .catch(() => {});
+  }, []);
 
   const chartMode = externalChartMode ?? localChartMode;
   const setChartMode = externalSetChartMode ?? setLocalChartMode;
@@ -411,6 +421,64 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Subscription Status & Renewal Banner */}
+      {subInfo && (() => {
+        const expTs = Number(subInfo.service_expires_at || 0);
+        const remSec = expTs - Date.now() / 1000;
+        const isActive = Boolean(subInfo.is_active && remSec > 0);
+        const daysLeft = isActive ? Math.floor(remSec / 86400) : 0;
+        const hoursLeft = isActive ? Math.floor((remSec % 86400) / 3600) : 0;
+        const isExpiringSoon = isActive && remSec <= 7 * 86400;
+        const expStr = expTs > 0 ? new Date(expTs * 1000).toLocaleDateString('vi-VN') : null;
+        const tierLabel = String(subInfo.plan_tier || 'STARTER').toUpperCase();
+
+        return (
+          <div
+            className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-5 py-3.5 ${
+              !isActive
+                ? 'border-rose-500/40 bg-rose-500/10'
+                : isExpiringSoon
+                ? 'border-amber-500/40 bg-amber-500/10'
+                : 'border-emerald-500/30 bg-emerald-500/5'
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span
+                className={`rounded-lg px-2.5 py-1 font-mono font-bold uppercase ${
+                  !isActive
+                    ? 'bg-rose-500/20 text-rose-300'
+                    : isExpiringSoon
+                    ? 'bg-amber-500/20 text-amber-300'
+                    : 'bg-emerald-500/20 text-emerald-300'
+                }`}
+              >
+                {isActive ? `GÓI ${tierLabel}` : expTs > 0 ? `GÓI ${tierLabel} · HẾT HẠN` : 'CHƯA CÓ GÓI'}
+              </span>
+              <span className="text-slate-200 font-medium">
+                {isActive
+                  ? `Còn hiệu lực ${daysLeft} ngày ${hoursLeft} giờ${expStr ? ` (đến ${expStr})` : ''} · ${Number(subInfo.max_cloud_accounts || 1)} khe cắm Cloud MT5`
+                  : expTs > 0
+                  ? `Gói đã hết hạn ngày ${expStr}. Gia hạn để tiếp tục nhận lệnh tự động.`
+                  : 'Bạn chưa kích hoạt gói Cloud MT5 nào.'}
+              </span>
+            </div>
+            {activeTabSetter && (
+              <button
+                type="button"
+                onClick={() => activeTabSetter('accounts')}
+                className={`rounded-xl px-4 py-1.5 text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                  !isActive || isExpiringSoon
+                    ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+                    : 'border border-cyan-500/40 bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25'
+                }`}
+              >
+                {!isActive ? (expTs > 0 ? 'Gia Hạn Gói Ngay →' : 'Mua Gói Ngay →') : isExpiringSoon ? 'Gia Hạn Thêm →' : 'Quản Lý / Gia Hạn Gói'}
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Row 1: 4 Executive Quantum Portfolio HUD Cards with Sparklines */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="quant-card-interactive quant-hud-corner p-5">

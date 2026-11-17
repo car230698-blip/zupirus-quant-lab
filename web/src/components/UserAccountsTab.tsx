@@ -468,14 +468,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               </span>
             </div>
 
-            <div className="mt-4 rounded-xl border border-white/[0.07] bg-[#040710]/80 p-4">
+            <div className="mt-4 rounded-xl border border-white/[0.07] bg-[#040710]/80 p-4 space-y-2.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-400">Hạn mức khe cắm Cloud MT5</span>
                 <strong className="font-mono text-sm text-cyan-300 tabular-nums">
                   {accounts.length} / {cloudSub?.is_active ? Number(cloudSub?.max_cloud_accounts ?? 1) : 0} KHE CẮM
                 </strong>
               </div>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-all duration-500"
                   style={{
@@ -487,10 +487,73 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   }}
                 />
               </div>
-              <div className="mt-2 flex items-center justify-between text-[11px] font-mono text-slate-400">
-                <span>Chu kỳ: {cloudSub?.billing_cycle || 'MONTHLY'}</span>
-                <span>Tự động kích hoạt qua VietQR</span>
-              </div>
+
+              {(() => {
+                const expTs = Number(cloudSub?.service_expires_at || 0);
+                const remSec = expTs - Date.now() / 1000;
+                const isActive = Boolean(cloudSub?.is_active && remSec > 0);
+                const daysLeft = isActive ? Math.floor(remSec / 86400) : 0;
+                const hoursLeft = isActive ? Math.floor((remSec % 86400) / 3600) : 0;
+                const isExpiringSoon = isActive && remSec <= 7 * 86400;
+                const expText = expTs > 0 ? new Date(expTs * 1000).toLocaleString('vi-VN') : 'Chưa kích hoạt';
+                const tierNameMap: Record<string, string> = {
+                  starter: 'Khởi Đầu (Starter)',
+                  growth: 'Tăng Trưởng (Growth)',
+                  pro: 'Tăng Trưởng (Pro)',
+                  alpha: 'Thi Quỹ Alpha',
+                  institutional: 'Thi Quỹ Alpha',
+                };
+                const tierLabel = tierNameMap[String(cloudSub?.plan_tier || 'starter').toLowerCase()] || String(cloudSub?.plan_tier || 'STARTER').toUpperCase();
+
+                return (
+                  <div className="pt-2 border-t border-white/[0.06] space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="text-slate-400">
+                        Gói hiện tại: <strong className="text-white">{tierLabel}</strong>
+                      </span>
+                      <span
+                        className={`font-mono font-bold tabular-nums ${
+                          !isActive
+                            ? 'text-rose-400'
+                            : isExpiringSoon
+                            ? 'text-amber-300'
+                            : 'text-emerald-300'
+                        }`}
+                      >
+                        {isActive ? `Còn ${daysLeft} ngày ${hoursLeft} giờ` : expTs > 0 ? 'Đã hết hạn' : 'Chưa có gói'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
+                      <span>Hết hạn: <span className="text-slate-200">{expText}</span></span>
+                      <span>Chu kỳ: {cloudSub?.billing_cycle || 'MONTHLY'}</span>
+                    </div>
+
+                    {(isExpiringSoon || (!isActive && expTs > 0)) && (
+                      <div
+                        className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs ${
+                          !isActive
+                            ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+                            : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                        }`}
+                      >
+                        <span>
+                          {!isActive
+                            ? 'Gói cước đã hết hạn. Gia hạn ngay để khôi phục giao dịch.'
+                            : `Gói sắp hết hạn (còn ${daysLeft} ngày). Gia hạn để cộng dồn thời gian!`}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={cloudBusy}
+                          onClick={handleCreateCheckout}
+                          className="rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-mono font-bold px-3 py-1 text-[11px] cursor-pointer whitespace-nowrap"
+                        >
+                          Gia Hạn Ngay →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="mt-5 space-y-4">
