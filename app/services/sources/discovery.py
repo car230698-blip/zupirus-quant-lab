@@ -116,7 +116,7 @@ def _poll_tradingview_public_scanner() -> int:
         create_source(
             name=sname,
             source_type="PUBLIC_SCANNER",
-            status="SHADOW_ONLY",
+            status="ACTIVE_LIVE" if sid == "src_tv_m15_consensus" else "SHADOW_ONLY",
             symbol_universe="XAUUSD,EURUSD,GBPUSD,USDJPY",
             source_id=sid,
         )
@@ -187,7 +187,7 @@ def _poll_tradingview_public_scanner() -> int:
 
 
 def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float) -> None:
-    """Route qualified M15+H1 consensus signals through 4-Layer Safety Shields to active Cloud accounts."""
+    """Route qualified M15+H1 consensus signals through 4-Layer Safety Shields to paid, active Cloud accounts."""
     import asyncio
     try:
         with tx() as c:
@@ -195,11 +195,13 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
             if halt_row and str(halt_row[0]).strip() in ("1", "true", "True"):
                 return
             mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+            if not mode_row:
+                mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
             active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "EXTERNAL_FEED"
             if active_mode == "ZUPIRUS_AGENT":
                 return
             src_row = c.execute("SELECT status FROM signal_sources WHERE id = 'src_tv_m15_consensus'").fetchone()
-            if src_row and str(src_row[0]).upper() in ("DEMOTED", "DISABLED"):
+            if not src_row or str(src_row[0]).upper() != "ACTIVE_LIVE":
                 return
             raw_accounts = c.execute(
                 """
@@ -207,21 +209,41 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
                        t.risk_config, t.risk_multiplier, t.is_compounding, t.is_prop_firm_mode,
                        t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
                        t.account_type, t.contract_size, t.max_lot, t.symbol_mapping_custom,
-                       COALESCE(s.plan_tier, 'starter') AS plan_tier
+                       s.plan_tier, s.allow_alpha_strategies
                 FROM trading_accounts t
-                LEFT JOIN subscriptions s ON t.user_id = s.user_id
-                WHERE t.auto_trade = 1 AND COALESCE(t.deployment_state, 'DEPLOYED') != 'UNDEPLOYED'
-                """
+                JOIN subscriptions s ON s.user_id = t.user_id
+                WHERE t.auto_trade = 1
+                  AND t.deployment_state = 'DEPLOYED'
+                  AND t.equity > 0
+                  AND s.service_expires_at > ?
+                  AND (t.cloud_expires_at IS NULL OR t.cloud_expires_at > ?)
+                """,
+                (now_ts, now_ts),
             ).fetchall()
-        accounts = [dict(r) for r in raw_accounts]
+
+        accounts = []
+        for r in raw_accounts:
+            d = dict(r)
+            raw_cfg = d.get("risk_config")
+            if raw_cfg:
+                try:
+                    cfg_obj = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
+                    d["risk_percent"] = float(cfg_obj.get("risk_percent", 1.0))
+                    d["max_lot"] = float(cfg_obj.get("max_lot", d.get("max_lot") or 5.0))
+                except Exception:
+                    pass
+            accounts.append(d)
+
         if not accounts:
             return
 
         from app.schemas.signals import NormalizedSignalSchema
         from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
         from app.metaapi import MetaApiClient, execute_fan_out_for_signal
+        from app.redis_client import get_redis_client
 
         client = MetaApiClient()
+        rc = get_redis_client()
         for item in candidates:
             sym = item["symbol"]
             side = item["side"]
@@ -237,7 +259,11 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
                 take_profit=item["tp"],
                 created_at=now_ts,
             )
-            ok, reason, sanitized = sanitize_and_audit_signal(norm_sig)
+            ok, reason, sanitized = sanitize_and_audit_signal(
+                signal=norm_sig,
+                live_price=item["entry"],
+                current_time=now_ts,
+            )
             if ok and sanitized is not None:
                 sig_dict = {
                     "id": sanitized.id,
@@ -247,7 +273,7 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
                     "sl": sanitized.stop_loss,
                     "tp": sanitized.take_profit,
                 }
-                asyncio.run(execute_fan_out_for_signal(sig_dict, accounts, client))
+                asyncio.run(execute_fan_out_for_signal(sig_dict, accounts, client, redis_client=rc))
                 logger.info(f"Autonomous scanner dispatched {side} {sym} -> {len(accounts)} account(s)")
     except Exception as e:
         logger.debug(f"Scanner live dispatch note: {e}")

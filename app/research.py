@@ -554,7 +554,7 @@ def run_autonomous_induction_and_wfo(force: bool = False):
 
                     auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
                     auto_promote = True if (not auto_row or auto_row[0] is None) else (str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
-                    qualifies = bool(win_rate >= 0.50 and pf >= 1.25 and sample_sz >= 15)
+                    qualifies = bool(win_rate >= 0.52 and pf >= 1.35 and sample_sz >= 25)
 
                     new_status = "APPROVED_FOR_PROD" if (auto_promote and qualifies) else "WAITING_APPROVAL"
                     c.execute(
