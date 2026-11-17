@@ -41,9 +41,9 @@ async def test_prop_live_1pct_cap_does_not_affect_personal_or_challenge_accounts
         meta_id = kwargs.get("metaapi_account_id") or kwargs.get("account_id") or (args[0] if args else "")
         volume = kwargs.get("volume") if "volume" in kwargs else (args[3] if len(args) > 3 else 0.0)
         captured_volumes[meta_id] = volume
-        return {"status": "EXECUTED", "orderId": f"ord_{meta_id}", "positionId": f"p_{meta_id}", "numericCode": 10009}
+        return {"status": "FILLED", "orderId": f"ord_{meta_id}", "positionId": f"p_{meta_id}", "numericCode": 10009}
 
-    client.execute_market_order = fake_execute
+    client.execute_order = fake_execute
 
     sig = {"id": "sig_prop_1", "symbol": "XAUUSD", "action": "BUY", "entry_price": 2651.0, "sl": 2646.0, "tp": 2661.0}
     accounts = [
@@ -133,7 +133,54 @@ async def test_prop_watcher_hwm_and_profit_throttle_only_for_prop_accounts():
     await watcher.run_cycle()
 
     with tx() as c:
-        assert getkv(c, "prop_target_throttle:acc_prop") == "1"
+        # LIVE accounts must NOT have profit target throttle enabled
+        assert getkv(c, "prop_target_throttle:acc_prop") == "0"
         assert getkv(c, "prop_hwm_equity:acc_prop") == "10700.0"
         assert getkv(c, "prop_target_throttle:acc_pers") is None
         assert getkv(c, "prop_hwm_equity:acc_pers") is None
+
+
+@pytest.mark.asyncio
+async def test_prop_hwm_8pct_breach_and_concurrent_limit():
+    with tx() as c:
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_h', 'h@example.com', 'x', 'customer')")
+        c.execute(
+            """INSERT INTO trading_accounts (
+                id, user_id, mt5_login, encrypted_master_password, broker_server, metaapi_account_id,
+                deployment_state, auto_trade, balance, equity,
+                is_prop_firm_mode, prop_stage, prop_daily_dd_limit_pct, prop_profit_target_pct, created_at
+            ) VALUES ('acc_hwm', 'u_h', '333', 'enc', 'FTMO-Demo', 'meta_hwm', 'DEPLOYED', 1, 11200, 10950, 1, 'LIVE', 5.0, 8.0, 1.0)"""
+        )
+        c.execute("INSERT INTO kv (key, value) VALUES ('prop_initial_bal:acc_hwm', '10000')")
+        c.execute("INSERT INTO kv (key, value) VALUES ('prop_hwm_equity:acc_hwm', '12000')")
+
+    client = MetaApiClient()
+    client.is_mock = True
+    # Daily DD = 2.23% (< 5%), but Trailing DD from HWM 12000 = 8.75% (>= 8.0%)
+    client.get_account_information = AsyncMock(return_value={"balance": 11200.0, "equity": 10950.0})
+    client.close_all_positions = AsyncMock(return_value={"closed": 1})
+    client.get_open_positions = AsyncMock(return_value=[])
+
+    watcher = PositionWatcher(client)
+    res = await watcher.run_cycle()
+    assert res["prop_breakers_triggered"] >= 1
+    assert client.close_all_positions.called
+    with tx() as c:
+        row = c.execute("SELECT auto_trade FROM trading_accounts WHERE id = 'acc_hwm'").fetchone()
+        assert row[0] == 0
+        assert "HWM_TRAILING_DD" in (getkv(c, "drawdown_locked:acc_hwm") or "")
+
+    # Verify MAX_CONCURRENT_TRADES_PER_ACCOUNT blocks Prop LIVE when >= 2 positions open
+    client2 = MetaApiClient()
+    client2.is_mock = True
+    client2.get_open_positions = AsyncMock(return_value=[
+        {"id": "p1", "symbol": "EURUSD", "type": "POSITION_TYPE_BUY", "openPrice": 1.1, "stopLoss": 1.095, "volume": 0.1},
+        {"id": "p2", "symbol": "GBPUSD", "type": "POSITION_TYPE_SELL", "openPrice": 1.25, "stopLoss": 1.255, "volume": 0.1},
+    ])
+    rep = await execute_fan_out_for_signal(
+        {"id": "sig_max_conc", "symbol": "XAUUSD", "action": "BUY", "entry_price": 2650.0, "sl": 2645.0, "tp": 2660.0},
+        [{"id": "acc_live_max", "metaapi_account_id": "m_live_max", "balance": 100000.0, "equity": 100000.0, "is_prop_firm_mode": 1, "prop_stage": "LIVE"}],
+        client2,
+    )
+    assert rep["executed"] == 0
+    assert rep["skipped"] == 1

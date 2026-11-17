@@ -59,16 +59,18 @@ async def handle_tradingview_webhook(
             (norm_signal.symbol, now_ts)
         ).fetchone()
         if q and q["bid"] and q["ask"]:
-            live_price = round((float(q["bid"]) + float(q["ask"])) / 2.0, 2)
+            from app.services.symbol_precision import digits_for_symbol
+            live_price = round((float(q["bid"]) + float(q["ask"])) / 2.0, digits_for_symbol(norm_signal.symbol))
 
     if live_price is None:
         try:
             rc = get_redis_client()
             cached = rc.get(f"quote:{norm_signal.symbol}:live")
             if cached:
+                from app.services.symbol_precision import digits_for_symbol
                 val = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
                 parts = val.split(":")
-                live_price = round((float(parts[0]) + float(parts[1])) / 2.0, 2)
+                live_price = round((float(parts[0]) + float(parts[1])) / 2.0, digits_for_symbol(norm_signal.symbol))
         except Exception:
             pass
 
@@ -97,9 +99,12 @@ async def handle_tradingview_webhook(
     if src_status == "SHADOW_ONLY":
         logger.info(f"Signal from SHADOW_ONLY source '{norm_signal.source}' recorded for observation.")
         from app.services.sources.curator import record_shadow_signal
+        from app.services.symbol_precision import digits_for_symbol, pip_size_for_symbol
         is_buy = norm_signal.action == "BUY"
-        def_sl = round(norm_signal.entry_price - 3.5 if is_buy else norm_signal.entry_price + 3.5, 2)
-        def_tp = round(norm_signal.entry_price + 7.0 if is_buy else norm_signal.entry_price - 7.0, 2)
+        p_size = pip_size_for_symbol(norm_signal.symbol)
+        p_dec = digits_for_symbol(norm_signal.symbol)
+        def_sl = round(norm_signal.entry_price - 35.0 * p_size if is_buy else norm_signal.entry_price + 35.0 * p_size, p_dec)
+        def_tp = round(norm_signal.entry_price + 70.0 * p_size if is_buy else norm_signal.entry_price - 70.0 * p_size, p_dec)
         with tx() as c:
             record_shadow_signal(
                 source_id=norm_signal.source,
@@ -143,7 +148,7 @@ async def handle_tradingview_webhook(
             SELECT
                 a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
                 a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
-                a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
+                a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
                 a.account_type, a.contract_size,
                 s.plan_tier, s.allow_alpha_strategies
             FROM trading_accounts a

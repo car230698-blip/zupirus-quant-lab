@@ -92,7 +92,9 @@ def test_metaapi_cloud_endpoints_and_telemetry(customer):
     assert r.status_code == 200
     assert 'accounts' in r.json()
 
-    # Verify cloud telemetry endpoint
+    # Verify cloud telemetry endpoint requires admin
+    assert customer.get('/api/metaapi/telemetry').status_code == 403
+    login_admin(customer)
     t = customer.get('/api/metaapi/telemetry')
     assert t.status_code == 200
     d = t.json()

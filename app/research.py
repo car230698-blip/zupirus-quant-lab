@@ -444,7 +444,11 @@ def ai_text(prompt, image=None):
                 cfg = json.loads(row[0])
                 provider = cfg.get("provider", "AUTO").upper()
                 if cfg.get("api_key"):
-                    key = cfg["api_key"]
+                    try:
+                        from app.security import decrypt_secret
+                        key = decrypt_secret(cfg["api_key"]) or cfg["api_key"]
+                    except Exception:
+                        key = cfg["api_key"]
                 if cfg.get("base_url"):
                     base_url = cfg["base_url"]
                 if cfg.get("model"):
@@ -553,7 +557,7 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                     sample_sz = max(int(cand.get("sample_size") or 0), trades_cnt)
 
                     auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
-                    auto_promote = True if (not auto_row or auto_row[0] is None) else (str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
+                    auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
                     qualifies = bool(win_rate >= 0.52 and pf >= 1.35 and sample_sz >= 25)
 
                     new_status = "APPROVED_FOR_PROD" if (auto_promote and qualifies) else "WAITING_APPROVAL"

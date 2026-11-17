@@ -31,7 +31,9 @@ logger = logging.getLogger("zupirus.sanitizer")
 
 def check_redis_deduplication(signal: NormalizedSignalSchema) -> Tuple[bool, Optional[str]]:
     """Lớp 1: Chặn ngay tín hiệu trùng lặp ở cửa vào trong 60s bằng Redis Idempotency Key."""
-    raw_key = f"{signal.source}:{signal.symbol}:{signal.action}:{signal.entry_price:.2f}"
+    from app.services.symbol_precision import digits_for_symbol
+    dec = digits_for_symbol(signal.symbol)
+    raw_key = f"{signal.source}:{signal.symbol}:{signal.action}:{round(float(signal.entry_price), dec)}"
     sig_hash = hashlib.sha256(raw_key.encode()).hexdigest()[:16]
     redis_key = f"signal_ingest:{signal.source}:{sig_hash}"
 
@@ -77,9 +79,12 @@ def check_mandatory_sl(
         return False, "REJECTED_MISSING_STOP_LOSS: Signal lacks stop loss and auto-attach is disabled", signal
 
     # Auto attach ATR-based stop loss
-    atr_val = max(1.5, atr_points)
+    from app.services.symbol_precision import digits_for_symbol, pip_size_for_symbol
+    p_size = pip_size_for_symbol(signal.symbol)
+    p_dec = digits_for_symbol(signal.symbol)
+    atr_val = max(15.0 * p_size, atr_points)
     sl_price = current_price - atr_val if signal.action == "BUY" else current_price + atr_val
-    signal.stop_loss = round(sl_price, 2)
+    signal.stop_loss = round(sl_price, p_dec)
     logger.info(f"Guard 2 [Auto-Attached ATR SL]: Signal {signal.id} set SL={signal.stop_loss} (ATR={atr_val})")
     return True, None, signal
 

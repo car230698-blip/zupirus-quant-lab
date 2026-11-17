@@ -269,10 +269,10 @@ class MetaApiClient:
         payload: Dict[str, Any] = {
             "actionType": "POSITION_MODIFY",
             "positionId": position_id,
-            "stopLoss": round(new_sl, 2)
+            "stopLoss": round(new_sl, 5)
         }
         if take_profit is not None:
-            payload["takeProfit"] = round(take_profit, 2)
+            payload["takeProfit"] = round(take_profit, 5)
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, headers=self._headers(), json=payload)
@@ -440,7 +440,7 @@ async def execute_fan_out_for_signal(
         if "XAU" in sym_u or "GOLD" in sym_u:
             sl_points = sl_dist * 100.0
         elif "JPY" in sym_u:
-            sl_points = (sl_dist * 100000.0) / max(entry_price, 1.0)
+            sl_points = sl_dist * 1000.0
         else:
             sl_points = sl_dist * 100000.0
     else:
@@ -572,7 +572,11 @@ async def execute_fan_out_for_signal(
             try:
                 from app.config import MAX_CONCURRENT_TRADES_PER_ACCOUNT
                 from app.services.symbol_precision import quote_to_usd_rate
-                open_positions = await metaapi_client.get_open_positions(meta_id) or []
+                import inspect
+                if "raise_on_error" in inspect.signature(metaapi_client.get_open_positions).parameters:
+                    open_positions = await metaapi_client.get_open_positions(meta_id, raise_on_error=True) or []
+                else:
+                    open_positions = await metaapi_client.get_open_positions(meta_id) or []
                 if len(open_positions) >= MAX_CONCURRENT_TRADES_PER_ACCOUNT:
                     logger.info(
                         f"Account {acc_id} (PROP LIVE) skipped: PROP_MAX_CONCURRENT_TRADES_REACHED "
@@ -619,7 +623,8 @@ async def execute_fan_out_for_signal(
                 effective_risk_pct = capped_risk
                 effective_mult = 1.0
             except Exception as prop_err:
-                logger.warning(f"Prop Live idea risk check note for {acc_id}: {prop_err}")
+                logger.warning(f"Account {acc_id} (PROP LIVE) fail-closed on position check error: {prop_err}")
+                continue
 
         volume = calculate_normalized_lot_size(
             equity=base_capital,
@@ -631,6 +636,7 @@ async def execute_fan_out_for_signal(
             max_lot=max_lot,
             is_cent=is_cent_acc,
             symbol=symbol,
+            entry_price=entry_price,
         )
 
         if volume <= 0:

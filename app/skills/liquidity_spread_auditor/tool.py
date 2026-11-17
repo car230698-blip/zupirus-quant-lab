@@ -50,7 +50,8 @@ def audit_liquidity_and_spread(
     dist_pips = round(diff_val * mult, 1)
 
     # 4. Diagnose loss category
-    if is_rollover or observed_spread_pips >= (6.0 if "XAU" in symbol else 3.5):
+    spread_anomaly = observed_spread_pips >= (6.0 if "XAU" in symbol else 3.5)
+    if is_rollover or spread_anomaly:
         category = "SPREAD_SPIKE_ROLLOVER"
         notes = (
             f"Lệnh bị đóng trong khung giờ giao phiên / giãn spread ({observed_spread_pips} pips). "
@@ -77,6 +78,7 @@ def audit_liquidity_and_spread(
         "exit_price": exit_price,
         "distance_to_sl_pips": dist_pips,
         "max_spread_observed": observed_spread_pips,
+        "is_spread_anomaly": spread_anomaly,
         "is_rollover_hour": is_rollover,
         "audit_notes": notes,
         "timestamp": now_ts,

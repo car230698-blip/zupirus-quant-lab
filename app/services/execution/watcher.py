@@ -172,19 +172,9 @@ class PositionWatcher:
 
                 # 2B. Prop Firm Exclusive Protections (only when is_prop_firm_mode is explicitly enabled; personal accounts unaffected)
                 if bool(acc.get("is_prop_firm_mode")):
-                    hwm_equity = current_equity
+                    prop_stage_u = str(acc.get("prop_stage") or "CHALLENGE").upper()
                     init_bal = current_balance
                     with tx() as c:
-                        hwm_key = f"prop_hwm_equity:{acc_id}"
-                        hwm_val = getkv(c, hwm_key)
-                        if hwm_val:
-                            try:
-                                hwm_equity = max(float(hwm_val), current_equity)
-                            except Exception:
-                                hwm_equity = current_equity
-                        if not hwm_val or current_equity > float(hwm_val or 0.0):
-                            setkv(c, hwm_key, str(hwm_equity))
-
                         init_key = f"prop_initial_bal:{acc_id}"
                         init_val = getkv(c, init_key)
                         if init_val:
@@ -195,12 +185,23 @@ class PositionWatcher:
                         else:
                             setkv(c, init_key, str(current_balance))
 
-                        # Profit Target >= 80% -> halve new order risk
+                        hwm_key = f"prop_hwm_equity:{acc_id}"
+                        hwm_val = getkv(c, hwm_key)
+                        prev_hwm = float(hwm_val) if hwm_val else 0.0
+                        hwm_equity = max(init_bal, current_equity, prev_hwm)
+                        if not hwm_val or hwm_equity > prev_hwm:
+                            setkv(c, hwm_key, str(hwm_equity))
+
+                        # Profit Target >= 80% -> halve new order risk on CHALLENGE only; auto-reset if equity drops < 70%
                         target_pct = float(acc.get("prop_profit_target_pct") or 0.0)
-                        if target_pct > 0 and init_bal > 0:
+                        if prop_stage_u == "CHALLENGE" and target_pct > 0 and init_bal > 0:
                             gain_pct = ((current_equity - init_bal) / init_bal) * 100.0
                             if gain_pct >= 0.8 * target_pct:
                                 setkv(c, f"prop_target_throttle:{acc_id}", "1")
+                            elif gain_pct < 0.7 * target_pct:
+                                setkv(c, f"prop_target_throttle:{acc_id}", "0")
+                        elif prop_stage_u == "LIVE":
+                            setkv(c, f"prop_target_throttle:{acc_id}", "0")
 
                     # Max Overall / Trailing Drawdown >= 8.0% from HWM
                     if hwm_equity > 0:

@@ -522,7 +522,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
                     body: JSON.stringify({ symbol: 'XAUUSD', action: 'BUY', source: 'ADMIN_BENCH' }),
                   });
                   const d = await r.json().catch(() => ({}));
-                  setMsg(r.ok ? `Test Ingest: ${d.status || 'OK'} (${d.reason || '4-Layer Checked'})` : `Lỗi Test Ingest: ${d.detail || r.status}`);
+                  setMsg(r.ok ? `Test Ingest: ${d.status || 'OK'} (${d.reject_reason || d.reason || '4-Layer Checked'})` : `Lỗi Test Ingest: ${d.detail || r.status}`);
                 } catch (e: any) {
                   setMsg(`Lỗi mạng: ${e.message}`);
                 }

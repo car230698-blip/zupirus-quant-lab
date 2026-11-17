@@ -1473,7 +1473,7 @@ def run_postgres_migration_test(database_url: str = None):
         wrapped_fresh = ConnectionWrapper(raw_conn, is_pg=True)
         run_all_migrations(wrapped_fresh, is_pg=True)
         fresh_versions = get_applied_versions(wrapped_fresh)
-        assert fresh_versions == list(range(1, 14)), f"Expected all migrations 1..13, got {fresh_versions}"
+        assert fresh_versions == list(range(1, 18)), f"Expected all migrations 1..17, got {fresh_versions}"
 
         with raw_conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS fresh_schema_test CASCADE;")
@@ -1507,7 +1507,7 @@ def run_postgres_migration_test(database_url: str = None):
         # Run all migrations on legacy schema
         run_all_migrations(wrapped_legacy, is_pg=True)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == list(range(1, 14)), f"Expected 1..13, got {legacy_versions}"
+        assert legacy_versions == list(range(1, 18)), f"Expected 1..17, got {legacy_versions}"
 
         # Verify existing data is preserved
         with raw_conn.cursor() as cur:

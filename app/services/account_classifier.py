@@ -57,6 +57,7 @@ def calculate_normalized_lot_size(
     max_lot: float = 10.0,
     is_cent: bool = False,
     symbol: str = "XAUUSD",
+    entry_price: float = 0.0,
 ) -> float:
     """Calculate normalized, risk-proportional lot size.
     Formula:
@@ -78,7 +79,7 @@ def calculate_normalized_lot_size(
         from app.services.symbol_precision import digits_for_symbol, quote_to_usd_rate
         point_size = 10.0 ** (-digits_for_symbol(sym_u))
         fx_contract = 1000.0 if (is_cent or contract_size <= 1.0) else 100000.0
-        loss_per_lot = sl_distance_points * point_size * fx_contract * tick_value * quote_to_usd_rate(sym_u)
+        loss_per_lot = sl_distance_points * point_size * fx_contract * tick_value * quote_to_usd_rate(sym_u, entry_price)
     if loss_per_lot <= 0:
         return 0.0
 

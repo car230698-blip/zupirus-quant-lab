@@ -597,14 +597,14 @@ def tick():
         c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 7,))
         c.execute('DELETE FROM quotes WHERE ts<?', (now - 86400 * 2,))
         if now - _last_sub_lifecycle_ts >= 3600.0:
-            for tbl, col in (
-                ('sessions', 'expires'),
-                ('otp_codes', 'expires_at'),
-                ('login_limits', 'locked_until'),
-                ('signal_dispatch_locks', 'expires_at'),
+            for tbl, col, cutoff in (
+                ('sessions', 'expires', now),
+                ('otp_codes', 'expires_at', now),
+                ('login_limits', 'until', now),
+                ('signal_dispatch_locks', 'created_at', now - 86400.0),
             ):
                 try:
-                    c.execute(f'DELETE FROM {tbl} WHERE {col} IS NOT NULL AND {col} > 0 AND {col} < ?', (now,))
+                    c.execute(f'DELETE FROM {tbl} WHERE {col} IS NOT NULL AND {col} > 0 AND {col} < ?', (cutoff,))
                 except Exception:
                     pass
 

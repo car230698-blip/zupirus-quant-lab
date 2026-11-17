@@ -1933,7 +1933,9 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
         # 3. Scan active cloud accounts with accepted disclaimers from both trading_accounts and metaapi_cloud_accounts
         rows = c.execute("""
             SELECT id, user_id, metaapi_account_id, balance, equity,
-                   risk_multiplier as multiplier, 1.0 as risk_percent, 5.0 as max_lot
+                   risk_multiplier as multiplier, 1.0 as risk_percent, 5.0 as max_lot,
+                   is_prop_firm_mode, prop_stage, account_type, contract_size,
+                   is_compounding, prop_daily_dd_limit_pct, prop_profit_target_pct, risk_config
             FROM trading_accounts
             WHERE auto_trade=1 AND deployment_state='DEPLOYED' AND metaapi_account_id IS NOT NULL
         """).fetchall()
@@ -2045,7 +2047,7 @@ def list_metaapi_executions(limit: int = 50, u=Depends(user)):
         return {"executions": [dict(r) for r in rows]}
 
 @app.get('/api/metaapi/telemetry')
-def get_metaapi_telemetry(u=Depends(user)):
+def get_metaapi_telemetry(u=Depends(admin)):
     """Return cloud execution latency metrics and system health."""
     with tx() as c:
         total_accounts = c.execute("SELECT count(*) FROM trading_accounts").fetchone()[0]

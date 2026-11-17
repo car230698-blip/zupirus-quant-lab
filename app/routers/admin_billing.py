@@ -88,7 +88,16 @@ def get_billing_settings(_admin=Depends(get_current_admin)):
     fx_mode = saved.get("fx_mode", "AUTO")
     manual_fx_rate = float(saved.get("fallback_usd_vnd_rate") or saved.get("manual_fx_rate", 25600.0))
 
-    secret = saved.get("sepay_webhook_secret") or os.getenv("SEPAY_WEBHOOK_SECRET") or ""
+    raw_enc_sec = saved.get("sepay_webhook_secret_encrypted")
+    secret = ""
+    if raw_enc_sec:
+        try:
+            from app.security import decrypt_secret
+            secret = decrypt_secret(raw_enc_sec)
+        except Exception:
+            secret = ""
+    if not secret:
+        secret = saved.get("sepay_webhook_secret") or os.getenv("SEPAY_WEBHOOK_SECRET") or ""
     masked_secret = f"{secret[:4]}***{secret[-3:]}" if len(secret) >= 7 else ("***" if secret else "CHƯA_CẤU_HÌNH")
 
     rate, source, is_cached = get_usd_vnd_rate()
@@ -385,7 +394,7 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
                 1 if is_growth else 0,
                 1 if is_growth else 0,
                 1 if is_growth else 0,
-                1 if is_growth else 0,
+                1 if is_alpha else 0,
                 1 if is_alpha else 0,
                 now_ts, uid
             ))
@@ -402,7 +411,7 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
                 1 if is_growth else 0,
                 1 if is_growth else 0,
                 1 if is_growth else 0,
-                1 if is_growth else 0,
+                1 if is_alpha else 0,
                 1 if is_alpha else 0,
                 now_ts, now_ts
             ))

@@ -45,9 +45,10 @@ def interpret_macro_news(
         min_dist_mins = 999.0
 
     # Risk categorization
-    if min_dist_mins <= 30.0:
+    from app.config import NEWS_SHIELD_MINUTES
+    if min_dist_mins <= float(NEWS_SHIELD_MINUTES):
         status = "BLACKOUT_HIGH_RISK"
-        rec = "Khoảng cách tới tin đỏ dưới 30 phút. Bắt buộc kích hoạt News Shield để chặn rủi ro trượt giá."
+        rec = f"Khoảng cách tới tin đỏ dưới {NEWS_SHIELD_MINUTES} phút. Bắt buộc kích hoạt News Shield để chặn rủi ro trượt giá."
         is_safe = False
     elif min_dist_mins <= 60.0:
         status = "PRE_NEWS_VOLATILITY"

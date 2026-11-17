@@ -123,6 +123,7 @@ def get_sources_counts() -> Dict[str, int]:
             "active_live": counts.get("ACTIVE_LIVE", 0),
             "shadow_only": counts.get("SHADOW_ONLY", 0),
             "suspended": counts.get("SUSPENDED", 0),
+            "demoted": counts.get("DEMOTED", 0),
             "retired": counts.get("RETIRED", 0),
         }
 

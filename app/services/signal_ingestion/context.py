@@ -47,7 +47,8 @@ def get_market_atr14(c, symbol: str = "XAUUSD", timeframe: str = "M15") -> float
                 )
                 trs.append(tr)
             if trs:
-                return round(sum(trs) / len(trs), 2)
+                from app.services.symbol_precision import digits_for_symbol
+                return round(sum(trs) / len(trs), digits_for_symbol(symbol))
     except Exception:
         pass
     return 3.50  # Default institutional ATR on XAUUSD (~35 pips)
