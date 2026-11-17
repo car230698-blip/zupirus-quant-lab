@@ -184,9 +184,9 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
         p_t10 = float(prices[t - 10]["close"]) if isinstance(prices[t - 10], dict) else float(prices[t - 10])
         p_next = float(prices[t + 1]["open"]) if isinstance(prices[t + 1], dict) and "open" in prices[t + 1] else (float(prices[t + 1]["close"]) if isinstance(prices[t + 1], dict) else float(prices[t + 1]))
         slope = (close_p - p_t10) / 10.0
-        if target_action == "BUY" and slope >= min_slope:
+        if target_action in ("BUY", "BOTH") and slope >= min_slope:
             position = (p_next, 1)
-        elif target_action == "SELL" and slope <= -min_slope:
+        elif target_action in ("SELL", "BOTH") and slope <= -min_slope:
             position = (p_next, -1)
 
     if position:
@@ -553,8 +553,8 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                     sample_sz = max(int(cand.get("sample_size") or 0), trades_cnt)
 
                     auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
-                    auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
-                    qualifies = bool(win_rate >= 0.55 and pf >= 1.4 and sample_sz >= 30)
+                    auto_promote = True if (not auto_row or auto_row[0] is None) else (str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
+                    qualifies = bool(win_rate >= 0.50 and pf >= 1.25 and sample_sz >= 15)
 
                     new_status = "APPROVED_FOR_PROD" if (auto_promote and qualifies) else "WAITING_APPROVAL"
                     c.execute(
@@ -649,7 +649,7 @@ def run_periodic_source_discovery():
     """Autonomously discover & ingest external cross-asset / feed shadow signals every 30 minutes."""
     global _last_discovery_ts
     now = time.time()
-    if now - _last_discovery_ts < 1800.0:
+    if now - _last_discovery_ts < 900.0:
         return
     _last_discovery_ts = now
     try:

@@ -5,6 +5,7 @@
 """
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -110,6 +111,7 @@ def _poll_tradingview_public_scanner() -> int:
         (2, "src_tv_h4_trend", "TradingView Public H4 Trend", 14400),
     ]
     ingested = 0
+    live_candidates: List[Dict[str, Any]] = []
     for _, sid, sname, _ in tf_sources:
         create_source(
             name=sname,
@@ -166,7 +168,89 @@ def _poll_tradingview_public_scanner() -> int:
                     db_cursor=c,
                 )
                 ingested += 1
+                if col_idx == 0:
+                    rec_h1 = vals[1]
+                    h1_aligned = (rec_h1 is None) or (rec_f * float(rec_h1) >= 0)
+                    if h1_aligned:
+                        live_candidates.append({
+                            "source_id": sid,
+                            "symbol": sym,
+                            "side": side,
+                            "entry": entry,
+                            "sl": sl_p,
+                            "tp": tp_p,
+                        })
+
+    if live_candidates and not os.getenv("PYTEST_CURRENT_TEST"):
+        _dispatch_scanner_candidates(live_candidates, now)
     return ingested
+
+
+def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float) -> None:
+    """Route qualified M15+H1 consensus signals through 4-Layer Safety Shields to active Cloud accounts."""
+    import asyncio
+    try:
+        with tx() as c:
+            halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
+            if halt_row and str(halt_row[0]).strip() in ("1", "true", "True"):
+                return
+            mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+            active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "EXTERNAL_FEED"
+            if active_mode == "ZUPIRUS_AGENT":
+                return
+            src_row = c.execute("SELECT status FROM signal_sources WHERE id = 'src_tv_m15_consensus'").fetchone()
+            if src_row and str(src_row[0]).upper() in ("DEMOTED", "DISABLED"):
+                return
+            raw_accounts = c.execute(
+                """
+                SELECT t.id, t.user_id, t.metaapi_account_id, t.balance, t.equity,
+                       t.risk_config, t.risk_multiplier, t.is_compounding, t.is_prop_firm_mode,
+                       t.prop_daily_dd_limit_pct, t.prop_profit_target_pct,
+                       t.account_type, t.contract_size, t.max_lot, t.symbol_mapping_custom,
+                       COALESCE(s.plan_tier, 'starter') AS plan_tier
+                FROM trading_accounts t
+                LEFT JOIN subscriptions s ON t.user_id = s.user_id
+                WHERE t.auto_trade = 1 AND COALESCE(t.deployment_state, 'DEPLOYED') != 'UNDEPLOYED'
+                """
+            ).fetchall()
+        accounts = [dict(r) for r in raw_accounts]
+        if not accounts:
+            return
+
+        from app.schemas.signals import NormalizedSignalSchema
+        from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
+        from app.metaapi import MetaApiClient, execute_fan_out_for_signal
+
+        client = MetaApiClient()
+        for item in candidates:
+            sym = item["symbol"]
+            side = item["side"]
+            sig_id = f"tv_scan_{sym.lower()}_{int(now_ts // 1800)}_{side.lower()}"
+            norm_sig = NormalizedSignalSchema(
+                id=sig_id,
+                source=item["source_id"],
+                strategy_tier="STANDARD",
+                symbol=sym,
+                action=side,
+                entry_price=item["entry"],
+                stop_loss=item["sl"],
+                take_profit=item["tp"],
+                created_at=now_ts,
+            )
+            ok, reason, sanitized = sanitize_and_audit_signal(norm_sig)
+            if ok and sanitized is not None:
+                sig_dict = {
+                    "id": sanitized.id,
+                    "symbol": sanitized.symbol,
+                    "action": sanitized.action,
+                    "entry_price": sanitized.entry_price,
+                    "sl": sanitized.stop_loss,
+                    "tp": sanitized.take_profit,
+                }
+                asyncio.run(execute_fan_out_for_signal(sig_dict, accounts, client))
+                logger.info(f"Autonomous scanner dispatched {side} {sym} -> {len(accounts)} account(s)")
+    except Exception as e:
+        logger.debug(f"Scanner live dispatch note: {e}")
 
 
 def discover_and_ingest_external_signals() -> Dict[str, Any]:

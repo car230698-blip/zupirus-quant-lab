@@ -97,7 +97,7 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
             target_action = rules.get("action", "BUY")
             slope_threshold = float(rules.get("min_slope", 0.20))
 
-            if target_action == "BUY" and recent_slope >= slope_threshold:
+            if target_action in ("BUY", "BOTH") and recent_slope >= slope_threshold:
                 return {
                     "side": "BUY",
                     "strategy": cand_name,
@@ -106,7 +106,7 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                     "version": STRATEGY_VERSION,
                     "reason": f"AUTONOMOUS_BUY: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
                 }
-            elif target_action == "SELL" and recent_slope <= -slope_threshold:
+            elif target_action in ("SELL", "BOTH") and recent_slope <= -slope_threshold:
                 return {
                     "side": "SELL",
                     "strategy": cand_name,
