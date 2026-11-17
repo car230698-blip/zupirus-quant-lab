@@ -48,7 +48,7 @@ const PRICING_TIERS = [
     id: 'STARTER' as const,
     code: 'TIER 01 // RETAIL & CENT',
     name: 'Cloud Starter',
-    baseUsd: 30,
+    baseUsd: 20,
     slots: 1,
     badge: 'Khởi Đầu Chuẩn',
     features: [
@@ -62,7 +62,7 @@ const PRICING_TIERS = [
     id: 'PRO' as const,
     code: 'TIER 02 // GROWTH & MULTI-ACCOUNT',
     name: 'Growth Pro',
-    baseUsd: 45,
+    baseUsd: 35,
     slots: 3,
     popular: true,
     badge: 'Phổ Biến Nhất',
@@ -77,7 +77,7 @@ const PRICING_TIERS = [
     id: 'INSTITUTIONAL' as const,
     code: 'TIER 03 // PROP FIRM ALPHA',
     name: 'Prop Firm Alpha',
-    baseUsd: 59,
+    baseUsd: 49,
     slots: 5,
     badge: 'Hiệu Suất Cao Nhất',
     features: [

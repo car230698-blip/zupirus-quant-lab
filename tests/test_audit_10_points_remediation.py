@@ -65,6 +65,8 @@ def test_point_3_shadow_sl_tp_and_normalizer():
 @pytest.mark.asyncio
 async def test_point_4_kill_switch_fanout_block():
     """Verify global Kill Switch (halted=1) rejects fan-out signal execution before broker dispatch."""
+    from app.db import init
+    init()
     with tx() as c:
         setkv(c, "halted", "1")
 

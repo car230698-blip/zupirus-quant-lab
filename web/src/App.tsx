@@ -68,7 +68,6 @@ const AppContent: React.FC = () => {
 
   // Admin & Monitoring state
   const [monitorData, setMonitorData] = useState<any>({ accounts: [], audit: [], jobs: [], news: [], halted: null });
-  const [readyData, setReadyData] = useState<any>(null);
 
   // User Order Filters
   const [orderAccountFilter, setOrderAccountFilter] = useState<string>('all');
@@ -128,17 +127,13 @@ const AppContent: React.FC = () => {
 
   const loadAdminMonitor = useCallback(async () => {
     try {
-      const [mRes, rRes] = await Promise.all([
-        fetch('/api/admin/monitor'),
-        fetch('/readyz'),
-      ]);
+      const mRes = await fetch('/api/admin/monitor');
       if (mRes.ok) {
         setMonitorData(await mRes.json());
         setMonitorStatus('ready');
       } else {
         setMonitorStatus('offline');
       }
-      if (rRes.ok || rRes.status === 503) setReadyData(await rRes.json());
     } catch {
       setMonitorStatus('offline');
     }
@@ -347,14 +342,6 @@ const AppContent: React.FC = () => {
     );
   }
 
-  const researchTick = Number(dashboard.health?.research_heartbeat);
-  const executionTick = Number(dashboard.health?.execution_heartbeat);
-  const researchActive = Number.isFinite(researchTick) && Date.now() / 1000 - researchTick < 60;
-  const lastResearchJob = monitorData.jobs?.[0];
-  const formatHeartbeat = (timestamp: number | null | undefined) =>
-    typeof timestamp === 'number' && Number.isFinite(timestamp)
-      ? new Date(timestamp * 1000).toLocaleTimeString('vi-VN')
-      : 'Chưa ghi nhận';
   const status = portal === 'admin' ? monitorStatus : dashboardStatus;
 
   return (

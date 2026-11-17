@@ -418,6 +418,7 @@ def test_multi_strategy_coordinator():
     # 1. Phase 1 (EXTERNAL_FEED): Must observe, never self-issue orders
     with tx() as c:
         c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'EXTERNAL_FEED') ON CONFLICT(key) DO UPDATE SET value = 'EXTERNAL_FEED'")
+        c.execute("INSERT INTO kv(key, value) VALUES('signal_mode', 'EXTERNAL_FEED') ON CONFLICT(key) DO UPDATE SET value = 'EXTERNAL_FEED'")
 
     p1_decision = coordinate_strategies(box, timeframe="M15")
     assert p1_decision["side"] is None
@@ -439,6 +440,7 @@ def test_multi_strategy_coordinator():
     # 4. Phase 2 (ZUPIRUS_AGENT): Autonomous execution with approved policy
     with tx() as c:
         c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'ZUPIRUS_AGENT') ON CONFLICT(key) DO UPDATE SET value = 'ZUPIRUS_AGENT'")
+        c.execute("INSERT INTO kv(key, value) VALUES('signal_mode', 'ZUPIRUS_AGENT') ON CONFLICT(key) DO UPDATE SET value = 'ZUPIRUS_AGENT'")
         c.execute(
             """
             INSERT INTO strategy_candidates (

@@ -2,6 +2,7 @@
 services:
   api:
     environment:
+      APP_ENV: "production"
       COOKIE_SECURE: "true"
       ALLOWED_ORIGINS: "http://localhost:8080,https://zupirus.com,https://www.zupirus.com,https://app.zupirus.com,https://adm.zupirus.com"
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -16,6 +17,14 @@ services:
       npm_default:
         aliases:
           - zupirus-api
+
+  execution:
+    environment:
+      APP_ENV: "production"
+
+  research:
+    environment:
+      APP_ENV: "production"
 
 networks:
   npm_default:

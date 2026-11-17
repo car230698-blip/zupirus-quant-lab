@@ -16,8 +16,6 @@ for p in root.glob('scripts/*.sh'):
     import shutil
     if shutil.which('bash'):
         subprocess.run(['bash','-n',str(p)],check=True)
-node_bin = shutil.which('node') or r'C:\Users\hcm236\.local\nodejs\node.exe'
-if shutil.which(node_bin) or Path(node_bin).exists():
-    subprocess.run([node_bin, '--check', str(root / 'web/app.js')], check=True)
+assert (root / 'web' / 'src' / 'App.tsx').is_file(), 'Missing web/src/App.tsx'
 assert 'app app' in (root/'Dockerfile').read_text()
-print('PASS: Compose YAML static structure, shared durable volume, healthchecks, loopback bind, public domain routes, shell syntax, Python AST, JavaScript syntax, Direct Cloud MetaApi verified. Docker runtime/build NOT tested by this script.')
+print('PASS: Compose YAML static structure, shared durable volume, healthchecks, loopback bind, public domain routes, shell syntax, Python AST, TypeScript entrypoint, Direct Cloud MetaApi verified. Docker runtime/build NOT tested by this script.')
