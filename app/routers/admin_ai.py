@@ -318,8 +318,12 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
                 },
             )
 
-    # 2. Try OpenAI / OpenRouter / Custom LLM if key is provided
-    is_real_key = bool(key and len(key) >= 10 and not any(x in key.lower() for x in ("chua_cau_hinh",)))
+    # 2. Try OpenAI / OpenRouter / Custom LLM if key is provided (never send Google AIza keys to OpenAI)
+    is_real_key = bool(
+        key and len(key) >= 10
+        and not key.startswith("AIza")
+        and not any(x in key.lower() for x in ("chua_cau_hinh",))
+    )
 
     if is_real_key:
         masked_k = f"{key[:7]}***{key[-4:]}" if len(key) >= 12 else "***"

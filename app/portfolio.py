@@ -188,7 +188,7 @@ def calculate_position_size(
         "dollar_risk": dollar_exposure,
         "sl_price_distance": round(sl_price_dist, 5),
         "sl_points": round(sl_price_dist / point_size, 1) if point_size > 0 else round(sl_price_dist, 4),
-        "contract_multiplier": spec["contract_multiplier"],
+        "contract_multiplier": contract_mult,
         "is_clamped": clamped_lot != raw_lot,
     }
 

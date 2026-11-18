@@ -103,9 +103,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const refreshFxRate = async () => {
     setFxLoading(true);
     try {
-      const res = await fetch('/api/v1/billing/refresh-exchange-rate', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
+      const res = await fetch('/api/v1/billing/exchange-rate', {
         credentials: 'include',
       });
       if (res.ok) {
@@ -189,7 +187,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         body: JSON.stringify({
           plan_tier: subTier,
           billing_cycle: subBillingCycle,
-          cloud_accounts_count: Number(subCloudSlots) || 1,
+          cloud_accounts_count: effectiveSlots,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -426,11 +424,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     }
   };
 
+  const maxTierSlots = subTier === 'INSTITUTIONAL' ? 5 : subTier === 'PRO' ? 3 : 1;
+  const effectiveSlots = Math.max(1, Math.min(subCloudSlots, maxTierSlots));
+
   const calculateEstimateUsd = () => {
     const basePrices: Record<string, number> = { STARTER: 25, PRO: 39, INSTITUTIONAL: 59 };
     const slotAddonPrice = 10;
     const base = basePrices[subTier] || 25;
-    const extraSlots = Math.max(0, subCloudSlots - 1);
+    const extraSlots = Math.max(0, effectiveSlots - 1);
     const monthly = base + extraSlots * slotAddonPrice;
     const cycleMult: Record<string, number> = {
       MONTHLY: 1,
@@ -638,9 +639,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   <input
                     type="number"
                     min={1}
-                    max={20}
-                    value={subCloudSlots}
-                    onChange={(e) => setSubCloudSlots(Math.max(1, Number(e.target.value) || 1))}
+                    max={maxTierSlots}
+                    value={effectiveSlots}
+                    onChange={(e) => setSubCloudSlots(Math.max(1, Math.min(maxTierSlots, Number(e.target.value) || 1)))}
                     className="quant-input font-mono text-xs tabular-nums"
                   />
                 </div>

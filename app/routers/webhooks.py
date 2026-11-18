@@ -362,7 +362,7 @@ async def handle_sepay_webhook(
             """
             INSERT INTO payment_transactions(id, sepay_id, user_id, amount, currency, gateway, content, reference_code, status, created_at)
             VALUES(?, ?, ?, ?, 'VND', ?, ?, ?, 'completed', ?)
-            ON CONFLICT (id) DO NOTHING
+            ON CONFLICT DO NOTHING
             """,
             (tx_id, trans_id or None, matched_user_id, amount_in, gateway, content, ref_code, now_ts)
         )

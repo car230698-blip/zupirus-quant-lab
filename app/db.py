@@ -352,7 +352,7 @@ def insert_timescale_quote(source: str, ts: float, bid: float, ask: float, symbo
     with tx() as c:
         if is_postgres():
             c.execute(
-                "INSERT INTO quotes(time, source, symbol, ts, bid, ask) VALUES(to_timestamp(?), ?, ?, ?, ?, ?) ON CONFLICT (time, source, ts) DO NOTHING",
+                "INSERT INTO quotes(time, source, symbol, ts, bid, ask) VALUES(to_timestamp(?), ?, ?, ?, ?, ?) ON CONFLICT (time, source, symbol, ts) DO NOTHING",
                 (ts, source, symbol, ts, bid, ask)
             )
         else:
@@ -416,8 +416,8 @@ def insert_timescale_candle(
                 (source, symbol, timeframe, int(ts)),
             )
             c.execute(
-                "INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+                "INSERT INTO candles (source, symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (source, symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
             )
 
 

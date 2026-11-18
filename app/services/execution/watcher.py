@@ -270,16 +270,25 @@ class PositionWatcher:
                     positions = await self.client.get_open_positions(meta_id, raise_on_error=True)
                     if positions:
                         logger.info(f"WEEKEND CLOSE: Account {acc_id} closing {len(positions)} positions before Friday close.")
-                        close_res = await self.client.close_all_positions(meta_id)
+                        close_res = await self.client.close_all_positions(meta_id) or {}
+                        close_ok = (
+                            close_res.get("status") in ("ALL_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                            or (("closed_count" in close_res or "closed" in close_res) and close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
+                        )
                         with tx() as c:
                             audit(c, "weekend_guard", "friday_weekend_close", {
                                 "account_id": acc_id,
                                 "positions_closed": len(positions),
                                 "time_utc": now_utc.isoformat(),
-                                "close_result": close_res
+                                "close_result": close_res,
+                                "close_ok": close_ok,
                             })
-                        results["weekend_closes_triggered"] += 1
-                        results["details"].append({"account_id": acc_id, "action": "FRIDAY_WEEKEND_POSITIONS_CLOSED"})
+                        if close_ok:
+                            results["weekend_closes_triggered"] += 1
+                            results["details"].append({"account_id": acc_id, "action": "FRIDAY_WEEKEND_POSITIONS_CLOSED"})
+                        else:
+                            logger.error(f"WEEKEND CLOSE incomplete for {acc_id}: {close_res}")
+                            results["details"].append({"account_id": acc_id, "action": "FRIDAY_WEEKEND_CLOSE_INCOMPLETE"})
                         continue
 
                 # 4. Auto Break-Even & Partial TP (50% TP1) at 1R for Growth, Alpha, or explicit auto_be_partial_tp
@@ -373,8 +382,13 @@ class PositionWatcher:
                                                     (acc_id, pos_id, pos_id),
                                                 ).fetchone()
                                                 if ex_row and ex_row[0]:
+                                                    from app.services.symbol_precision import contract_size_for_symbol
                                                     is_cent = str(acc.get("account_type") or "").upper() == "CENT"
-                                                    contract_mult = float(acc.get("contract_size") or (1.0 if is_cent else 100.0))
+                                                    contract_mult = contract_size_for_symbol(
+                                                        pos_sym,
+                                                        is_cent=is_cent,
+                                                        account_contract_size=float(acc.get("contract_size") or 100.0),
+                                                    )
                                                     usd_conv = quote_to_usd_rate(pos_sym, current_price)
                                                     realized_usd = abs(current_price - open_price) * half_volume * contract_mult * usd_conv
                                                     reflect_on_signal_outcome(c, signal_id=ex_row[0], pnl=round(realized_usd, 2), exit_price=current_price, exit_reason="PARTIAL_TP1")

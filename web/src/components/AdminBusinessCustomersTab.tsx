@@ -49,6 +49,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
       const res = await fetch(`/api/admin/billing/orders/${encodeURIComponent(orderId)}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        credentials: 'include',
       });
       if (res.ok) {
         setMsg(`Đã duyệt bù đơn hàng ${orderId} và kích hoạt gói cước.`);
@@ -74,11 +75,14 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
       const res = await fetch(url, {
         method: action === 'delete' ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        credentials: 'include',
         body: action === 'toggle' ? JSON.stringify({ is_active: !currentlyActive }) : undefined,
       });
       if (res.ok) {
         setMsg(action === 'delete' ? 'Đã xóa tài khoản vi phạm.' : 'Đã cập nhật trạng thái nhận lệnh của tài khoản.');
         refetchAll();
+      } else {
+        setMsg(action === 'delete' ? 'Lỗi: Không thể xóa tài khoản.' : 'Lỗi: Không thể cập nhật trạng thái tài khoản.');
       }
     } finally {
       setBusyId(null);

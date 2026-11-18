@@ -316,6 +316,13 @@ def apply_migration_002(c, is_pg: bool):
             ) THEN
                 ALTER TABLE quotes DROP CONSTRAINT quotes_pkey;
             END IF;
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'uq_quotes' AND conrelid = 'quotes'::regclass
+                  AND array_length(conkey, 1) < 4
+            ) THEN
+                ALTER TABLE quotes DROP CONSTRAINT uq_quotes;
+            END IF;
             IF NOT EXISTS (
                 SELECT 1 FROM pg_constraint WHERE conname = 'uq_quotes' AND conrelid = 'quotes'::regclass
             ) THEN

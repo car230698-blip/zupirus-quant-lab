@@ -337,7 +337,8 @@ def get_admin_billing_orders(
             d = dict(r)
             d["order_code"] = d.get("id")
             d["cloud_accounts_count"] = d.get("cloud_slots_count", 1)
-            d["billing_cycle"] = "MONTHLY"
+            cy_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_cycle:{d.get('id')}",)).fetchone()
+            d["billing_cycle"] = str(cy_row[0]).upper() if cy_row and cy_row[0] else "MONTHLY"
             orders_list.append(d)
 
     return {"total": total, "orders": orders_list}
@@ -363,8 +364,9 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
             "institutional": "alpha",
             "vip": "alpha",
         }
+        from app.services.billing_service import clamp_cloud_slots
         tier = tier_map.get(raw_tier, "starter")
-        effective_slots = req.slots or req.max_cloud_accounts or 2
+        effective_slots = clamp_cloud_slots(tier, req.slots or req.max_cloud_accounts or 1)
         effective_days = req.days or req.duration_days or 30
         duration_sec = effective_days * 86400
         now_ts = time.time()
@@ -439,10 +441,11 @@ async def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_a
         if order.get("status") == "PAID":
             return {"status": "ALREADY_PAID", "message": f"Đơn hàng {order_id} đã được thanh toán trước đó."}
 
+    remaining_vnd = max(0.0, float(order.get("amount_vnd") or 0) - float(order.get("paid_amount_vnd") or 0))
     success = await process_successful_payment(
         order_id=order_id,
         sepay_trans_id=f"adm_{secrets.token_hex(6)}",
-        amount_received_vnd=float(order.get("amount_vnd") or 0),
+        amount_received_vnd=remaining_vnd,
         raw_payload={"approved_by_admin": _admin.get("email") if isinstance(_admin, dict) else "admin"}
     )
     if not success:
