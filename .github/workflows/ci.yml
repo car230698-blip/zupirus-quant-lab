@@ -15,6 +15,29 @@ jobs:
     name: Backend CI (FastAPI, Quant Engine, Safety Shields, Billing)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      timescaledb:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: zupirus
+          POSTGRES_PASSWORD: zupirus_ci_password
+          POSTGRES_DB: zupirus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout Repository
@@ -37,8 +60,17 @@ jobs:
 
       - name: Lint and Static Analysis
         run: |
-          ruff check app/ cli/ tests/ --exit-zero
+          ruff check app/ cli/ tests/ --select E9,F63,F7,F82
           python scripts/verify_package.py
+
+      - name: Verify Live PostgreSQL/TimescaleDB & Redis Migrations
+        env:
+          DATABASE_URL: "postgresql://zupirus:zupirus_ci_password@localhost:5432/zupirus"
+          REDIS_URL: "redis://localhost:6379/0"
+          ENCRYPTION_KEY: "ci_test_encryption_key_32bytes_min!"
+        run: |
+          python -c "from app.db import init, check_db_health; init(); h = check_db_health(); print(h); assert h['status'] == 'up' and h['is_postgres']"
+          python -m cli healthcheck --json
 
       - name: Run Pytest Test Suite
         env:
@@ -63,6 +95,29 @@ jobs:
     name: Frontend CI (TypeScript, Multi-Domain Vite SPA Build)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      timescaledb:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: zupirus
+          POSTGRES_PASSWORD: zupirus_ci_password
+          POSTGRES_DB: zupirus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout Repository

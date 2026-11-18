@@ -279,8 +279,10 @@ async def handle_sepay_webhook(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
-        import json
-        payload = json.loads(raw_body.decode("utf-8"))
+        import json, math
+        def _reject_nan(val: str):
+            raise ValueError(f"Invalid JSON numeric constant: {val}")
+        payload = json.loads(raw_body.decode("utf-8"), parse_constant=_reject_nan)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
@@ -294,8 +296,11 @@ async def handle_sepay_webhook(
         logger.warning(f"SePay webhook rejected debit/outbound transaction (transferType='{transfer_type}')")
         return {"success": False, "message": f"Rejected non-inbound transaction (type={transfer_type})"}
 
-    amount_in = float(payload.get("transferAmount") or payload.get("amount") or 0.0)
-    if amount_in <= 0:
+    try:
+        amount_in = float(payload.get("transferAmount") or payload.get("amount") or 0.0)
+    except (ValueError, TypeError):
+        amount_in = 0.0
+    if not math.isfinite(amount_in) or amount_in <= 0:
         logger.warning(f"SePay webhook rejected invalid transferAmount: {amount_in}")
         return {"success": False, "message": "Invalid transfer amount"}
 

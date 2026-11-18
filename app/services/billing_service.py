@@ -250,7 +250,7 @@ async def process_successful_payment(
             logger.info(f"SePay transaction {eff_sepay_id} was already processed (atomic ON CONFLICT DO NOTHING).")
             return order["status"] == "PAID"
 
-        # 3. Accumulate paid_amount_vnd and verify cumulative amount
+        # 3. Accumulate paid_amount_vnd atomically and verify cumulative amount
         prev_paid = float(order.get("paid_amount_vnd") or 0.0)
         new_paid_total = int(round(prev_paid + received_now))
 
@@ -262,10 +262,12 @@ async def process_successful_payment(
             c.execute(
                 """
                 UPDATE orders
-                SET status = 'UNDERPAID', payment_status = 'UNDERPAID', paid_amount_vnd = ?
-                WHERE id = ?
+                SET status = 'UNDERPAID',
+                    payment_status = 'UNDERPAID',
+                    paid_amount_vnd = COALESCE(paid_amount_vnd, 0) + ?
+                WHERE id = ? AND status != 'PAID'
                 """,
-                (new_paid_total, order["id"])
+                (int(round(received_now)), order["id"])
             )
             return False
 

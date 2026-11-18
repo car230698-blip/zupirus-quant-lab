@@ -169,11 +169,18 @@ def run_alpha_cycle(c) -> Dict[str, Any]:
 
 def run_risk_guardian_cycle(c) -> Dict[str, Any]:
     """Risk Guardian Agent calculates Portfolio Value-at-Risk (VaR 99%) and validates leverage."""
+    is_pg = bool(getattr(c, "_is_pg", False))
+    if is_pg:
+        c.execute("SAVEPOINT sp_swarm_risk_acc")
     try:
         accounts = c.execute(
             "SELECT id, balance, equity, 0 AS positions FROM trading_accounts WHERE auto_trade = 1 OR deployment_state = 'DEPLOYED'"
         ).fetchall()
+        if is_pg:
+            c.execute("RELEASE SAVEPOINT sp_swarm_risk_acc")
     except Exception:
+        if is_pg:
+            c.execute("ROLLBACK TO SAVEPOINT sp_swarm_risk_acc")
         accounts = c.execute("SELECT id, balance, equity, positions FROM accounts WHERE enabled=1").fetchall()
     total_balance = sum(float(a["balance"] or 0.0) for a in accounts)
     total_equity = sum(float(a["equity"] or 0.0) for a in accounts)
@@ -181,7 +188,7 @@ def run_risk_guardian_cycle(c) -> Dict[str, Any]:
 
     # Run Monte Carlo for portfolio risk using real closed trades if available
     pnl_rows = c.execute(
-        "SELECT pnl FROM signal_audit_logs WHERE pnl IS NOT NULL ORDER BY id DESC LIMIT 100"
+        "SELECT pnl FROM signal_audit_logs WHERE pnl IS NOT NULL ORDER BY created_at DESC LIMIT 100"
     ).fetchall()
     real_trades = [float(r[0]) for r in pnl_rows] if pnl_rows else []
     mc = run_monte_carlo_simulation(trades=real_trades, initial_equity=max(1000.0, total_equity), iterations=1000)

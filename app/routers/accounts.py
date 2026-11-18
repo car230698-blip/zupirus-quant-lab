@@ -289,6 +289,9 @@ async def create_account(
                     account_id
                 ))
             else:
+                cnt_row = c.execute("SELECT COUNT(*) FROM trading_accounts WHERE user_id = ?", (user_id,)).fetchone()
+                if u.get("role") != "admin" and max_allowed > 0 and cnt_row and int(cnt_row[0]) >= max_allowed:
+                    fail(403, f"Gói dịch vụ hiện tại cho phép tối đa {max_allowed} tài khoản MT5 Cloud.")
                 c.execute("""
                     INSERT INTO trading_accounts(
                         id, user_id, mt5_login, encrypted_master_password, broker_server,

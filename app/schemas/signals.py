@@ -17,6 +17,7 @@ class NormalizedSignalSchema(BaseModel):
 
 
 class TradingViewWebhookPayload(BaseModel):
+    model_config = {"allow_inf_nan": False}
     ticker: Optional[str] = None
     symbol: Optional[str] = None
     action: str
@@ -29,6 +30,7 @@ class TradingViewWebhookPayload(BaseModel):
 
 
 class TestIngestPayload(BaseModel):
+    model_config = {"allow_inf_nan": False}
     raw_message: Optional[str] = None
     action: Optional[str] = None
     price: Optional[float] = None

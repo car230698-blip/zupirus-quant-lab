@@ -84,7 +84,8 @@ def scan_universe(prices: Optional[Dict[str, float]] = None) -> List[Dict[str, A
 
     scan_results = []
     for symbol, spec in ASSET_UNIVERSE.items():
-        price = current.get(symbol, default_base_prices.get(symbol, 100.0))
+        raw_price = current.get(symbol, default_base_prices.get(symbol, 100.0))
+        price = float(raw_price) if raw_price and float(raw_price) > 0 else 100.0
         atr = spec["typical_atr_m15"]
         vol_pct = round((atr / price) * 100, 3)
 
@@ -146,7 +147,7 @@ def calculate_position_size(
         rec_sl_atr = 1.0
 
     if custom_sl_points is not None and custom_sl_points > 0:
-        if sl_unit == "points" or (sl_unit == "auto" and symbol != "BTCUSD" and custom_sl_points >= 20.0):
+        if sl_unit == "points" or (sl_unit == "auto" and not symbol.upper().startswith("BTC") and custom_sl_points >= 20.0):
             sl_price_dist = float(custom_sl_points) * point_size
         else:
             sl_price_dist = float(custom_sl_points)
@@ -168,7 +169,7 @@ def calculate_position_size(
 
     # 2. Kelly Criterion Adjustment
     # Kelly fraction: f* = (p * b - q) / b where q = 1 - p
-    if method == "half_kelly":
+    if method == "half_kelly" and win_loss_ratio > 0:
         q = 1.0 - win_rate
         full_kelly = (win_rate * win_loss_ratio - q) / win_loss_ratio
         # Use Half-Kelly for safety (fail-closed against estimation noise)

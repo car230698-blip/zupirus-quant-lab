@@ -28,8 +28,21 @@ FALLBACK_UPCOMING_EVENTS = [
 
 
 def parse_event_time(date_str: str) -> Optional[float]:
-    """Parses various ISO and standard date-time formats to UTC timestamp."""
+    """Parses various ISO and standard date-time formats (including milliseconds) to UTC timestamp."""
+    s = str(date_str or "").strip()
+    if not s:
+        return None
+    try:
+        iso_str = s[:-1] + "+00:00" if s.endswith("Z") else s
+        dt = datetime.fromisoformat(iso_str)
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except Exception:
+        pass
     formats = [
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S.%fZ",
         "%Y-%m-%dT%H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%SZ",
         "%Y-%m-%d %H:%M:%S",
@@ -37,7 +50,7 @@ def parse_event_time(date_str: str) -> Optional[float]:
     ]
     for fmt in formats:
         try:
-            dt = datetime.strptime(date_str, fmt)
+            dt = datetime.strptime(s, fmt)
             if not dt.tzinfo:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt.timestamp()
@@ -58,6 +71,8 @@ def fetch_live_calendar() -> List[Dict[str, Any]]:
                 data = json.loads(resp.read().decode("utf-8"))
                 if isinstance(data, list):
                     for item in data:
+                        if not isinstance(item, dict):
+                            continue
                         impact = str(item.get("impact", "")).lower()
                         country = str(item.get("country", "")).upper()
                         if country in ("USD", "ALL", "US") and ("high" in impact or "holiday" in impact):

@@ -81,7 +81,12 @@ class MetaApiClient:
             resp = await client.post(url, headers=self._headers(), json=payload)
             if resp.status_code not in (200, 201, 202):
                 raise RuntimeError(f"MetaApi Provisioning Error ({resp.status_code}): {resp.text}")
-            data = resp.json()
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
             # Ensure deployment
             acc_id = data.get("id")
             if acc_id and data.get("state") != "DEPLOYED":
@@ -145,11 +150,16 @@ class MetaApiClient:
             }
 
         url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/account-information"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers=self._headers())
-            if resp.status_code == 200:
-                return resp.json()
-            return {"balance": 0.0, "equity": 0.0, "connected": False}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, headers=self._headers())
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, dict):
+                        return data
+        except Exception as e:
+            logger.debug(f"get_account_information error for {metaapi_account_id}: {e}")
+        return {"balance": 0.0, "equity": 0.0, "connected": False}
 
     async def execute_order(
         self,
@@ -197,21 +207,33 @@ class MetaApiClient:
         if take_profit is not None:
             payload["takeProfit"] = round(float(take_profit), dec)
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(url, headers=self._headers(), json=payload)
-            latency_ms = int((time.time() - start_ts) * 1000)
-            if resp.status_code not in (200, 201):
-                return {
-                    "numericCode": resp.status_code,
-                    "stringCode": "TRADE_ERROR",
-                    "message": resp.text,
-                    "orderId": None,
-                    "positionId": None,
-                    "latency_ms": latency_ms
-                }
-            data = resp.json()
-            data["latency_ms"] = latency_ms
-            return data
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(url, headers=self._headers(), json=payload)
+                latency_ms = int((time.time() - start_ts) * 1000)
+                if resp.status_code not in (200, 201):
+                    return {
+                        "numericCode": resp.status_code,
+                        "stringCode": "TRADE_ERROR",
+                        "message": resp.text,
+                        "orderId": None,
+                        "positionId": None,
+                        "latency_ms": latency_ms
+                    }
+                data = resp.json()
+                if not isinstance(data, dict):
+                    data = {"numericCode": resp.status_code, "stringCode": "INVALID_JSON", "message": str(data)}
+                data["latency_ms"] = latency_ms
+                return data
+        except Exception as e:
+            return {
+                "numericCode": 504,
+                "stringCode": "NETWORK_TIMEOUT_OR_ERROR",
+                "message": str(e),
+                "orderId": None,
+                "positionId": None,
+                "latency_ms": int((time.time() - start_ts) * 1000),
+            }
 
     async def get_open_positions(self, metaapi_account_id: str, raise_on_error: bool = False) -> List[Dict[str, Any]]:
         """Retrieve all currently active open positions on MT5 via MetaApi."""
@@ -491,18 +513,23 @@ async def execute_fan_out_for_signal(
             continue
 
         # 2. Broker Live Spread Guard (Lớp 2: Kiểm tra riêng theo sàn của khách)
-        broker_spread = float(acc.get("live_spread_pips") or 0.0)
+        try:
+            broker_spread = float(acc.get("live_spread_pips") or 0.0)
+        except (ValueError, TypeError):
+            broker_spread = 0.0
         if broker_spread <= 0:
             try:
                 from app.db import tx
+                from app.services.symbol_mapper import canonical_symbol
+                canon_sym = canonical_symbol(symbol)
                 with tx() as c:
                     q_row = c.execute(
                         "SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
-                        (symbol,)
+                        (canon_sym,)
                     ).fetchone()
                     if q_row and q_row[0] and q_row[1]:
                         from app.services.symbol_precision import pip_multiplier_for_symbol
-                        broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * pip_multiplier_for_symbol(symbol), 1)
+                        broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * pip_multiplier_for_symbol(canon_sym), 1)
             except Exception:
                 pass
         if broker_spread <= 0 and metaapi_client and getattr(metaapi_client, "is_mock", False):
@@ -536,20 +563,42 @@ async def execute_fan_out_for_signal(
 
         # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
         is_comp = bool(acc.get("is_compounding", False))
-        balance = float(acc.get("balance") or 0.0)
+        try:
+            balance = float(acc.get("balance") or 0.0)
+        except (ValueError, TypeError):
+            balance = 0.0
         raw_eq = acc.get("equity")
-        equity = float(raw_eq) if raw_eq is not None else balance
+        try:
+            equity = float(raw_eq) if raw_eq is not None and str(raw_eq).strip() != "" else balance
+        except (ValueError, TypeError):
+            equity = balance
         if equity <= 0:
             logger.warning(f"Account {acc_id} skipped: zero or negative equity ({equity}).")
             continue
 
-        base_capital = balance if (not is_comp and balance > 0) else equity
+        # Never size on inflated balance if account is in drawdown (equity < balance)
+        base_capital = min(balance, equity) if (not is_comp and balance > 0) else equity
 
-        risk_pct = float(acc.get("risk_percent", 1.0))
-        max_lot = float(acc.get("max_lot", 5.0))
-        mult = float(acc.get("risk_multiplier") or acc.get("multiplier") or 1.0)
-        c_size = float(acc.get("contract_size") or 100.0)
-        t_val = float(acc.get("tick_value") or 1.0)
+        try:
+            risk_pct = float(acc.get("risk_percent") if acc.get("risk_percent") is not None else 1.0)
+        except (ValueError, TypeError):
+            risk_pct = 1.0
+        try:
+            max_lot = float(acc.get("max_lot") if acc.get("max_lot") is not None else 5.0)
+        except (ValueError, TypeError):
+            max_lot = 5.0
+        try:
+            mult = float(acc.get("risk_multiplier") or acc.get("multiplier") or 1.0)
+        except (ValueError, TypeError):
+            mult = 1.0
+        try:
+            c_size = float(acc.get("contract_size") or 100.0)
+        except (ValueError, TypeError):
+            c_size = 100.0
+        try:
+            t_val = float(acc.get("tick_value") or 1.0)
+        except (ValueError, TypeError):
+            t_val = 1.0
         is_cent_acc = acc.get("account_type") == "CENT" or acc.get("currency") in ("USC", "EUC") or c_size <= 1.0
 
         is_prop_mode = bool(acc.get("is_prop_firm_mode"))
@@ -596,9 +645,11 @@ async def execute_fan_out_for_signal(
                 broker_upper = broker_sym.upper()
                 unprotected_same_idea = False
 
+                from app.services.symbol_mapper import canonical_symbol
+                canon_target = canonical_symbol(symbol)
                 for pos in open_positions:
                     pos_sym = str(pos.get("symbol") or "").upper()
-                    if pos_sym != broker_upper and not pos_sym.startswith(sym_upper):
+                    if pos_sym != broker_upper and canonical_symbol(pos_sym) != canon_target:
                         continue
                     pos_type = str(pos.get("type") or "").upper()
                     pos_side = "BUY" if "BUY" in pos_type else ("SELL" if "SELL" in pos_type else "")

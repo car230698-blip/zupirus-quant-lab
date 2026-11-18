@@ -12,7 +12,9 @@ export const EquityHistory: React.FC<EquityHistoryProps> = ({ days = 30, series 
   const data = series && series.length > 0 ? series : fetchedData;
 
   const chartStats = useMemo(() => {
-    const valid = data.filter((p) => Number.isFinite(Number(p.equity ?? p.balance)));
+    const valid = data.filter(
+      (p) => Number.isFinite(Number(p.equity ?? p.balance)) && Number.isFinite(Number(p.balance ?? p.equity))
+    );
     if (valid.length < 2) return null;
 
     const equities = valid.map((p) => Number(p.equity ?? p.balance));

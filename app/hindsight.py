@@ -64,7 +64,7 @@ def store_memory(
     if metadata:
         full_content = f"{content} | meta:{meta_json}"
 
-    is_pg = hasattr(c, "conn") and getattr(type(c.conn), "__module__", "").startswith("psycopg")
+    is_pg = bool(getattr(c, "_is_pg", False))
     if is_pg:
         try:
             c.execute("SAVEPOINT sp_hindsight_insert")

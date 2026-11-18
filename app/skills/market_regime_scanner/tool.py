@@ -36,12 +36,14 @@ def scan_market_regime(
     candles = []
 
     try:
+        from app.db import is_postgres
+        time_cmp = "time <= to_timestamp(?)" if is_postgres() else "time <= ?"
         with tx() as c:
             rows = c.execute(
-                """
+                f"""
                 SELECT open, high, low, close, time
                 FROM candles
-                WHERE symbol = ? AND timeframe = ? AND time <= ?
+                WHERE symbol = ? AND timeframe = ? AND {time_cmp}
                 ORDER BY time DESC
                 LIMIT 20
                 """,

@@ -37,7 +37,11 @@ export const AdminAIEvolutionTab: React.FC = () => {
       }
       if (sRes.ok) {
         const sd = await sRes.json();
-        setAiSettings((prev: any) => ({ ...prev, ...(sd.settings || sd), api_key: '' }));
+        setAiSettings((prev: any) => {
+          // Only hydrate editable settings on first load so 10s polling doesn't clobber unsaved edits
+          if (prev._hydrated) return prev;
+          return { ...prev, ...(sd.settings || sd), api_key: '', _hydrated: true };
+        });
       }
     } catch {
       // keep existing state

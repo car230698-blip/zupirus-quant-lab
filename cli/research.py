@@ -123,7 +123,7 @@ def cmd_research_pending(as_json: bool = False):
             p["proposal_id"],
             p["created_time"],
             p["folds_count"],
-            f"+{p['oos_net_price_units']}" if p["oos_net_price_units"] >= 0 else str(p["oos_net_price_units"]),
+            f"+{float(p.get('oos_net_price_units') or 0.0)}" if float(p.get('oos_net_price_units') or 0.0) >= 0 else str(float(p.get('oos_net_price_units') or 0.0)),
             p["max_drawdown_price_units"],
             p["trades"],
             p["state"].upper()

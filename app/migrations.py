@@ -345,6 +345,11 @@ def apply_migration_002(c, is_pg: bool):
             ) THEN
                 ALTER TABLE candles ADD CONSTRAINT uq_candles UNIQUE (time, source, symbol, timeframe);
             END IF;
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'snapshots_pkey' AND conrelid = 'snapshots'::regclass
+            ) THEN
+                ALTER TABLE snapshots DROP CONSTRAINT snapshots_pkey;
+            END IF;
         END $$;
         """)
 
@@ -1152,7 +1157,7 @@ def apply_migration_013(c, is_pg: bool):
     ]
 
     for sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev in initial_sources:
-        try:
+        if is_pg:
             c.execute("""
             INSERT INTO signal_sources (
                 id, name, source_type, status, symbol_universe,
@@ -1161,9 +1166,17 @@ def apply_migration_013(c, is_pg: bool):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
             ON CONFLICT (id) DO NOTHING
             """, (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts))
-        except Exception:
-            # SQLite pre-3.24 fallback
+        else:
             try:
+                c.execute("""
+                INSERT INTO signal_sources (
+                    id, name, source_type, status, symbol_universe,
+                    trust_score, profit_factor, win_rate, max_drawdown_pips,
+                    total_signals, evaluated_signals, config_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                ON CONFLICT (id) DO NOTHING
+                """, (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts))
+            except Exception:
                 c.execute("""
                 INSERT OR IGNORE INTO signal_sources (
                     id, name, source_type, status, symbol_universe,
@@ -1171,8 +1184,6 @@ def apply_migration_013(c, is_pg: bool):
                     total_signals, evaluated_signals, config_json, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
                 """, (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts))
-            except Exception:
-                pass
 
 
 def apply_migration_014(c, is_pg: bool):
@@ -1260,7 +1271,7 @@ def apply_migration_014(c, is_pg: bool):
     ]
 
     for sid, skid, sname, sdesc, strig, smd in core_skills:
-        try:
+        if is_pg:
             c.execute("""
             INSERT INTO agent_skills (
                 id, skill_id, name, description, trigger_condition,
@@ -1268,16 +1279,22 @@ def apply_migration_014(c, is_pg: bool):
             ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)
             ON CONFLICT (skill_id) DO NOTHING
             """, (sid, skid, sname, sdesc, strig, smd, now_ts, now_ts))
-        except Exception:
+        else:
             try:
+                c.execute("""
+                INSERT INTO agent_skills (
+                    id, skill_id, name, description, trigger_condition,
+                    skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)
+                ON CONFLICT (skill_id) DO NOTHING
+                """, (sid, skid, sname, sdesc, strig, smd, now_ts, now_ts))
+            except Exception:
                 c.execute("""
                 INSERT OR IGNORE INTO agent_skills (
                     id, skill_id, name, description, trigger_condition,
                     skill_md, is_builtin, usage_count, enabled, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)
                 """, (sid, skid, sname, sdesc, strig, smd, now_ts, now_ts))
-            except Exception:
-                pass
 
 
 def apply_migration_015(c, is_pg: bool):

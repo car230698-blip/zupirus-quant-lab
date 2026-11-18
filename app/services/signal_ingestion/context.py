@@ -77,7 +77,9 @@ def get_nearest_news_info(c, current_time: float) -> Tuple[float, Optional[str]]
 
 def get_live_spread(c, symbol: str = "XAUUSD") -> float:
     """Return live spread in pips for symbol from quotes."""
-    sym_u = str(symbol or "XAUUSD").upper()
+    from app.services.symbol_mapper import canonical_symbol
+    from app.services.symbol_precision import pip_multiplier_for_symbol
+    sym_u = canonical_symbol(symbol)
     try:
         q = c.execute(
             "SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
@@ -87,7 +89,7 @@ def get_live_spread(c, symbol: str = "XAUUSD") -> float:
             bid = float(q["bid"] if hasattr(q, 'keys') else q[0])
             ask = float(q["ask"] if hasattr(q, 'keys') else q[1])
             diff = max(0.0, ask - bid)
-            mult = 10.0 if ("XAU" in sym_u or "GOLD" in sym_u) else (100.0 if "JPY" in sym_u else 10000.0)
+            mult = pip_multiplier_for_symbol(sym_u)
             return round(diff * mult, 1)
     except Exception:
         pass

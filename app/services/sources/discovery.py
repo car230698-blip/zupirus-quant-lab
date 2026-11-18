@@ -24,7 +24,10 @@ def _fetch_yf_quote(symbol: str) -> Optional[Dict[str, float]]:
             r = client.get(url)
             if r.status_code != 200:
                 return None
-            res = r.json().get("chart", {}).get("result", [{}])[0]
+            results_list = (r.json().get("chart") or {}).get("result") or []
+            if not results_list:
+                return None
+            res = results_list[0] or {}
             meta = res.get("meta", {})
             price = meta.get("regularMarketPrice")
             prev = meta.get("chartPreviousClose") or meta.get("previousClose")

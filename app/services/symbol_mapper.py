@@ -23,6 +23,24 @@ SYMBOL_ALIASES = {
 }
 
 
+def canonical_symbol(symbol: str) -> str:
+    """Normalize broker-suffixed symbol (e.g. XAUUSDm, EURUSD.ecn, BTCUSD_i, US30.cash) to canonical form."""
+    s = str(symbol or "XAUUSD").strip().upper()
+    for sep in (".", "_", "-"):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+    if s.startswith("GOLD"):
+        return "XAUUSD"
+    if s.startswith("SILVER"):
+        return "XAGUSD"
+    for base in ("XAUUSD", "XAGUSD", "BTCUSD", "ETHUSD", "US30", "NAS100", "SPX500", "DE40",
+                 "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
+                 "EURJPY", "GBPJPY", "EURGBP", "AUDCAD", "GBPAUD", "EURCHF"):
+        if s == base or (s.startswith(base) and len(s) - len(base) <= 2):
+            return base
+    return s
+
+
 def discover_and_map_account_symbols(
     account_id: str,
     available_broker_symbols: List[str],
@@ -32,6 +50,7 @@ def discover_and_map_account_symbols(
     now_ts = time.time()
     discovered_map: Dict[str, str] = {}
     broker_symbols_upper = {s.upper(): s for s in available_broker_symbols}
+    canon_index = {canonical_symbol(s): s for s in available_broker_symbols}
 
     def _execute_mapping(c):
         for std_sym in STANDARD_SYMBOLS:
@@ -42,12 +61,15 @@ def discover_and_map_account_symbols(
                 if cand.upper() in broker_symbols_upper:
                     matched_broker_sym = broker_symbols_upper[cand.upper()]
                     break
+            if not matched_broker_sym and std_sym in canon_index:
+                matched_broker_sym = canon_index[std_sym]
 
             is_supported = 1 if matched_broker_sym else 0
             resolved = matched_broker_sym if matched_broker_sym else std_sym
 
             # Default contract sizes (Cent = 1.0, Standard Gold = 100.0, Standard FX = 100,000.0)
-            contract_size = 100.0 if "XAU" in std_sym or "GOLD" in std_sym else 100000.0
+            from app.services.symbol_precision import contract_size_for_symbol
+            contract_size = contract_size_for_symbol(std_sym)
 
             try:
                 c.execute(
@@ -111,7 +133,11 @@ def resolve_broker_symbol(account_id: str, standard_symbol: str) -> Optional[str
                         return cs
                     if std_sym == "XAUUSD" and any(k in cs.upper() for k in ("XAU", "GOLD")):
                         return cs
-                    return f"{std_sym}{cs}" if cs.startswith((".", "_", "-")) or len(cs) <= 3 else cs
+                    if cs.startswith((".", "_", "-")):
+                        return f"{std_sym}{cs}"
+                    if len(cs) <= 2:
+                        return f"{std_sym}{cs}"
+                    return f"{std_sym}.{cs}" if cs.isalpha() and len(cs) <= 4 else cs
         except Exception:
             pass
 

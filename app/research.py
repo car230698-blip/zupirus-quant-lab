@@ -495,10 +495,10 @@ def ai_text(prompt, image=None):
             )
             r.raise_for_status()
             data = r.json()
-            ans_text = data['choices'][0]['message']['content']
-            usage = data.get('usage', {})
-            p_tok = usage.get('prompt_tokens', len(prompt) // 4)
-            c_tok = usage.get('completion_tokens', len(ans_text) // 4)
+            ans_text = str((data.get('choices') or [{}])[0].get('message', {}).get('content') or '')
+            usage = data.get('usage') or {}
+            p_tok = int(usage.get('prompt_tokens') or (len(prompt) // 4))
+            c_tok = int(usage.get('completion_tokens') or (len(ans_text) // 4))
             latency = (time.perf_counter() - t0) * 1000
             trace_ai_interaction(prompt, ans_text, model, p_tok, c_tok, latency)
             return {'available': True, 'text': ans_text, 'provider': 'openai', 'model': model}

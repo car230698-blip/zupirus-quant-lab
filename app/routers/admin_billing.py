@@ -349,7 +349,7 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
     """Grant or extend cloud subscription manually for a customer."""
     target_ident = req.user_id.strip()
     with tx() as c:
-        user_row = c.execute("SELECT id, email FROM users WHERE id=? OR email=?", (target_ident, target_ident)).fetchone()
+        user_row = c.execute("SELECT id, email FROM users WHERE id=? OR LOWER(email)=?", (target_ident, target_ident.lower())).fetchone()
         if not user_row:
             fail(404, f"Không tìm thấy người dùng có ID hoặc Email: '{target_ident}'.")
 

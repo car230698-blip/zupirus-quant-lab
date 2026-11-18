@@ -15,7 +15,7 @@ from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.watcher")
 
-SUCCESS_NUMERIC_CODES = {0, 200, 201, 10008, 10009}
+SUCCESS_NUMERIC_CODES = {0, 200, 201, 10008, 10009, 10010}
 SUCCESS_STRING_CODES = {
     "TRADE_RETCODE_PLACED",
     "TRADE_RETCODE_DONE",
@@ -32,18 +32,23 @@ def _is_metaapi_success(res: Optional[Dict[str, Any]]) -> bool:
     if res.get("error"):
         return False
 
-    has_num = "numericCode" in res and res["numericCode"] is not None
-    has_str = "stringCode" in res and res["stringCode"] is not None
+    has_num = "numericCode" in res and res["numericCode"] is not None and str(res["numericCode"]).strip() != ""
+    has_str = "stringCode" in res and res["stringCode"] is not None and str(res["stringCode"]).strip() != ""
 
     if has_num or has_str:
-        num_ok = (not has_num) or (int(res["numericCode"]) in SUCCESS_NUMERIC_CODES)
+        try:
+            num_ok = (not has_num) or (int(res["numericCode"]) in SUCCESS_NUMERIC_CODES)
+        except (ValueError, TypeError):
+            num_ok = False
         str_ok = (not has_str) or (str(res["stringCode"]).upper() in SUCCESS_STRING_CODES)
         return num_ok and str_ok
 
     status_val = str(res.get("status", "")).upper()
     if status_val in ("FAILED", "ERROR", "REJECTED"):
         return False
-    return True
+    if status_val in ("FILLED", "OK", "SUCCESS", "EXECUTED", "DONE"):
+        return True
+    return bool(res.get("orderId") or res.get("positionId"))
 
 
 def get_drawdown_halt_key(account_id: str, date_str: Optional[str] = None) -> str:
@@ -111,16 +116,16 @@ class PositionWatcher:
             meta_id = acc["metaapi_account_id"]
             plan_tier = (acc.get("plan_tier") or "starter").lower()
             is_prop = bool(acc.get("is_prop_firm_mode"))
-            prop_dd_limit = float(acc.get("prop_daily_dd_limit_pct") or MAX_PROP_DAILY_DRAWDOWN_PCT)
 
             try:
+                prop_dd_limit = float(acc.get("prop_daily_dd_limit_pct") or MAX_PROP_DAILY_DRAWDOWN_PCT)
                 # 1. Fetch live account info
                 acc_info = await self.client.get_account_information(meta_id)
                 raw_eq = acc_info.get("equity") if isinstance(acc_info, dict) else None
                 raw_bal = acc_info.get("balance") if isinstance(acc_info, dict) else None
                 current_equity = float(raw_eq if raw_eq is not None else (acc.get("equity") or 0.0))
                 current_balance = float(raw_bal if raw_bal is not None else (acc.get("balance") or 0.0))
-                if current_equity <= 0 or current_balance <= 0:
+                if current_balance <= 0 or (current_equity <= 0 and not is_prop):
                     logger.debug(f"PositionWatcher skipping {acc_id}: invalid/unavailable equity={current_equity}, balance={current_balance}")
                     continue
 
