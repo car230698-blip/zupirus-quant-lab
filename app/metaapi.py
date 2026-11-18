@@ -251,16 +251,19 @@ class MetaApiClient:
         metaapi_account_id: str,
         position_id: str,
         new_sl: float,
-        take_profit: Optional[float] = None
+        take_profit: Optional[float] = None,
+        symbol: str = ""
     ) -> Dict[str, Any]:
         """Modify Stop Loss (e.g., Auto Break-Even) of an open position."""
         start_ts = time.time()
+        from app.services.symbol_precision import digits_for_symbol
+        dec = digits_for_symbol(symbol) if symbol else 5
         if self.is_mock:
             return {
                 "numericCode": 10009,
                 "stringCode": "TRADE_RETCODE_DONE",
                 "positionId": position_id,
-                "stopLoss": new_sl,
+                "stopLoss": round(new_sl, dec),
                 "latency_ms": int((time.time() - start_ts) * 1000),
                 "simulated": True
             }
@@ -269,10 +272,10 @@ class MetaApiClient:
         payload: Dict[str, Any] = {
             "actionType": "POSITION_MODIFY",
             "positionId": position_id,
-            "stopLoss": round(new_sl, 5)
+            "stopLoss": round(new_sl, dec)
         }
         if take_profit is not None:
-            payload["takeProfit"] = round(take_profit, 5)
+            payload["takeProfit"] = round(take_profit, dec)
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, headers=self._headers(), json=payload)
@@ -340,16 +343,24 @@ class MetaApiClient:
 
     async def close_all_positions(self, metaapi_account_id: str) -> Dict[str, Any]:
         """Emergency circuit breaker: close all open positions on this account immediately."""
-        positions = await self.get_open_positions(metaapi_account_id)
+        try:
+            positions = await self.get_open_positions(metaapi_account_id, raise_on_error=True)
+        except Exception as e:
+            logger.error(f"close_all_positions failed fetching open positions for {metaapi_account_id}: {e}")
+            return {"closed_count": 0, "failed_count": 0, "status": "CLOSE_ALL_FETCH_ERROR", "error": str(e)}
+
         if not positions:
-            return {"closed_count": 0, "status": "NO_OPEN_POSITIONS"}
+            return {"closed_count": 0, "failed_count": 0, "status": "NO_OPEN_POSITIONS"}
 
         tasks = []
+        closed_count = 0
+        failed_count = 0
         for pos in positions:
             pos_id = pos.get("id")
             if not pos_id:
                 continue
             if self.is_mock:
+                closed_count += 1
                 continue
             url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
             payload = {"actionType": "POSITION_CLOSE", "positionId": str(pos_id)}
@@ -359,9 +370,19 @@ class MetaApiClient:
             tasks.append(_close(url, payload))
 
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception):
+                    failed_count += 1
+                    logger.error(f"close_all_positions exception for {metaapi_account_id}: {res}")
+                elif getattr(res, "status_code", 0) in (200, 201):
+                    closed_count += 1
+                else:
+                    failed_count += 1
+                    logger.error(f"close_all_positions HTTP {getattr(res, 'status_code', '?')} for {metaapi_account_id}")
 
-        return {"closed_count": len(positions), "status": "ALL_POSITIONS_CLOSED"}
+        status = "ALL_POSITIONS_CLOSED" if failed_count == 0 else "PARTIAL_CLOSE_FAILED"
+        return {"closed_count": closed_count, "failed_count": failed_count, "status": status}
 
 
 def calculate_lot_size(
@@ -433,16 +454,12 @@ async def execute_fan_out_for_signal(
     sl = float(signal["sl"]) if signal.get("sl") else None
     tp = float(signal["tp"]) if signal.get("tp") else None
 
-    # Calculate risk per 1.0 standard lot in USD for XAUUSD, JPY, and major FX pairs
+    # Calculate SL distance in broker points consistently via point_size_for_symbol
+    from app.services.symbol_precision import point_size_for_symbol
     sym_u = str(symbol or "XAUUSD").upper()
     if sl:
         sl_dist = abs(entry_price - sl)
-        if "XAU" in sym_u or "GOLD" in sym_u:
-            sl_points = sl_dist * 100.0
-        elif "JPY" in sym_u:
-            sl_points = sl_dist * 1000.0
-        else:
-            sl_points = sl_dist * 100000.0
+        sl_points = sl_dist / point_size_for_symbol(sym_u)
     else:
         sl_points = 300.0  # Default $300 risk per 1.0 standard lot
 
@@ -568,27 +585,35 @@ async def execute_fan_out_for_signal(
             except Exception:
                 pass
 
-        if is_prop_mode and prop_stage == "LIVE" and metaapi_client:
+        open_positions_cache = None
+        if metaapi_client:
             try:
                 from app.config import MAX_CONCURRENT_TRADES_PER_ACCOUNT
-                from app.services.symbol_precision import quote_to_usd_rate
                 import inspect
                 if "raise_on_error" in inspect.signature(metaapi_client.get_open_positions).parameters:
-                    open_positions = await metaapi_client.get_open_positions(meta_id, raise_on_error=True) or []
+                    open_positions_cache = await metaapi_client.get_open_positions(meta_id, raise_on_error=True) or []
                 else:
-                    open_positions = await metaapi_client.get_open_positions(meta_id) or []
-                if len(open_positions) >= MAX_CONCURRENT_TRADES_PER_ACCOUNT:
+                    open_positions_cache = await metaapi_client.get_open_positions(meta_id) or []
+                if len(open_positions_cache) >= MAX_CONCURRENT_TRADES_PER_ACCOUNT:
                     logger.info(
-                        f"Account {acc_id} (PROP LIVE) skipped: PROP_MAX_CONCURRENT_TRADES_REACHED "
-                        f"({len(open_positions)} >= {MAX_CONCURRENT_TRADES_PER_ACCOUNT})."
+                        f"Account {acc_id} skipped: MAX_CONCURRENT_TRADES_REACHED "
+                        f"({len(open_positions_cache)} >= {MAX_CONCURRENT_TRADES_PER_ACCOUNT})."
                     )
                     continue
+            except Exception as pos_err:
+                if is_prop_mode and prop_stage == "LIVE":
+                    logger.warning(f"Account {acc_id} (PROP LIVE) skipped fail-closed on position check error: {pos_err}")
+                    continue
 
-                is_xau_sym = any(k in symbol.upper() for k in ("XAU", "GOLD", "XAG", "SILVER"))
-                eff_contract = c_size if is_xau_sym else (1000.0 if is_cent_acc else 100000.0)
+        if is_prop_mode and prop_stage == "LIVE" and metaapi_client:
+            try:
+                from app.services.symbol_precision import contract_size_for_symbol, quote_to_usd_rate
+                open_positions = open_positions_cache if open_positions_cache is not None else []
+                eff_contract = contract_size_for_symbol(symbol, is_cent=is_cent_acc, account_contract_size=c_size)
                 open_idea_risk_pct = 0.0
                 sym_upper = symbol.upper()
                 broker_upper = broker_sym.upper()
+                unprotected_same_idea = False
 
                 for pos in open_positions:
                     pos_sym = str(pos.get("symbol") or "").upper()
@@ -604,13 +629,17 @@ async def execute_fan_out_for_signal(
                     if pos_open <= 0 or pos_vol <= 0:
                         continue
                     if pos_sl <= 0:
-                        open_idea_risk_pct += effective_risk_pct * effective_mult
-                        continue
+                        unprotected_same_idea = True
+                        break
                     is_pos_buy = (pos_side == "BUY")
                     still_at_risk = (is_pos_buy and pos_sl < pos_open) or (not is_pos_buy and pos_sl > pos_open)
                     if still_at_risk:
                         pos_risk_usd = abs(pos_open - pos_sl) * pos_vol * eff_contract * quote_to_usd_rate(symbol, pos_open)
                         open_idea_risk_pct += (pos_risk_usd / base_capital) * 100.0
+
+                if unprotected_same_idea:
+                    logger.warning(f"Account {acc_id} (PROP LIVE) skipped fail-closed: open {symbol} {action} position has no SL.")
+                    continue
 
                 remaining_idea_risk_pct = max(0.0, 1.0 - open_idea_risk_pct)
                 if remaining_idea_risk_pct <= 0.05:

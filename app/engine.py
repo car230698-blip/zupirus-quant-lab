@@ -594,9 +594,9 @@ def tick():
         replay_step(c, int(row[0]) if row else 0)
         demo_step(c)
         setkv(c, 'execution_heartbeat', now)
-        c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 7,))
-        c.execute('DELETE FROM quotes WHERE ts<?', (now - 86400 * 2,))
         if now - _last_sub_lifecycle_ts >= 3600.0:
+            c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 7,))
+            c.execute('DELETE FROM quotes WHERE ts<?', (now - 86400 * 2,))
             for tbl, col, cutoff in (
                 ('sessions', 'expires', now),
                 ('otp_codes', 'expires_at', now),
@@ -629,7 +629,10 @@ def tick():
     # 3. Run Autonomous AI Agent Signal Evaluation every 30s (outside pytest)
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_agent_eval_ts >= 30.0:
         _last_agent_eval_ts = now
-        autonomous_agent_step()
+        try:
+            autonomous_agent_step()
+        except Exception as e:
+            logger.error(f"Autonomous agent step error: {e}")
 
     # 4. Run Subscription Lifecycle Worker (reminders, expiry undeploy, pending retries) every 1 hour
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_sub_lifecycle_ts >= 3600.0:

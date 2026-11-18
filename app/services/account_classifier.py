@@ -72,14 +72,14 @@ def calculate_normalized_lot_size(
     risk_amount = equity * (risk_pct * eff_multiplier / 100.0)
 
     sym_u = str(symbol or "XAUUSD").upper()
-    if any(k in sym_u for k in ("XAU", "GOLD", "XAG", "SILVER")):
-        # For XAUUSD: 1 point = 0.01 USD, 1 standard lot = 100 oz
-        loss_per_lot = (sl_distance_points / 100.0) * contract_size * tick_value
-    else:
-        from app.services.symbol_precision import digits_for_symbol, quote_to_usd_rate
-        point_size = 10.0 ** (-digits_for_symbol(sym_u))
-        fx_contract = 1000.0 if (is_cent or contract_size <= 1.0) else 100000.0
-        loss_per_lot = sl_distance_points * point_size * fx_contract * tick_value * quote_to_usd_rate(sym_u, entry_price)
+    from app.services.symbol_precision import (
+        contract_size_for_symbol,
+        point_size_for_symbol,
+        quote_to_usd_rate,
+    )
+    point_size = point_size_for_symbol(sym_u)
+    eff_contract = contract_size_for_symbol(sym_u, is_cent=is_cent, account_contract_size=contract_size)
+    loss_per_lot = sl_distance_points * point_size * eff_contract * tick_value * quote_to_usd_rate(sym_u, entry_price)
     if loss_per_lot <= 0:
         return 0.0
 

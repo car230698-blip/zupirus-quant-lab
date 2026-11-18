@@ -444,11 +444,13 @@ def ai_text(prompt, image=None):
                 cfg = json.loads(row[0])
                 provider = cfg.get("provider", "AUTO").upper()
                 if cfg.get("api_key"):
+                    raw_k = str(cfg["api_key"]).strip()
                     try:
                         from app.security import decrypt_secret
-                        key = decrypt_secret(cfg["api_key"]) or cfg["api_key"]
+                        dec_k = decrypt_secret(raw_k)
+                        key = dec_k if dec_k else ("" if raw_k.startswith("enc:") else raw_k)
                     except Exception:
-                        key = cfg["api_key"]
+                        key = "" if raw_k.startswith("enc:") else raw_k
                 if cfg.get("base_url"):
                     base_url = cfg["base_url"]
                 if cfg.get("model"):

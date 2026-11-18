@@ -296,7 +296,7 @@ export const AdminBillingSettingsTab: React.FC = () => {
           </div>
 
           <div className="mt-4 border-t border-white/[0.06] pt-3 font-mono text-[11px] text-slate-400">
-            Webhook URL: <code className="text-cyan-300">/api/v1/webhooks/sepay</code>
+            Webhook URL: <code className="text-cyan-300">/api/webhooks/sepay</code>
           </div>
         </div>
       </div>

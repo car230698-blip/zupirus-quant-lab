@@ -64,7 +64,7 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
     oneRProfitDollars: Number(riskDollars.toFixed(2)),
     twoRProfitDollars: Number((riskDollars * 2).toFixed(2)),
     threeRProfitDollars: Number((riskDollars * 3).toFixed(2)),
-    propDailyLimitDollars: Number((safeEquity * 0.045).toFixed(2)),
+    propDailyLimitDollars: Number((safeEquity * (Number(input.dailyDrawdownLimitPct ?? 4.5) / 100)).toFixed(2)),
     propMaxDrawdownDollars: Number((safeEquity * 0.09).toFixed(2)),
     pointsPerDollar: Number((safeSlPoints / 100).toFixed(2)),
     displayLots: Number(clampedLot.toFixed(2)),

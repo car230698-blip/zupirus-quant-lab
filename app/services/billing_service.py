@@ -189,9 +189,9 @@ async def process_successful_payment(
         # 1. Exact match first
         row = c.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
         if not row and len(order_id) >= 6:
-            # Fallback to suffix search with exact boundary if not found
+            # Prefer active PENDING/UNDERPAID orders when matching by 6-char suffix
             row = c.execute(
-                "SELECT * FROM orders WHERE id LIKE ? ORDER BY created_at DESC LIMIT 1",
+                "SELECT * FROM orders WHERE id LIKE ? ORDER BY CASE WHEN status IN ('PENDING', 'UNDERPAID') THEN 0 ELSE 1 END, created_at DESC LIMIT 1",
                 (f"%{order_id}",)
             ).fetchone()
 

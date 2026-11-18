@@ -19,9 +19,9 @@ def _decrypt_gemini_key(raw: str) -> str:
         return ""
     try:
         dec = decrypt_secret(val)
-        return dec if dec else val
+        return dec if dec else ("" if val.startswith("enc:") else val)
     except Exception:
-        return val
+        return "" if val.startswith("enc:") else val
 
 DEFAULT_GEMINI_KEYS = [
     k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()

@@ -20,9 +20,9 @@ def _decrypt_ai_key(raw: str) -> str:
         return ""
     try:
         dec = decrypt_secret(val)
-        return dec if dec else val
+        return dec if dec else ("" if val.startswith("enc:") else val)
     except Exception:
-        return val
+        return "" if val.startswith("enc:") else val
 
 logger = logging.getLogger("zupirus.admin_ai")
 

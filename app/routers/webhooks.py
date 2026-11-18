@@ -233,23 +233,28 @@ async def handle_sepay_webhook(
     """Handle SePay VietQR payment webhook and automatically fulfill order.
     Strictly secured: requires valid secret, verifies transferType=='in' and full amount.
     """
-    # 1. Check SePay secret authorization: fail-closed if not configured or token mismatch
+    # 1. Check SePay secret authorization: prefer decrypted Admin UI setting, then get_sepay_secret(), then env
     raw_body = await request.body()
-    expected_secret = SEPAY_WEBHOOK_SECRET
+    expected_secret = ""
     try:
+        from app.security import decrypt_secret
         with tx() as c:
-            row = c.execute("SELECT value FROM kv WHERE key IN ('billing:settings', 'billing_settings')").fetchone()
+            row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
+            if not row or not row[0]:
+                row = c.execute("SELECT value FROM kv WHERE key = 'billing_settings'").fetchone()
             if row and row[0]:
                 import json
                 b_settings = json.loads(row[0])
-                if b_settings.get("sepay_webhook_secret"):
-                    expected_secret = b_settings["sepay_webhook_secret"]
+                raw_sec = str(b_settings.get("sepay_webhook_secret") or "").strip()
+                if raw_sec:
+                    dec_sec = decrypt_secret(raw_sec)
+                    expected_secret = dec_sec if dec_sec else ("" if raw_sec.startswith("enc:") else raw_sec)
     except Exception:
         pass
 
     if not expected_secret:
         from app.sepay import get_sepay_secret
-        expected_secret = get_sepay_secret()
+        expected_secret = get_sepay_secret() or SEPAY_WEBHOOK_SECRET
 
     if not expected_secret:
         logger.error("SePay webhook rejected: SEPAY_WEBHOOK_SECRET is not configured.")
@@ -311,10 +316,12 @@ async def handle_sepay_webhook(
         match = re.search(r"\bORD_([A-F0-9]{6,16})\b", content.upper())
 
     if match:
+        import hashlib
         order_suffix = match.group(1).lower()
+        fallback_tid = hashlib.sha256(raw_body).hexdigest()[:24] if raw_body else str(int(time.time()))
         success = await process_successful_payment(
             order_suffix,
-            sepay_trans_id=trans_id or str(time.time()),
+            sepay_trans_id=trans_id or fallback_tid,
             amount_received_vnd=amount_in,
             raw_payload=payload
         )

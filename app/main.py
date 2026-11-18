@@ -164,8 +164,18 @@ def login(p: Credentials, request: Request):
 
 @app.post('/api/logout')
 def logout(request: Request, u=Depends(user)):
-    with tx() as c:
-        c.execute('DELETE FROM sessions WHERE token=?', (digest(request.cookies.get('session', '')),))
+    tokens = []
+    if request.cookies.get('session'):
+        tokens.append(digest(request.cookies.get('session', '')))
+    auth_hdr = request.headers.get('authorization', '')
+    if auth_hdr.lower().startswith('bearer '):
+        bearer_tok = auth_hdr[7:].strip()
+        if bearer_tok:
+            tokens.append(digest(bearer_tok))
+    if tokens:
+        with tx() as c:
+            for tk in tokens:
+                c.execute('DELETE FROM sessions WHERE token=?', (tk,))
     r = JSONResponse({'ok': True})
     r.delete_cookie('session')
     return r
@@ -1930,16 +1940,30 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
             logger.warning(f"Admin signal dispatch rejected: Missing mandatory Stop Loss")
             raise HTTPException(status_code=422, detail="Mandatory Stop Loss missing. Direct dispatch requires valid SL.")
 
-        # 3. Scan active cloud accounts with accepted disclaimers from both trading_accounts and metaapi_cloud_accounts
+        # 3. Scan active cloud accounts with accepted disclaimers and active subscriptions
+        now_ts = time.time()
         rows = c.execute("""
-            SELECT id, user_id, metaapi_account_id, balance, equity,
-                   risk_multiplier as multiplier, 1.0 as risk_percent, 5.0 as max_lot,
-                   is_prop_firm_mode, prop_stage, account_type, contract_size,
-                   is_compounding, prop_daily_dd_limit_pct, prop_profit_target_pct, risk_config
-            FROM trading_accounts
-            WHERE auto_trade=1 AND deployment_state='DEPLOYED' AND metaapi_account_id IS NOT NULL
-        """).fetchall()
-        accounts = [dict(r) for r in rows]
+            SELECT a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
+                   a.risk_multiplier as multiplier,
+                   a.is_prop_firm_mode, a.prop_stage, a.account_type, a.contract_size,
+                   a.tick_value, a.currency,
+                   a.is_compounding, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct, a.risk_config
+            FROM trading_accounts a
+            JOIN subscriptions s ON s.user_id = a.user_id
+            WHERE a.auto_trade=1 AND a.deployment_state='DEPLOYED' AND a.metaapi_account_id IS NOT NULL
+              AND s.service_expires_at > ?
+        """, (now_ts,)).fetchall()
+        accounts = []
+        for r in rows:
+            d = dict(r)
+            rc = {}
+            try:
+                rc = json.loads(d.get("risk_config") or "{}") if isinstance(d.get("risk_config"), str) else (d.get("risk_config") or {})
+            except Exception:
+                rc = {}
+            d["risk_percent"] = float(rc.get("risk_percent", rc.get("risk", 1.0)) or 1.0)
+            d["max_lot"] = float(rc.get("max_lot", 5.0) or 5.0)
+            accounts.append(d)
         seen_meta_ids = {a.get("metaapi_account_id") for a in accounts if a.get("metaapi_account_id")}
 
         try:

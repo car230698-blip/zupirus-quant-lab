@@ -26,13 +26,14 @@ def _decrypt_mcp_key(raw: str) -> str:
         return ""
     try:
         dec = decrypt_secret(val)
-        return dec if dec else val
+        return dec if dec else ("" if val.startswith("enc:") else val)
     except Exception:
-        return val
+        return "" if val.startswith("enc:") else val
 
 
 def _is_safe_external_url(url: str) -> bool:
     try:
+        import socket
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             return False
@@ -43,8 +44,14 @@ def _is_safe_external_url(url: str) -> bool:
             ip = ipaddress.ip_address(host)
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
                 return False
+            return True
         except ValueError:
             pass
+        for info in socket.getaddrinfo(host, None):
+            addr = info[4][0].split("%")[0]
+            ip = ipaddress.ip_address(addr)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return False
         return True
     except Exception:
         return False

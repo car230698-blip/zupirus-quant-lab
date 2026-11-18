@@ -145,8 +145,9 @@ def calculate_position_size(
     risk_dollars = equity * (max(0.1, min(risk_percent, 3.0)) / 100.0)
 
     # 1. Base ATR Volatility Sizing
-    # Loss per 1.0 standard lot if SL is hit
-    loss_per_lot = sl_price_dist * spec["contract_multiplier"]
+    # Loss per 1.0 standard lot if SL is hit (converted to USD for non-USD quote pairs)
+    from app.services.symbol_precision import quote_to_usd_rate
+    loss_per_lot = sl_price_dist * spec["contract_multiplier"] * quote_to_usd_rate(symbol, custom_sl_points or 0.0)
     if loss_per_lot <= 0:
         loss_per_lot = 1.0
 

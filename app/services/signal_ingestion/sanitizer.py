@@ -73,16 +73,27 @@ def check_mandatory_sl(
 ) -> Tuple[bool, Optional[str], NormalizedSignalSchema]:
     """Lớp 2: Bắt buộc Stop Loss (Anti-Martingale) & Tự gắn SL theo ATR(14) thực tế nếu thiếu."""
     if signal.stop_loss is not None:
+        if signal.stop_loss <= 0:
+            return False, f"REJECTED_INVALID_STOP_LOSS: Non-positive SL {signal.stop_loss}", signal
+        if signal.action == "BUY" and signal.stop_loss >= current_price:
+            return False, f"REJECTED_INVALID_STOP_LOSS: BUY SL {signal.stop_loss} >= entry {current_price}", signal
+        if signal.action == "SELL" and signal.stop_loss <= current_price:
+            return False, f"REJECTED_INVALID_STOP_LOSS: SELL SL {signal.stop_loss} <= entry {current_price}", signal
         return True, None, signal
 
     if not AUTO_ATTACH_ATR_SL:
         return False, "REJECTED_MISSING_STOP_LOSS: Signal lacks stop loss and auto-attach is disabled", signal
 
-    # Auto attach ATR-based stop loss
+    # Auto attach ATR-based stop loss scaled safely for symbol precision
     from app.services.symbol_precision import digits_for_symbol, pip_size_for_symbol
     p_size = pip_size_for_symbol(signal.symbol)
     p_dec = digits_for_symbol(signal.symbol)
-    atr_val = max(15.0 * p_size, atr_points)
+    sym_u = signal.symbol.upper()
+    is_gold = "XAU" in sym_u or "GOLD" in sym_u
+    default_atr = atr_points if is_gold else min(atr_points, 25.0 * p_size)
+    atr_val = max(15.0 * p_size, default_atr)
+    if signal.action == "BUY" and atr_val >= current_price * 0.5:
+        atr_val = max(15.0 * p_size, current_price * 0.005)
     sl_price = current_price - atr_val if signal.action == "BUY" else current_price + atr_val
     signal.stop_loss = round(sl_price, p_dec)
     logger.info(f"Guard 2 [Auto-Attached ATR SL]: Signal {signal.id} set SL={signal.stop_loss} (ATR={atr_val})")
@@ -138,7 +149,8 @@ def check_live_spread_guard(symbol: str, spread_pips: float) -> Tuple[bool, Opti
     """Live Spread Guard (Lớp 2 tại broker): Chặn lệnh nếu broker bị giãn Spread quá mức an toàn."""
     sym_upper = symbol.upper()
     is_gold = "XAU" in sym_upper or "GOLD" in sym_upper
-    max_allowed = 4.5 if is_gold else 2.5
+    is_crypto_or_idx = any(k in sym_upper for k in ("BTC", "ETH", "US30", "NAS100", "SPX", "DE40"))
+    max_allowed = 50.0 if is_crypto_or_idx else (4.5 if is_gold else 2.5)
 
     if spread_pips > max_allowed:
         reason = f"REJECTED_HIGH_SPREAD: Live broker spread {spread_pips:.1f}p exceeds max {max_allowed:.1f}p for {sym_upper}"

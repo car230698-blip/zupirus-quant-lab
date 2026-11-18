@@ -110,7 +110,7 @@ class PositionWatcher:
             acc_id = acc["id"]
             meta_id = acc["metaapi_account_id"]
             plan_tier = (acc.get("plan_tier") or "starter").lower()
-            is_prop = bool(acc.get("is_prop_firm_mode")) or plan_tier in ("alpha", "prop")
+            is_prop = bool(acc.get("is_prop_firm_mode"))
             prop_dd_limit = float(acc.get("prop_daily_dd_limit_pct") or MAX_PROP_DAILY_DRAWDOWN_PCT)
 
             try:
@@ -303,8 +303,8 @@ class PositionWatcher:
 
                         profit_distance = (current_price - open_price) if is_buy else (open_price - current_price)
 
-                        # Trigger if reached 1R (or if BE SL was already moved and we are retrying TP1 partial close)
-                        if (risk_distance > 0 and profit_distance >= risk_distance) or be_sl_done:
+                        # Trigger only when reached >= 1R profit
+                        if risk_distance > 0 and profit_distance >= risk_distance:
                             from app.services.symbol_precision import digits_for_symbol, pip_size_for_symbol, quote_to_usd_rate
                             pos_sym = str(pos.get("symbol") or "XAUUSD").upper()
                             buffer = pip_size_for_symbol(pos_sym)
@@ -317,7 +317,7 @@ class PositionWatcher:
 
                             # Step 1 (Safe Order): Move SL to Break-Even FIRST
                             if not be_sl_done:
-                                modify_res = await self.client.modify_position_sl(meta_id, pos_id, new_sl)
+                                modify_res = await self.client.modify_position_sl(meta_id, pos_id, new_sl, symbol=pos_sym)
                                 modify_ok = _is_metaapi_success(modify_res)
                                 if modify_ok:
                                     with tx() as c:

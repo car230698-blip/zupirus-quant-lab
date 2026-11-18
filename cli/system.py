@@ -215,6 +215,10 @@ def cmd_kill_switch(on: bool = False, off: bool = False, reason: str = "", as_js
         cancelled_dispatches = 0
         if on:
             c.execute("UPDATE accounts SET enabled=0")
+            try:
+                c.execute("UPDATE trading_accounts SET auto_trade=0")
+            except Exception:
+                pass
             cancelled_dispatches = c.execute(
                 "UPDATE dispatches SET state='cancelled', updated=? WHERE state='queued'", (now,)
             ).rowcount

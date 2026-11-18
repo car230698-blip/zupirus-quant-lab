@@ -212,7 +212,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 filteredOrders.map((o, idx) => {
                   const orderId = o.client_order_id || o.id || `ORD-${idx}`;
                   const isBuy = String(o.side || '').toUpperCase() === 'BUY';
-                  const pnl = Number(o.pnl || 0);
+                  const pnl = Number(o.pnl ?? o.profit ?? o.realized_pnl ?? 0);
                   const orderState = o.status || o.state || 'filled';
                   const price = o.filled_price || o.requested_price || o.price || 0;
                   const slVal = o.stop_loss || o.sl;
