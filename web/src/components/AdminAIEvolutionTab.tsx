@@ -437,6 +437,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
               onChange={(e) => setAiSettings({ ...aiSettings, provider: e.target.value })}
               className="rounded-xl border border-white/10 bg-[#040710] px-3 py-2 text-xs text-white"
             >
+              <option value="HYBRID">Hybrid (Gemini + OpenAI)</option>
               <option value="GEMINI">Google Gemini Pool</option>
               <option value="OPENAI">OpenAI</option>
               <option value="OPENROUTER">OpenRouter</option>

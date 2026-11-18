@@ -5,6 +5,7 @@ Monitors all open positions across user MetaApi terminals (including accounts wi
    - Real-time Daily Drawdown circuit breaker (auto-close all & lock at configured drawdown limit).
    - Friday 21:00 UTC weekend holding closure (strictly avoids gap risk on prop accounts).
 """
+import asyncio
 import json
 import logging
 import datetime
@@ -14,6 +15,17 @@ from app.db import tx, audit, setkv, getkv
 from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.watcher")
+_WATCHER_CYCLE_LOCK = asyncio.Lock()
+
+
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    try:
+        if val is None or str(val).strip() == "":
+            return default
+        f = float(val)
+        return f if f == f else default  # reject NaN
+    except (ValueError, TypeError):
+        return default
 
 SUCCESS_NUMERIC_CODES = {0, 200, 201, 10008, 10009, 10010}
 SUCCESS_STRING_CODES = {
@@ -79,10 +91,17 @@ class PositionWatcher:
         self.client = metaapi_client or MetaApiClient()
 
     async def run_cycle(self, now_dt: Optional[datetime.datetime] = None) -> Dict[str, Any]:
-        """Execute one complete monitoring and protection pass across all deployed accounts."""
+        """Execute one complete monitoring and protection pass across all deployed accounts (single-flight)."""
+        async with _WATCHER_CYCLE_LOCK:
+            return await self._run_cycle_locked(now_dt=now_dt)
+
+    async def _run_cycle_locked(self, now_dt: Optional[datetime.datetime] = None) -> Dict[str, Any]:
         now_utc = now_dt or datetime.datetime.now(datetime.timezone.utc)
         date_str = now_utc.strftime("%Y-%m-%d")
-        is_friday_weekend = (now_utc.weekday() == 4 and now_utc.hour >= WEEKEND_CLOSE_FRIDAY_HOUR_UTC)
+        is_friday_weekend = (
+            (now_utc.weekday() == 4 and now_utc.hour >= WEEKEND_CLOSE_FRIDAY_HOUR_UTC)
+            or (now_utc.weekday() == 5 and now_utc.hour < 22)
+        )
 
         with tx() as c:
             # Monitor ALL deployed accounts (even if auto_trade=0 so existing open positions stay protected)
@@ -118,13 +137,16 @@ class PositionWatcher:
             is_prop = bool(acc.get("is_prop_firm_mode"))
 
             try:
-                prop_dd_limit = float(acc.get("prop_daily_dd_limit_pct") or MAX_PROP_DAILY_DRAWDOWN_PCT)
+                prop_dd_limit = _safe_float(acc.get("prop_daily_dd_limit_pct"), MAX_PROP_DAILY_DRAWDOWN_PCT) or MAX_PROP_DAILY_DRAWDOWN_PCT
                 # 1. Fetch live account info
                 acc_info = await self.client.get_account_information(meta_id)
+                if isinstance(acc_info, dict) and acc_info.get("connected") is False:
+                    logger.debug(f"PositionWatcher skipping {acc_id}: MetaApi terminal disconnected.")
+                    continue
                 raw_eq = acc_info.get("equity") if isinstance(acc_info, dict) else None
                 raw_bal = acc_info.get("balance") if isinstance(acc_info, dict) else None
-                current_equity = float(raw_eq if raw_eq is not None else (acc.get("equity") or 0.0))
-                current_balance = float(raw_bal if raw_bal is not None else (acc.get("balance") or 0.0))
+                current_equity = _safe_float(raw_eq, _safe_float(acc.get("equity"), 0.0))
+                current_balance = _safe_float(raw_bal, _safe_float(acc.get("balance"), 0.0))
                 if current_balance <= 0 or (current_equity <= 0 and not is_prop):
                     logger.debug(f"PositionWatcher skipping {acc_id}: invalid/unavailable equity={current_equity}, balance={current_balance}")
                     continue
@@ -443,20 +465,21 @@ class PositionWatcher:
                                 dl_id = str(dl.get("id") or "")
                                 if not dl_id or getkv(c, f"deal_synced:{dl_id}"):
                                     continue
-                                profit = float(dl.get("profit") or 0.0) + float(dl.get("swap") or 0.0) + float(dl.get("commission") or 0.0)
+                                profit = _safe_float(dl.get("profit")) + _safe_float(dl.get("swap")) + _safe_float(dl.get("commission"))
                                 pos_ref = str(dl.get("positionId") or dl.get("orderId") or "")
                                 if pos_ref:
                                     ex_row = c.execute(
                                         "SELECT signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY executed_at DESC LIMIT 1",
                                         (acc_id, pos_ref, pos_ref),
                                     ).fetchone()
-                                    if ex_row and ex_row[0]:
+                                    if ex_row and ex_row[0] and not getkv(c, f"hindsight_reflected:{ex_row[0]}:{dl_id}"):
+                                        setkv(c, f"hindsight_reflected:{ex_row[0]}:{dl_id}", "1")
                                         from app.hindsight import reflect_on_signal_outcome
                                         reflect_on_signal_outcome(
                                             c,
                                             signal_id=ex_row[0],
                                             pnl=round(profit, 2),
-                                            exit_price=float(dl.get("price") or 0.0),
+                                            exit_price=_safe_float(dl.get("price")),
                                             exit_reason="BROKER_DEAL_CLOSED",
                                         )
                                         setkv(c, f"deal_synced:{dl_id}", "1")

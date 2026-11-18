@@ -162,11 +162,12 @@ def cmd_cloud_undeploy_expired(as_json: bool = False):
             meta_id = r["metaapi_account_id"]
             if meta_id:
                 try:
-                    await client.undeploy_account(meta_id)
-                    with tx() as c:
-                        c.execute("UPDATE trading_accounts SET deployment_state='UNDEPLOYED', auto_trade=0 WHERE id=?", (r["id"],))
-                    undeployed.append(r["mt5_login"])
-                except Exception as e:
+                    ok = await client.undeploy_account(meta_id)
+                    if ok:
+                        with tx() as c:
+                            c.execute("UPDATE trading_accounts SET deployment_state='UNDEPLOYED', auto_trade=0 WHERE id=?", (r["id"],))
+                        undeployed.append(r["mt5_login"])
+                except Exception:
                     pass
 
     asyncio.run(_do_undeploy())

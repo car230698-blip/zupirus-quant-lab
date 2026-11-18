@@ -431,12 +431,12 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         last_eval_row = c.execute("SELECT value FROM kv WHERE key = ?", (last_ts_key,)).fetchone()
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:
             return {"status": "SKIPPED", "reason": "CANDLE_ALREADY_EVALUATED"}
-        setkv(c, last_ts_key, str(latest_bar_ts))
 
         prices = [float(b["close"]) for b in bars_asc]
         decision = coordinate_strategies(prices, timeframe="M15", db_cursor=c)
         side = force_side or decision.get("side")
         if not side:
+            setkv(c, last_ts_key, str(latest_bar_ts))
             setkv(c, "strategy_last_decision", json.dumps(decision, ensure_ascii=False))
             return {"status": "STAND_ASIDE", "reason": decision.get("reason", "NO_SIGNAL")}
 
@@ -447,8 +447,10 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         ).fetchone()
         if not q_row or (now - float(q_row["ts"])) > 180:
             return {"status": "SKIPPED", "reason": f"STALE_QUOTE_{sym_u}"}
-        dec = 2 if "XAU" in sym_u else (3 if "JPY" in sym_u else 5)
+        from app.services.symbol_precision import digits_for_symbol
+        dec = digits_for_symbol(sym_u)
         entry_price = round((float(q_row["bid"]) + float(q_row["ask"])) / 2.0, dec)
+        setkv(c, last_ts_key, str(latest_bar_ts))
 
     # Trigger AI Swarm (Sentinel + Alpha + Risk Guardian) & MCP cross-asset context check
     swarm_report = {}

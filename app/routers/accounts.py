@@ -321,12 +321,13 @@ async def create_account(
                 1.0, 1.0, risk_mult,
                 enc_pwd, now_ts, now_ts
             ))
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Failed to save account {p.login} to database: {e}")
             try:
-                import asyncio
                 if meta_id:
-                    asyncio.create_task(client.delete_account(meta_id))
+                    await client.delete_account(meta_id)
             except Exception as rollback_err:
                 logger.warning(f"Failed to rollback MetaApi account {meta_id}: {rollback_err}")
             fail(409, "Tài khoản MT5 trên Server này đã được liên kết hoặc xảy ra xung đột dữ liệu.")

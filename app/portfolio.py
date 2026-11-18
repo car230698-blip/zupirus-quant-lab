@@ -131,23 +131,28 @@ def calculate_position_size(
     """Calculates optimal lot size using ATR Volatility or Half-Kelly scaling
     with fail-closed safety clamps. Normalizes MT5 points vs price distance."""
     if equity <= 0:
-        return {"lot": 0.0, "error": "Invalid equity"}
+        return {"lot": 0.0, "recommended_lot": 0.0, "error": "Invalid equity"}
 
-    if symbol in ASSET_UNIVERSE:
-        spec = ASSET_UNIVERSE[symbol]
+    from app.services.symbol_mapper import canonical_symbol
+    canon_sym = canonical_symbol(symbol)
+    if canon_sym in ASSET_UNIVERSE:
+        spec = ASSET_UNIVERSE[canon_sym]
         point_size = float(spec.get("point_size") or 0.01)
         contract_mult = float(spec.get("contract_multiplier") or 100.0)
         typical_atr = float(spec.get("typical_atr_m15") or 3.5)
         rec_sl_atr = float(spec.get("recommended_sl_atr") or 1.0)
     else:
         from app.services.symbol_precision import contract_size_for_symbol, pip_size_for_symbol, point_size_for_symbol
-        point_size = point_size_for_symbol(symbol)
-        contract_mult = contract_size_for_symbol(symbol)
-        typical_atr = 20.0 * pip_size_for_symbol(symbol)
+        point_size = point_size_for_symbol(canon_sym)
+        contract_mult = contract_size_for_symbol(canon_sym)
+        typical_atr = 20.0 * pip_size_for_symbol(canon_sym)
         rec_sl_atr = 1.0
 
+    is_idx_or_crypto = any(k in canon_sym for k in ("BTC", "ETH", "US30", "NAS100", "SPX", "DE40"))
+    is_gold_or_silver = "XAU" in canon_sym or "XAG" in canon_sym
     if custom_sl_points is not None and custom_sl_points > 0:
-        if sl_unit == "points" or (sl_unit == "auto" and not symbol.upper().startswith("BTC") and custom_sl_points >= 20.0):
+        min_auto_pts = 50.0 if is_gold_or_silver else 20.0
+        if sl_unit == "points" or (sl_unit == "auto" and not is_idx_or_crypto and custom_sl_points >= min_auto_pts):
             sl_price_dist = float(custom_sl_points) * point_size
         else:
             sl_price_dist = float(custom_sl_points)
@@ -176,8 +181,24 @@ def calculate_position_size(
         half_kelly_factor = max(0.2, min(full_kelly * 0.5, 1.5)) if full_kelly > 0 else 0.2
         raw_lot = raw_lot * half_kelly_factor
 
-    # Safety clamps
-    clamped_lot = max(0.01, min(round(raw_lot, 2), 5.0))
+    # Safety clamps (fail-closed: return 0.0 if calculated lot < 0.01)
+    rounded_lot = round(raw_lot, 2)
+    if rounded_lot < 0.01:
+        return {
+            "symbol": symbol,
+            "equity": equity,
+            "risk_percent": risk_percent,
+            "method": method,
+            "lot": 0.0,
+            "recommended_lot": 0.0,
+            "dollar_risk": 0.0,
+            "sl_price_distance": round(sl_price_dist, 5),
+            "sl_points": round(sl_price_dist / point_size, 1) if point_size > 0 else round(sl_price_dist, 4),
+            "contract_multiplier": contract_mult,
+            "is_clamped": True,
+            "error": "RISK_BUDGET_BELOW_MIN_LOT",
+        }
+    clamped_lot = min(rounded_lot, 5.0)
     dollar_exposure = round(clamped_lot * loss_per_lot, 2)
 
     return {

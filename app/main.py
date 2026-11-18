@@ -120,8 +120,8 @@ def register(p: RegisterPayload):
                 c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
                 otp_err_code, otp_err_msg = 429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã"
             elif row['code'] != p.otp_code.strip():
+                c.execute("UPDATE otp_codes SET attempts = attempts + 1 WHERE email=?", (email_clean,))
                 new_attempts = int(row['attempts']) + 1
-                c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (new_attempts, email_clean))
                 if new_attempts >= 5:
                     otp_err_code, otp_err_msg = 429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã"
                 else:
@@ -258,7 +258,8 @@ def reset_password(p: ResetPasswordPayload):
             c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (int(row['attempts']) + 1, email_clean))
             err_code, err_msg = 400, "Mã OTP không chính xác."
         else:
-            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            # Keep OTP row briefly (5m) so the subsequent /api/register step can validate and consume it
+            c.execute("UPDATE otp_codes SET expires_at = ? WHERE email = ?", (now + 300.0, email_clean))
             usr = c.execute("SELECT id FROM users WHERE email=?", (email_clean,)).fetchone()
             if not usr:
                 err_code, err_msg = 404, "Tài khoản không tồn tại."
@@ -1639,7 +1640,8 @@ def auth_verify_otp(p: VerifyOtpPayload):
             else:
                 err_code, err_msg = 400, "Mã OTP không chính xác"
         else:
-            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            # Keep OTP row briefly (5m) so the subsequent /api/register step can validate and consume it
+            c.execute("UPDATE otp_codes SET expires_at = ? WHERE email = ?", (now + 300.0, email_clean))
     if err_code:
         fail(err_code, err_msg)
     return {"ok": True, "verified": True, "message": "Xác thực email thành công"}

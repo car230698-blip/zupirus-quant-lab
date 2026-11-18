@@ -303,9 +303,20 @@ async def process_successful_payment(
         current_sub_exp = float(sub_d["service_expires_at"] or 0) if sub_d and sub_d.get("service_expires_at") else 0.0
         new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
 
-        is_growth = tier in ("growth", "alpha")
-        is_alpha = tier == "alpha"
-        max_accounts = clamp_cloud_slots(tier, cloud_slots)
+        _tier_rank = {"starter": 1, "growth": 2, "alpha": 3}
+        effective_tier = tier
+        if sub_d and current_sub_exp > now_ts:
+            existing_tier = str(sub_d.get("plan_tier") or "starter").lower()
+            if _tier_rank.get(existing_tier, 1) > _tier_rank.get(tier, 1):
+                effective_tier = existing_tier
+
+        is_growth = effective_tier in ("growth", "alpha")
+        is_alpha = effective_tier == "alpha"
+        max_accounts = max(
+            clamp_cloud_slots(effective_tier, cloud_slots),
+            int(sub_d.get("max_mt5_accounts") or 1) if (sub_d and current_sub_exp > now_ts) else 1,
+        )
+        tier = effective_tier
 
         sub_id = sub_d["id"] if sub_d else f"sub_{secrets.token_hex(6)}"
         if sub_d:

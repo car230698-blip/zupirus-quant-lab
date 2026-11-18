@@ -171,9 +171,9 @@ def reflect_on_execution(c, account_id: str, order_info: Dict[str, Any]) -> str:
     side = order_info.get("side", "UNKNOWN")
     ticket = order_info.get("ticket", "N/A")
     deal = order_info.get("deal", "N/A")
-    price = order_info.get("fill_price") or order_info.get("price", 0.0)
-    sl = order_info.get("sl", 0.0)
-    tp = order_info.get("tp", 0.0)
+    price = float(order_info.get("fill_price") or order_info.get("price") or 0.0)
+    sl = float(order_info.get("sl") or 0.0)
+    tp = float(order_info.get("tp") or 0.0)
 
     title = f"Reflective Trade Insight: {side} XAUUSD #{ticket}"
     content = (
@@ -260,6 +260,11 @@ def reflect_on_signal_outcome(
     atr_val = context_data.get("atr_14", 3.50)
     news_dist = context_data.get("news_distance_mins", 999.0)
 
+    pnl = float(pnl or 0.0)
+    entry_price = float(entry_price or 0.0)
+    exit_price = float(exit_price or 0.0)
+    mae = float(mae or 0.0)
+    mfe = float(mfe or 0.0)
     title = f"Post-Trade Reflection: Signal #{signal_id[:8]} [{outcome} | PnL={pnl:+.2f}]"
     content = (
         f"Lệnh {side} tín hiệu #{signal_id[:8]} (Vào: ${entry_price:.2f}, Thoát: ${exit_price:.2f}, Lý do: {exit_reason}) "

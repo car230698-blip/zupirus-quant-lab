@@ -366,7 +366,7 @@ def cmd_signal_list_audit(limit: int = 20, as_json: bool = False):
             l["source_name"],
             l["strategy_tier"],
             l["side"],
-            f"{l['entry_price']:.2f}",
+            f"{float(l['entry_price']):.2f}" if l.get("entry_price") is not None else "-",
             f"{l['stop_loss']:.2f}" if l["stop_loss"] else "-",
             l["status"],
             l["reject_reason"] or "Passed All Guards",

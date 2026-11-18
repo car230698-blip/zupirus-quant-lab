@@ -297,7 +297,16 @@ def get_checkpointer():
             conn_str = DATABASE_URL
             if conn_str.startswith("postgres://"):
                 conn_str = "postgresql://" + conn_str[11:]
-            saver = PostgresSaver.from_conn_string(conn_str)
+            from contextlib import ExitStack
+            saver_cm = PostgresSaver.from_conn_string(conn_str)
+            if hasattr(saver_cm, "__enter__"):
+                stack = getattr(get_checkpointer, "_pg_stack", None)
+                if stack is None:
+                    stack = ExitStack()
+                    get_checkpointer._pg_stack = stack
+                saver = stack.enter_context(saver_cm)
+            else:
+                saver = saver_cm
             try:
                 saver.setup()
             except Exception:

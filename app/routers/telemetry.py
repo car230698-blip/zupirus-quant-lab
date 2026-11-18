@@ -140,9 +140,9 @@ def get_topbar_telemetry():
 
     # Determine News Shield state
     news_status = "CLEAR"
-    if news_dist_mins <= 15.0:
+    if abs(news_dist_mins) <= 15.0:
         news_status = "BLACKOUT"
-    elif news_dist_mins <= 60.0:
+    elif abs(news_dist_mins) <= 60.0:
         news_status = "WARNING"
 
     # Signal sources counts

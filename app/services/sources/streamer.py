@@ -35,8 +35,8 @@ class MarketDataStreamer:
         except Exception:
             with tx() as c:
                 c.execute(
-                    "INSERT INTO quotes (ts, source, bid, ask) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                    (now_ts, source, bid_r, ask_r)
+                    "INSERT INTO quotes (ts, source, symbol, bid, ask) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                    (now_ts, source, sym, bid_r, ask_r)
                 )
 
         mid = round((bid_r + ask_r) / 2.0, dec)
@@ -177,8 +177,11 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                 r = client.get(url)
                 if r.status_code != 200:
                     continue
-                result = r.json().get("chart", {}).get("result", [{}])[0]
-                meta = result.get("meta", {})
+                results_list = (r.json().get("chart") or {}).get("result") or []
+                if not results_list:
+                    continue
+                result = results_list[0] or {}
+                meta = result.get("meta") or {}
                 price = meta.get("regularMarketPrice")
                 if bid is None and price and float(price) > min_valid:
                     mid = round(float(price), dec)
@@ -186,7 +189,7 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                     ask = round(mid + half_spread, dec)
 
                 timestamps = result.get("timestamp") or []
-                quote_arr = (result.get("indicators", {}).get("quote") or [{}])[0]
+                quote_arr = ((result.get("indicators") or {}).get("quote") or [{}])[0] or {}
                 opens = quote_arr.get("open") or []
                 highs = quote_arr.get("high") or []
                 lows = quote_arr.get("low") or []
@@ -194,7 +197,11 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                 vols = quote_arr.get("volume") or []
 
                 for i, ts_val in enumerate(timestamps):
-                    if i < len(closes) and closes[i] is not None and opens[i] is not None:
+                    if (
+                        i < len(closes) and i < len(opens) and i < len(highs) and i < len(lows)
+                        and closes[i] is not None and opens[i] is not None
+                        and highs[i] is not None and lows[i] is not None
+                    ):
                         m15_bars.append({
                             "symbol": sym_u,
                             "timeframe": "M15",

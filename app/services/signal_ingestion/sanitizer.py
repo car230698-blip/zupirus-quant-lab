@@ -6,6 +6,7 @@ Ensures zero-compromise risk management for all ingested signals:
 4. Lớp 4: Entry Slippage Guard (<= 20 pips)
 Also snapshots real-time market context for Tabula Rasa observational & inductive learning.
 """
+import secrets
 import time
 import json
 import hashlib
@@ -221,7 +222,7 @@ def sanitize_and_audit_signal(
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    f"log_{signal.id}",
+                    f"log_{secrets.token_hex(6)}",
                     signal.id,
                     signal.source,
                     signal.strategy_tier,

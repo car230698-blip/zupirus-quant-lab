@@ -1681,8 +1681,11 @@ export function zupirusApiPlugin(): Plugin {
     if (pathname === '/api/v1/billing/subscription' && method === 'GET') {
       return sendJson(res, 200, {
         plan_tier: 'alpha',
+        status: 'ACTIVE',
+        is_active: true,
         service_expires_at: nowSec() + 86400 * 26,
         max_mt5_accounts: 5,
+        max_cloud_accounts: 5,
         allow_custom_multiplier: true,
         allow_compounding: true,
         allow_prop_firm_mode: true,

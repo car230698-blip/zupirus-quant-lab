@@ -418,6 +418,24 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
                 now_ts, now_ts
             ))
 
+        # Sync cloud_expires_at and reactivate up to effective_slots trading_accounts
+        acc_rows = c.execute(
+            "SELECT id FROM trading_accounts WHERE user_id = ? ORDER BY created_at ASC LIMIT ?",
+            (uid, effective_slots),
+        ).fetchall()
+        for ar in acc_rows:
+            c.execute(
+                """
+                UPDATE trading_accounts
+                SET subscription_expires_at = ?,
+                    cloud_expires_at = ?,
+                    auto_trade = 1,
+                    deployment_state = CASE WHEN metaapi_account_id IS NOT NULL THEN 'DEPLOYED' ELSE deployment_state END
+                WHERE id = ?
+                """,
+                (new_exp, new_exp, ar[0]),
+            )
+
     return {
         "success": True,
         "message": f"Đã cấp thành công gói {req.plan_tier.upper()} ({effective_slots} trạm MT5) cho {user_row['email']} trong {effective_days} ngày.",

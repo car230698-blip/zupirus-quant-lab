@@ -317,7 +317,10 @@ def reject_learned_skill(skill_id: str) -> bool:
     try:
         with tx() as c:
             c.execute("DELETE FROM agent_skills WHERE skill_id = ? AND is_builtin = 0", (skill_id,))
-        safe_id = os.path.basename(skill_id)
+        safe_id = os.path.basename(str(skill_id or "").strip())
+        if not safe_id or safe_id in (".", "..") or "/" in str(skill_id) or "\\" in str(skill_id) or ".." in str(skill_id):
+            logger.warning(f"Rejected unsafe learned skill_id: {skill_id!r}")
+            return False
         skill_folder = os.path.join(LEARNED_SKILLS_DIR, safe_id)
         if os.path.isdir(skill_folder):
             shutil.rmtree(skill_folder, ignore_errors=True)

@@ -98,27 +98,39 @@ class MetaApiClient:
         if self.is_mock:
             return True
         url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}/deploy"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(url, headers=self._headers())
-            return resp.status_code in (200, 202, 204)
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(url, headers=self._headers())
+                return resp.status_code in (200, 202, 204)
+        except Exception as e:
+            logger.warning(f"deploy_account error for {metaapi_account_id}: {e}")
+            return False
 
     async def undeploy_account(self, metaapi_account_id: str) -> bool:
         """Undeploy cloud MT5 terminal to stop hosting billing."""
         if self.is_mock:
             return True
         url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}/undeploy"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(url, headers=self._headers())
-            return resp.status_code in (200, 204)
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(url, headers=self._headers())
+                return resp.status_code in (200, 204)
+        except Exception as e:
+            logger.warning(f"undeploy_account error for {metaapi_account_id}: {e}")
+            return False
 
     async def delete_account(self, metaapi_account_id: str) -> bool:
         """Delete cloud MT5 account from MetaApi Provisioning API to stop all cloud billing."""
         if self.is_mock:
             return True
         url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.delete(url, headers=self._headers())
-            return resp.status_code in (200, 202, 204, 404)
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.delete(url, headers=self._headers())
+                return resp.status_code in (200, 202, 204, 404)
+        except Exception as e:
+            logger.warning(f"delete_account error for {metaapi_account_id}: {e}")
+            return False
 
     async def get_account_information(self, metaapi_account_id: str) -> Dict[str, Any]:
         """Retrieve real-time account metrics (balance, equity, margin, freeMargin)."""
@@ -175,7 +187,10 @@ class MetaApiClient:
         Execute market BUY or SELL order with Stop Loss and Take Profit on MT5.
         """
         start_ts = time.time()
-        action_type = "ORDER_TYPE_BUY" if action.upper() == "BUY" else "ORDER_TYPE_SELL"
+        action_u = str(action or "").strip().upper()
+        if action_u not in ("BUY", "SELL"):
+            raise ValueError(f"Unsupported trade action: {action}")
+        action_type = "ORDER_TYPE_BUY" if action_u == "BUY" else "ORDER_TYPE_SELL"
 
         if self.is_mock:
             # Simulate real network hop ~25-45ms
@@ -241,14 +256,19 @@ class MetaApiClient:
             return []
 
         url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/positions"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers=self._headers())
-            if resp.status_code == 200:
-                data = resp.json()
-                return data if isinstance(data, list) else []
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, headers=self._headers())
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data if isinstance(data, list) else []
+                if raise_on_error:
+                    raise RuntimeError(f"MetaApi get_open_positions HTTP {resp.status_code}: {resp.text[:160]}")
+        except Exception as e:
             if raise_on_error:
-                raise RuntimeError(f"MetaApi get_open_positions HTTP {resp.status_code}: {resp.text[:160]}")
-            return []
+                raise
+            logger.debug(f"get_open_positions error for {metaapi_account_id}: {e}")
+        return []
 
     async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
         """Retrieve closed execution deals from MetaApi history for real PnL reflection."""
@@ -524,8 +544,8 @@ async def execute_fan_out_for_signal(
                 canon_sym = canonical_symbol(symbol)
                 with tx() as c:
                     q_row = c.execute(
-                        "SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
-                        (canon_sym,)
+                        "SELECT bid, ask, ts FROM quotes WHERE symbol = ? AND (? - ts) < 120 ORDER BY ts DESC LIMIT 1",
+                        (canon_sym, time.time())
                     ).fetchone()
                     if q_row and q_row[0] and q_row[1]:
                         from app.services.symbol_precision import pip_multiplier_for_symbol
