@@ -692,7 +692,6 @@ async def execute_fan_out_for_signal(
                 open_positions = open_positions_cache if open_positions_cache is not None else []
                 eff_contract = contract_size_for_symbol(symbol, is_cent=is_cent_acc, account_contract_size=c_size)
                 open_idea_risk_pct = 0.0
-                sym_upper = symbol.upper()
                 broker_upper = broker_sym.upper()
                 unprotected_same_idea = False
 

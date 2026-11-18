@@ -241,7 +241,6 @@ async def _create_account_locked(
     # 4. Provision & Auto-Deploy terminal on MetaApi Cloud (with 3-attempt transient retry)
     client = MetaApiClient()
     prov = None
-    last_prov_err = None
     for attempt in range(1, 4):
         try:
             prov = await client.provision_account(
@@ -253,7 +252,6 @@ async def _create_account_locked(
             )
             break
         except Exception as e:
-            last_prov_err = e
             err_msg = str(e).lower()
             is_auth_or_server_err = any(k in err_msg for k in ("password", "credential", "invalid", "server", "unauthorized", "401", "403", "not found"))
             if is_auth_or_server_err or attempt == 3:
@@ -663,7 +661,6 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     meta_id = acc.get("metaapi_account_id") or real_id
     eq = float(acc.get("equity") or 0.0)
     bal = float(acc.get("balance") or 0.0)
-    synced = False
     if not client.is_mock:
         info = await client.get_account_information(meta_id)
         if isinstance(info, dict) and info.get("connected", True):
@@ -672,9 +669,6 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
             if new_eq > 0 or new_bal > 0:
                 eq = new_eq
                 bal = new_bal
-                synced = True
-    else:
-        synced = True
     now_ts = time.time()
 
     with tx() as c:

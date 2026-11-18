@@ -75,7 +75,6 @@ def extract_user_identifier(content: str) -> Optional[str]:
     """
     if not content:
         return None
-    content_upper = content.upper()
     tokens = content.split()
     for t in tokens:
         clean = t.strip(".,;:/-_")

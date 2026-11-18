@@ -83,7 +83,6 @@ def discover_candidate_from_observations(c=None) -> Dict[str, Any]:
     # Extract winning patterns from real trades
     session_wins: Dict[str, List[float]] = {}
     for r in rows:
-        side = r["side"] if hasattr(r, 'keys') else r[0]
         pnl = float(r["pnl"] if hasattr(r, 'keys') else r[2])
         ctx_str = r["context_snapshot"] if hasattr(r, 'keys') else r[3]
         sess = "London"

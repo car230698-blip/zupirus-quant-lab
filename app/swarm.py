@@ -180,7 +180,6 @@ def run_risk_guardian_cycle(c) -> Dict[str, Any]:
         if is_pg:
             c.execute("ROLLBACK TO SAVEPOINT sp_swarm_risk_acc")
         accounts = c.execute("SELECT id, balance, equity, positions FROM accounts WHERE enabled=1").fetchall()
-    total_balance = sum(float(a["balance"] or 0.0) for a in accounts)
     total_equity = sum(float(a["equity"] or 0.0) for a in accounts)
     total_positions = sum(int(a["positions"] or 0) for a in accounts)
 

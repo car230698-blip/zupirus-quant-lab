@@ -42,7 +42,7 @@ class Risk(Model):
 @router.put('/api/accounts/{aid}/risk')
 def risk(aid: str, p: Risk, u=Depends(get_current_user)):
     with tx() as c:
-        a = owned(c, aid, u)
+        owned(c, aid, u)
         c.execute('UPDATE accounts SET enabled=?,risk=?,max_spread=?,max_positions=?,max_dd=? WHERE id=?', (int(p.enabled), p.risk, p.max_spread, p.max_positions, p.max_dd, aid))
         if not p.enabled:
             c.execute("UPDATE dispatches SET state='cancelled',updated=? WHERE account_id=? AND state='queued'", (time.time(), aid))

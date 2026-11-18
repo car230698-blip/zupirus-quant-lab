@@ -1,9 +1,8 @@
-import time, secrets, re, logging
+import time, secrets, logging
 from typing import Literal, List, Any, Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from app.db import tx, audit, getkv, setkv
-from app.security import password_hash
 from app.tracing import get_trace_summary
 from app.routers.deps import Model, fail, get_current_admin
 
@@ -239,159 +238,6 @@ def sync_news(u=Depends(get_current_admin)):
         audit(c, u['id'], 'calendar_synced', {'added': added, 'existing': existing})
     return {'ok': True, 'added': added, 'existing': existing}
 
-class CreateUser(Model):
-    email: str = Field(min_length=3, max_length=150)
-    password: str = Field(min_length=8, max_length=128)
-    role: Literal['customer', 'admin', 'user'] = 'customer'
-    name: Optional[str] = None
-
-class UpdateUserRole(Model):
-    role: Literal['customer', 'admin', 'user']
-
-class UpdateUserPassword(Model):
-    password: str = Field(min_length=8, max_length=128)
-
-@router.get('/api/admin/users')
-def list_admin_users(u=Depends(get_current_admin)):
-    with tx() as c:
-        rows = c.execute("""
-            SELECT u.id, u.email, u.role,
-                   ((SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) +
-                    (SELECT COUNT(*) FROM trading_accounts ta WHERE ta.user_id = u.id)) as accounts_count,
-                   (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires > ?) as active_sessions
-            FROM users u
-            ORDER BY u.email ASC
-        """, (time.time(),)).fetchall()
-        users_list = []
-        for r in rows:
-            users_list.append({
-                'id': r[0],
-                'email': r[1],
-                'role': r[2],
-                'accounts_count': r[3],
-                'active_sessions': r[4],
-            })
-    return {'users': users_list, 'total': len(users_list)}
-
-@router.post('/api/admin/users')
-def create_admin_user(p: CreateUser, u=Depends(get_current_admin)):
-    email = p.email.strip().lower()
-    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
-        fail(422, 'Email không hợp lệ')
-    db_role = 'admin' if p.role == 'admin' else 'customer'
-    with tx() as c:
-        if c.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone():
-            fail(409, 'Email đã tồn tại')
-        uid = f"usr_{secrets.token_hex(8)}"
-        c.execute('INSERT INTO users VALUES(?,?,?,?)', (uid, email, password_hash(p.password), db_role))
-        audit(c, u['id'], 'user_created', {'target_user_id': uid, 'email': email, 'role': db_role})
-    return {'ok': True, 'id': uid, 'email': email, 'role': db_role}
-
-@router.put('/api/admin/users/{target_uid}/role')
-def update_user_role(target_uid: str, p: UpdateUserRole, u=Depends(get_current_admin)):
-    db_role = 'admin' if p.role == 'admin' else 'customer'
-    if target_uid == u['id'] and db_role != 'admin':
-        fail(400, 'Không thể tự hạ quyền quản trị của chính mình')
-    with tx() as c:
-        row = c.execute('SELECT id, email, role FROM users WHERE id=?', (target_uid,)).fetchone()
-        if not row:
-            fail(404, 'Không tìm thấy người dùng')
-        c.execute('UPDATE users SET role=? WHERE id=?', (db_role, target_uid))
-        audit(c, u['id'], 'user_role_changed', {'target_user_id': target_uid, 'email': row[1], 'new_role': db_role})
-    return {'ok': True}
-
-@router.put('/api/admin/users/{target_uid}/password')
-def reset_user_password(target_uid: str, p: UpdateUserPassword, u=Depends(get_current_admin)):
-    with tx() as c:
-        row = c.execute('SELECT id, email FROM users WHERE id=?', (target_uid,)).fetchone()
-        if not row:
-            fail(404, 'Không tìm thấy người dùng')
-        c.execute('UPDATE users SET password=? WHERE id=?', (password_hash(p.password), target_uid))
-        c.execute('DELETE FROM sessions WHERE user_id=?', (target_uid,))
-        audit(c, u['id'], 'user_password_reset', {'target_user_id': target_uid, 'email': row[1]})
-    return {'ok': True}
-
-@router.delete('/api/admin/users/{target_uid}')
-async def delete_admin_user(target_uid: str, u=Depends(get_current_admin)):
-    if target_uid == u['id']:
-        fail(400, 'Không thể xóa tài khoản của chính mình')
-    meta_ids_to_cleanup = set()
-    user_email = ""
-    with tx() as c:
-        row = c.execute('SELECT id, email, role FROM users WHERE id=?', (target_uid,)).fetchone()
-        if not row:
-            fail(404, 'Không tìm thấy người dùng')
-        user_email = row[1]
-
-        try:
-            for r in c.execute('SELECT metaapi_account_id FROM trading_accounts WHERE user_id=?', (target_uid,)).fetchall():
-                if r and r[0]:
-                    meta_ids_to_cleanup.add(str(r[0]))
-        except Exception:
-            pass
-        try:
-            for r in c.execute('SELECT metaapi_account_id FROM metaapi_cloud_accounts WHERE user_id=?', (target_uid,)).fetchall():
-                if r and r[0]:
-                    meta_ids_to_cleanup.add(str(r[0]))
-        except Exception:
-            pass
-
-    if meta_ids_to_cleanup:
-        from app.metaapi import MetaApiClient
-        client = MetaApiClient()
-        for mid in meta_ids_to_cleanup:
-            try:
-                await client.undeploy_account(mid)
-            except Exception as e:
-                logger.warning(f"Failed to undeploy MetaApi account {mid} during user deletion: {e}")
-            try:
-                await client.delete_account(mid)
-            except Exception as e:
-                logger.warning(f"Failed to delete MetaApi account {mid} during user deletion: {e}")
-
-    with tx() as c:
-        # 1. Accounts belonging to user & their foreign key children
-        acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
-        for aid in acc_ids:
-            for dep_t in ('snapshots', 'sim_positions', 'dispatches', 'metaapi_trade_executions', 'account_symbol_map'):
-                try:
-                    c.execute(f'DELETE FROM {dep_t} WHERE account_id=?', (aid,))
-                except Exception:
-                    pass
-            c.execute('DELETE FROM accounts WHERE id=? AND user_id=?', (aid, target_uid))
-
-        # 2. Cloud trading accounts & executions
-        for dep_t in ('metaapi_trade_executions', 'account_symbol_map', 'signal_dispatch_locks'):
-            try:
-                c.execute(f'DELETE FROM {dep_t} WHERE account_id IN (SELECT id FROM trading_accounts WHERE user_id=?)', (target_uid,))
-            except Exception:
-                pass
-        try:
-            c.execute('DELETE FROM trading_accounts WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-        try:
-            c.execute('DELETE FROM metaapi_cloud_accounts WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-
-        # 3. Real accounts
-        try:
-            c.execute('DELETE FROM real_accounts WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-
-        # 4. User level records (orders, subscriptions, transactions, disclaimers, sessions, memories)
-        for usr_t in ('orders', 'subscriptions', 'payment_transactions', 'legal_disclaimers', 'sessions', 'hindsight_memories'):
-            try:
-                c.execute(f'DELETE FROM {usr_t} WHERE user_id=?', (target_uid,))
-            except Exception:
-                pass
-
-        # 5. Delete user record
-        c.execute('DELETE FROM users WHERE id=?', (target_uid,))
-        audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': user_email, 'cleaned_metaapi_ids': list(meta_ids_to_cleanup)})
-    return {'ok': True, 'message': f'Đã xoá người dùng {user_email} thành công.'}
 
 class AddGeminiKey(Model):
     key: str = Field(min_length=20, max_length=150)
@@ -556,12 +402,14 @@ def mailer_status(u=Depends(get_current_admin)):
 def mailer_test_send(p: MailerTestPayload, u=Depends(get_current_admin)):
     """Sends a verified test email to the requested recipient."""
     from datetime import datetime, timezone
+    import html as html_mod
     from app.mailer import send_resend_email
     now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    safe_to = html_mod.escape(str(p.to))
     html = f"""
     <div style="font-family:sans-serif;background:#0d1527;color:#f8fafc;padding:28px;border-radius:12px;border:1px solid #1e293b;max-width:540px;">
       <h2 style="color:#38bdf8;margin:0 0 12px;">ZUPIRUS Quant Lab</h2>
-      <p style="color:#cbd5e1;font-size:14px;margin:0 0 16px;">Xin chào <strong>{p.to}</strong>,</p>
+      <p style="color:#cbd5e1;font-size:14px;margin:0 0 16px;">Xin chào <strong>{safe_to}</strong>,</p>
       <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0 0 20px;">
         Email này được gửi thử nghiệm thành công từ <strong>Cổng Quản Trị Hệ Thống ZUPIRUS Quant Lab</strong> thông qua <strong>Resend API</strong> với tên miền <strong>zupirus.com</strong>.
       </p>
@@ -576,105 +424,3 @@ def mailer_test_send(p: MailerTestPayload, u=Depends(get_current_admin)):
         fail(400, f"Gửi email qua Resend thất bại: {res.get('error')}")
     return res
 
-@router.get('/api/admin/payments')
-def list_payments(u=Depends(get_current_admin)):
-    """Returns recent SePay banking transactions and total revenue summary."""
-    with tx() as c:
-        rows = c.execute("""
-            SELECT p.*, u.email as user_email
-            FROM payment_transactions p
-            LEFT JOIN users u ON u.id = p.user_id
-            ORDER BY p.created_at DESC LIMIT 50
-        """).fetchall()
-
-        total_row = c.execute("SELECT COALESCE(SUM(amount), 0) FROM payment_transactions WHERE status IN ('completed', 'manual_approved')").fetchone()
-        total_vnd = total_row[0] if total_row else 0.0
-
-    return {
-        "total_revenue_vnd": float(total_vnd),
-        "total_transactions": len(rows),
-        "transactions": [dict(r) for r in rows]
-    }
-
-class ManualPaymentPayload(BaseModel):
-    user_email: str = Field(min_length=5, max_length=120)
-    amount_vnd: float = Field(gt=0)
-    gateway: str = Field(default='MANUAL_BANK', max_length=50)
-    reference_code: str = Field(min_length=1, max_length=100)
-    note: Optional[str] = Field(default='Duyệt thanh toán thủ công bởi Admin', max_length=255)
-
-@router.post('/api/admin/payments/manual-approve')
-def admin_manual_approve_payment(p: ManualPaymentPayload, u=Depends(get_current_admin)):
-    """Manually approves and records a payment transaction, crediting the customer and sending an official email receipt."""
-    from app.sepay import build_payment_success_email
-    from app.mailer import send_resend_email
-    email_clean = p.user_email.strip().lower()
-    tx_id = f"manual_{secrets.token_hex(8)}"
-    now_ts = time.time()
-
-    with tx() as c:
-        user_row = c.execute("SELECT id, email FROM users WHERE email=?", (email_clean,)).fetchone()
-        user_id = user_row['id'] if user_row else None
-
-        c.execute("""
-            INSERT INTO payment_transactions(id, sepay_id, user_id, amount, currency, gateway, content, reference_code, status, created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
-        """, (
-            tx_id,
-            f"MANUAL-{int(now_ts)}-{secrets.randbelow(10000)}",
-            user_id,
-            p.amount_vnd,
-            'VND',
-            p.gateway,
-            f"DUYỆT THỦ CÔNG: {p.note}",
-            p.reference_code,
-            'manual_approved',
-            now_ts
-        ))
-        audit(c, u['id'], 'manual_payment_approved', {
-            'tx_id': tx_id,
-            'user_email': email_clean,
-            'user_id': user_id,
-            'amount': p.amount_vnd,
-            'ref': p.reference_code
-        })
-
-    # Dispatch cybernetic receipt email
-    try:
-        email_html = build_payment_success_email(
-            user_email=email_clean,
-            amount_vnd=p.amount_vnd,
-            gateway=p.gateway,
-            ref_code=p.reference_code,
-            content=f"DUYỆT THỦ CÔNG: {p.note}"
-        )
-        send_resend_email(to=email_clean, subject="🎉 Xác nhận nạp tiền thành công (Duyệt thủ công) - ZUPIRUS Quant Lab", html=email_html)
-    except Exception as e:
-        logger.error("Failed to send manual receipt email: %s", e)
-
-    return {
-        "ok": True,
-        "transaction_id": tx_id,
-        "amount": p.amount_vnd,
-        "user_email": email_clean,
-        "message": f"Đã duyệt nạp thành công {p.amount_vnd:,.0f} VND cho tài khoản {email_clean}"
-    }
-
-class LinkPaymentPayload(BaseModel):
-    user_email: str = Field(min_length=5, max_length=120)
-
-@router.post('/api/admin/payments/{tx_id}/link-user')
-def admin_link_payment_user(tx_id: str, p: LinkPaymentPayload, u=Depends(get_current_admin)):
-    """Links an unmatched incoming payment transaction to a specific customer account."""
-    email_clean = p.user_email.strip().lower()
-    with tx() as c:
-        user_row = c.execute("SELECT id, email FROM users WHERE email=?", (email_clean,)).fetchone()
-        if not user_row:
-            fail(404, "Không tìm thấy người dùng với email này")
-        tx_row = c.execute("SELECT * FROM payment_transactions WHERE id=?", (tx_id,)).fetchone()
-        if not tx_row:
-            fail(404, "Không tìm thấy giao dịch thanh toán")
-        c.execute("UPDATE payment_transactions SET user_id=? WHERE id=?", (user_row['id'], tx_id))
-        audit(c, u['id'], 'payment_linked_user', {'tx_id': tx_id, 'user_id': user_row['id'], 'user_email': email_clean})
-
-    return {"ok": True, "message": f"Đã liên kết giao dịch {tx_id} với tài khoản {email_clean}"}

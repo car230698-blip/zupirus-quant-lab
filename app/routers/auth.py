@@ -1,4 +1,4 @@
-import os, time, secrets, sqlite3, logging
+import hmac, os, time, secrets, sqlite3, logging
 from typing import Optional
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
@@ -12,6 +12,13 @@ logger = logging.getLogger("zupirus.api")
 router = APIRouter()
 
 SECURE = os.getenv('COOKIE_SECURE', 'true').lower() == 'true'
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get('x-forwarded-for', '').strip()
+    if xff:
+        return xff.split(',')[0].strip() or '127.0.0.1'
+    return (request.client.host if request.client else '') or '127.0.0.1'
 
 class Credentials(Model):
     email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
@@ -45,10 +52,11 @@ def register(p: RegisterPayload):
             elif row['attempts'] >= 5:
                 c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
                 otp_err_code, otp_err_msg = 429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã"
-            elif row['code'] != p.otp_code.strip():
+            elif not hmac.compare_digest(str(row['code']), p.otp_code.strip()):
                 c.execute("UPDATE otp_codes SET attempts = attempts + 1 WHERE email=?", (email_clean,))
                 new_attempts = int(row['attempts']) + 1
                 if new_attempts >= 5:
+                    c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
                     otp_err_code, otp_err_msg = 429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã"
                 else:
                     otp_err_code, otp_err_msg = 400, "Mã OTP xác thực không chính xác"
@@ -61,14 +69,17 @@ def register(p: RegisterPayload):
 
     with tx() as c:
         try:
-            c.execute('INSERT INTO users VALUES(?,?,?,?)', (secrets.token_hex(16), email_clean, password_hash(p.password), 'customer'))
+            c.execute(
+                'INSERT INTO users(id, email, password, role) VALUES(?,?,?,?)',
+                (secrets.token_hex(16), email_clean, password_hash(p.password), 'customer'),
+            )
         except (sqlite3.IntegrityError, Exception):
             fail(409, 'Email already registered')
     return {'ok': True}
 
 @router.post('/api/login')
 def login(p: Credentials, request: Request):
-    key = digest(p.email.lower() + '|' + (request.client.host if request.client else '127.0.0.1'))
+    key = digest(p.email.lower() + '|' + _client_ip(request))
     now = time.time()
     with tx() as c:
         limit = c.execute('SELECT * FROM login_limits WHERE key=?', (key,)).fetchone()
@@ -132,7 +143,7 @@ def forgot_password(p: ForgotPasswordPayload, request: Request):
     email_clean = p.email.strip().lower()
     if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email_clean):
         fail(422, "Định dạng email không hợp lệ")
-    client_ip = (request.client.host if request.client else "") or "unknown"
+    client_ip = _client_ip(request)
     try:
         r = get_redis_client()
         ip_key = f"fp_ip_rl:{client_ip}"
@@ -218,7 +229,7 @@ def auth_send_otp(p: SendOtpPayload, request: Request):
     if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email_clean):
         fail(422, "Định dạng email không hợp lệ")
 
-    client_ip = (request.client.host if request.client else "") or "unknown"
+    client_ip = _client_ip(request)
     try:
         r = get_redis_client()
         ip_key = f"otp_ip_rl:{client_ip}"

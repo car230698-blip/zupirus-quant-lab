@@ -3,6 +3,8 @@ from app.routers.accounts import router as accounts_router
 from app.routers.admin_ai import router as admin_ai_router
 from app.routers.admin_billing import router as admin_billing_router
 from app.routers.admin_ops import router as admin_ops_router
+from app.routers.admin_payments import router as admin_payments_router
+from app.routers.admin_users import router as admin_users_router
 from app.routers.ai_chat import router as ai_chat_router
 from app.routers.auth import router as auth_router
 from app.routers.billing import router as billing_router
@@ -19,6 +21,8 @@ __all__ = [
     "admin_ai_router",
     "admin_billing_router",
     "admin_ops_router",
+    "admin_payments_router",
+    "admin_users_router",
     "ai_chat_router",
     "auth_router",
     "billing_router",

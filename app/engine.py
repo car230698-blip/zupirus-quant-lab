@@ -372,7 +372,7 @@ def flush_outbox(c):
     """Process pending outbox events and publish to Redis Streams with retry."""
     rows = c.execute("SELECT id, event_type, payload, retry_count FROM outbox WHERE status='pending' ORDER BY id LIMIT 20").fetchall()
     for row in rows:
-        oid, etype, payload_raw, retries = row['id'], row['event_type'], row['payload'], row['retry_count']
+        oid, etype, payload_raw = row['id'], row['event_type'], row['payload']
         try:
             payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
             if etype == "signal_created":

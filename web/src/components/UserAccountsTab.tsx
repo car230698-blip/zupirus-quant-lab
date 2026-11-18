@@ -2,19 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useCloudAccounts } from '../hooks/useQuantData';
 import { fmtNum } from '../utils/strategyDecision';
 import { formatApiError } from '../utils/formatError.ts';
+import { POPULAR_BROKERS } from '../data/quantConstants';
 
 export interface UserAccountsTabProps {
   accounts?: any[];
   refetchAccounts?: () => void;
 }
-
-const POPULAR_BROKERS = [
-  { label: 'Exness', server: 'Exness-MT5Real' },
-  { label: 'FTMO', server: 'FTMO-Server' },
-  { label: 'ICMarkets', server: 'ICMarketsSC-MT5' },
-  { label: 'Vantage', server: 'VantageInternational-Live' },
-  { label: 'Pepperstone', server: 'Pepperstone-MT5-Live01' },
-];
 
 export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   accounts: externalAccounts,
