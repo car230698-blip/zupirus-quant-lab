@@ -14,6 +14,7 @@ from .redis_client import get_redis_client
 from .security import bootstrap
 from app.routers import (
     accounts_router,
+    accounts_lifecycle_router,
     admin_ai_router,
     admin_billing_router,
     admin_ops_router,
@@ -28,6 +29,7 @@ from app.routers import (
     skills_router,
     sources_router,
     telemetry_router,
+    telemetry_admin_router,
     webhooks_router,
 )
 
@@ -179,9 +181,11 @@ for _router in (
     webhooks_router,
     signals_router,
     accounts_router,
+    accounts_lifecycle_router,
     sources_router,
     admin_billing_router,
     telemetry_router,
+    telemetry_admin_router,
     skills_router,
     admin_ai_router,
 ):
