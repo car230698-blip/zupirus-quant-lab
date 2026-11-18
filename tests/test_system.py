@@ -141,7 +141,7 @@ def test_walkforward_no_overlap_and_future_leakage():
     changed=prices[:180]+[p+10000 for p in prices[180:]]
     assert research.walk_forward(changed)['folds'][0]==r['folds'][0]
 
-def test_ai_missing_and_provider_failure(monkeypatch):
+def test_ai_missing_and_provider_failure(client, monkeypatch):
     monkeypatch.delenv('AI_API_KEY',raising=False)
     monkeypatch.delenv('GEMINI_API_KEY',raising=False)
     assert research.ai_text('test')['available'] is False

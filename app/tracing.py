@@ -27,6 +27,12 @@ def is_langsmith_enabled() -> bool:
     return bool(LANGSMITH_API_KEY and LANGSMITH_TRACING)
 
 
+# Prevent langsmith/langchain SDK from attempting unauthenticated trace uploads
+if not is_langsmith_enabled():
+    os.environ["LANGSMITH_TRACING"] = "false"
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"
+
+
 def get_langsmith_client():
     """Lazily initialize and return the LangSmith client, or None if disabled/offline."""
     global _client, _client_initialized

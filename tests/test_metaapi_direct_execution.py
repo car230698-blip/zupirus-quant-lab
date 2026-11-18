@@ -26,7 +26,7 @@ def test_dynamic_lot_sizing():
     assert lot3 == 2.0
 
 @pytest.mark.asyncio
-async def test_fanout_execution_and_idempotency():
+async def test_fanout_execution_and_idempotency(client):
     metaapi = MetaApiClient()
     accounts = [
         {"id": "acc_a", "metaapi_account_id": "meta_a", "equity": 5000.0, "risk_percent": 1.0},
@@ -34,7 +34,7 @@ async def test_fanout_execution_and_idempotency():
     ]
 
     sig = {
-        "id": "sig_fanout_test_99",
+        "id": f"sig_fanout_test_{secrets.token_hex(4)}",
         "symbol": "XAUUSD",
         "action": "BUY",
         "entry_price": 2660.0,
