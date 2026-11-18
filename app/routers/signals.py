@@ -1,10 +1,10 @@
 """Signal inspection, telemetry, and audit logs endpoints."""
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from app.db import tx
-from app.routers.deps import get_current_user, get_current_admin
+from app.routers.deps import get_current_admin
 from app.config import (
     SIGNAL_SOURCE,
     AUTO_ATTACH_ATR_SL,
@@ -13,8 +13,7 @@ from app.config import (
 )
 import re
 import secrets
-from app.schemas.signals import TradingViewWebhookPayload, TestIngestPayload, NormalizedSignalSchema
-from app.services.signal_ingestion.normalizer import normalize_tradingview_signal
+from app.schemas.signals import TestIngestPayload, NormalizedSignalSchema
 from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
 
 router = APIRouter(prefix="/api/v1/signals", tags=["signals"])

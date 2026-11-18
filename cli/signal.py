@@ -2,10 +2,10 @@
 import time
 import json
 import secrets
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
 from app.db import tx, init, getkv
-from app.redis_client import publish_signal_event, acquire_dispatch_lock, release_dispatch_lock, get_redis_client
+from app.redis_client import publish_signal_event, acquire_dispatch_lock, release_dispatch_lock
 from cli.formatters import emit_json, emit_error, format_table
 
 

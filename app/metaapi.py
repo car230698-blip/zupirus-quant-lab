@@ -12,12 +12,10 @@ Features:
 import os
 import time
 import uuid
-import math
 import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 import httpx
-from app.security import encrypt_secret, decrypt_secret
 
 logger = logging.getLogger("zupirus.metaapi")
 

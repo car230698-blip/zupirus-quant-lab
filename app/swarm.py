@@ -5,13 +5,11 @@ Coordinates 3 specialized autonomous agents:
 3. Risk Guardian Agent: Real-time Portfolio Value-at-Risk (VaR 99%) & leverage clamping.
 """
 import time
-import json
 import logging
-import secrets
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 from .db import tx
-from .portfolio import scan_universe, calculate_position_size, run_monte_carlo_simulation
-from .hindsight import store_memory, recall_memories, CATEGORY_REFLECTIVE, CATEGORY_SEMANTIC
+from .portfolio import run_monte_carlo_simulation
+from .hindsight import store_memory, CATEGORY_REFLECTIVE
 from .gemini_client import call_gemini
 
 logger = logging.getLogger("zupirus.swarm")

@@ -57,4 +57,3 @@ export function translateRegime(regime: unknown): string {
 }
 
 export const orderStates = ['queued', 'intent', 'unknown', 'filled', 'rejected', 'cancelled', 'expired'] as const;
-export const activityStates = ['queued', 'resume', 'waiting_approval', 'running', 'completed', 'failed'] as const;

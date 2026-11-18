@@ -1,6 +1,6 @@
 """Persistent research graph: research results never control execution automatically.
 Integrated with PostgreSQL/TimescaleDB checkpointer and LangSmith tracing."""
-import sqlite3, time, json, os, uuid, base64, logging
+import time, json, os, uuid, logging
 from typing import TypedDict
 import httpx
 from langgraph.graph import StateGraph, START, END
@@ -17,14 +17,14 @@ Learns strategy candidates inductively from external signal observations and mar
 Integrated with TimescaleDB, PostgreSQL checkpointer, Hindsight memory, and LangSmith tracing.
 Research results never control live execution automatically without verification.
 """
-import sqlite3, time, json, os, uuid, base64, logging, math
+import time, json, os, uuid, logging, math
 from typing import TypedDict, Dict, Any, List, Optional, Tuple
 import httpx
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt, Command
 from .db import DATA, ROOT, tx, init, setkv, audit, is_postgres, DATABASE_URL
 from .tracing import trace_langgraph_step, trace_ai_interaction
-from .hindsight import reflect_on_policy_approval, store_memory, CATEGORY_SEMANTIC
+from .hindsight import reflect_on_policy_approval, store_memory
 from .gemini_client import call_gemini
 
 logger = logging.getLogger("zupirus.research")

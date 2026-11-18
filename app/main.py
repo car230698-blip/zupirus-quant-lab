@@ -19,8 +19,8 @@ from pydantic import BaseModel, Field, ConfigDict
 from .db import tx, init, ROOT, audit, getkv, setkv, insert_timescale_quote, query_timescale_candles, DatabaseUnavailableError, check_db_health, check_timescale_metadata, is_postgres
 from .security import bootstrap, digest, token, password_hash, verify
 from .engine import news_blocked
-from .redis_client import cache_heartbeat, get_cached_heartbeat, acquire_dispatch_lock, release_dispatch_lock, get_redis_client
-from .tracing import get_trace_summary, trace_ai_interaction
+from .redis_client import cache_heartbeat, get_cached_heartbeat, acquire_dispatch_lock, get_redis_client
+from .tracing import get_trace_summary
 
 @asynccontextmanager
 async def lifespan(app):
@@ -63,8 +63,7 @@ async def perimeter(request: Request, call_next):
     response.headers['Cache-Control'] = 'no-store'
     return response
 
-def fail(code: int, message: str):
-    raise HTTPException(code, message)
+from app.routers.deps import fail
 
 def user(request: Request):
     from app.routers.deps import get_current_user
@@ -1885,16 +1884,6 @@ def create_real_account(p: RealAccountPayload, u=Depends(user)):
         "mode": "REAL",
         "message": "Đã tạo tài khoản MT5 Real thành công kèm chứng chỉ miễn trừ trách nhiệm pháp lý."
     }
-
-class MetaApiAccountPayload(BaseModel):
-    login: str = Field(min_length=3, max_length=32)
-    password: str = Field(min_length=4, max_length=128)
-    server: str = Field(min_length=3, max_length=64)
-    account_name: Optional[str] = Field(default="My Fund MT5", max_length=64)
-    platform: str = Field(default="mt5", max_length=10)
-    risk_percent: float = Field(default=1.0, ge=0.1, le=10.0)
-    max_lot: float = Field(default=1.0, ge=0.01, le=10.0)
-    multiplier: float = Field(default=1.0, ge=0.1, le=5.0)
 
 class DispatchSignalPayload(BaseModel):
     symbol: str = Field(default="XAUUSD", max_length=16)

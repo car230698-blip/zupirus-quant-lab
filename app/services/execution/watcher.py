@@ -6,11 +6,10 @@ Monitors all open positions across user MetaApi terminals (including accounts wi
    - Friday 21:00 UTC weekend holding closure (strictly avoids gap risk on prop accounts).
 """
 import asyncio
-import json
 import logging
 import datetime
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from app.db import tx, audit, setkv, getkv
 from app.metaapi import MetaApiClient
 

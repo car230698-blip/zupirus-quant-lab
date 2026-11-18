@@ -1,8 +1,6 @@
 """Market context capture and feature extraction for Tabula Rasa observational learning.
 Captures real-time market snapshots whenever an external signal is ingested.
 """
-import time
-import math
 import datetime
 from typing import Dict, Any, Optional, Tuple
 

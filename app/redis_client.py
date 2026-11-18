@@ -290,24 +290,6 @@ def get_cached_heartbeat(account_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_all_active_heartbeats() -> List[Dict[str, Any]]:
-    """List all accounts with active (unexpired) heartbeats."""
-    r = get_redis_client()
-    keys = r.keys(f"{KEY_HEARTBEAT_PREFIX}*")
-    result = []
-    for k in keys:
-        raw = r.get(k)
-        if raw:
-            try:
-                acc_id = k.split(":")[-1]
-                data = json.loads(raw)
-                data["account_id"] = acc_id
-                result.append(data)
-            except Exception:
-                pass
-    return result
-
-
 # ---------------------------------------------------------------------------
 # 3. Distributed Lock (signal_id + account_id)
 # ---------------------------------------------------------------------------

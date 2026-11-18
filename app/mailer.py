@@ -130,65 +130,6 @@ def send_otp_code(email: str, code: str, purpose: str = "Đăng Ký & Xác Thự
     """
     return send_resend_email(to=email, subject=subject, html=html)
 
-def send_sentinel_alert(
-    email: str,
-    event_title: str,
-    impact: str,
-    blackout_minutes: int = 15
-) -> Dict[str, Any]:
-    """Send an urgent Sentinel Agent Macro Blackout notification."""
-    subject = f"🚨 [SENTINEL BLACKOUT] Kích hoạt khóa vị thế vĩ mô: {event_title}"
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="utf-8"></head>
-    <body style="margin:0;padding:0;background-color:#050811;font-family:-apple-system,BlinkMacSystemFont,sans-serif;">
-      <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
-        <tr>
-          <td align="center">
-            <table width="100%" style="max-width:540px;background:#110f17;border:1px solid #ef4444;border-radius:16px;overflow:hidden;box-shadow:0 0 30px rgba(239,68,68,0.2);">
-              <tr>
-                <td style="padding:24px 32px;background:rgba(239,68,68,0.1);border-bottom:1px solid rgba(239,68,68,0.3);">
-                  <div style="color:#ef4444;font-size:12px;font-weight:800;letter-spacing:2px;text-transform:uppercase;">
-                    🛡️ SENTINEL AGENT SURVEILLANCE
-                  </div>
-                  <h2 style="color:#f8fafc;font-size:20px;margin:8px 0 0;">CẢNH BÁO TIN ĐỎ VĨ MÔ</h2>
-                </td>
-              </tr>
-              <tr>
-                <td style="padding:28px 32px;">
-                  <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin:0 0 16px;">
-                    Sentinel Agent vừa phát hiện tin tức kinh tế quan trọng có thể gây giãn spread và trượt giá cực mạnh:
-                  </p>
-                  <table width="100%" style="background:#18181b;border-radius:8px;padding:16px;margin-bottom:20px;">
-                    <tr>
-                      <td style="color:#94a3b8;font-size:12px;padding:6px 0;">Sự kiện:</td>
-                      <td style="color:#f8fafc;font-weight:700;font-size:13px;padding:6px 0;">{html_mod.escape(str(event_title))}</td>
-                    </tr>
-                    <tr>
-                      <td style="color:#94a3b8;font-size:12px;padding:6px 0;">Tác động:</td>
-                      <td style="color:#ef4444;font-weight:800;font-size:13px;padding:6px 0;">{html_mod.escape(str(impact).upper())}</td>
-                    </tr>
-                    <tr>
-                      <td style="color:#94a3b8;font-size:12px;padding:6px 0;">Hành động:</td>
-                      <td style="color:#38bdf8;font-weight:600;font-size:13px;padding:6px 0;">Khóa mở lệnh {blackout_minutes} phút trước và sau tin</td>
-                    </tr>
-                  </table>
-                  <p style="color:#64748b;font-size:12px;margin:0;">
-                    Chế độ Fail-Closed đang hoạt động. Toàn bộ tài sản được bảo vệ an toàn.
-                  </p>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-      </table>
-    </body>
-    </html>
-    """
-    return send_resend_email(to=email, subject=subject, html=html)
-
-
 def send_payment_receipt_email(
     email: str,
     order_id: str,

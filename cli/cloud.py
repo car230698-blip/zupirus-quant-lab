@@ -8,7 +8,7 @@ import asyncio
 from typing import Optional, List, Dict, Any
 
 from app.db import tx, init
-from app.metaapi import MetaApiClient, calculate_lot_size, execute_fan_out_for_signal
+from app.metaapi import MetaApiClient, execute_fan_out_for_signal
 from cli.formatters import emit_json, emit_error, format_table
 
 

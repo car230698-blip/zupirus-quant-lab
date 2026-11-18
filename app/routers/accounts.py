@@ -3,15 +3,14 @@ import asyncio
 import time
 import secrets
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.db import tx, audit
-from app.routers.deps import get_current_user, get_current_admin, fail
+from app.routers.deps import get_current_user, fail
 from app.schemas.accounts import (
     TradingAccountCreate,
     TradingAccountUpdate,
-    TradingAccountResponse,
 )
 from app.metaapi import MetaApiClient
 from app.security import encrypt_secret

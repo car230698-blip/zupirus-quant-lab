@@ -8,10 +8,9 @@ import os
 import hmac
 import html as html_mod
 import json
-import base64
 import hashlib
 import logging
-from typing import Dict, Any, Optional
+from typing import Optional
 
 logger = logging.getLogger("zupirus.sepay")
 

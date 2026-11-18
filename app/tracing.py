@@ -3,8 +3,7 @@ import os
 import time
 import uuid
 import logging
-from typing import Any, Callable, Dict, List, Optional
-from functools import wraps
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("zupirus.tracing")
 
@@ -138,50 +137,6 @@ def record_trace(
             logger.debug(f"LangSmith sync failed gracefully: {e}")
 
     return run_id
-
-
-def trace_run(name: str, run_type: str = "chain", metadata: Optional[Dict[str, Any]] = None):
-    """Decorator to measure and trace function execution."""
-    def decorator(func: Callable):
-        @wraps(func)
-        def sync_wrapper(*args, **kwargs):
-            t0 = time.perf_counter()
-            inputs = {"args": [str(a)[:500] for a in args], "kwargs": {k: str(v)[:500] for k, v in kwargs.items()}}
-            error_str = None
-            result = None
-            try:
-                result = func(*args, **kwargs)
-                return result
-            except Exception as e:
-                error_str = str(e)
-                raise
-            finally:
-                latency_ms = (time.perf_counter() - t0) * 1000
-                out_dict = {"result": str(result)[:1000]} if result is not None else {}
-                record_trace(name, run_type, inputs, out_dict, error_str, latency_ms, metadata)
-
-        @wraps(func)
-        async def async_wrapper(*args, **kwargs):
-            t0 = time.perf_counter()
-            inputs = {"args": [str(a)[:500] for a in args], "kwargs": {k: str(v)[:500] for k, v in kwargs.items()}}
-            error_str = None
-            result = None
-            try:
-                result = await func(*args, **kwargs)
-                return result
-            except Exception as e:
-                error_str = str(e)
-                raise
-            finally:
-                latency_ms = (time.perf_counter() - t0) * 1000
-                out_dict = {"result": str(result)[:1000]} if result is not None else {}
-                record_trace(name, run_type, inputs, out_dict, error_str, latency_ms, metadata)
-
-        import asyncio
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        return sync_wrapper
-    return decorator
 
 
 def trace_ai_interaction(

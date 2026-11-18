@@ -191,7 +191,6 @@ def _poll_tradingview_public_scanner() -> int:
 
 def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float) -> None:
     """Route qualified M15+H1 consensus signals through 4-Layer Safety Shields to paid, active Cloud accounts."""
-    import asyncio
     try:
         with tx() as c:
             halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()

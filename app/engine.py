@@ -1,7 +1,7 @@
 """Deterministic execution. Integrated with Redis Streams, Pub/Sub, Distributed Locks,
 and Multi-Strategy Coordinator (Trend Following, Mean Reversion, Breakout)."""
 import os, time, hashlib, math, json, logging
-from typing import Dict, Any, Optional, Tuple, Literal, List
+from typing import Dict, Any, Optional
 from .db import tx, init, audit, setkv, ROOT
 from .redis_client import publish_signal_event, acquire_dispatch_lock, release_dispatch_lock
 
@@ -466,7 +466,6 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
 
     # Run 4-Layer Safety Sanitizer + Fan-Out Execution outside the short DB tx
     try:
-        import asyncio
         from app.schemas.signals import NormalizedSignalSchema
         from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
         from app.metaapi import MetaApiClient, execute_fan_out_for_signal

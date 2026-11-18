@@ -4,10 +4,10 @@ import json
 import time
 import secrets
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional
 from urllib.parse import quote
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.db import tx
 from app.routers.deps import get_current_admin, fail
@@ -15,8 +15,6 @@ from app.config import (
     SEPAY_BANK_NAME,
     SEPAY_ACCOUNT_NUMBER,
     SEPAY_ACCOUNT_HOLDER,
-    SEPAY_WEBHOOK_SECRET,
-    CLOUD_SLOT_MONTHLY_USD,
 )
 from app.services.fx_rate import get_usd_vnd_rate, REDIS_FX_KEY
 from app.redis_client import get_redis_client

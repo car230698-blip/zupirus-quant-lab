@@ -1,7 +1,7 @@
 """Signal Sources, Leaderboard, and Curator Administration Endpoints."""
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.db import tx
 from app.routers.deps import get_current_admin, fail

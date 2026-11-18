@@ -17,7 +17,6 @@ from app.config import (
     AUTO_ATTACH_ATR_SL,
     MAX_ENTRY_SLIPPAGE_PIPS,
     NEWS_SHIELD_MINUTES,
-    MAX_CONCURRENT_TRADES_PER_ACCOUNT,
 )
 from app.schemas.signals import NormalizedSignalSchema
 from app.redis_client import get_redis_client

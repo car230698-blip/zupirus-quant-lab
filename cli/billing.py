@@ -1,9 +1,8 @@
 """Billing, USD/VND exchange rate, and order inspection commands for zupirus-cli."""
 import time
-from typing import Optional
 from app.db import tx, init
 from app.services.fx_rate import get_usd_vnd_rate, convert_usd_to_vnd
-from cli.formatters import emit_json, emit_error, format_table
+from cli.formatters import emit_json, format_table
 
 
 def cmd_billing_fx(force: bool = False, as_json: bool = False):

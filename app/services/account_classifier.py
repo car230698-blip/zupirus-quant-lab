@@ -10,8 +10,6 @@ all execute exactly matching % risk allocations without rounding errors or margi
 """
 import math
 import logging
-from typing import Dict, Any, Optional
-from app.db import tx
 
 logger = logging.getLogger("zupirus.classifier")
 
@@ -109,31 +107,4 @@ def calculate_normalized_lot_size(
         return max_lot
 
     return round(step_lots, 2)
-
-
-def update_account_classification(account_id: str, metaapi_info: Dict[str, Any]):
-    """Update account_type, currency, contract_size, and latency in trading_accounts table."""
-    curr = metaapi_info.get("currency", "USD")
-    server = metaapi_info.get("server", "")
-    name = metaapi_info.get("name", "")
-    contract_size = float(metaapi_info.get("contractSize", 100.0))
-    tick_value = float(metaapi_info.get("tickValue", 1.0))
-    latency = int(metaapi_info.get("ping", 35))
-
-    acc_type = detect_account_type(curr, server, name, contract_size)
-
-    with tx() as c:
-        c.execute(
-            """
-            UPDATE trading_accounts SET
-                account_type = ?,
-                currency = ?,
-                contract_size = ?,
-                tick_value = ?,
-                latency_ms = ?
-            WHERE id = ?
-            """,
-            (acc_type, curr.upper(), contract_size, tick_value, latency, account_id)
-        )
-    logger.info(f"Account {account_id} classified as {acc_type} (Currency={curr}, Contract={contract_size})")
 

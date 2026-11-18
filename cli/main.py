@@ -1,6 +1,5 @@
 """Main CLI dispatcher for zupirus-cli following CLI-Anything architecture.
 Making ZUPIRUS Quant Lab agent-native for 100% terminal-driven autonomous operation."""
-import os
 import sys
 import logging
 import argparse

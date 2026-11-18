@@ -166,32 +166,6 @@ def recall_memories(
         return []
 
 
-def reflect_on_execution(c, account_id: str, order_info: Dict[str, Any]) -> str:
-    """Forms a reflective memory following an order fill or broker reconciliation."""
-    side = order_info.get("side", "UNKNOWN")
-    ticket = order_info.get("ticket", "N/A")
-    deal = order_info.get("deal", "N/A")
-    price = float(order_info.get("fill_price") or order_info.get("price") or 0.0)
-    sl = float(order_info.get("sl") or 0.0)
-    tp = float(order_info.get("tp") or 0.0)
-
-    title = f"Reflective Trade Insight: {side} XAUUSD #{ticket}"
-    content = (
-        f"Lệnh {side} tài khoản {account_id[:8]} đã khớp tại mức giá ${price:.2f} "
-        f"(SL: ${sl:.2f}, TP: ${tp:.2f}, Deal: {deal}). Hệ thống đã chiếm Distributed Lock "
-        f"thành công và đối soát vé với MetaTrader 5 Terminal."
-    )
-    return store_memory(
-        c,
-        category=CATEGORY_EPISODIC,
-        title=title,
-        content=content,
-        entity_id=account_id,
-        tags=["trade_execution", "mt5_fill", side.lower()],
-        metadata=order_info,
-    )
-
-
 def reflect_on_policy_approval(c, job_id: str, approved: bool, report: Dict[str, Any]) -> str:
     """Forms a reflective memory following Admin's Walk-Forward candidate decision."""
     disposition = "approved_for_demo_review" if approved else "rejected"

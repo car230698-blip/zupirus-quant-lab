@@ -5,7 +5,7 @@ Purely analytical — does not open or modify trade orders.
 import time
 import json
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from app.db import tx
 from app.hindsight import recall_memories, CATEGORY_SEMANTIC
 

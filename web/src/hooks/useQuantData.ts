@@ -1,15 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 
-export interface ExchangeRateData {
-  base: string;
-  target: string;
-  rate: number;
-  usd_vnd_rate?: number;
-  source: string;
-  is_cached?: boolean;
-  updated_at?: number;
-}
-
 export interface CloudAccountItem {
   id: string;
   account_id?: string;
@@ -72,18 +62,6 @@ export function useEquityHistory(days: number = 30, userKey?: string | null) {
   });
 }
 
-export function useExchangeRate() {
-  return useQuery<ExchangeRateData>({
-    queryKey: ['exchange-rate'],
-    queryFn: async () => {
-      const res = await fetch('/api/v1/billing/exchange-rate');
-      if (!res.ok) throw new Error('Không thể tải tỷ giá USD/VND');
-      return res.json();
-    },
-    staleTime: 60_000,
-  });
-}
-
 export function useCloudAccounts(userKey?: string | null) {
   const uKey = getActiveUserKey(userKey);
   return useQuery<{ accounts: CloudAccountItem[]; total: number }>({
@@ -93,64 +71,6 @@ export function useCloudAccounts(userKey?: string | null) {
         headers: { 'X-Zupirus': '1' },
       });
       if (!res.ok) throw new Error('Không thể tải danh sách tài khoản MT5');
-      return res.json();
-    },
-    staleTime: 15_000,
-  });
-}
-
-export function useUserSubscription(userKey?: string | null) {
-  const uKey = getActiveUserKey(userKey);
-  return useQuery({
-    queryKey: ['subscription', uKey],
-    queryFn: async () => {
-      const res = await fetch('/api/v1/billing/subscription', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (!res.ok) throw new Error('Không thể tải thông tin gói cước');
-      return res.json();
-    },
-    staleTime: 30_000,
-  });
-}
-
-export function useSignalAuditLogs(limit: number = 20) {
-  return useQuery({
-    queryKey: ['signals', 'audit-logs', limit],
-    queryFn: async () => {
-      const res = await fetch(`/api/v1/signals/audit-logs?limit=${limit}`, {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (!res.ok) throw new Error('Không thể tải nhật ký tín hiệu');
-      return res.json();
-    },
-    staleTime: 10_000,
-    refetchInterval: 15_000,
-  });
-}
-
-export function useSignalStats() {
-  return useQuery({
-    queryKey: ['signals', 'stats'],
-    queryFn: async () => {
-      const res = await fetch('/api/v1/signals/stats', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (!res.ok) throw new Error('Không thể tải thống kê tín hiệu');
-      return res.json();
-    },
-    staleTime: 15_000,
-  });
-}
-
-export function useMetaApiTelemetry() {
-  return useQuery({
-    queryKey: ['metaapi', 'telemetry'],
-    queryFn: async () => {
-      const res = await fetch('/api/metaapi/telemetry', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (!res.ok) throw new Error('Không thể tải telemetry MetaApi');
       return res.json();
     },
     staleTime: 15_000,

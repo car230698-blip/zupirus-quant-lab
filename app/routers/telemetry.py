@@ -1,7 +1,7 @@
 """Global Top Telemetry Bar API Endpoint for app.zupirus.com and adm.zupirus.com."""
 import time
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 import os
 import json
 from fastapi import APIRouter, Depends

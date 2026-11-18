@@ -3,12 +3,11 @@ import os
 import sys
 import time
 import json
-from pathlib import Path
 from typing import Any, Dict
 
-from app.db import tx, init, setkv, getkv, is_postgres, check_db_health, ROOT
+from app.db import tx, init, setkv, getkv, is_postgres, check_db_health
 from app.redis_client import get_redis_client, InMemoryRedisMock
-from cli.formatters import emit_json, emit_error, format_table
+from cli.formatters import emit_json, emit_error
 
 
 def get_system_status() -> Dict[str, Any]:

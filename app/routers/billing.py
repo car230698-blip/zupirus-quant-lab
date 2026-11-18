@@ -2,7 +2,7 @@
 import time
 from typing import Optional
 from urllib.parse import quote
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from app.db import tx
 from app.routers.deps import get_current_user, get_current_admin, fail
 from app.schemas.billing import (
@@ -17,13 +17,6 @@ from app.services.billing_service import (
     get_user_subscription,
     process_successful_payment,
     get_effective_sepay_config,
-    TIER_PRICES,
-)
-from app.config import (
-    CLOUD_SLOT_MONTHLY_USD,
-    SEPAY_BANK_NAME,
-    SEPAY_ACCOUNT_NUMBER,
-    SEPAY_ACCOUNT_HOLDER,
 )
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])

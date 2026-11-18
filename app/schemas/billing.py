@@ -1,5 +1,5 @@
 """Billing, FX rate, and subscription data schemas."""
-from typing import Literal, Optional, List, Dict, Any
+from typing import Literal, Optional, Any
 from pydantic import BaseModel, Field, model_validator
 
 PlanTier = Literal['starter', 'growth', 'alpha']

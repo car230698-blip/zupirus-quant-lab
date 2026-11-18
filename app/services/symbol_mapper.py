@@ -155,13 +155,3 @@ def resolve_broker_symbol(account_id: str, standard_symbol: str) -> Optional[str
 
     # Fallback to standard symbol if mapping not yet scanned
     return standard_symbol
-
-
-def get_account_symbol_mappings(account_id: str) -> List[Dict[str, Any]]:
-    """Return all symbol mappings for an account."""
-    with tx() as c:
-        rows = c.execute(
-            "SELECT standard_symbol, broker_symbol, contract_size, tick_value, is_supported, updated_at FROM account_symbol_map WHERE account_id = ?",
-            (account_id,)
-        ).fetchall()
-        return [dict(r) for r in rows]

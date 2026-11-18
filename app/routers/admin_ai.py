@@ -4,12 +4,12 @@ import json
 import time
 import httpx
 import logging
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from app.db import tx
-from app.routers.deps import get_current_admin, fail
+from app.routers.deps import get_current_admin
 from app.gemini_client import call_gemini, seed_default_keys, hash_key, mask_key
 from app.security import encrypt_secret, decrypt_secret
 
@@ -55,10 +55,6 @@ class TestAIRequest(BaseModel):
     model: Optional[str] = None
     gemini_model: Optional[str] = None
 
-
-
-class AddGeminiKeyReq(BaseModel):
-    key: str = Field(..., min_length=20, max_length=150)
 
 
 def _build_live_market_system_instruction() -> Tuple[str, Dict[str, Any]]:

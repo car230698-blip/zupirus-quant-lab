@@ -1,14 +1,12 @@
 """Agent Skill Registry, Self-Evolving Skills Approval Queue, and MCP Bridge API Endpoints."""
-import json
 import time
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends
 
 from app.db import tx
-from app.routers.deps import get_current_admin, get_current_user, fail
+from app.routers.deps import get_current_admin, fail
 from app.skills.registry import (
-    get_skill_index,
     load_skill_spec,
     execute_skill,
     list_skills,
