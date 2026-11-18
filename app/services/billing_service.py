@@ -195,13 +195,15 @@ async def process_successful_payment(
     order = None
     accounts_to_deploy = []
 
+    from app.db import is_postgres
+    for_update = " FOR UPDATE" if is_postgres() else ""
     with tx() as c:
-        # 1. Exact match first
-        row = c.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        # 1. Exact match first (row-locked on PostgreSQL to prevent concurrent UNDERPAID race)
+        row = c.execute(f"SELECT * FROM orders WHERE id = ?{for_update}", (order_id,)).fetchone()
         if not row and len(order_id) >= 6:
             # Prefer active PENDING/UNDERPAID orders when matching by 6-char suffix
             row = c.execute(
-                "SELECT * FROM orders WHERE id LIKE ? ORDER BY CASE WHEN status IN ('PENDING', 'UNDERPAID') THEN 0 ELSE 1 END, created_at DESC LIMIT 1",
+                f"SELECT * FROM orders WHERE id LIKE ? ORDER BY CASE WHEN status IN ('PENDING', 'UNDERPAID') THEN 0 ELSE 1 END, created_at DESC LIMIT 1{for_update}",
                 (f"%{order_id}",)
             ).fetchone()
 

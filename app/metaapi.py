@@ -494,7 +494,21 @@ async def execute_fan_out_for_signal(
             "executions": [],
             "error": "KILL_SWITCH_ACTIVE"
         }
-    entry_price = float(signal.get("entry_price") or signal.get("price") or 2650.0)
+    try:
+        entry_price = float(signal.get("entry_price") or signal.get("price") or 0.0)
+    except (ValueError, TypeError):
+        entry_price = 0.0
+    if entry_price <= 0:
+        logger.warning(f"execute_fan_out_for_signal aborted: invalid/missing entry_price for {symbol} ({signal_id})")
+        return {
+            "signal_id": signal_id,
+            "total_accounts": len(accounts),
+            "executed": 0,
+            "failed": len(accounts),
+            "skipped": len(accounts),
+            "executions": [],
+            "error": "INVALID_ENTRY_PRICE",
+        }
     sl = float(signal["sl"]) if signal.get("sl") else None
     tp = float(signal["tp"]) if signal.get("tp") else None
 
@@ -826,11 +840,12 @@ async def execute_fan_out_for_signal(
                 failed_count += 1
                 status = "REJECTED"
 
+            filled_vol = float(res.get("volume") or res.get("closedVolume") or meta["volume"])
             executions.append({
                 "account_id": meta["account_id"],
                 "metaapi_account_id": meta["metaapi_account_id"],
                 "status": status,
-                "volume": meta["volume"],
+                "volume": filled_vol,
                 "order_id": res.get("orderId"),
                 "position_id": res.get("positionId"),
                 "latency_ms": lat,
@@ -845,6 +860,9 @@ async def execute_fan_out_for_signal(
                 exec_id = f"exec_{uuid.uuid4().hex[:16]}"
                 acc_id_val = ex["account_id"]
                 # Ensure metaapi_cloud_accounts has a row for acc_id_val so SQLite FK constraint on metaapi_trade_executions is satisfied
+                is_pg_conn = bool(getattr(c, "_is_pg", False))
+                if is_pg_conn:
+                    c.execute("SAVEPOINT sp_metaapi_fk")
                 try:
                     has_cloud = c.execute("SELECT 1 FROM metaapi_cloud_accounts WHERE id = ?", (acc_id_val,)).fetchone()
                     if not has_cloud:
@@ -852,15 +870,19 @@ async def execute_fan_out_for_signal(
                         fallback_uid = u_row[0] if u_row else "system"
                         c.execute(
                             """
-                            INSERT OR IGNORE INTO metaapi_cloud_accounts(
+                            INSERT INTO metaapi_cloud_accounts(
                                 id, user_id, login, server, platform, account_name,
                                 metaapi_account_id, metaapi_state, auto_trade, created_at
                             ) VALUES(?, ?, ?, 'MT5-Cloud', 'mt5', ?, ?, 'DEPLOYED', 1, ?)
+                            ON CONFLICT (id) DO NOTHING
                             """,
                             (acc_id_val, fallback_uid, acc_id_val, acc_id_val, ex.get("metaapi_account_id") or acc_id_val, now_ts)
                         )
+                    if is_pg_conn:
+                        c.execute("RELEASE SAVEPOINT sp_metaapi_fk")
                 except Exception:
-                    pass
+                    if is_pg_conn:
+                        c.execute("ROLLBACK TO SAVEPOINT sp_metaapi_fk")
                 c.execute("""
                     INSERT INTO metaapi_trade_executions(
                         id, signal_id, account_id, metaapi_account_id, symbol,

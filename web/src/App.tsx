@@ -171,7 +171,7 @@ const AppContent: React.FC = () => {
       }, 5000);
       return () => clearInterval(timer);
     }
-  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe, chartMode, portal, userTab]);
+  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe, portal, userTab]);
 
   const showNotice = (msg: string, type: ToastType = 'info') => {
     setNotice(msg);

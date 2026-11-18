@@ -322,6 +322,11 @@ async def create_account(
                 enc_pwd, now_ts, now_ts
             ))
         except HTTPException:
+            if not existing_same_acc and meta_id:
+                try:
+                    await client.delete_account(meta_id)
+                except Exception:
+                    pass
             raise
         except Exception as e:
             logger.error(f"Failed to save account {p.login} to database: {e}")

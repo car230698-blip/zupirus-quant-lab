@@ -101,11 +101,11 @@ def send_otp_code(email: str, code: str, purpose: str = "Đăng Ký & Xác Thự
                 <td style="padding:32px;">
                   <p style="color:#cbd5e1;font-size:14px;margin:0 0 16px;">Xin chào nhà giao dịch,</p>
                   <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0 0 24px;">
-                    Bạn đang thực hiện thao tác <strong style="color:#38bdf8;">{purpose}</strong> trên hệ thống ZUPIRUS Quant Lab. Vui lòng nhập mã OTP bên dưới để hoàn tất:
+                    Bạn đang thực hiện thao tác <strong style="color:#38bdf8;">{__import__('html').escape(str(purpose))}</strong> trên hệ thống ZUPIRUS Quant Lab. Vui lòng nhập mã OTP bên dưới để hoàn tất:
                   </p>
                   <div style="background:#090d1a;border:1px solid #334155;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
                     <div style="font-size:38px;font-weight:900;letter-spacing:10px;color:#10b981;font-family:monospace;text-shadow:0 0 20px rgba(16,185,129,0.4);">
-                      {code}
+                      {__import__('html').escape(str(code))}
                     </div>
                     <p style="color:#64748b;font-size:11px;margin:12px 0 0;text-transform:uppercase;letter-spacing:1px;">Hiệu lực trong vòng 10 phút</p>
                   </div>

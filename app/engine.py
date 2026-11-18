@@ -95,7 +95,9 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
         if len(prices) >= 15:
             recent_slope = (prices[-1] - prices[-10]) / 10.0
             target_action = rules.get("action", "BUY")
-            slope_threshold = float(rules.get("min_slope", 0.20))
+            raw_thresh = float(rules.get("min_slope", 0.20))
+            price_scale = 0.001 if prices[-1] < 10.0 else (0.1 if prices[-1] < 300.0 else 1.0)
+            slope_threshold = raw_thresh * price_scale
 
             if target_action in ("BUY", "BOTH") and recent_slope >= slope_threshold:
                 return {

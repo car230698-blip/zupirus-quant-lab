@@ -51,6 +51,20 @@ def check_redis_deduplication(signal: NormalizedSignalSchema) -> Tuple[bool, Opt
         tol = 5.0 * pip_size_for_symbol(signal.symbol)
         with tx() as c:
             now_sec = time.time()
+            # Atomic lock row per 60s time bucket to prevent TOCTOU race when Redis is down
+            bucket = int(now_sec // 60)
+            fp_key = f"san:{sig_hash}:{bucket}"
+            try:
+                lck_cur = c.execute(
+                    "INSERT INTO signal_dispatch_locks (id, signal_fingerprint, account_id, worker_id, created_at) VALUES (?, ?, '__SANITIZER__', 'sanitizer', ?) ON CONFLICT (signal_fingerprint, account_id) DO NOTHING",
+                    (f"lck_{secrets.token_hex(6)}", fp_key, now_sec),
+                )
+                if getattr(lck_cur, "rowcount", 1) == 0:
+                    reason = f"REJECTED_DUPLICATE_SIGNAL: Identical signal locked in DB within 60s window (hash={sig_hash})"
+                    logger.warning(reason)
+                    return False, reason
+            except Exception:
+                pass
             recent_dup = c.execute(
                 """
                 SELECT id FROM signal_audit_logs

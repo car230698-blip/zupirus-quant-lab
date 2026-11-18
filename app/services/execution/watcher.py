@@ -140,16 +140,22 @@ class PositionWatcher:
                 prop_dd_limit = _safe_float(acc.get("prop_daily_dd_limit_pct"), MAX_PROP_DAILY_DRAWDOWN_PCT) or MAX_PROP_DAILY_DRAWDOWN_PCT
                 # 1. Fetch live account info
                 acc_info = await self.client.get_account_information(meta_id)
-                if isinstance(acc_info, dict) and acc_info.get("connected") is False:
-                    logger.debug(f"PositionWatcher skipping {acc_id}: MetaApi terminal disconnected.")
+                if not isinstance(acc_info, dict) or acc_info.get("connected") is False or acc_info.get("equity") is None:
+                    logger.debug(f"PositionWatcher skipping {acc_id}: MetaApi terminal disconnected or missing live equity.")
                     continue
-                raw_eq = acc_info.get("equity") if isinstance(acc_info, dict) else None
-                raw_bal = acc_info.get("balance") if isinstance(acc_info, dict) else None
+                raw_eq = acc_info.get("equity")
+                raw_bal = acc_info.get("balance")
                 current_equity = _safe_float(raw_eq, _safe_float(acc.get("equity"), 0.0))
                 current_balance = _safe_float(raw_bal, _safe_float(acc.get("balance"), 0.0))
                 if current_balance <= 0 or (current_equity <= 0 and not is_prop):
                     logger.debug(f"PositionWatcher skipping {acc_id}: invalid/unavailable equity={current_equity}, balance={current_balance}")
                     continue
+
+                with tx() as c:
+                    already_locked = bool(getkv(c, f"drawdown_locked:{acc_id}") or getkv(c, get_drawdown_halt_key(acc_id, date_str)))
+                if already_locked:
+                    if not int(acc.get("auto_trade") or 0):
+                        continue
 
                 # Track start-of-day balance
                 day_start_balance = current_balance

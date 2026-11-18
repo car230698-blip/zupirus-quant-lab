@@ -258,8 +258,7 @@ def reset_password(p: ResetPasswordPayload):
             c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (int(row['attempts']) + 1, email_clean))
             err_code, err_msg = 400, "Mã OTP không chính xác."
         else:
-            # Keep OTP row briefly (5m) so the subsequent /api/register step can validate and consume it
-            c.execute("UPDATE otp_codes SET expires_at = ? WHERE email = ?", (now + 300.0, email_clean))
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
             usr = c.execute("SELECT id FROM users WHERE email=?", (email_clean,)).fetchone()
             if not usr:
                 err_code, err_msg = 404, "Tài khoản không tồn tại."
@@ -278,6 +277,7 @@ def change_password(p: ChangePasswordPayload, u=Depends(user)):
         if not row or not verify(p.current_password, row['password']):
             fail(400, "Mật khẩu hiện tại không chính xác.")
         c.execute("UPDATE users SET password=? WHERE id=?", (password_hash(p.new_password), u['id']))
+        c.execute("DELETE FROM sessions WHERE user_id=?", (u['id'],))
     return {'ok': True, 'message': 'Đã đổi mật khẩu thành công.'}
 
 class AccountCreate(Model):
@@ -780,6 +780,8 @@ def monitor(u=Depends(admin)):
         try:
             cloud_accs = [dict(r) for r in c.execute('SELECT t.*, u.email FROM trading_accounts t JOIN users u ON u.id=t.user_id')]
             for ca in cloud_accs:
+                ca.pop('encrypted_master_password', None)
+                ca.pop('password', None)
                 ca['login'] = ca.get('mt5_login', ca.get('login'))
                 ca['server'] = ca.get('broker_server', ca.get('server'))
                 ca['mode'] = 'REAL'
@@ -2060,6 +2062,7 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
 @app.get('/api/metaapi/executions')
 def list_metaapi_executions(limit: int = 50, u=Depends(user)):
     """List recent direct cloud executions."""
+    limit = max(1, min(int(limit or 50), 200))
     with tx() as c:
         if u['role'] == 'admin':
             rows = c.execute("""

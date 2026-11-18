@@ -16,8 +16,9 @@ _EPHEMERAL_DEV_KEY = secrets.token_hex(32)
 def _get_encryption_key() -> bytes:
     raw = os.getenv('ENCRYPTION_KEY') or os.getenv('SECRET_KEY')
     if not raw:
-        if os.getenv('APP_ENV', '').lower() == 'production' and not os.getenv('PYTEST_CURRENT_TEST'):
-            raise RuntimeError('ENCRYPTION_KEY must be configured in production environment')
+        env_name = os.getenv('APP_ENV', '').lower()
+        if env_name in ('production', 'staging') and not os.getenv('PYTEST_CURRENT_TEST'):
+            raise RuntimeError(f'ENCRYPTION_KEY must be configured in {env_name} environment')
         raw = _EPHEMERAL_DEV_KEY
     return hashlib.sha256(raw.encode()).digest()
 
