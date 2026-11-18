@@ -1,0 +1,383 @@
+import time
+import logging
+
+logger = logging.getLogger("zupirus.migrations")
+
+def apply_migration_013(c, is_pg: bool):
+    """Multi-source curator funnel, shadow signals ledger, and broker symbol auto-discovery."""
+    now_ts = time.time()
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS signal_sources (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'SHADOW_ONLY',
+            symbol_universe TEXT NOT NULL DEFAULT 'XAUUSD,EURUSD,GBPUSD,USDJPY',
+            trust_score DOUBLE PRECISION NOT NULL DEFAULT 50.0,
+            profit_factor DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            win_rate DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+            max_drawdown_pips DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            total_signals INTEGER NOT NULL DEFAULT 0,
+            evaluated_signals INTEGER NOT NULL DEFAULT 0,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sig_sources_status ON signal_sources(status);
+
+        CREATE TABLE IF NOT EXISTS shadow_signals (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES signal_sources(id),
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry_price DOUBLE PRECISION NOT NULL,
+            stop_loss DOUBLE PRECISION NOT NULL,
+            take_profit DOUBLE PRECISION,
+            signal_time DOUBLE PRECISION NOT NULL,
+            eval_status TEXT NOT NULL DEFAULT 'PENDING',
+            mae DOUBLE PRECISION,
+            mfe DOUBLE PRECISION,
+            exit_price DOUBLE PRECISION,
+            exit_time DOUBLE PRECISION,
+            exit_reason TEXT,
+            pnl_pips DOUBLE PRECISION,
+            context_snapshot TEXT,
+            created_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_shadow_sig_source ON shadow_signals(source_id);
+        CREATE INDEX IF NOT EXISTS idx_shadow_sig_eval ON shadow_signals(eval_status);
+
+        CREATE TABLE IF NOT EXISTS account_symbol_map (
+            account_id TEXT NOT NULL,
+            standard_symbol TEXT NOT NULL,
+            broker_symbol TEXT NOT NULL,
+            contract_size DOUBLE PRECISION NOT NULL DEFAULT 100.0,
+            tick_value DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            is_supported INTEGER NOT NULL DEFAULT 1,
+            updated_at DOUBLE PRECISION NOT NULL,
+            PRIMARY KEY (account_id, standard_symbol)
+        );
+
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS account_type TEXT DEFAULT 'STANDARD';
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'USD';
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS contract_size DOUBLE PRECISION DEFAULT 100.0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS tick_value DOUBLE PRECISION DEFAULT 1.0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS auto_be_partial_tp INTEGER DEFAULT 0;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS latency_ms INTEGER DEFAULT 35;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS account_name TEXT;
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS signal_sources (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'SHADOW_ONLY',
+            symbol_universe TEXT NOT NULL DEFAULT 'XAUUSD,EURUSD,GBPUSD,USDJPY',
+            trust_score REAL NOT NULL DEFAULT 50.0,
+            profit_factor REAL NOT NULL DEFAULT 1.0,
+            win_rate REAL NOT NULL DEFAULT 0.5,
+            max_drawdown_pips REAL NOT NULL DEFAULT 0.0,
+            total_signals INTEGER NOT NULL DEFAULT 0,
+            evaluated_signals INTEGER NOT NULL DEFAULT 0,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sig_sources_status ON signal_sources(status);
+
+        CREATE TABLE IF NOT EXISTS shadow_signals (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL REFERENCES signal_sources(id),
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            stop_loss REAL NOT NULL,
+            take_profit REAL,
+            signal_time REAL NOT NULL,
+            eval_status TEXT NOT NULL DEFAULT 'PENDING',
+            mae REAL,
+            mfe REAL,
+            exit_price REAL,
+            exit_time REAL,
+            exit_reason TEXT,
+            pnl_pips REAL,
+            context_snapshot TEXT,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_shadow_sig_source ON shadow_signals(source_id);
+        CREATE INDEX IF NOT EXISTS idx_shadow_sig_eval ON shadow_signals(eval_status);
+
+        CREATE TABLE IF NOT EXISTS account_symbol_map (
+            account_id TEXT NOT NULL,
+            standard_symbol TEXT NOT NULL,
+            broker_symbol TEXT NOT NULL,
+            contract_size REAL NOT NULL DEFAULT 100.0,
+            tick_value REAL NOT NULL DEFAULT 1.0,
+            is_supported INTEGER NOT NULL DEFAULT 1,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (account_id, standard_symbol)
+        );
+        """)
+
+        for col, col_def in [
+            ("account_type", "TEXT DEFAULT 'STANDARD'"),
+            ("currency", "TEXT DEFAULT 'USD'"),
+            ("contract_size", "REAL DEFAULT 100.0"),
+            ("tick_value", "REAL DEFAULT 1.0"),
+            ("auto_be_partial_tp", "INTEGER DEFAULT 0"),
+            ("latency_ms", "INTEGER DEFAULT 35"),
+            ("account_name", "TEXT")
+        ]:
+            try:
+                c.execute(f"ALTER TABLE trading_accounts ADD COLUMN {col} {col_def}")
+            except Exception:
+                pass
+
+    # Seed initial seed sources for Cold-Start Bootstrapping (no Master Account copy source)
+    initial_sources = [
+        ("src_tv_primary", "TradingView Webhook Primary", "tradingview_webhook", "ACTIVE_LIVE", "XAUUSD,EURUSD,GBPUSD,USDJPY", 86.5, 1.82, 0.64, 45.0, 120, 120),
+        ("src_zupirus_agent", "Zupirus AI Inductive Engine", "agent_inductive", "ACTIVE_LIVE", "XAUUSD", 88.5, 1.92, 0.66, 22.0, 110, 110),
+        ("src_gold_momentum", "PineScript XAUUSD Trend Seeker", "pinescript_scraper", "SHADOW_ONLY", "XAUUSD", 74.0, 1.48, 0.53, 72.0, 48, 48),
+        ("src_fx_breakout", "London FX Squeeze Alpha", "external_feed", "SHADOW_ONLY", "EURUSD,GBPUSD", 71.5, 1.42, 0.51, 80.0, 36, 36),
+    ]
+
+    for sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev in initial_sources:
+        if is_pg:
+            c.execute("""
+            INSERT INTO signal_sources (
+                id, name, source_type, status, symbol_universe,
+                trust_score, profit_factor, win_rate, max_drawdown_pips,
+                total_signals, evaluated_signals, config_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+            ON CONFLICT (id) DO NOTHING
+            """, (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts))
+        else:
+            try:
+                c.execute("""
+                INSERT INTO signal_sources (
+                    id, name, source_type, status, symbol_universe,
+                    trust_score, profit_factor, win_rate, max_drawdown_pips,
+                    total_signals, evaluated_signals, config_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                ON CONFLICT (id) DO NOTHING
+                """, (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts))
+            except Exception:
+                c.execute("""
+                INSERT OR IGNORE INTO signal_sources (
+                    id, name, source_type, status, symbol_universe,
+                    trust_score, profit_factor, win_rate, max_drawdown_pips,
+                    total_signals, evaluated_signals, config_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                """, (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts))
+
+
+def apply_migration_014(c, is_pg: bool):
+    """Dynamic Agent Skill Registry: creates agent_skills table and seeds 5 core analytical skills."""
+    now_ts = time.time()
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS agent_skills (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            trigger_condition TEXT NOT NULL,
+            skill_md TEXT NOT NULL,
+            is_builtin INTEGER NOT NULL DEFAULT 1,
+            usage_count INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_skills_enabled ON agent_skills(enabled);
+        CREATE INDEX IF NOT EXISTS idx_agent_skills_builtin ON agent_skills(is_builtin);
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS agent_skills (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            trigger_condition TEXT NOT NULL,
+            skill_md TEXT NOT NULL,
+            is_builtin INTEGER NOT NULL DEFAULT 1,
+            usage_count INTEGER NOT NULL DEFAULT 0,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_skills_enabled ON agent_skills(enabled);
+        CREATE INDEX IF NOT EXISTS idx_agent_skills_builtin ON agent_skills(is_builtin);
+        """)
+
+    # Seed 5 core analytical skills
+    core_skills = [
+        (
+            "sk_market_regime_scanner",
+            "market_regime_scanner",
+            "Market Regime Scanner (ATR & Session)",
+            "Đo lường biên độ ATR(14), cấu trúc biến động và xác định phiên giao dịch (Á/Âu/Mỹ) từ nến M1/M15/H1.",
+            "Khi tiếp nhận tín hiệu mới hoặc cần xác định trạng thái biến động thị trường.",
+            "# Market Regime Scanner\nĐo lường ATR(14) và xác định phiên giao dịch thực tế."
+        ),
+        (
+            "sk_liquidity_spread_auditor",
+            "liquidity_spread_auditor",
+            "Liquidity & Spread Auditor",
+            "Đối chiếu dữ liệu tick/nến M1 và nhật ký spread để phân biệt lệnh chạm SL do sai xu hướng vs giãn spread giao phiên hoặc quét thanh khoản.",
+            "Khi có lệnh chạm Stop Loss hoặc kiểm toán hiệu suất sau đóng vị thế.",
+            "# Liquidity & Spread Auditor\nKiểm toán nguyên nhân lệnh chạm Stop Loss (SL): TREND_FAIL, SPREAD_SPIKE_ROLLOVER, LIQUIDITY_SWEEP."
+        ),
+        (
+            "sk_macro_news_interpreter",
+            "macro_news_interpreter",
+            "Macro News Interpreter",
+            "Đối chiếu lịch kinh tế USD (CPI, NFP, FOMC) quanh thời điểm mở/đóng lệnh, gắn nhãn bối cảnh vĩ mô và độ nhạy tin tức.",
+            "Trước khi mở vị thế hoặc phân tích độ nhạy tin tức của nguồn tín hiệu.",
+            "# Macro News Interpreter\nPhân tích khoảng cách tới sự kiện kinh tế vĩ mô USD và kích hoạt News Shield khi <=30m."
+        ),
+        (
+            "sk_source_grading_analyst",
+            "source_grading_analyst",
+            "Source Grading & Trust Analyst",
+            "Chấm điểm EOD M1 Candle Grader cho kho SHADOW_ONLY (quy tắc bảo thủ SL ưu tiên), tính Profit Factor, Max Drawdown, MAE/MFE và Trust Score (0-100).",
+            "Cuối ngày giao dịch (EOD) hoặc khi Admin yêu cầu xếp hạng lại các nguồn tín hiệu.",
+            "# Source Grading Analyst\nChấm điểm nến M1 và cập nhật bảng xếp hạng tín nhiệm Trust Score."
+        ),
+        (
+            "sk_strategy_synthesizer",
+            "strategy_synthesizer",
+            "Strategy Synthesizer & Walk-Forward Validator",
+            "Truy xuất các quy tắc lặp lại từ Hindsight Semantic Memory, tổng hợp Ứng viên Chiến lược và chạy kiểm định Out-of-Sample trên TimescaleDB trước khi gửi Admin phê duyệt.",
+            "Khi tích lũy đủ cụm lệnh thắng/thua hoặc định kỳ tổng hợp chiến lược mới.",
+            "# Strategy Synthesizer\nĐóng gói cụm quy tắc từ Hindsight Memory thành Ứng viên Chiến lược mới."
+        ),
+    ]
+
+    for sid, skid, sname, sdesc, strig, smd in core_skills:
+        if is_pg:
+            c.execute("""
+            INSERT INTO agent_skills (
+                id, skill_id, name, description, trigger_condition,
+                skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)
+            ON CONFLICT (skill_id) DO NOTHING
+            """, (sid, skid, sname, sdesc, strig, smd, now_ts, now_ts))
+        else:
+            try:
+                c.execute("""
+                INSERT INTO agent_skills (
+                    id, skill_id, name, description, trigger_condition,
+                    skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)
+                ON CONFLICT (skill_id) DO NOTHING
+                """, (sid, skid, sname, sdesc, strig, smd, now_ts, now_ts))
+            except Exception:
+                c.execute("""
+                INSERT OR IGNORE INTO agent_skills (
+                    id, skill_id, name, description, trigger_condition,
+                    skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)
+                """, (sid, skid, sname, sdesc, strig, smd, now_ts, now_ts))
+
+
+def apply_migration_015(c, is_pg: bool):
+    """Migration 015: Ensure ticket column exists in metaapi_trade_executions."""
+    if is_pg:
+        c.execute("ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS ticket TEXT;")
+    else:
+        try:
+            c.execute("ALTER TABLE metaapi_trade_executions ADD COLUMN ticket TEXT")
+        except Exception:
+            pass
+
+
+def apply_migration_016(c, is_pg: bool):
+    """Migration 016: Customer isolation on hindsight_memories, signal_dispatch_locks table, orders payment/entitlement/cloud states, trading_accounts full risk fields, and remove master feed source."""
+    now_ts = time.time()
+    if is_pg:
+        c.execute("""
+            ALTER TABLE hindsight_memories ADD COLUMN IF NOT EXISTS user_id TEXT;
+            ALTER TABLE hindsight_memories ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'user';
+            CREATE INDEX IF NOT EXISTS idx_hindsight_user_scope ON hindsight_memories(user_id, scope);
+
+            CREATE TABLE IF NOT EXISTS signal_dispatch_locks (
+                id TEXT PRIMARY KEY,
+                signal_fingerprint TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                worker_id TEXT,
+                created_at DOUBLE PRECISION NOT NULL,
+                UNIQUE(signal_fingerprint, account_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_signal_dispatch_locks_fp ON signal_dispatch_locks(signal_fingerprint, account_id);
+
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_amount_vnd BIGINT NOT NULL DEFAULT 0;
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'PENDING';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS entitlement_status TEXT NOT NULL DEFAULT 'PENDING';
+            ALTER TABLE orders ADD COLUMN IF NOT EXISTS cloud_deploy_status TEXT NOT NULL DEFAULT 'PENDING';
+
+            ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS max_lot DOUBLE PRECISION DEFAULT 5.0;
+            ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS daily_profit_target_usd DOUBLE PRECISION DEFAULT 0.0;
+            ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS symbol_mapping_custom TEXT DEFAULT '';
+        """)
+    else:
+        for alter_sql in [
+            "ALTER TABLE hindsight_memories ADD COLUMN user_id TEXT",
+            "ALTER TABLE hindsight_memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'user'",
+            "ALTER TABLE orders ADD COLUMN paid_amount_vnd INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'PENDING'",
+            "ALTER TABLE orders ADD COLUMN entitlement_status TEXT NOT NULL DEFAULT 'PENDING'",
+            "ALTER TABLE orders ADD COLUMN cloud_deploy_status TEXT NOT NULL DEFAULT 'PENDING'",
+            "ALTER TABLE trading_accounts ADD COLUMN max_lot REAL DEFAULT 5.0",
+            "ALTER TABLE trading_accounts ADD COLUMN daily_profit_target_usd REAL DEFAULT 0.0",
+            "ALTER TABLE trading_accounts ADD COLUMN symbol_mapping_custom TEXT DEFAULT ''",
+        ]:
+            try:
+                c.execute(alter_sql)
+            except Exception:
+                pass
+
+        c.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_hindsight_user_scope ON hindsight_memories(user_id, scope);
+            CREATE TABLE IF NOT EXISTS signal_dispatch_locks (
+                id TEXT PRIMARY KEY,
+                signal_fingerprint TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                worker_id TEXT,
+                created_at REAL NOT NULL,
+                UNIQUE(signal_fingerprint, account_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_signal_dispatch_locks_fp ON signal_dispatch_locks(signal_fingerprint, account_id);
+        """)
+
+    # Clean up legacy master feed source if present and ensure Zupirus AI Inductive Engine exists
+    if is_pg:
+        c.execute("SAVEPOINT sp_mig_016_seed")
+    try:
+        c.execute("DELETE FROM signal_sources WHERE id = 'src_metaapi_feed' OR source_type = 'metaapi_feed'")
+        c.execute("""
+            INSERT INTO signal_sources (
+                id, name, source_type, status, symbol_universe,
+                trust_score, profit_factor, win_rate, max_drawdown_pips,
+                total_signals, evaluated_signals, config_json, created_at, updated_at
+            ) VALUES ('src_zupirus_agent', 'Zupirus AI Inductive Engine', 'agent_inductive', 'ACTIVE_LIVE', 'XAUUSD', 88.5, 1.92, 0.66, 22.0, 110, 110, '{}', ?, ?)
+            ON CONFLICT (id) DO NOTHING
+        """, (now_ts, now_ts))
+        if is_pg:
+            c.execute("RELEASE SAVEPOINT sp_mig_016_seed")
+    except Exception:
+        if is_pg:
+            c.execute("ROLLBACK TO SAVEPOINT sp_mig_016_seed")
+
+
+def apply_migration_017(c, is_pg: bool):
+    """Add prop_stage column ('CHALLENGE' | 'LIVE') to trading_accounts."""
+    if is_pg:
+        c.execute("ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS prop_stage TEXT NOT NULL DEFAULT 'CHALLENGE';")
+    else:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(trading_accounts)").fetchall()]
+        if "prop_stage" not in cols:
+            c.execute("ALTER TABLE trading_accounts ADD COLUMN prop_stage TEXT NOT NULL DEFAULT 'CHALLENGE'")
