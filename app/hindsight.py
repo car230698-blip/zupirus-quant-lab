@@ -5,7 +5,7 @@ import time
 import json
 import secrets
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 logger = logging.getLogger("zupirus.hindsight")
 
