@@ -404,8 +404,8 @@ def calculate_lot_size(
     0.01 Lot on 100 points move = $1.00 risk.
     Lot = (Risk Amount / (SL_points * 0.01 * 100)) = Risk Amount / SL_points
     """
-    if equity <= 0:
-        return 0.01
+    if equity <= 0 or sl_points <= 0:
+        return 0.0
 
     risk_pct = max(0.1, min(risk_percent, 10.0))
     risk_dollars = equity * (risk_pct / 100.0)
@@ -671,13 +671,14 @@ async def execute_fan_out_for_signal(
                 )
                 if getattr(lock_cur, "rowcount", 1) == 0:
                     logger.warning(f"Idempotency: Signal {signal_id} already locked in DB for {acc_id}. Skipping.")
+                    if redis_client:
+                        try:
+                            redis_client.delete(f"zupirus:lock:signal:{signal_id}:{acc_id}")
+                        except Exception:
+                            pass
                     continue
         except Exception:
             pass
-
-        if volume <= 0:
-            logger.warning(f"Account {acc_id} skipped: calculated lot size is 0 (risk budget insufficient for min lot).")
-            continue
 
         account_metas.append({
             "account_id": acc_id,
@@ -746,7 +747,7 @@ async def execute_fan_out_for_signal(
         else:
             lat = res.get("latency_ms", 0)
             latencies.append(lat)
-            is_success = _is_metaapi_success(res) or bool(res.get("orderId"))
+            is_success = _is_metaapi_success(res)
             if is_success:
                 executed_count += 1
                 status = "FILLED"

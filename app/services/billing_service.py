@@ -53,6 +53,12 @@ BILLING_CYCLE_CONFIG = {
 }
 
 
+def clamp_cloud_slots(plan_tier: str, cloud_slots: int) -> int:
+    """Enforce tier-specific maximum MT5 cloud slots across pricing, checkout, and activation."""
+    max_tier_slots = TIER_MAX_ACCOUNTS.get(str(plan_tier or "starter").lower(), 5)
+    return max(1, min(int(cloud_slots or 1), max_tier_slots))
+
+
 def calculate_order_totals(
     plan_tier: str,
     cloud_slots: int = 1,
@@ -62,14 +68,14 @@ def calculate_order_totals(
     """Calculate total USD, converted VND, and locked exchange rate with billing cycle support."""
     if cloud_slots_count is not None:
         cloud_slots = cloud_slots_count
+    cloud_slots = clamp_cloud_slots(plan_tier, cloud_slots)
 
     cycle_u = str(billing_cycle or "MONTHLY").strip().upper()
     cycle_cfg = BILLING_CYCLE_CONFIG.get(cycle_u, BILLING_CYCLE_CONFIG["MONTHLY"])
 
     tier_key = plan_tier.lower()
     tier_price = TIER_PRICES.get(tier_key, TIER_STARTER_MONTHLY_USD)
-    max_tier_slots = TIER_MAX_ACCOUNTS.get(tier_key, 5)
-    capped_slots = max(1, min(int(cloud_slots), max_tier_slots))
+    capped_slots = clamp_cloud_slots(tier_key, cloud_slots)
     # First Cloud MT5 slot is included in the package price; additional slots are billed at cost ($10/slot)
     extra_slots = max(0, capped_slots - 1)
     cloud_price = extra_slots * CLOUD_SLOT_MONTHLY_USD
@@ -120,6 +126,7 @@ def create_checkout_order(
     """Create a new payment order with locked FX rate valid for ORDER_LOCK_MINUTES."""
     if cloud_slots_count is not None:
         cloud_slots = cloud_slots_count
+    cloud_slots = clamp_cloud_slots(plan_tier, cloud_slots)
 
     cycle_u = str(billing_cycle or "MONTHLY").strip().upper()
     if cycle_u not in BILLING_CYCLE_CONFIG:
@@ -296,7 +303,7 @@ async def process_successful_payment(
 
         is_growth = tier in ("growth", "alpha")
         is_alpha = tier == "alpha"
-        max_accounts = max(int(cloud_slots or 1), TIER_MAX_ACCOUNTS.get(tier, 1))
+        max_accounts = clamp_cloud_slots(tier, cloud_slots)
 
         sub_id = sub_d["id"] if sub_d else f"sub_{secrets.token_hex(6)}"
         if sub_d:

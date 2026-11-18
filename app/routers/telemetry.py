@@ -581,7 +581,7 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
                 "SELECT COUNT(*) FROM shadow_signals WHERE eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED')"
             ).fetchone()[0]
             shadow_wins = c.execute(
-                "SELECT COUNT(*) FROM shadow_signals WHERE eval_status = 'WIN_TP' OR pnl_pips > 0"
+                "SELECT COUNT(*) FROM shadow_signals WHERE eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED') AND (eval_status = 'WIN_TP' OR pnl_pips > 0)"
             ).fetchone()[0]
         except Exception:
             shadow_eval_cnt, shadow_wins = 0, 0

@@ -192,7 +192,12 @@ def cmd_healthcheck(as_json: bool = False):
             if is_healthy:
                 print("OK - System is healthy (Database: up, Redis: checked)")
             else:
-                print("ERROR - System unhealthy (Database is down)", file=sys.stderr)
+                reasons = []
+                if not db_ok:
+                    reasons.append("Database is down")
+                if not redis_ok and os.getenv("REDIS_URL"):
+                    reasons.append("Redis is disconnected")
+                print(f"ERROR - System unhealthy ({', '.join(reasons) or 'Unknown'})", file=sys.stderr)
                 sys.exit(1)
 
         if not is_healthy:

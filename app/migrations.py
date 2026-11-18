@@ -319,7 +319,7 @@ def apply_migration_002(c, is_pg: bool):
             IF NOT EXISTS (
                 SELECT 1 FROM pg_constraint WHERE conname = 'uq_quotes' AND conrelid = 'quotes'::regclass
             ) THEN
-                ALTER TABLE quotes ADD CONSTRAINT uq_quotes UNIQUE (time, source, ts);
+                ALTER TABLE quotes ADD CONSTRAINT uq_quotes UNIQUE (time, source, symbol, ts);
             END IF;
 
             -- Ensure candles constraint includes partitioning column 'time'
@@ -1343,6 +1343,8 @@ def apply_migration_016(c, is_pg: bool):
         """)
 
     # Clean up legacy master feed source if present and ensure Zupirus AI Inductive Engine exists
+    if is_pg:
+        c.execute("SAVEPOINT sp_mig_016_seed")
     try:
         c.execute("DELETE FROM signal_sources WHERE id = 'src_metaapi_feed' OR source_type = 'metaapi_feed'")
         c.execute("""
@@ -1353,8 +1355,11 @@ def apply_migration_016(c, is_pg: bool):
             ) VALUES ('src_zupirus_agent', 'Zupirus AI Inductive Engine', 'agent_inductive', 'ACTIVE_LIVE', 'XAUUSD', 88.5, 1.92, 0.66, 22.0, 110, 110, '{}', ?, ?)
             ON CONFLICT (id) DO NOTHING
         """, (now_ts, now_ts))
+        if is_pg:
+            c.execute("RELEASE SAVEPOINT sp_mig_016_seed")
     except Exception:
-        pass
+        if is_pg:
+            c.execute("ROLLBACK TO SAVEPOINT sp_mig_016_seed")
 
 
 def apply_migration_017(c, is_pg: bool):

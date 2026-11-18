@@ -51,10 +51,13 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
   const riskDollars = (safeEquity * safeRiskPct) / 100;
   const multiplier = acctKind === 'cent' ? 100 : 1;
   const step = acctKind === 'cent' ? 0.1 : 0.01;
+  const minLot = acctKind === 'cent' ? 0.1 : 0.01;
   const rawLot = (riskDollars / safeSlPoints) * multiplier;
-  const clampedLot = Math.min(Math.max(roundToStep(rawLot, step), 0.01), 100.0);
+  const clampedLot = Math.min(Math.max(roundToStep(rawLot, step), minLot), 100.0);
   const unitLabel = acctKind === 'cent' ? 'Cent Lots (USC)' : 'Standard Lots';
-  const ddCapPct = Number(input.dailyDrawdownLimitPct ?? (acctKind === 'prop' ? 4.5 : 10));
+  const rawDdInput = Number(input.dailyDrawdownLimitPct);
+  const validPropDd = Number.isFinite(rawDdInput) && rawDdInput > 0 ? rawDdInput : 4.5;
+  const ddCapPct = Number.isFinite(rawDdInput) && rawDdInput > 0 ? rawDdInput : (acctKind === 'prop' ? 4.5 : 10);
   const maxConsecutiveLossesBeforeDailyCap = Math.max(1, Math.floor(ddCapPct / safeRiskPct));
 
   return {
@@ -64,8 +67,8 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
     oneRProfitDollars: Number(riskDollars.toFixed(2)),
     twoRProfitDollars: Number((riskDollars * 2).toFixed(2)),
     threeRProfitDollars: Number((riskDollars * 3).toFixed(2)),
-    propDailyLimitDollars: Number((safeEquity * (Number(input.dailyDrawdownLimitPct ?? 4.5) / 100)).toFixed(2)),
-    propMaxDrawdownDollars: Number((safeEquity * (Number(input.dailyDrawdownLimitPct ?? 4.5) * 2 / 100)).toFixed(2)),
+    propDailyLimitDollars: Number((safeEquity * (validPropDd / 100)).toFixed(2)),
+    propMaxDrawdownDollars: Number((safeEquity * ((validPropDd * 2) / 100)).toFixed(2)),
     pointsPerDollar: Number((safeSlPoints / 100).toFixed(2)),
     displayLots: Number(clampedLot.toFixed(2)),
     unitLabel,

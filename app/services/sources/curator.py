@@ -318,12 +318,12 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
     with tx() as c:
         if source_id:
             pending = c.execute(
-                "SELECT * FROM shadow_signals WHERE source_id = ? AND eval_status = 'PENDING' ORDER BY signal_time ASC LIMIT 500",
+                "SELECT * FROM shadow_signals WHERE source_id = ? AND eval_status IN ('PENDING', 'OPEN') ORDER BY signal_time ASC LIMIT 500",
                 (source_id,)
             ).fetchall()
         else:
             pending = c.execute(
-                "SELECT * FROM shadow_signals WHERE eval_status = 'PENDING' ORDER BY signal_time ASC LIMIT 500"
+                "SELECT * FROM shadow_signals WHERE eval_status IN ('PENDING', 'OPEN') ORDER BY signal_time ASC LIMIT 500"
             ).fetchall()
         if not pending:
             return {"evaluated": 0, "status": "no_pending_signals"}

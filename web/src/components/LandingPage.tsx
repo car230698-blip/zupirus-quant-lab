@@ -60,14 +60,14 @@ const PRICING_TIERS = [
   },
   {
     id: 'PRO' as const,
-    code: 'GÓI 02 // TĂNG TRƯỞNG VỐN',
-    name: 'Tăng Trưởng & Lãi Kép',
+    code: 'GÓI 02 // TĂNG TRƯỞNG VỐN (GROWTH)',
+    name: 'Growth & Lãi Kép',
     baseUsd: 39,
     slots: 1,
     popular: true,
-    badge: 'Phổ Biến Nhất',
+    badge: 'Tối đa 3 TK Cloud',
     features: [
-      'Đã bao gồm sẵn 01 Tài khoản Cloud (thêm TK phụ chỉ +$10/TK)',
+      'Đã bao gồm sẵn 01 Tài khoản Cloud (mở rộng tối đa 3 TK, thêm chỉ +$10/TK)',
       'Tự động Dời Hòa Vốn (+1R) & Chốt lời 50% TP1 khóa lợi nhuận',
       'Tự động Lãi Kép (Auto-Compounding) tăng Lot theo tăng trưởng vốn',
       'Tín hiệu chọn lọc qua AI lọc nhiễu + Cắt lỗ ngày tự động 5.0%',
@@ -75,13 +75,13 @@ const PRICING_TIERS = [
   },
   {
     id: 'INSTITUTIONAL' as const,
-    code: 'GÓI 03 // CHUYÊN THI QUỸ PROP FIRM',
-    name: 'Thi Quỹ Prop Firm Alpha',
+    code: 'GÓI 03 // QUỸ PROP FIRM (ALPHA)',
+    name: 'Alpha Prop Firm',
     baseUsd: 59,
     slots: 1,
-    badge: 'Bảo Vệ Quỹ Tối Đa',
+    badge: 'Tối đa 5 TK Cloud',
     features: [
-      'Đã bao gồm sẵn 01 Tài khoản Cloud (thêm TK phụ chỉ +$10/TK)',
+      'Đã bao gồm sẵn 01 Tài khoản Cloud (mở rộng tối đa 5 TK, thêm chỉ +$10/TK)',
       'Ngắt mạch cứng Daily Drawdown 4.0% (an toàn dưới luật 5% FTMO/FundedNext)',
       'Tự động đóng toàn bộ lệnh trước cuối tuần (Thứ 6 lúc 21:00 UTC)',
       'Mở khóa AI Swarm tự chủ & Kiểm toán chuyên sâu MAE / MFE',
@@ -1197,7 +1197,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="flex items-center justify-between border-b border-white/10 pb-3 text-left">
               <div>
                 <span className="font-mono text-[10px] uppercase tracking-widest text-amber-300">
-                  SEPAY VIETQR INSTANT CHECKOUT
+                  BÁO GIÁ GÓI DỊCH VỤ ZUPIRUS
                 </span>
                 <h4 className="text-base font-bold text-white">Gói {qrPreviewTier.name}</h4>
               </div>

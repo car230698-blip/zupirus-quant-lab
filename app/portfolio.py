@@ -130,17 +130,28 @@ def calculate_position_size(
     """Calculates optimal lot size using ATR Volatility or Half-Kelly scaling
     with fail-closed safety clamps. Normalizes MT5 points vs price distance."""
     if equity <= 0:
-        return {"lot": 0.01, "error": "Invalid equity"}
+        return {"lot": 0.0, "error": "Invalid equity"}
 
-    spec = ASSET_UNIVERSE.get(symbol, ASSET_UNIVERSE["XAUUSD"])
-    point_size = float(spec.get("point_size") or 0.01)
+    if symbol in ASSET_UNIVERSE:
+        spec = ASSET_UNIVERSE[symbol]
+        point_size = float(spec.get("point_size") or 0.01)
+        contract_mult = float(spec.get("contract_multiplier") or 100.0)
+        typical_atr = float(spec.get("typical_atr_m15") or 3.5)
+        rec_sl_atr = float(spec.get("recommended_sl_atr") or 1.0)
+    else:
+        from app.services.symbol_precision import contract_size_for_symbol, pip_size_for_symbol, point_size_for_symbol
+        point_size = point_size_for_symbol(symbol)
+        contract_mult = contract_size_for_symbol(symbol)
+        typical_atr = 20.0 * pip_size_for_symbol(symbol)
+        rec_sl_atr = 1.0
+
     if custom_sl_points is not None and custom_sl_points > 0:
         if sl_unit == "points" or (sl_unit == "auto" and symbol != "BTCUSD" and custom_sl_points >= 20.0):
             sl_price_dist = float(custom_sl_points) * point_size
         else:
             sl_price_dist = float(custom_sl_points)
     else:
-        sl_price_dist = spec["typical_atr_m15"] * spec["recommended_sl_atr"]
+        sl_price_dist = typical_atr * rec_sl_atr
 
     # Monetary risk target
     risk_dollars = equity * (max(0.1, min(risk_percent, 3.0)) / 100.0)
@@ -149,7 +160,7 @@ def calculate_position_size(
     # Loss per 1.0 standard lot if SL is hit (converted to USD for non-USD quote pairs)
     from app.services.symbol_precision import _lookup_quote_mid, quote_to_usd_rate
     spot_price = float(entry_price) if (entry_price and entry_price > 0) else _lookup_quote_mid(symbol)
-    loss_per_lot = sl_price_dist * spec["contract_multiplier"] * quote_to_usd_rate(symbol, spot_price)
+    loss_per_lot = sl_price_dist * contract_mult * quote_to_usd_rate(symbol, spot_price)
     if loss_per_lot <= 0:
         loss_per_lot = 1.0
 

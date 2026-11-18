@@ -412,8 +412,8 @@ def insert_timescale_candle(
             )
         except Exception:
             c.execute(
-                "DELETE FROM candles WHERE symbol = ? AND timeframe = ? AND time = ?",
-                (symbol, timeframe, int(ts)),
+                "DELETE FROM candles WHERE source = ? AND symbol = ? AND timeframe = ? AND time = ?",
+                (source, symbol, timeframe, int(ts)),
             )
             c.execute(
                 "INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

@@ -348,10 +348,21 @@ async def handle_sepay_webhook(
         ref_code = str(payload.get("referenceCode") or "")
         gateway = str(payload.get("gateway") or "SEPAY")
         now_ts = time.time()
+        if trans_id:
+            dup_row = c.execute("SELECT id FROM payment_transactions WHERE sepay_id = ?", (trans_id,)).fetchone()
+            if dup_row:
+                return {
+                    "success": True,
+                    "transaction_id": dup_row[0],
+                    "amount": amount_in,
+                    "matched_user": matched_email or matched_user_id,
+                    "message": "Duplicate transaction already recorded (idempotent)"
+                }
         c.execute(
             """
             INSERT INTO payment_transactions(id, sepay_id, user_id, amount, currency, gateway, content, reference_code, status, created_at)
             VALUES(?, ?, ?, ?, 'VND', ?, ?, ?, 'completed', ?)
+            ON CONFLICT (id) DO NOTHING
             """,
             (tx_id, trans_id or None, matched_user_id, amount_in, gateway, content, ref_code, now_ts)
         )

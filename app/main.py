@@ -1952,9 +1952,9 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
                    a.tick_value, a.currency,
                    a.is_compounding, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct, a.risk_config
             FROM trading_accounts a
-            LEFT JOIN subscriptions s ON s.user_id = a.user_id
+            JOIN subscriptions s ON s.user_id = a.user_id
             WHERE a.auto_trade=1 AND a.deployment_state='DEPLOYED' AND a.metaapi_account_id IS NOT NULL
-              AND (s.id IS NULL OR s.service_expires_at > ?)
+              AND s.service_expires_at > ?
               AND (a.cloud_expires_at IS NULL OR a.cloud_expires_at > ?)
         """, (now_ts, now_ts)).fetchall()
         accounts = []

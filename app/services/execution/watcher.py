@@ -145,10 +145,10 @@ class PositionWatcher:
                             f"PROP FIRM BREACH: Account {acc_id} daily DD reached {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. "
                             f"Emergency closing all positions."
                         )
-                        close_res = await self.client.close_all_positions(meta_id)
+                        close_res = await self.client.close_all_positions(meta_id) or {}
                         close_ok = (
                             close_res.get("status") in ("ALL_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                            or (close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
+                            or (("closed_count" in close_res or "closed" in close_res) and close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
                         )
                         halt_key = get_drawdown_halt_key(acc_id, date_str)
                         with tx() as c:
@@ -166,13 +166,22 @@ class PositionWatcher:
                         if not close_ok:
                             logger.error(f"PROP FIRM BREACH close incomplete for {acc_id}: {close_res} — will retry next cycle.")
                         results["prop_breakers_triggered"] += 1
-                        results["details"].append({"account_id": acc_id, "action": "PROP_CIRCUIT_BREAKER_LOCKED"})
+                        results["details"].append({
+                            "account_id": acc_id,
+                            "action": "PROP_CIRCUIT_BREAKER_LOCKED" if close_ok else "PROP_CIRCUIT_BREAKER_CLOSE_INCOMPLETE",
+                        })
                         try:
                             from app.mailer import send_admin_alert_email
-                            send_admin_alert_email(
-                                f"Ngắt mạch Prop DD tài khoản {acc_id}",
-                                f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. Hệ thống đã tự động đóng toàn bộ vị thế và khóa giao dịch.",
-                            )
+                            if close_ok:
+                                send_admin_alert_email(
+                                    f"Ngắt mạch Prop DD tài khoản {acc_id}",
+                                    f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. Hệ thống đã tự động đóng toàn bộ vị thế và khóa giao dịch.",
+                                )
+                            else:
+                                send_admin_alert_email(
+                                    f"KHẨN: Ngắt mạch Prop DD {acc_id} chưa đóng hết lệnh",
+                                    f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}%. Đã tắt auto_trade và sẽ thử đóng lại ở chu kỳ sau. Chi tiết: {close_res}",
+                                )
                         except Exception:
                             pass
                         continue
@@ -217,10 +226,10 @@ class PositionWatcher:
                             logger.warning(
                                 f"PROP HWM BREACH: Account {acc_id} trailing DD {trailing_dd_pct:.2f}% >= 8.0% (HWM={hwm_equity:.2f}). Closing all."
                             )
-                            close_res = await self.client.close_all_positions(meta_id)
+                            close_res = await self.client.close_all_positions(meta_id) or {}
                             close_ok = (
                                 close_res.get("status") in ("ALL_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                                or (close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
+                                or (("closed_count" in close_res or "closed" in close_res) and close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
                             )
                             with tx() as c:
                                 c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
@@ -236,13 +245,22 @@ class PositionWatcher:
                             if not close_ok:
                                 logger.error(f"PROP HWM BREACH close incomplete for {acc_id}: {close_res} — will retry next cycle.")
                             results["prop_breakers_triggered"] += 1
-                            results["details"].append({"account_id": acc_id, "action": "PROP_HWM_TRAILING_LOCKED"})
+                            results["details"].append({
+                                "account_id": acc_id,
+                                "action": "PROP_HWM_TRAILING_LOCKED" if close_ok else "PROP_HWM_CLOSE_INCOMPLETE",
+                            })
                             try:
                                 from app.mailer import send_admin_alert_email
-                                send_admin_alert_email(
-                                    f"Ngắt mạch HWM Trailing DD 8% tài khoản {acc_id}",
-                                    f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã đóng toàn bộ lệnh và khóa giao dịch.",
-                                )
+                                if close_ok:
+                                    send_admin_alert_email(
+                                        f"Ngắt mạch HWM Trailing DD 8% tài khoản {acc_id}",
+                                        f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã đóng toàn bộ lệnh và khóa giao dịch.",
+                                    )
+                                else:
+                                    send_admin_alert_email(
+                                        f"KHẨN: Ngắt mạch HWM 8% {acc_id} chưa đóng hết lệnh",
+                                        f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã tắt auto_trade và sẽ thử đóng lại ở chu kỳ sau. Chi tiết: {close_res}",
+                                    )
                             except Exception:
                                 pass
                             continue

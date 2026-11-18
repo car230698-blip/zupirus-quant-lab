@@ -64,14 +64,27 @@ def store_memory(
     if metadata:
         full_content = f"{content} | meta:{meta_json}"
 
+    is_pg = hasattr(c, "conn") and getattr(type(c.conn), "__module__", "").startswith("psycopg")
+    if is_pg:
+        try:
+            c.execute("SAVEPOINT sp_hindsight_insert")
+        except Exception:
+            is_pg = False
     try:
         c.execute(
             """INSERT INTO hindsight_memories (id, category, entity_id, title, content, tags, relevance_score, created, user_id, scope)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (mid, category, entity_id, title, full_content, tag_str, float(relevance_score), now, resolved_user_id, resolved_scope),
         )
+        if is_pg:
+            c.execute("RELEASE SAVEPOINT sp_hindsight_insert")
         logger.info(f"Hindsight stored [{category}] {title} ({mid})")
     except Exception:
+        if is_pg:
+            try:
+                c.execute("ROLLBACK TO SAVEPOINT sp_hindsight_insert")
+            except Exception:
+                pass
         try:
             c.execute(
                 """INSERT INTO hindsight_memories (id, category, entity_id, title, content, tags, relevance_score, created)
@@ -111,7 +124,7 @@ def recall_memories(
     params: List[Any] = []
 
     if user_id:
-        clauses.append("(user_id = ? OR scope = 'system')")
+        clauses.append("(user_id = ? OR (scope = 'system' AND user_id IS NULL AND LOWER(category) IN ('semantic', 'reflective')))")
         params.append(user_id)
 
     if category:
