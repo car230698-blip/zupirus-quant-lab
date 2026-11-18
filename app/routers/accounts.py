@@ -1,8 +1,9 @@
 """Trading accounts management router for Direct-to-User Cloud MT5 execution."""
+import asyncio
 import time
 import secrets
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.db import tx, audit
@@ -18,6 +19,16 @@ from app.services.billing_service import get_user_subscription
 
 logger = logging.getLogger("zupirus.accounts")
 router = APIRouter(tags=["accounts"])
+_USER_ACCOUNT_LOCKS: Dict[str, asyncio.Lock] = {}
+
+
+def _get_user_account_lock(user_id: str) -> asyncio.Lock:
+    """Return a per-user asyncio lock to serialize concurrent account provisioning."""
+    lock = _USER_ACCOUNT_LOCKS.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _USER_ACCOUNT_LOCKS[user_id] = lock
+    return lock
 
 
 def _row_to_account_response(row: dict) -> dict:
@@ -139,6 +150,16 @@ async def create_account(
     p: TradingAccountCreate,
     request: Request,
     u: dict = Depends(get_current_user)
+):
+    """Connect and provision an MT5 terminal on MetaApi Cloud (serialized per user)."""
+    async with _get_user_account_lock(u["id"]):
+        return await _create_account_locked(p, request, u)
+
+
+async def _create_account_locked(
+    p: TradingAccountCreate,
+    request: Request,
+    u: dict,
 ):
     """
     Connect and provision an MT5 terminal on MetaApi Cloud without needing EA or VPS.

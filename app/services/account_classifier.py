@@ -69,7 +69,9 @@ def calculate_normalized_lot_size(
         return 0.0
 
     eff_multiplier = max(0.01, min(risk_multiplier, 10.0))
-    risk_amount = equity * (risk_pct * eff_multiplier / 100.0)
+    # Cent accounts store equity in USC (1 USD = 100 USC); convert to USD so risk_amount matches USD loss_per_lot
+    equity_usd = (equity / 100.0) if is_cent else equity
+    risk_amount = equity_usd * (risk_pct * eff_multiplier / 100.0)
 
     sym_u = str(symbol or "XAUUSD").upper()
     from app.services.symbol_precision import (

@@ -143,33 +143,43 @@ class InMemoryRedisMock:
 _redis_instance = None
 _redis_last_retry_ts: float = 0.0
 _REDIS_RETRY_INTERVAL_SEC: float = 15.0
+_redis_init_lock = threading.Lock()
+
+
+def reset_redis_client():
+    """Clear cached Redis client after connection loss so next call reconnects."""
+    global _redis_instance, _redis_last_retry_ts
+    with _redis_init_lock:
+        _redis_instance = None
+        _redis_last_retry_ts = 0.0
 
 
 def get_redis_client():
     """Return live Redis client if REDIS_URL is configured, retrying periodically if previously fallen back to mock."""
     global _redis_instance, _redis_last_retry_ts
-    now = time.time()
-    if _redis_instance is not None:
-        if not isinstance(_redis_instance, InMemoryRedisMock) or not REDIS_URL:
-            return _redis_instance
-        if (now - _redis_last_retry_ts) < _REDIS_RETRY_INTERVAL_SEC:
-            return _redis_instance
+    with _redis_init_lock:
+        now = time.time()
+        if _redis_instance is not None:
+            if not isinstance(_redis_instance, InMemoryRedisMock) or not REDIS_URL:
+                return _redis_instance
+            if (now - _redis_last_retry_ts) < _REDIS_RETRY_INTERVAL_SEC:
+                return _redis_instance
 
-    if REDIS_URL:
-        _redis_last_retry_ts = now
-        try:
-            import redis
-            client = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=3, socket_connect_timeout=3)
-            client.ping()
-            logger.info("Connected to live Redis server at %s", REDIS_URL)
-            _redis_instance = client
-            return _redis_instance
-        except Exception as e:
-            logger.warning("Could not connect to Redis (%s). Falling back to resilient in-memory mock.", e)
+        if REDIS_URL:
+            _redis_last_retry_ts = now
+            try:
+                import redis
+                client = redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=3, socket_connect_timeout=3)
+                client.ping()
+                logger.info("Connected to live Redis server at %s", REDIS_URL)
+                _redis_instance = client
+                return _redis_instance
+            except Exception as e:
+                logger.warning("Could not connect to Redis (%s). Falling back to resilient in-memory mock.", e)
 
-    if _redis_instance is None:
-        _redis_instance = InMemoryRedisMock()
-    return _redis_instance
+        if _redis_instance is None:
+            _redis_instance = InMemoryRedisMock()
+        return _redis_instance
 
 
 # ---------------------------------------------------------------------------

@@ -409,13 +409,13 @@ class PositionWatcher:
                                             setkv(c, tp1_key, "1")
                                             setkv(c, legacy_be_key, "1")
                                             try:
-                                                from app.hindsight import reflect_on_signal_outcome
                                                 ex_row = c.execute(
                                                     "SELECT signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY executed_at DESC LIMIT 1",
                                                     (acc_id, pos_id, pos_id),
                                                 ).fetchone()
                                                 if ex_row and ex_row[0]:
                                                     from app.services.symbol_precision import contract_size_for_symbol
+                                                    from app.hindsight import CATEGORY_EPISODIC, store_memory
                                                     is_cent = str(acc.get("account_type") or "").upper() == "CENT"
                                                     contract_mult = contract_size_for_symbol(
                                                         pos_sym,
@@ -424,7 +424,16 @@ class PositionWatcher:
                                                     )
                                                     usd_conv = quote_to_usd_rate(pos_sym, current_price)
                                                     realized_usd = abs(current_price - open_price) * half_volume * contract_mult * usd_conv
-                                                    reflect_on_signal_outcome(c, signal_id=ex_row[0], pnl=round(realized_usd, 2), exit_price=current_price, exit_reason="PARTIAL_TP1")
+                                                    store_memory(
+                                                        c,
+                                                        category=CATEGORY_EPISODIC,
+                                                        title=f"Partial TP1 Closed: Signal #{ex_row[0][:8]} (+${realized_usd:.2f})",
+                                                        content=f"Đã chốt 50% ({half_volume} lot) tại ${current_price:.2f}, lợi nhuận tạm ghi nhận +${realized_usd:.2f}.",
+                                                        entity_id=ex_row[0],
+                                                        tags=["partial_tp1", pos_sym.lower()],
+                                                        user_id=acc.get("user_id"),
+                                                        scope="user",
+                                                    )
                                             except Exception:
                                                 pass
                                         results["partial_tp_executed"] += 1

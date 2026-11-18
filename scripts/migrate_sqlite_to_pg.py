@@ -15,11 +15,28 @@ from typing import Dict, List, Tuple
 TABLES_TO_MIGRATE = [
     "users",
     "sessions",
+    "otp_codes",
     "accounts",
-    "pairings",
-    "devices",
+    "real_accounts",
+    "legal_disclaimers",
+    "trading_accounts",
+    "account_symbol_map",
+    "metaapi_cloud_accounts",
+    "metaapi_trade_executions",
+    "subscriptions",
+    "orders",
+    "payment_transactions",
+    "signal_sources",
+    "shadow_signals",
+    "signal_audit_logs",
+    "hindsight_memories",
+    "gemini_keys",
+    "agent_skills",
+    "strategy_candidates",
+    "signal_dispatch_locks",
     "signals",
     "dispatches",
+    "outbox",
     "audit",
     "jobs",
     "news",
@@ -109,6 +126,14 @@ def migrate(sqlite_path: Path, pg_url: str):
                             row_list[t_idx] = datetime.fromtimestamp(float(t_val if t_val > 0 else ts_fallback), tz=timezone.utc)
                     pg_cur.execute(insert_sql, tuple(row_list))
                     migrated += 1
+
+                # Reset BIGSERIAL sequences after manual ID inserts
+                try:
+                    pg_cur.execute(
+                        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), COALESCE((SELECT MAX(id) FROM {table}), 1), true)"
+                    )
+                except Exception:
+                    pass
 
                 # Verify count in PostgreSQL
                 pg_cur.execute(f"SELECT COUNT(*) FROM {table}")

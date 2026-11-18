@@ -321,18 +321,28 @@ class MetaApiClient:
         if take_profit is not None:
             payload["takeProfit"] = round(take_profit, dec)
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, headers=self._headers(), json=payload)
-            lat = int((time.time() - start_ts) * 1000)
-            if resp.status_code in (200, 201):
-                data = resp.json()
-                data["latency_ms"] = lat
-                return data
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, headers=self._headers(), json=payload)
+                lat = int((time.time() - start_ts) * 1000)
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    if not isinstance(data, dict):
+                        data = {"numericCode": resp.status_code, "stringCode": "INVALID_JSON"}
+                    data["latency_ms"] = lat
+                    return data
+                return {
+                    "numericCode": resp.status_code,
+                    "stringCode": "MODIFY_ERROR",
+                    "message": resp.text,
+                    "latency_ms": lat
+                }
+        except Exception as e:
             return {
-                "numericCode": resp.status_code,
-                "stringCode": "MODIFY_ERROR",
-                "message": resp.text,
-                "latency_ms": lat
+                "numericCode": 504,
+                "stringCode": "MODIFY_TIMEOUT_OR_ERROR",
+                "message": str(e),
+                "latency_ms": int((time.time() - start_ts) * 1000),
             }
 
     async def close_partial_position(
@@ -360,29 +370,38 @@ class MetaApiClient:
             "positionId": position_id,
             "volume": vol
         }
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, headers=self._headers(), json=payload)
-            lat = int((time.time() - start_ts) * 1000)
-            if resp.status_code in (200, 201):
-                data = resp.json()
-                data["latency_ms"] = lat
-                return data
-            # Fallback to POSITION_CLOSE with volume
-            fallback_payload = {
-                "actionType": "POSITION_CLOSE",
-                "positionId": position_id,
-                "volume": vol
-            }
-            resp2 = await client.post(url, headers=self._headers(), json=fallback_payload)
-            if resp2.status_code in (200, 201):
-                data = resp2.json()
-                data["latency_ms"] = int((time.time() - start_ts) * 1000)
-                return data
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, headers=self._headers(), json=payload)
+                lat = int((time.time() - start_ts) * 1000)
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    data["latency_ms"] = lat
+                    return data
+                # Fallback to POSITION_CLOSE with volume
+                fallback_payload = {
+                    "actionType": "POSITION_CLOSE",
+                    "positionId": position_id,
+                    "volume": vol
+                }
+                resp2 = await client.post(url, headers=self._headers(), json=fallback_payload)
+                if resp2.status_code in (200, 201):
+                    data = resp2.json()
+                    data["latency_ms"] = int((time.time() - start_ts) * 1000)
+                    return data
+                return {
+                    "numericCode": resp.status_code,
+                    "stringCode": "CLOSE_PARTIAL_ERROR",
+                    "message": resp.text,
+                    "latency_ms": lat
+                }
+        except Exception as e:
+            logger.error(f"close_partial_position network/timeout error for {metaapi_account_id}/{position_id}: {e}")
             return {
-                "numericCode": resp.status_code,
-                "stringCode": "CLOSE_PARTIAL_ERROR",
-                "message": resp.text,
-                "latency_ms": lat
+                "numericCode": 504,
+                "stringCode": "CLOSE_PARTIAL_TIMEOUT_OR_ERROR",
+                "message": str(e),
+                "latency_ms": int((time.time() - start_ts) * 1000)
             }
 
     async def close_all_positions(self, metaapi_account_id: str) -> Dict[str, Any]:

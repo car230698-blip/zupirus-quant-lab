@@ -618,13 +618,12 @@ def check_db_health(timeout: float = 2.0) -> Dict[str, Any]:
                 "error": str(e)
             }
 
-    def _probe():
-        with tx() as c:
-            row = c.execute("SELECT 1").fetchone()
-            return bool(row and row[0] == 1)
-
     try:
-        ok = run_with_timeout(_probe, timeout=timeout)
+        ms = max(500, int(timeout * 1000))
+        with tx() as c:
+            c.execute(f"SET LOCAL statement_timeout = {ms}")
+            row = c.execute("SELECT 1").fetchone()
+            ok = bool(row and row[0] == 1)
         return {
             "status": "up" if ok else "down",
             "engine": "postgresql",
