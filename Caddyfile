@@ -10,7 +10,7 @@
     reverse_proxy api:8000
 }
 zupirus.com {
-    @admin path /api/admin/* /api/billing/admin/* /api/v1/billing/admin/* /api/v1/telemetry/admin-radar* /api/v1/telemetry/ai-evolution
+    @admin path /api/admin/* /api/billing/admin/* /api/v1/billing/admin/* /api/v1/telemetry/admin-radar* /api/v1/telemetry/ai-evolution /api/chat/admin-agent*
     respond @admin "Use adm.zupirus.com" 403
     import shared
 }
@@ -18,7 +18,7 @@ www.zupirus.com {
     redir https://zupirus.com{uri}
 }
 app.zupirus.com {
-    @admin path /api/admin/* /api/billing/admin/* /api/v1/billing/admin/* /api/v1/telemetry/admin-radar* /api/v1/telemetry/ai-evolution
+    @admin path /api/admin/* /api/billing/admin/* /api/v1/billing/admin/* /api/v1/telemetry/admin-radar* /api/v1/telemetry/ai-evolution /api/chat/admin-agent*
     respond @admin "Use adm.zupirus.com" 403
     import shared
 }

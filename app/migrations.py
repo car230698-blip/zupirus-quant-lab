@@ -268,7 +268,7 @@ def apply_migration_002(c, is_pg: bool):
             ts DOUBLE PRECISION NOT NULL,
             bid DOUBLE PRECISION NOT NULL,
             ask DOUBLE PRECISION NOT NULL,
-            CONSTRAINT uq_quotes UNIQUE (time, source, ts)
+            CONSTRAINT uq_quotes UNIQUE (time, source, symbol, ts)
         );
         CREATE TABLE IF NOT EXISTS candles (
             id BIGSERIAL,
@@ -349,7 +349,7 @@ def apply_migration_002(c, is_pg: bool):
     else:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT REFERENCES accounts(id), ts REAL NOT NULL, balance REAL NOT NULL, equity REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS quotes(id INTEGER PRIMARY KEY AUTOINCREMENT, time REAL DEFAULT 0, source TEXT NOT NULL, symbol TEXT DEFAULT 'XAUUSD', ts REAL NOT NULL, bid REAL NOT NULL, ask REAL NOT NULL, UNIQUE(source, ts));
+        CREATE TABLE IF NOT EXISTS quotes(id INTEGER PRIMARY KEY AUTOINCREMENT, time REAL DEFAULT 0, source TEXT NOT NULL, symbol TEXT DEFAULT 'XAUUSD', ts REAL NOT NULL, bid REAL NOT NULL, ask REAL NOT NULL, UNIQUE(source, symbol, ts));
         CREATE TABLE IF NOT EXISTS candles(id INTEGER PRIMARY KEY AUTOINCREMENT, time REAL NOT NULL, source TEXT NOT NULL DEFAULT 'DEMO', symbol TEXT NOT NULL DEFAULT 'XAUUSD', timeframe TEXT NOT NULL DEFAULT 'M15', open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume REAL NOT NULL DEFAULT 0, UNIQUE(time, source, symbol, timeframe));
         """)
 

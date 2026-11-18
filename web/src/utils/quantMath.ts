@@ -65,7 +65,7 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
     twoRProfitDollars: Number((riskDollars * 2).toFixed(2)),
     threeRProfitDollars: Number((riskDollars * 3).toFixed(2)),
     propDailyLimitDollars: Number((safeEquity * (Number(input.dailyDrawdownLimitPct ?? 4.5) / 100)).toFixed(2)),
-    propMaxDrawdownDollars: Number((safeEquity * 0.09).toFixed(2)),
+    propMaxDrawdownDollars: Number((safeEquity * (Number(input.dailyDrawdownLimitPct ?? 4.5) * 2 / 100)).toFixed(2)),
     pointsPerDollar: Number((safeSlPoints / 100).toFixed(2)),
     displayLots: Number(clampedLot.toFixed(2)),
     unitLabel,
@@ -142,7 +142,7 @@ export function computeOrderLedgerMetrics(orders: Array<Record<string, any>>) {
     if (st === 'filled' || st === 'executed' || st === 'completed') {
       filledCount += 1;
     }
-    const pnl = Number(o.pnl || 0);
+    const pnl = Number(o.pnl ?? o.profit ?? o.realized_pnl ?? 0);
     if (pnl > 0) {
       winCount += 1;
       grossProfit += pnl;

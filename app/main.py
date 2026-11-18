@@ -440,7 +440,7 @@ def intent(p: Intent, request: Request):
                 or p.risk_amount > a['equity'] * a['risk'] / 100
                 or a['positions'] + active >= a['max_positions']
                 or a['equity'] <= 0
-                or (a['peak'] - a['equity']) / a['peak'] * 100 >= a['max_dd']
+                or (a['peak'] > 0 and (a['peak'] - a['equity']) / a['peak'] * 100 >= a['max_dd'])
                 or news_blocked(c, now)
             )
             if blocked: fail(409, 'Risk gate denied')
@@ -514,11 +514,14 @@ def dashboard(u=Depends(user), account_id: Optional[str] = None, state: Optional
         try:
             cloud_accs = [dict(r) for r in c.execute('SELECT * FROM trading_accounts WHERE user_id=?', (u['id'],))]
             for ca in cloud_accs:
+                ca.pop('encrypted_master_password', None)
+                ca.pop('password', None)
                 ca['login'] = ca.get('mt5_login', ca.get('login'))
                 ca['server'] = ca.get('broker_server', ca.get('server'))
                 ca['mode'] = 'REAL'
                 ca['is_real'] = True
                 ca['enabled'] = bool(ca.get('auto_trade', 1))
+                ca['is_active'] = bool(ca.get('auto_trade', 1))
             accounts.extend(cloud_accs)
         except Exception:
             pass
@@ -1949,10 +1952,11 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
                    a.tick_value, a.currency,
                    a.is_compounding, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct, a.risk_config
             FROM trading_accounts a
-            JOIN subscriptions s ON s.user_id = a.user_id
+            LEFT JOIN subscriptions s ON s.user_id = a.user_id
             WHERE a.auto_trade=1 AND a.deployment_state='DEPLOYED' AND a.metaapi_account_id IS NOT NULL
-              AND s.service_expires_at > ?
-        """, (now_ts,)).fetchall()
+              AND (s.id IS NULL OR s.service_expires_at > ?)
+              AND (a.cloud_expires_at IS NULL OR a.cloud_expires_at > ?)
+        """, (now_ts, now_ts)).fetchall()
         accounts = []
         for r in rows:
             d = dict(r)
@@ -1968,10 +1972,12 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(admin)):
 
         try:
             legacy_rows = c.execute("""
-                SELECT id, user_id, metaapi_account_id, balance, equity, risk_percent, max_lot, multiplier
-                FROM metaapi_cloud_accounts
-                WHERE auto_trade=1 AND disclaimer_id IS NOT NULL
-            """).fetchall()
+                SELECT m.id, m.user_id, m.metaapi_account_id, m.balance, m.equity, m.risk_percent, m.max_lot, m.multiplier
+                FROM metaapi_cloud_accounts m
+                LEFT JOIN subscriptions s ON s.user_id = m.user_id
+                WHERE m.auto_trade=1 AND m.disclaimer_id IS NOT NULL
+                  AND (s.id IS NULL OR s.service_expires_at > ?)
+            """, (now_ts,)).fetchall()
             for r in legacy_rows:
                 d = dict(r)
                 if d.get("metaapi_account_id") not in seen_meta_ids:

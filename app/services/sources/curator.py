@@ -500,15 +500,16 @@ def _evaluate_against_candles(
                     "mfe": round(mfe * pip_mult, 1)
                 }
 
-    # Still open within available candles
+    # Still open within available candles (mark EXPIRED only if >= 96 bars ~24h M15 elapsed)
     last_close = float(candles[-1]["close"])
     last_time = float(candles[-1]["time"])
     pnl = (last_close - entry) if is_buy else (entry - last_close)
+    status_val = "EXPIRED" if len(candles) >= 96 else "OPEN"
     return {
-        "status": "EXPIRED",
+        "status": status_val,
         "exit_price": last_close,
         "exit_time": last_time,
-        "exit_reason": "SESSION_CLOSED",
+        "exit_reason": "SESSION_CLOSED" if status_val == "EXPIRED" else "STILL_OPEN",
         "pnl_pips": round(pnl * pip_mult, 1),
         "mae": round(mae * pip_mult, 1),
         "mfe": round(mfe * pip_mult, 1)

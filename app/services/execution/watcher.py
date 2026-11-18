@@ -146,11 +146,16 @@ class PositionWatcher:
                             f"Emergency closing all positions."
                         )
                         close_res = await self.client.close_all_positions(meta_id)
+                        close_ok = (
+                            close_res.get("status") in ("ALL_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                            or (close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
+                        )
                         halt_key = get_drawdown_halt_key(acc_id, date_str)
                         with tx() as c:
                             c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
-                            setkv(c, halt_key, f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
-                            setkv(c, f"drawdown_locked:{acc_id}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
+                            if close_ok:
+                                setkv(c, halt_key, f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
+                                setkv(c, f"drawdown_locked:{acc_id}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
                             audit(c, "prop_guard", "circuit_breaker_triggered", {
                                 "account_id": acc_id,
                                 "drawdown_pct": round(drawdown_pct, 2),
@@ -158,6 +163,8 @@ class PositionWatcher:
                                 "equity": current_equity,
                                 "close_result": close_res
                             })
+                        if not close_ok:
+                            logger.error(f"PROP FIRM BREACH close incomplete for {acc_id}: {close_res} — will retry next cycle.")
                         results["prop_breakers_triggered"] += 1
                         results["details"].append({"account_id": acc_id, "action": "PROP_CIRCUIT_BREAKER_LOCKED"})
                         try:
@@ -211,9 +218,14 @@ class PositionWatcher:
                                 f"PROP HWM BREACH: Account {acc_id} trailing DD {trailing_dd_pct:.2f}% >= 8.0% (HWM={hwm_equity:.2f}). Closing all."
                             )
                             close_res = await self.client.close_all_positions(meta_id)
+                            close_ok = (
+                                close_res.get("status") in ("ALL_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                                or (close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
+                            )
                             with tx() as c:
                                 c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
-                                setkv(c, f"drawdown_locked:{acc_id}", f"HWM_TRAILING_DD_{trailing_dd_pct:.2f}")
+                                if close_ok:
+                                    setkv(c, f"drawdown_locked:{acc_id}", f"HWM_TRAILING_DD_{trailing_dd_pct:.2f}")
                                 audit(c, "prop_guard", "hwm_trailing_dd_triggered", {
                                     "account_id": acc_id,
                                     "trailing_dd_pct": round(trailing_dd_pct, 2),
@@ -221,6 +233,8 @@ class PositionWatcher:
                                     "equity": current_equity,
                                     "close_result": close_res,
                                 })
+                            if not close_ok:
+                                logger.error(f"PROP HWM BREACH close incomplete for {acc_id}: {close_res} — will retry next cycle.")
                             results["prop_breakers_triggered"] += 1
                             results["details"].append({"account_id": acc_id, "action": "PROP_HWM_TRAILING_LOCKED"})
                             try:
@@ -235,7 +249,7 @@ class PositionWatcher:
 
                 # 3. Friday 21:00 UTC Weekend Risk Close
                 if is_prop and is_friday_weekend:
-                    positions = await self.client.get_open_positions(meta_id)
+                    positions = await self.client.get_open_positions(meta_id, raise_on_error=True)
                     if positions:
                         logger.info(f"WEEKEND CLOSE: Account {acc_id} closing {len(positions)} positions before Friday close.")
                         close_res = await self.client.close_all_positions(meta_id)
@@ -253,7 +267,7 @@ class PositionWatcher:
                 # 4. Auto Break-Even & Partial TP (50% TP1) at 1R for Growth, Alpha, or explicit auto_be_partial_tp
                 allow_auto_be = bool(acc.get("auto_be_partial_tp")) or plan_tier in ("growth", "alpha", "pro")
                 if allow_auto_be:
-                    positions = await self.client.get_open_positions(meta_id)
+                    positions = await self.client.get_open_positions(meta_id, raise_on_error=True)
                     for pos in positions:
                         pos_id = str(pos.get("id", ""))
                         if not pos_id:

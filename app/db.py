@@ -403,12 +403,12 @@ def insert_timescale_candle(
         try:
             c.execute(
                 """
-                INSERT INTO candles (symbol, timeframe, time, open, high, low, close, volume)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (symbol, timeframe, time) DO UPDATE SET
+                INSERT INTO candles (source, symbol, timeframe, time, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
                     high = excluded.high, low = excluded.low, close = excluded.close, volume = excluded.volume
                 """,
-                (symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+                (source, symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
             )
         except Exception:
             c.execute(

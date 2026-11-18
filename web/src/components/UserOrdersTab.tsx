@@ -283,7 +283,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
         {filteredOrders.map((o, idx) => {
           const orderId = o.client_order_id || o.id || `ORD-${idx}`;
           const isBuy = String(o.side || '').toUpperCase() === 'BUY';
-          const pnl = Number(o.pnl || 0);
+          const pnl = Number(o.pnl ?? o.profit ?? o.realized_pnl ?? 0);
           const orderState = o.status || o.state || 'filled';
           const price = o.filled_price || o.requested_price || o.price || 0;
           return (
@@ -369,10 +369,10 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 <div className="text-[10px] text-slate-500">LỢI NHUẬN (PNL)</div>
                 <div
                   className={`mt-0.5 font-bold ${
-                    Number(selectedOrder.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    Number(selectedOrder.pnl ?? selectedOrder.profit ?? selectedOrder.realized_pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
                   }`}
                 >
-                  {fmtPnL(selectedOrder.pnl)}
+                  {fmtPnL(selectedOrder.pnl ?? selectedOrder.profit ?? selectedOrder.realized_pnl)}
                 </div>
               </div>
               <div>

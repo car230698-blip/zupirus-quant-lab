@@ -347,7 +347,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                         const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}/password`, {
                           method: 'PUT',
                           headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                          body: JSON.stringify({ new_password: np }),
+                          body: JSON.stringify({ password: np }),
                         });
                         setMsg(r.ok ? `Đã đặt lại mật khẩu cho ${usr.email}.` : 'Không thể đặt lại mật khẩu.');
                       }}

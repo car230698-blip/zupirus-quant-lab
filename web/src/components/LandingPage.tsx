@@ -1126,7 +1126,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       onClick={() => setQrPreviewTier(tier)}
                       className="quant-btn-secondary py-2.5 text-xs whitespace-nowrap shrink-0"
                     >
-                      Xem Mã VietQR
+                      Xem Báo Giá Gói
                     </button>
                     <button
                       type="button"

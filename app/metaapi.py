@@ -183,6 +183,8 @@ class MetaApiClient:
                 "volume": volume
             }
 
+        from app.services.symbol_precision import digits_for_symbol
+        dec = digits_for_symbol(symbol)
         url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
         payload = {
             "actionType": action_type,
@@ -191,9 +193,9 @@ class MetaApiClient:
             "comment": comment
         }
         if stop_loss is not None:
-            payload["stopLoss"] = stop_loss
+            payload["stopLoss"] = round(float(stop_loss), dec)
         if take_profit is not None:
-            payload["takeProfit"] = take_profit
+            payload["takeProfit"] = round(float(take_profit), dec)
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(url, headers=self._headers(), json=payload)
@@ -514,42 +516,22 @@ async def execute_fan_out_for_signal(
             logger.warning(f"Account {acc_id} rejected due to high spread: {spread_err}")
             continue
 
-        # 3. Check Idempotency Lock (Redis + Atomic DB Lock in signal_dispatch_locks + metaapi_trade_executions)
+        # 3. Fast read-only duplicate check before network/sizing checks
         is_duplicate = False
-        if redis_client:
-            lock_key = f"zupirus:lock:signal:{signal_id}:{acc_id}"
-            try:
-                is_new = redis_client.set(lock_key, "1", ex=120, nx=True)
-                if not is_new:
+        try:
+            from app.db import tx
+            with tx() as c:
+                existing = c.execute(
+                    "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (signal_id = ? OR order_id = ? OR position_id = ?)",
+                    (acc_id, signal_id, signal_id, signal_id)
+                ).fetchone()
+                if existing:
                     is_duplicate = True
-            except Exception as e:
-                logger.error(f"Redis idempotency lock error: {e}")
-
-        if not is_duplicate:
-            try:
-                from app.db import tx
-                with tx() as c:
-                    existing = c.execute(
-                        "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (signal_id = ? OR order_id = ? OR position_id = ?)",
-                        (acc_id, signal_id, signal_id, signal_id)
-                    ).fetchone()
-                    if existing:
-                        is_duplicate = True
-                    else:
-                        try:
-                            lock_cur = c.execute(
-                                "INSERT INTO signal_dispatch_locks (id, signal_fingerprint, account_id, worker_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (signal_fingerprint, account_id) DO NOTHING",
-                                (f"lck_{uuid.uuid4().hex[:12]}", str(signal_id), acc_id, str(os.getpid()), time.time())
-                            )
-                            if getattr(lock_cur, "rowcount", 1) == 0:
-                                is_duplicate = True
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+        except Exception:
+            pass
 
         if is_duplicate:
-            logger.warning(f"Idempotency: Signal {signal_id} already locked/executed for account {acc_id}. Skipping.")
+            logger.warning(f"Idempotency: Signal {signal_id} already executed for account {acc_id}. Skipping.")
             continue
 
         # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
@@ -601,9 +583,8 @@ async def execute_fan_out_for_signal(
                     )
                     continue
             except Exception as pos_err:
-                if is_prop_mode and prop_stage == "LIVE":
-                    logger.warning(f"Account {acc_id} (PROP LIVE) skipped fail-closed on position check error: {pos_err}")
-                    continue
+                logger.warning(f"Account {acc_id} skipped fail-closed on position check error: {pos_err}")
+                continue
 
         if is_prop_mode and prop_stage == "LIVE" and metaapi_client:
             try:
@@ -667,6 +648,32 @@ async def execute_fan_out_for_signal(
             symbol=symbol,
             entry_price=entry_price,
         )
+        if volume <= 0:
+            logger.info(f"Account {acc_id} skipped: calculated volume={volume} <= 0 (risk budget too small for min_lot).")
+            continue
+
+        # Acquire Redis + DB idempotency lock only after all guards and sizing pass
+        if redis_client:
+            lock_key = f"zupirus:lock:signal:{signal_id}:{acc_id}"
+            try:
+                if not redis_client.set(lock_key, "1", ex=120, nx=True):
+                    logger.warning(f"Idempotency: Signal {signal_id} already locked in Redis for {acc_id}. Skipping.")
+                    continue
+            except Exception as e:
+                logger.error(f"Redis idempotency lock error: {e}")
+
+        try:
+            from app.db import tx
+            with tx() as c:
+                lock_cur = c.execute(
+                    "INSERT INTO signal_dispatch_locks (id, signal_fingerprint, account_id, worker_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (signal_fingerprint, account_id) DO NOTHING",
+                    (f"lck_{uuid.uuid4().hex[:12]}", str(signal_id), acc_id, str(os.getpid()), time.time())
+                )
+                if getattr(lock_cur, "rowcount", 1) == 0:
+                    logger.warning(f"Idempotency: Signal {signal_id} already locked in DB for {acc_id}. Skipping.")
+                    continue
+        except Exception:
+            pass
 
         if volume <= 0:
             logger.warning(f"Account {acc_id} skipped: calculated lot size is 0 (risk budget insufficient for min lot).")

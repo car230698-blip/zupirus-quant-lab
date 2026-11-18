@@ -2,18 +2,20 @@
 
 
 def digits_for_symbol(symbol: str) -> int:
-    """Return standard broker price decimal places for Gold, JPY pairs, and 5-digit FX."""
+    """Return standard broker price decimal places for Gold, Crypto, Indices, JPY pairs, and 5-digit FX."""
     sym_u = str(symbol or "XAUUSD").strip().upper()
     if "JPY" in sym_u:
         return 3
-    if any(k in sym_u for k in ("XAU", "GOLD", "XAG", "SILVER", "US30", "NAS100", "SPX", "BTC")):
+    if any(k in sym_u for k in ("XAU", "GOLD", "XAG", "SILVER", "US30", "NAS100", "SPX", "DE40", "BTC", "ETH")):
         return 2
     return 5
 
 
 def pip_size_for_symbol(symbol: str) -> float:
-    """Return 1 pip price movement for Gold (0.1), JPY pairs (0.01), and 4/5-digit FX (0.0001)."""
+    """Return 1 pip price movement for Crypto/Indices (1.0), Gold/Silver (0.1), JPY pairs (0.01), and FX (0.0001)."""
     sym_u = str(symbol or "XAUUSD").strip().upper()
+    if any(k in sym_u for k in ("BTC", "ETH", "US30", "NAS100", "SPX", "DE40")):
+        return 1.0
     if "JPY" in sym_u:
         return 0.01
     if any(k in sym_u for k in ("XAU", "GOLD", "XAG", "SILVER")):
@@ -74,6 +76,9 @@ _FALLBACK_USD_RATES = {
 def quote_to_usd_rate(symbol: str, price: float = 0.0, usdjpy_rate: float | None = None) -> float:
     """Convert 1 unit of quote currency PnL into USD (handles XAU, USD-quote, USD-base, JPY, and FX crosses)."""
     sym_u = str(symbol or "XAUUSD").strip().upper()
+    if "DE40" in sym_u:
+        eur_rate = _lookup_quote_mid("EURUSD")
+        return eur_rate if eur_rate > 0 else _FALLBACK_USD_RATES["EUR"]
     if sym_u.endswith("USD") or any(k in sym_u for k in ("XAU", "GOLD", "XAG", "SILVER", "BTC", "ETH", "US30", "NAS100", "SPX")):
         return 1.0
     if sym_u.startswith("USD") and price and price > 0:

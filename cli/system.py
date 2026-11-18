@@ -175,7 +175,7 @@ def cmd_healthcheck(as_json: bool = False):
         db_ok = data.get("database", {}).get("healthy", False)
         redis_ok = data.get("redis", {}).get("connected", False)
 
-        is_healthy = bool(db_ok)
+        is_healthy = bool(db_ok and (redis_ok or not os.getenv("REDIS_URL")))
         payload = {
             "success": is_healthy,
             "status": "healthy" if is_healthy else "unhealthy",
@@ -215,10 +215,6 @@ def cmd_kill_switch(on: bool = False, off: bool = False, reason: str = "", as_js
         cancelled_dispatches = 0
         if on:
             c.execute("UPDATE accounts SET enabled=0")
-            try:
-                c.execute("UPDATE trading_accounts SET auto_trade=0")
-            except Exception:
-                pass
             cancelled_dispatches = c.execute(
                 "UPDATE dispatches SET state='cancelled', updated=? WHERE state='queued'", (now,)
             ).rowcount
@@ -226,7 +222,14 @@ def cmd_kill_switch(on: bool = False, off: bool = False, reason: str = "", as_js
                 "INSERT INTO audit(ts, actor, event, detail) VALUES(?,?,?,?)",
                 (now, "zupirus-cli", "system_halt", json.dumps({"reason": reason_text, "cancelled_dispatches": cancelled_dispatches}))
             )
-        else:
+    if on:
+        try:
+            with tx() as c2:
+                c2.execute("UPDATE trading_accounts SET auto_trade=0")
+        except Exception:
+            pass
+    else:
+        with tx() as c:
             c.execute(
                 "INSERT INTO audit(ts, actor, event, detail) VALUES(?,?,?,?)",
                 (now, "zupirus-cli", "system_resume", json.dumps({"reason": reason_text}))

@@ -124,12 +124,8 @@ def check_news_shield(current_time: float) -> Tuple[bool, Optional[str]]:
 
 
 def _symbol_pip_size(symbol: str) -> float:
-    s = str(symbol or "XAUUSD").upper()
-    if "XAU" in s or "GOLD" in s:
-        return 0.10
-    if "JPY" in s:
-        return 0.01
-    return 0.0001
+    from app.services.symbol_precision import pip_size_for_symbol
+    return pip_size_for_symbol(symbol)
 
 
 def check_entry_slippage(signal: NormalizedSignalSchema, live_price: float) -> Tuple[bool, Optional[str]]:

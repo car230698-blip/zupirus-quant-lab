@@ -393,8 +393,8 @@ def _resolve_target_account(c, account_id: str, u: dict) -> dict:
     is_admin = u.get("role") == "admin"
     user_id = u["id"]
     row = c.execute(
-        "SELECT * FROM trading_accounts WHERE (id=? OR mt5_login=?) AND user_id=?",
-        (account_id, account_id, user_id),
+        "SELECT * FROM trading_accounts WHERE (id=? OR mt5_login=? OR metaapi_account_id=?) AND user_id=?",
+        (account_id, account_id, account_id, user_id),
     ).fetchone()
     if row:
         return dict(row)
@@ -681,13 +681,13 @@ async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
     with tx() as c:
         # 1. Check trading_accounts (prefer current user's row first to avoid cross-tenant collision on login)
         acc_row = c.execute(
-            "SELECT * FROM trading_accounts WHERE (id=? OR mt5_login=?) AND user_id=?",
-            (account_id, account_id, user_id),
+            "SELECT * FROM trading_accounts WHERE (id=? OR mt5_login=? OR metaapi_account_id=?) AND user_id=?",
+            (account_id, account_id, account_id, user_id),
         ).fetchone()
-        if not acc_row:
+        if not acc_row and is_admin:
             acc_row = c.execute(
-                "SELECT * FROM trading_accounts WHERE id=? OR mt5_login=?",
-                (account_id, account_id),
+                "SELECT * FROM trading_accounts WHERE id=? OR mt5_login=? OR metaapi_account_id=?",
+                (account_id, account_id, account_id),
             ).fetchone()
         if acc_row:
             acc = dict(acc_row)

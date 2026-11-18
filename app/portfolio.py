@@ -125,6 +125,7 @@ def calculate_position_size(
     win_rate: float = 0.55,
     win_loss_ratio: float = 2.0,
     sl_unit: str = "auto",
+    entry_price: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Calculates optimal lot size using ATR Volatility or Half-Kelly scaling
     with fail-closed safety clamps. Normalizes MT5 points vs price distance."""
@@ -146,8 +147,9 @@ def calculate_position_size(
 
     # 1. Base ATR Volatility Sizing
     # Loss per 1.0 standard lot if SL is hit (converted to USD for non-USD quote pairs)
-    from app.services.symbol_precision import quote_to_usd_rate
-    loss_per_lot = sl_price_dist * spec["contract_multiplier"] * quote_to_usd_rate(symbol, custom_sl_points or 0.0)
+    from app.services.symbol_precision import _lookup_quote_mid, quote_to_usd_rate
+    spot_price = float(entry_price) if (entry_price and entry_price > 0) else _lookup_quote_mid(symbol)
+    loss_per_lot = sl_price_dist * spec["contract_multiplier"] * quote_to_usd_rate(symbol, spot_price)
     if loss_per_lot <= 0:
         loss_per_lot = 1.0
 
