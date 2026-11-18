@@ -2,92 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { calculateQuantLotSizing, calculateSubscriptionPricing, type AccountKind, type BillingCycle } from '../utils/quantMath';
 import guardMatrixImg from '../assets/images/guard_matrix_architecture_1794792845754.jpg';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
+import { GUARD_LAYERS, PRICING_TIERS } from '../data/landingData';
 
 export interface LandingPageProps {
   onEnterPortal?: () => void;
   onEnterApp?: () => void;
 }
-
-const GUARD_LAYERS = [
-  {
-    id: '01',
-    code: 'REDIS_IDEMPOTENCY_LOCK',
-    title: 'Khóa Chống Lặp Lệnh Redis (Idempotency Lock)',
-    metric: '< 0.8 ms',
-    desc: 'Mỗi tín hiệu được băm SHA-256 và khóa nguyên tử trên Redis trước khi phân phối. Triệt tiêu 100% lỗi bắn trùng lệnh khi webhook hoặc đường truyền rung lắc.',
-    rule: 'SETNX signal:{hash}:account:{id} EX 60',
-  },
-  {
-    id: '02',
-    code: 'MANDATORY_HARD_STOP_LOSS',
-    title: 'Bắt Buộc SL Cứng & Tự Động Dời Hòa Vốn (1R BE)',
-    metric: '100% SL Enforced',
-    desc: 'Từ chối thực thi mọi tín hiệu thiếu Stop-Loss nếu không bật chế độ Auto ATR(14) SL. Tự động dời SL về điểm vào lệnh (Break-Even) ngay khi lợi nhuận đạt 1R.',
-    rule: 'IF stop_loss IS NULL AND NOT auto_atr_sl -> REJECT_FAIL_CLOSED',
-  },
-  {
-    id: '03',
-    code: 'MACRO_USD_NEWS_SHIELD',
-    title: 'Lá Chắn Tin Tức Vĩ Mô USD Đỏ (CPI / NFP / FOMC)',
-    metric: '±15 Phút Phong Tỏa',
-    desc: 'Đồng bộ lịch kinh tế thời gian thực và tự động đóng băng mở vị thế mới trong bán kính ±15 phút quanh các bản tin USD High-Impact để tránh giãn spread.',
-    rule: 'IF abs(now - usd_high_impact_ts) <= 900s -> HALT_NEW_ENTRIES',
-  },
-  {
-    id: '04',
-    code: 'PROP_DRAWDOWN_CIRCUIT_BREAKER',
-    title: 'Cầu Dao Bảo Vệ Quỹ Prop & Giới Hạn Trượt Giá',
-    metric: 'Max 4.5% Daily DD',
-    desc: 'Kiểm toán độ giãn Spread thực tế trên cầu nối London G2 và tự động ngắt kết nối bảo toàn tài khoản nếu mức sụt giảm trong ngày chạm ngưỡng cài đặt.',
-    rule: 'IF daily_dd_pct >= max_daily_dd OR spread > 4.5_pips -> CIRCUIT_BREAK',
-  },
-];
-
-const PRICING_TIERS = [
-  {
-    id: 'STARTER' as const,
-    code: 'GÓI 01 // TRẢI NGHIỆM & CENT',
-    name: 'Khởi Đầu / Cent',
-    baseUsd: 25,
-    slots: 1,
-    badge: 'Trọn Gói 1 TK Cloud',
-    features: [
-      'Đã bao gồm sẵn 01 Tài khoản Cloud MT5 London G2 (tiết kiệm $10 VPS)',
-      'Tự động nhận diện Cent / Standard và chia Lot an toàn theo số dư',
-      'Kích hoạt 3 Lớp Giáp: Tự gắn SL theo ATR, Chặn tin đỏ ±15 phút',
-      'Tự động cắt lỗ bảo vệ ngày (Max Daily DD 5.0%)',
-    ],
-  },
-  {
-    id: 'PRO' as const,
-    code: 'GÓI 02 // TĂNG TRƯỞNG VỐN (GROWTH)',
-    name: 'Growth & Lãi Kép',
-    baseUsd: 39,
-    slots: 1,
-    popular: true,
-    badge: 'Tối đa 3 TK Cloud',
-    features: [
-      'Đã bao gồm sẵn 01 Tài khoản Cloud (mở rộng tối đa 3 TK, thêm chỉ +$10/TK)',
-      'Tự động Dời Hòa Vốn (+1R) & Chốt lời 50% TP1 khóa lợi nhuận',
-      'Tự động Lãi Kép (Auto-Compounding) tăng Lot theo tăng trưởng vốn',
-      'Tín hiệu chọn lọc qua AI lọc nhiễu + Cắt lỗ ngày tự động 5.0%',
-    ],
-  },
-  {
-    id: 'INSTITUTIONAL' as const,
-    code: 'GÓI 03 // QUỸ PROP FIRM (ALPHA)',
-    name: 'Alpha Prop Firm',
-    baseUsd: 59,
-    slots: 1,
-    badge: 'Tối đa 5 TK Cloud',
-    features: [
-      'Đã bao gồm sẵn 01 Tài khoản Cloud (mở rộng tối đa 5 TK, thêm chỉ +$10/TK)',
-      'Ngắt mạch cứng Daily Drawdown 4.0% (an toàn dưới luật 5% FTMO/FundedNext)',
-      'Tự động đóng toàn bộ lệnh trước cuối tuần (Thứ 6 lúc 21:00 UTC)',
-      'Mở khóa AI Swarm tự chủ & Kiểm toán chuyên sâu MAE / MFE',
-    ],
-  },
-];
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onEnterPortal: externalOnEnterPortal,

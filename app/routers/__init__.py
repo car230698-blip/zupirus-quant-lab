@@ -1,22 +1,32 @@
 """API routers modularized by domain."""
-from app.routers.billing import router as billing_router
-from app.routers.webhooks import router as webhooks_router
-from app.routers.signals import router as signals_router
 from app.routers.accounts import router as accounts_router
-from app.routers.sources import router as sources_router
-from app.routers.admin_billing import router as admin_billing_router
-from app.routers.telemetry import router as telemetry_router
-from app.routers.skills import router as skills_router
 from app.routers.admin_ai import router as admin_ai_router
+from app.routers.admin_billing import router as admin_billing_router
+from app.routers.admin_ops import router as admin_ops_router
+from app.routers.ai_chat import router as ai_chat_router
+from app.routers.auth import router as auth_router
+from app.routers.billing import router as billing_router
+from app.routers.ea import router as ea_router
+from app.routers.metaapi_dispatch import router as metaapi_dispatch_router
+from app.routers.signals import router as signals_router
+from app.routers.skills import router as skills_router
+from app.routers.sources import router as sources_router
+from app.routers.telemetry import router as telemetry_router
+from app.routers.webhooks import router as webhooks_router
 
 __all__ = [
-    "billing_router",
-    "webhooks_router",
-    "signals_router",
     "accounts_router",
-    "sources_router",
-    "admin_billing_router",
-    "telemetry_router",
-    "skills_router",
     "admin_ai_router",
+    "admin_billing_router",
+    "admin_ops_router",
+    "ai_chat_router",
+    "auth_router",
+    "billing_router",
+    "ea_router",
+    "metaapi_dispatch_router",
+    "signals_router",
+    "skills_router",
+    "sources_router",
+    "telemetry_router",
+    "webhooks_router",
 ]

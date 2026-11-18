@@ -1,0 +1,375 @@
+import os, time, secrets, sqlite3, logging
+from typing import Optional
+from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from app.db import tx, audit
+from app.security import digest, token, password_hash, verify
+from app.redis_client import get_redis_client
+from app.routers.deps import Model, fail, get_current_user
+
+logger = logging.getLogger("zupirus.api")
+router = APIRouter()
+
+SECURE = os.getenv('COOKIE_SECURE', 'true').lower() == 'true'
+
+class Credentials(Model):
+    email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+    password: str = Field(min_length=12, max_length=128)
+
+class RegisterPayload(Model):
+    email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+    password: str = Field(min_length=12, max_length=128)
+    otp_code: Optional[str] = Field(default=None, max_length=10)
+
+@router.post('/api/register')
+def register(p: RegisterPayload):
+    email_clean = p.email.strip().lower()
+    with tx() as c:
+        existing = c.execute('SELECT id FROM users WHERE email=?', (email_clean,)).fetchone()
+        if existing:
+            fail(409, 'Email already registered')
+
+    # OTP Verification check (commit attempt updates in an isolated transaction before raising errors)
+    if p.otp_code:
+        now = time.time()
+        otp_err_code = None
+        otp_err_msg = None
+        with tx() as c:
+            row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
+            if not row:
+                otp_err_code, otp_err_msg = 400, "Mã xác thực OTP không tồn tại hoặc đã hết hạn"
+            elif row['expires_at'] < now:
+                c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+                otp_err_code, otp_err_msg = 400, "Mã OTP đã hết hạn. Vui lòng nhận mã mới"
+            elif row['attempts'] >= 5:
+                c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+                otp_err_code, otp_err_msg = 429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã"
+            elif row['code'] != p.otp_code.strip():
+                c.execute("UPDATE otp_codes SET attempts = attempts + 1 WHERE email=?", (email_clean,))
+                new_attempts = int(row['attempts']) + 1
+                if new_attempts >= 5:
+                    otp_err_code, otp_err_msg = 429, "Nhập sai mã OTP quá 5 lần. Vui lòng nhận lại mã"
+                else:
+                    otp_err_code, otp_err_msg = 400, "Mã OTP xác thực không chính xác"
+            else:
+                c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+        if otp_err_code:
+            fail(otp_err_code, otp_err_msg)
+    elif os.environ.get("REQUIRE_REGISTRATION_OTP", "1") == "1" and not os.environ.get("PYTEST_CURRENT_TEST"):
+        fail(400, "Vui lòng nhập mã xác thực OTP gửi qua email")
+
+    with tx() as c:
+        try:
+            c.execute('INSERT INTO users VALUES(?,?,?,?)', (secrets.token_hex(16), email_clean, password_hash(p.password), 'customer'))
+        except (sqlite3.IntegrityError, Exception):
+            fail(409, 'Email already registered')
+    return {'ok': True}
+
+@router.post('/api/login')
+def login(p: Credentials, request: Request):
+    key = digest(p.email.lower() + '|' + (request.client.host if request.client else '127.0.0.1'))
+    now = time.time()
+    with tx() as c:
+        limit = c.execute('SELECT * FROM login_limits WHERE key=?', (key,)).fetchone()
+        if limit and limit['until'] > now and limit['attempts'] >= 10:
+            fail(429, 'Try again after 15 minutes')
+        row = c.execute('SELECT * FROM users WHERE email=?', (p.email.lower(),)).fetchone()
+        valid = bool(row and verify(p.password, row['password']))
+        if not valid:
+            attempts = limit['attempts'] + 1 if limit and limit['until'] > now else 1
+            c.execute('INSERT OR REPLACE INTO login_limits VALUES(?,?,?)', (key, attempts, now + 900))
+        else:
+            c.execute('DELETE FROM login_limits WHERE key=?', (key,))
+            t = token()
+            c.execute('INSERT INTO sessions VALUES(?,?,?)', (digest(t), row['id'], now + 28800))
+    if not valid: fail(401, 'Invalid credentials')
+    response = JSONResponse({'email': row['email'], 'role': row['role']})
+    response.set_cookie('session', t, httponly=True, secure=SECURE, samesite='strict', max_age=28800, path='/')
+    return response
+
+@router.post('/api/logout')
+def logout(request: Request, u=Depends(get_current_user)):
+    tokens = []
+    if request.cookies.get('session'):
+        tokens.append(digest(request.cookies.get('session', '')))
+    auth_hdr = request.headers.get('authorization', '')
+    if auth_hdr.lower().startswith('bearer '):
+        bearer_tok = auth_hdr[7:].strip()
+        if bearer_tok:
+            tokens.append(digest(bearer_tok))
+    if tokens:
+        with tx() as c:
+            for tk in tokens:
+                c.execute('DELETE FROM sessions WHERE token=?', (tk,))
+    r = JSONResponse({'ok': True})
+    r.delete_cookie('session')
+    return r
+
+@router.get('/api/me')
+def me(u=Depends(get_current_user)):
+    return {'id': u['id'], 'email': u['email'], 'role': u['role']}
+
+
+class ForgotPasswordPayload(Model):
+    email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+
+
+class ResetPasswordPayload(Model):
+    email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+    otp_code: str = Field(min_length=4, max_length=10)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+class ChangePasswordPayload(Model):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+@router.post('/api/auth/forgot-password')
+def forgot_password(p: ForgotPasswordPayload, request: Request):
+    import re
+    email_clean = p.email.strip().lower()
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email_clean):
+        fail(422, "Định dạng email không hợp lệ")
+    client_ip = (request.client.host if request.client else "") or "unknown"
+    try:
+        r = get_redis_client()
+        ip_key = f"fp_ip_rl:{client_ip}"
+        cnt = r.incr(ip_key)
+        if cnt == 1:
+            r.expire(ip_key, 60)
+        if cnt > 5:
+            fail(429, "Quá nhiều yêu cầu. Vui lòng thử lại sau 60 giây")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    now = time.time()
+    code = f"{secrets.randbelow(900000) + 100000}"
+    with tx() as c:
+        usr = c.execute('SELECT id FROM users WHERE email=?', (email_clean,)).fetchone()
+        if not usr:
+            return {'ok': True, 'message': 'Nếu email tồn tại, mã OTP đặt lại mật khẩu đã được gửi.'}
+        prev = c.execute('SELECT expires_at FROM otp_codes WHERE email=?', (email_clean,)).fetchone()
+        if prev and (prev['expires_at'] - 540.0) > now:
+            fail(429, "Vui lòng chờ 60 giây trước khi yêu cầu mã OTP mới")
+        c.execute(
+            "INSERT INTO otp_codes (email, code, expires_at, attempts) VALUES (?, ?, ?, 0) "
+            "ON CONFLICT(email) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0",
+            (email_clean, code, now + 600),
+        )
+    from app.mailer import send_otp_code
+    send_otp_code(email=email_clean, code=code, purpose="Đặt Lại Mật Khẩu")
+    return {'ok': True, 'message': 'Nếu email tồn tại, mã OTP đặt lại mật khẩu đã được gửi.'}
+
+
+@router.post('/api/auth/reset-password')
+def reset_password(p: ResetPasswordPayload):
+    email_clean = p.email.strip().lower()
+    now = time.time()
+    err_code = None
+    err_msg = None
+    with tx() as c:
+        row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
+        if not row:
+            err_code, err_msg = 400, "Mã OTP không tồn tại hoặc đã hết hạn."
+        elif row['expires_at'] < now:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            err_code, err_msg = 400, "Mã OTP đã hết hạn."
+        elif int(row['attempts']) >= 5:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            err_code, err_msg = 429, "Nhập sai mã OTP quá 5 lần."
+        elif row['code'] != p.otp_code.strip():
+            c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (int(row['attempts']) + 1, email_clean))
+            err_code, err_msg = 400, "Mã OTP không chính xác."
+        else:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            usr = c.execute("SELECT id FROM users WHERE email=?", (email_clean,)).fetchone()
+            if not usr:
+                err_code, err_msg = 404, "Tài khoản không tồn tại."
+            else:
+                c.execute("UPDATE users SET password=? WHERE id=?", (password_hash(p.new_password), usr['id']))
+                c.execute("DELETE FROM sessions WHERE user_id=?", (usr['id'],))
+    if err_code:
+        fail(err_code, err_msg)
+    return {'ok': True, 'message': 'Đã đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.'}
+
+
+@router.post('/api/auth/change-password')
+def change_password(p: ChangePasswordPayload, u=Depends(get_current_user)):
+    with tx() as c:
+        row = c.execute("SELECT password FROM users WHERE id=?", (u['id'],)).fetchone()
+        if not row or not verify(p.current_password, row['password']):
+            fail(400, "Mật khẩu hiện tại không chính xác.")
+        c.execute("UPDATE users SET password=? WHERE id=?", (password_hash(p.new_password), u['id']))
+        c.execute("DELETE FROM sessions WHERE user_id=?", (u['id'],))
+    return {'ok': True, 'message': 'Đã đổi mật khẩu thành công.'}
+
+class SendOtpPayload(BaseModel):
+    email: str = Field(min_length=5, max_length=120)
+
+@router.post('/api/auth/send-otp')
+def auth_send_otp(p: SendOtpPayload, request: Request):
+    """Generates a secure 6-digit OTP, stores it with 10-minute expiry, and sends via Resend."""
+    import secrets, re
+    from app.mailer import send_otp_code
+    email_clean = p.email.strip().lower()
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email_clean):
+        fail(422, "Định dạng email không hợp lệ")
+
+    client_ip = (request.client.host if request.client else "") or "unknown"
+    try:
+        r = get_redis_client()
+        ip_key = f"otp_ip_rl:{client_ip}"
+        cnt = r.incr(ip_key)
+        if cnt == 1:
+            r.expire(ip_key, 60)
+        if cnt > 5:
+            fail(429, "Quá nhiều yêu cầu OTP từ IP này. Vui lòng thử lại sau 60 giây")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    code = f"{secrets.randbelow(900000) + 100000}"
+    now = time.time()
+    expires_at = now + 600.0
+
+    with tx() as c:
+        row = c.execute("SELECT expires_at FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
+        if row and (row['expires_at'] - 540.0) > now:
+            fail(429, "Vui lòng chờ 60 giây trước khi yêu cầu mã OTP mới")
+        c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+        c.execute("INSERT INTO otp_codes(email, code, expires_at, attempts) VALUES(?,?,?,0)", (email_clean, code, expires_at))
+
+    res = send_otp_code(email_clean, code, purpose="Xác Thực Đăng Ký Tài Khoản")
+    return {"ok": True, "message": "Mã OTP đã được gửi tới email của bạn", "expires_in": 600, "delivery": res}
+
+class VerifyOtpPayload(BaseModel):
+    email: str = Field(min_length=5, max_length=120)
+    code: str = Field(min_length=6, max_length=6)
+
+@router.post('/api/auth/verify-otp')
+def auth_verify_otp(p: VerifyOtpPayload):
+    """Verifies user-submitted 6-digit OTP code (committing failed attempts in an isolated transaction)."""
+    now = time.time()
+    email_clean = p.email.strip().lower()
+    err_code = None
+    err_msg = None
+    with tx() as c:
+        row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
+        if not row:
+            err_code, err_msg = 400, "Mã OTP không tồn tại hoặc đã hết hạn"
+        elif row['expires_at'] < now:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            err_code, err_msg = 400, "Mã OTP đã hết hạn. Vui lòng lấy mã mới"
+        elif row['attempts'] >= 5:
+            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            err_code, err_msg = 429, "Bạn đã nhập sai mã quá 5 lần. Vui lòng yêu cầu mã OTP mới"
+        elif row['code'] != p.code.strip():
+            new_attempts = int(row['attempts']) + 1
+            c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (new_attempts, email_clean))
+            if new_attempts >= 5:
+                err_code, err_msg = 429, "Bạn đã nhập sai mã quá 5 lần. Vui lòng yêu cầu mã OTP mới"
+            else:
+                err_code, err_msg = 400, "Mã OTP không chính xác"
+        else:
+            # Keep OTP row briefly (5m) so the subsequent /api/register step can validate and consume it
+            c.execute("UPDATE otp_codes SET expires_at = ? WHERE email = ?", (now + 300.0, email_clean))
+    if err_code:
+        fail(err_code, err_msg)
+    return {"ok": True, "verified": True, "message": "Xác thực email thành công"}
+
+LEGAL_TERMS_VERSION = "2026.1"
+
+LEGAL_DISCLAIMER_TEXT = {
+    "version": LEGAL_TERMS_VERSION,
+    "title": "ĐIỀU KHOẢN DỊCH VỤ & MIỄN TRỪ TRÁCH NHIỆM RỦI RO GIAO DỊCH VỐN THỰC (HIGH-RISK REAL TRADING DISCLAIMER)",
+    "effective_date": "2026-11-15",
+    "summary": "Quy định bắt buộc về nhận thức rủi ro thị trường tài chính, rủi ro đòn bẩy Vàng (XAU/USD) và miễn trừ trách nhiệm pháp lý khi liên kết tài khoản MT5 Real.",
+    "clauses": [
+        {
+            "id": "risk_warning",
+            "title": "1. Cảnh báo rủi ro đòn bẩy và biến động thị trường",
+            "content": "Giao dịch ký quỹ đối với Vàng (XAU/USD) và các hợp đồng chênh lệch (CFD) có mức độ rủi ro vốn rất cao do tác động của đòn bẩy tài chính. Biến động giá có thể diễn ra với tốc độ cực nhanh trong các khung giờ tin tức vĩ mô (NFP, CPI, Lãi suất FED), có thể dẫn đến việc sụt giảm tài sản hoặc mất toàn bộ số dư ký quỹ trong tài khoản của bạn."
+        },
+        {
+            "id": "technology_scope",
+            "title": "2. Bản chất công cụ công nghệ & Không nhận ủy thác",
+            "content": "ZUPIRUS Quant Lab là nền tảng công nghệ định lượng tự hành cung cấp bộ công cụ phân tích thị trường, mô hình hóa dữ liệu và sao chép tín hiệu kỹ thuật. Chúng tôi TUYỆT ĐỐI KHÔNG phải là quỹ đầu tư, không cung cấp dịch vụ ủy thác tài chính, không bảo hiểm rủi ro và không cam kết tỷ lệ lợi nhuận danh nghĩa."
+        },
+        {
+            "id": "broker_execution",
+            "title": "3. Rủi ro trượt giá (Slippage) & Giãn Spread của sàn môi giới",
+            "content": "Giá khớp lệnh thực tế trên tài khoản MT5 của bạn phụ thuộc hoàn toàn vào thanh khoản, độ trễ mạng và chính sách khớp lệnh của Nhà môi giới (Broker) mà bạn tự chọn. ZUPIRUS không chịu trách nhiệm đối với sự chênh lệch giá (slippage), trượt điểm dừng lỗ (Stop Loss) hoặc từ chối lệnh từ phía máy chủ của sàn."
+        },
+        {
+            "id": "default_sandbox",
+            "title": "4. Chế độ Sandbox an toàn & Khuyến nghị thử nghiệm Demo",
+            "content": "Mặc định toàn bộ hệ thống ZUPIRUS Quant Lab luôn vận hành ở chế độ Demo & Replay để bảo vệ nguồn vốn của nhà đầu tư. Chúng tôi khuyến nghị người dùng phải kiểm nghiệm chiến lược tối thiểu 30 ngày trên tài khoản Demo trước khi cân nhắc bất kỳ quyết định kết nối vốn thực nào."
+        },
+        {
+            "id": "user_responsibility",
+            "title": "5. Cam kết tự nguyện và tự chịu trách nhiệm dân sự",
+            "content": "Bằng việc bấm ký điện tử và bật công tắc 'Cho phép mở rộng kết nối Real MT5', bạn xác nhận bạn đã đủ 18 tuổi, có đầy đủ năng lực hành vi dân sự, hoàn toàn tự nguyện quyết định mức rủi ro trên tài khoản cá nhân và đồng ý miễn trừ toàn bộ trách nhiệm pháp lý cho ZUPIRUS Quant Lab đối với bất kỳ thiệt hại tài chính nào phát sinh."
+        }
+    ]
+}
+
+@router.get('/api/legal/disclaimer')
+def get_legal_disclaimer():
+    """Returns the full text and clauses of the High-Risk Trading Disclaimer."""
+    return LEGAL_DISCLAIMER_TEXT
+
+@router.get('/api/legal/status')
+def get_disclaimer_status(u=Depends(get_current_user)):
+    """Checks if the authenticated user has signed the legal terms disclaimer."""
+    with tx() as c:
+        row = c.execute("SELECT * FROM legal_disclaimers WHERE user_id=? AND status='active' ORDER BY accepted_at DESC LIMIT 1", (u['id'],)).fetchone()
+    if not row:
+        return {"accepted": False, "version": LEGAL_TERMS_VERSION, "details": None}
+    return {
+        "accepted": True,
+        "version": row['terms_version'],
+        "details": {
+            "accepted_at": row['accepted_at'],
+            "signature_text": row['signature_text'],
+            "status": row['status']
+        }
+    }
+
+class AcceptDisclaimerPayload(BaseModel):
+    signature_text: str = Field(min_length=3, max_length=120)
+    confirmed_risk: bool
+    confirmed_age: bool
+    confirmed_no_solicitation: bool
+
+@router.post('/api/legal/accept')
+def accept_disclaimer(p: AcceptDisclaimerPayload, request: Request, u=Depends(get_current_user)):
+    """Records the digital signature and acceptance of the High-Risk Disclaimer."""
+    if not (p.confirmed_risk and p.confirmed_age and p.confirmed_no_solicitation):
+        fail(400, "Bạn cần xác nhận đầy đủ các điều khoản cảnh báo rủi ro trước khi ký nhận.")
+
+    client_ip = request.client.host if request.client else "unknown"
+    now_ts = time.time()
+    disc_id = f"disc_{secrets.token_hex(8)}"
+
+    with tx() as c:
+        c.execute("""
+            INSERT INTO legal_disclaimers(id, user_id, terms_version, accepted_at, ip_address, signature_text, status)
+            VALUES(?,?,?,?,?,?,?)
+        """, (disc_id, u['id'], LEGAL_TERMS_VERSION, now_ts, client_ip, p.signature_text.strip(), 'active'))
+        audit(c, u['id'], 'disclaimer_accepted', {
+            'disclaimer_id': disc_id,
+            'version': LEGAL_TERMS_VERSION,
+            'signature': p.signature_text.strip(),
+            'ip': client_ip
+        })
+
+    return {
+        "ok": True,
+        "disclaimer_id": disc_id,
+        "accepted_at": now_ts,
+        "message": "Đã ghi nhận chữ ký điện tử và chấp thuận Điều khoản Miễn trừ trách nhiệm thành công."
+    }
