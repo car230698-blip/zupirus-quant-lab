@@ -1,14 +1,11 @@
 """Regression & security hardening tests for auth OTP, password reset, XFF rate limits, and HTML escaping."""
 import time
 import uuid
-from fastapi.testclient import TestClient
 
 from app.db import tx
-from app.main import app
 
 
-def test_register_otp_lockout_deletes_otp_and_rejects(monkeypatch):
-    client = TestClient(app)
+def test_register_otp_lockout_deletes_otp_and_rejects(client):
     email = f"otp-lock-{uuid.uuid4().hex[:8]}@example.com"
     with tx() as c:
         c.execute(
@@ -35,8 +32,7 @@ def test_register_otp_lockout_deletes_otp_and_rejects(monkeypatch):
         assert row is None
 
 
-def test_forgot_reset_and_change_password_flow(monkeypatch):
-    client = TestClient(app)
+def test_forgot_reset_and_change_password_flow(client, monkeypatch):
     email = f"reset-flow-{uuid.uuid4().hex[:8]}@example.com"
 
     assert client.post("/api/register", json={"email": email, "password": "InitialPass!1234"}).status_code == 200
@@ -82,8 +78,7 @@ def test_forgot_reset_and_change_password_flow(monkeypatch):
     ).status_code == 200
 
 
-def test_admin_mailer_test_escapes_html(monkeypatch):
-    client = TestClient(app)
+def test_admin_mailer_test_escapes_html(client, monkeypatch):
     assert client.post(
         "/api/login",
         json={"email": "admin@zupirus.local", "password": "test-only-admin-password-123"},
