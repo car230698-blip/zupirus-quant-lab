@@ -7,8 +7,12 @@ Scheduled via VPS crontab (22:00 UTC daily):
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db import tx
 from app.services.discord_notifier import send_discord_embed
 
