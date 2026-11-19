@@ -65,9 +65,11 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
           {accounts.map((acc: any) => {
             const id = acc.account_id || acc.id || acc.login;
             const isExpanded = expandedConfigId === id;
-            const isActive = Boolean(acc.is_active);
+            const isActive = Boolean(acc.auto_trade ?? acc.enabled ?? acc.is_active);
             const deployState = acc.deployment_status || acc.deployment_state || 'DEPLOYED';
             const isDeployed = deployState === 'DEPLOYED';
+            const isProp = Boolean(acc.is_prop_firm_mode) || String(acc.account_type || '').toUpperCase() === 'PROP';
+            const propStage = String(acc.prop_stage || 'CHALLENGE').toUpperCase();
             return (
               <div
                 key={id}
@@ -84,6 +86,17 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       <span className="text-base font-bold text-white">
                         {acc.account_name || acc.login || id}
                       </span>
+                      {isProp && (
+                        <span
+                          className={`rounded-md px-2 py-0.5 font-mono text-[10px] font-bold border ${
+                            propStage === 'LIVE'
+                              ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300'
+                              : 'border-amber-400/40 bg-amber-500/15 text-amber-300'
+                          }`}
+                        >
+                          PROP · {propStage}
+                        </span>
+                      )}
                       <span className="font-mono text-xs text-slate-400">
                         #{id} · {acc.broker_server || acc.mt5_server || 'MT5 Cloud'} ·{' '}
                         <strong className={isDeployed ? 'text-emerald-300' : 'text-amber-300'}>

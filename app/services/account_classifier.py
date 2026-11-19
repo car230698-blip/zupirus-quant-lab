@@ -79,9 +79,14 @@ def calculate_normalized_lot_size(
     )
     point_size = point_size_for_symbol(sym_u)
     eff_contract = contract_size_for_symbol(sym_u, is_cent=is_cent, account_contract_size=contract_size)
-    # If broker tick_value is already provided (!= 1.0), avoid double-converting via quote_to_usd_rate
-    usd_conv = 1.0 if abs(float(tick_value or 1.0) - 1.0) > 1e-6 else quote_to_usd_rate(sym_u, entry_price)
-    loss_per_lot = sl_distance_points * point_size * eff_contract * float(tick_value or 1.0) * usd_conv
+    tv = float(tick_value or 1.0)
+    # If broker tick_value (USD per point per 1 lot) is explicitly supplied (!= 1.0), use it directly
+    # without multiplying again by point_size * eff_contract.
+    if abs(tv - 1.0) > 1e-6:
+        loss_per_lot = sl_distance_points * tv
+    else:
+        usd_conv = quote_to_usd_rate(sym_u, entry_price)
+        loss_per_lot = sl_distance_points * point_size * eff_contract * usd_conv
     if loss_per_lot <= 0:
         return 0.0
 

@@ -245,7 +245,11 @@ async def handle_sepay_webhook(
             if row and row[0]:
                 import json
                 b_settings = json.loads(row[0])
-                raw_sec = str(b_settings.get("sepay_webhook_secret") or "").strip()
+                raw_sec = str(
+                    b_settings.get("sepay_webhook_secret_encrypted")
+                    or b_settings.get("sepay_webhook_secret")
+                    or ""
+                ).strip()
                 if raw_sec:
                     dec_sec = decrypt_secret(raw_sec)
                     expected_secret = dec_sec if dec_sec else ("" if raw_sec.startswith("enc:") else raw_sec)

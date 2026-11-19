@@ -300,16 +300,37 @@ def discover_and_ingest_external_signals() -> Dict[str, Any]:
 
     if feeds:
         import hashlib
+        import ipaddress
+        import socket
+        from urllib.parse import urlparse
         import httpx
+
+        def _is_safe_public_url(target_url: str) -> bool:
+            try:
+                parsed = urlparse(target_url)
+                if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                    return False
+                host = parsed.hostname.lower()
+                if host in ("localhost", "metadata.google.internal"):
+                    return False
+                infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+                for info in infos:
+                    ip = ipaddress.ip_address(info[4][0])
+                    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+                        return False
+                return True
+            except Exception:
+                return False
+
         for feed in feeds[:5]:
             url = str(feed.get("url") or "").strip()
             url_hash = hashlib.sha256(url.encode("utf-8")).hexdigest()[:10]
             sid = str(feed.get("source_id") or "").strip() or f"src_disc_{url_hash}"
             sname = str(feed.get("name") or sid)
-            if not url:
+            if not url or not _is_safe_public_url(url):
                 continue
             try:
-                with httpx.Client(timeout=6.0) as client:
+                with httpx.Client(timeout=6.0, follow_redirects=False) as client:
                     resp = client.get(url)
                     if resp.status_code != 200:
                         continue

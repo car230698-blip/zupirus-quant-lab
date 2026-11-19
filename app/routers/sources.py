@@ -70,10 +70,12 @@ def get_sources(status: Optional[str] = None, _admin=Depends(get_current_admin))
 
 @router.post("/signal-mode")
 def set_signal_mode(req: SetSignalModeRequest, _admin=Depends(get_current_admin)):
-    """Set the system-wide quantitative decision mode (EXTERNAL_FEED, HYBRID, ZUPIRUS_AGENT)."""
+    """Set the system-wide quantitative decision mode (EXTERNAL_FEED, HYBRID_AGENT_SCORER, ZUPIRUS_AGENT)."""
     mode = req.mode.upper().strip()
-    if mode not in ("EXTERNAL_FEED", "HYBRID", "ZUPIRUS_AGENT"):
-        fail(400, "Chế độ không hợp lệ. Chọn EXTERNAL_FEED, HYBRID, hoặc ZUPIRUS_AGENT.")
+    if mode == "HYBRID":
+        mode = "HYBRID_AGENT_SCORER"
+    if mode not in ("EXTERNAL_FEED", "HYBRID_AGENT_SCORER", "ZUPIRUS_AGENT"):
+        fail(400, "Chế độ không hợp lệ. Chọn EXTERNAL_FEED, HYBRID_AGENT_SCORER, hoặc ZUPIRUS_AGENT.")
 
     with tx() as c:
         c.execute(

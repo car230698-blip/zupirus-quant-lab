@@ -24,41 +24,51 @@ def _get_encryption_key() -> bytes:
 
 def encrypt_secret(val: str) -> str:
     """
-    Encrypt sensitive credentials using Authenticated Stream Cipher (CTR + HMAC-SHA256).
-    Zero external C-dependency requirement, works seamlessly in any container environment.
+    Encrypt sensitive credentials using Authenticated Stream Cipher (CTR + HMAC-SHA256)
+    with domain-separated encryption and MAC subkeys, prefixed with 'enc:'.
     """
     if not val:
         return ""
-    key = _get_encryption_key()
+    master = _get_encryption_key()
+    enc_key = hmac.new(master, b'ZUPIRUS_ENC_V2', hashlib.sha256).digest()
+    mac_key = hmac.new(master, b'ZUPIRUS_MAC_V2', hashlib.sha256).digest()
     nonce = os.urandom(16)
     data = val.encode('utf-8')
     keystream = bytearray()
     counter = 0
     while len(keystream) < len(data):
-        block = hmac.new(key, nonce + counter.to_bytes(4, 'big'), hashlib.sha256).digest()
+        block = hmac.new(enc_key, nonce + counter.to_bytes(4, 'big'), hashlib.sha256).digest()
         keystream.extend(block)
         counter += 1
     ct = bytes(a ^ b for a, b in zip(data, keystream[:len(data)]))
-    tag = hmac.new(key, b'AUTH:' + nonce + ct, hashlib.sha256).digest()[:16]
-    return base64.b64encode(nonce + tag + ct).decode('ascii')
+    tag = hmac.new(mac_key, b'AUTH:' + nonce + ct, hashlib.sha256).digest()[:16]
+    return "enc:" + base64.b64encode(nonce + tag + ct).decode('ascii')
 
 def decrypt_secret(enc: str) -> str:
-    """Decrypt authenticated ciphertext and verify MAC integrity."""
+    """Decrypt authenticated ciphertext (supports v2 'enc:' prefix and legacy v1 unprefixed)."""
     if not enc:
         return ""
     try:
-        raw = base64.b64decode(enc.encode('ascii'))
+        is_v2 = enc.startswith("enc:")
+        payload = enc[4:] if is_v2 else enc
+        raw = base64.b64decode(payload.encode('ascii'))
         if len(raw) < 32:
             return ""
         nonce, tag, ct = raw[:16], raw[16:32], raw[32:]
-        key = _get_encryption_key()
-        expected_tag = hmac.new(key, b'AUTH:' + nonce + ct, hashlib.sha256).digest()[:16]
+        master = _get_encryption_key()
+        if is_v2:
+            enc_key = hmac.new(master, b'ZUPIRUS_ENC_V2', hashlib.sha256).digest()
+            mac_key = hmac.new(master, b'ZUPIRUS_MAC_V2', hashlib.sha256).digest()
+        else:
+            enc_key = master
+            mac_key = master
+        expected_tag = hmac.new(mac_key, b'AUTH:' + nonce + ct, hashlib.sha256).digest()[:16]
         if not hmac.compare_digest(tag, expected_tag):
             return ""
         keystream = bytearray()
         counter = 0
         while len(keystream) < len(ct):
-            block = hmac.new(key, nonce + counter.to_bytes(4, 'big'), hashlib.sha256).digest()
+            block = hmac.new(enc_key, nonce + counter.to_bytes(4, 'big'), hashlib.sha256).digest()
             keystream.extend(block)
             counter += 1
         pt = bytes(a ^ b for a, b in zip(ct, keystream[:len(ct)]))

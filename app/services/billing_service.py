@@ -55,7 +55,7 @@ BILLING_CYCLE_CONFIG = {
 
 def clamp_cloud_slots(plan_tier: str, cloud_slots: int) -> int:
     """Enforce tier-specific maximum MT5 cloud slots across pricing, checkout, and activation."""
-    max_tier_slots = TIER_MAX_ACCOUNTS.get(str(plan_tier or "starter").lower(), 5)
+    max_tier_slots = TIER_MAX_ACCOUNTS.get(str(plan_tier or "starter").lower(), 1)
     return max(1, min(int(cloud_slots or 1), max_tier_slots))
 
 

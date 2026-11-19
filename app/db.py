@@ -39,7 +39,10 @@ def _configure_pg_conn(conn):
         fd = getattr(getattr(conn, "pgconn", None), "socket", -1)
         if fd and fd > 0:
             s = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(3.0)
+            try:
+                s.settimeout(3.0)
+            finally:
+                s.close()
     except Exception:
         pass
 

@@ -15,10 +15,21 @@ SECURE = os.getenv('COOKIE_SECURE', 'true').lower() == 'true'
 
 
 def _client_ip(request: Request) -> str:
-    xff = request.headers.get('x-forwarded-for', '').strip()
-    if xff:
-        return xff.split(',')[0].strip() or '127.0.0.1'
-    return (request.client.host if request.client else '') or '127.0.0.1'
+    """Return client IP, honoring X-Forwarded-For only when connected through a trusted local/Docker proxy."""
+    import ipaddress
+    direct = (request.client.host if request.client else '') or '127.0.0.1'
+    try:
+        ip_obj = ipaddress.ip_address(direct)
+        is_trusted_proxy = ip_obj.is_loopback or ip_obj.is_private
+    except ValueError:
+        is_trusted_proxy = False
+    if is_trusted_proxy:
+        xff = request.headers.get('x-forwarded-for', '').strip()
+        if xff:
+            parts = [p.strip() for p in xff.split(',') if p.strip()]
+            if parts:
+                return parts[-1]
+    return direct
 
 class Credentials(Model):
     email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
@@ -158,17 +169,18 @@ def forgot_password(p: ForgotPasswordPayload, request: Request):
         pass
     now = time.time()
     code = f"{secrets.randbelow(900000) + 100000}"
+    reset_otp_key = f"reset:{email_clean}"
     with tx() as c:
         usr = c.execute('SELECT id FROM users WHERE email=?', (email_clean,)).fetchone()
         if not usr:
             return {'ok': True, 'message': 'Nếu email tồn tại, mã OTP đặt lại mật khẩu đã được gửi.'}
-        prev = c.execute('SELECT expires_at FROM otp_codes WHERE email=?', (email_clean,)).fetchone()
+        prev = c.execute('SELECT expires_at FROM otp_codes WHERE email=?', (reset_otp_key,)).fetchone()
         if prev and (prev['expires_at'] - 540.0) > now:
             fail(429, "Vui lòng chờ 60 giây trước khi yêu cầu mã OTP mới")
         c.execute(
             "INSERT INTO otp_codes (email, code, expires_at, attempts) VALUES (?, ?, ?, 0) "
             "ON CONFLICT(email) DO UPDATE SET code=excluded.code, expires_at=excluded.expires_at, attempts=0",
-            (email_clean, code, now + 600),
+            (reset_otp_key, code, now + 600),
         )
     from app.mailer import send_otp_code
     send_otp_code(email=email_clean, code=code, purpose="Đặt Lại Mật Khẩu")
@@ -177,25 +189,27 @@ def forgot_password(p: ForgotPasswordPayload, request: Request):
 
 @router.post('/api/auth/reset-password')
 def reset_password(p: ResetPasswordPayload):
+    import hmac as _hmac
     email_clean = p.email.strip().lower()
+    reset_otp_key = f"reset:{email_clean}"
     now = time.time()
     err_code = None
     err_msg = None
     with tx() as c:
-        row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (email_clean,)).fetchone()
+        row = c.execute("SELECT code, expires_at, attempts FROM otp_codes WHERE email=?", (reset_otp_key,)).fetchone()
         if not row:
             err_code, err_msg = 400, "Mã OTP không tồn tại hoặc đã hết hạn."
         elif row['expires_at'] < now:
-            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            c.execute("DELETE FROM otp_codes WHERE email=?", (reset_otp_key,))
             err_code, err_msg = 400, "Mã OTP đã hết hạn."
         elif int(row['attempts']) >= 5:
-            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            c.execute("DELETE FROM otp_codes WHERE email=?", (reset_otp_key,))
             err_code, err_msg = 429, "Nhập sai mã OTP quá 5 lần."
-        elif row['code'] != p.otp_code.strip():
-            c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (int(row['attempts']) + 1, email_clean))
+        elif not _hmac.compare_digest(str(row['code']), p.otp_code.strip()):
+            c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (int(row['attempts']) + 1, reset_otp_key))
             err_code, err_msg = 400, "Mã OTP không chính xác."
         else:
-            c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
+            c.execute("DELETE FROM otp_codes WHERE email=?", (reset_otp_key,))
             usr = c.execute("SELECT id FROM users WHERE email=?", (email_clean,)).fetchone()
             if not usr:
                 err_code, err_msg = 404, "Tài khoản không tồn tại."
@@ -278,7 +292,7 @@ def auth_verify_otp(p: VerifyOtpPayload):
         elif row['attempts'] >= 5:
             c.execute("DELETE FROM otp_codes WHERE email=?", (email_clean,))
             err_code, err_msg = 429, "Bạn đã nhập sai mã quá 5 lần. Vui lòng yêu cầu mã OTP mới"
-        elif row['code'] != p.code.strip():
+        elif not __import__('hmac').compare_digest(str(row['code']), p.code.strip()):
             new_attempts = int(row['attempts']) + 1
             c.execute("UPDATE otp_codes SET attempts=? WHERE email=?", (new_attempts, email_clean))
             if new_attempts >= 5:

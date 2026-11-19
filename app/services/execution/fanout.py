@@ -184,8 +184,8 @@ async def execute_fan_out_for_signal(
         effective_risk_pct = risk_pct
         effective_mult = mult
 
-        if is_prop_mode:
-            # Check profit-target throttle flag (halve risk when >= 80% of prop profit target achieved)
+        if is_prop_mode and prop_stage != "LIVE":
+            # Check profit-target throttle flag (halve risk when >= 80% of prop profit target achieved in CHALLENGE)
             try:
                 from app.db import tx, getkv
                 with tx() as c:

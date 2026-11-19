@@ -27,6 +27,21 @@ def get_usd_vnd_rate(force_refresh: bool = False) -> Tuple[float, str, bool]:
         (rate: float, source: str, is_cached: bool)
         source in ("API", "REDIS_CACHE", "FALLBACK")
     """
+    # 0. Check Admin manual FX override stored in DB kv (billing:settings)
+    try:
+        import json
+        from app.db import tx
+        with tx() as c:
+            row = c.execute("SELECT value FROM kv WHERE key IN ('billing:settings', 'billing_settings') LIMIT 1").fetchone()
+            if row and row[0]:
+                cfg = json.loads(row[0])
+                fx_mode = str(cfg.get("fx_mode") or "").upper()
+                manual_val = float(cfg.get("manual_fx_rate") or cfg.get("fallback_usd_vnd_rate") or 0)
+                if fx_mode == "MANUAL" and manual_val > 1000.0:
+                    return manual_val, "ADMIN_MANUAL", False
+    except Exception:
+        pass
+
     redis_cli = None
     try:
         redis_cli = get_redis_client()

@@ -77,6 +77,9 @@ jobs:
           ALLOW_REAL: "false"
           COOKIE_SECURE: "false"
           DATA_DIR: "/tmp/zupirus_test_data"
+          DATABASE_URL: "postgresql://zupirus:zupirus_ci_password@localhost:5432/zupirus"
+          REDIS_URL: "redis://localhost:6379/0"
+          ENCRYPTION_KEY: "ci_test_encryption_key_32bytes_min!"
         run: |
           python -m pytest tests/ -v --junitxml=test-results.xml
 

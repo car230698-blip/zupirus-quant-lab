@@ -40,18 +40,27 @@ def _read_builtin_skill_md(skill_id: str) -> Optional[str]:
 
 
 def _write_learned_skill_md(skill_id: str, skill_md: str) -> Optional[str]:
-    """Export self-evolved analytical skill to app/skills/learned/<skill_id>/SKILL.md."""
+    """Export self-evolved analytical skill to disk (falls back to writable DATA_DIR under read_only rootfs)."""
     safe_id = os.path.basename(skill_id)
-    target_dir = os.path.join(LEARNED_SKILLS_DIR, safe_id)
-    try:
-        os.makedirs(target_dir, exist_ok=True)
-        skill_file = os.path.join(target_dir, "SKILL.md")
-        with open(skill_file, "w", encoding="utf-8") as f:
-            f.write(skill_md)
-        return skill_file
-    except Exception as e:
-        logger.warning(f"Could not write learned SKILL.md to disk for {skill_id}: {e}")
-        return None
+    candidate_bases = [
+        LEARNED_SKILLS_DIR,
+        os.path.join(os.getenv("DATA_DIR", "/data"), "learned_skills"),
+    ]
+    for base in candidate_bases:
+        target_dir = os.path.join(base, safe_id)
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            skill_file = os.path.join(target_dir, "SKILL.md")
+            with open(skill_file, "w", encoding="utf-8") as f:
+                f.write(skill_md)
+            return skill_file
+        except OSError:
+            continue
+        except Exception as e:
+            logger.warning(f"Could not write learned SKILL.md to disk for {skill_id}: {e}")
+            return None
+    logger.warning(f"Could not write learned SKILL.md to disk for {skill_id}: no writable directory")
+    return None
 
 
 def _enrich_skill_item(d: Dict[str, Any]) -> Dict[str, Any]:
