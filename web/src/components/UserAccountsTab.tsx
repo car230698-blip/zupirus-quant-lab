@@ -4,6 +4,7 @@ import { fmtNum } from '../utils/strategyDecision';
 import { formatApiError } from '../utils/formatError.ts';
 import { AccountModals } from './AccountModals';
 import { ConnectedAccountsListSection } from './ConnectedAccountsListSection';
+import { UserReferralAndInvoicesSection } from './UserReferralAndInvoicesSection';
 import { IconShield } from './Icons';
 import { POPULAR_BROKERS } from '../data/quantConstants';
 
@@ -837,6 +838,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         handleDeleteAccount={handleDeleteAccount}
         handleSaveAccountConfig={handleSaveAccountConfig}
       />
+
+      <UserReferralAndInvoicesSection />
 
       <AccountModals
         disclaimerModalOpen={disclaimerModalOpen}

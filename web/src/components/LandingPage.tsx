@@ -4,6 +4,7 @@ import guardMatrixImg from '../assets/images/guard_matrix_architecture_179479284
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { LandingQrPreviewModal } from './LandingQrPreviewModal';
 import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
+import { PublicTrackRecordSection } from './PublicTrackRecordSection';
 import { IconBan, IconBolt, IconClose } from './Icons';
 import { LandingLotCalculator } from './LandingLotCalculator';
 import { GUARD_LAYERS, PRICING_TIERS } from '../data/landingData';
@@ -142,6 +143,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </a>
             <a href="#lot-calculator" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
               Máy Tính Lot Quỹ Prop
+            </a>
+            <a href="#track-record" className="hover:text-emerald-300 transition-colors whitespace-nowrap shrink-0">
+              Hiệu Suất Thực Tế
             </a>
             <a href="#pricing" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
               Bảng Giá SePay VietQR
@@ -855,6 +859,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           setCalcSlPips={setCalcSlPips}
           lotCalc={lotCalc}
         />
+
+        <PublicTrackRecordSection onEnterPortal={onEnterPortal} />
 
         <LandingPricingAndFaqSection
           tiers={PRICING_TIERS}

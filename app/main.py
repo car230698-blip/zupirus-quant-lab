@@ -33,6 +33,7 @@ from app.routers import (
     telemetry_admin_router,
     webhooks_router,
 )
+from app.routers.growth import router as growth_router
 
 logger = logging.getLogger("zupirus.api")
 
@@ -190,6 +191,7 @@ for _router in (
     telemetry_admin_router,
     skills_router,
     admin_ai_router,
+    growth_router,
 ):
     app.include_router(_router)
 

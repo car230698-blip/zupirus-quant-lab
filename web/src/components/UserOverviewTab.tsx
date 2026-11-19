@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { EquityHistory } from './EquityHistory';
 import { CandlestickTelemetryChart } from './CandlestickTelemetryChart';
+import { PropCertificateModal } from './PropCertificateModal';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 
@@ -67,6 +68,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const [localChartMode, setLocalChartMode] = useState<'candles' | 'equity'>('candles');
   const [showEmaOverlay, setShowEmaOverlay] = useState(true);
   const [showBbChannel, setShowBbChannel] = useState(true);
+  const [certModalOpen, setCertModalOpen] = useState(false);
   const [hoveredCandleIdx, setHoveredCandleIdx] = useState<number | null>(null);
   const [activeShieldIdx, setActiveShieldIdx] = useState<number>(0);
   const [subInfo, setSubInfo] = useState<any>(null);
@@ -449,6 +451,15 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {(totalAccountsCount ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setCertModalOpen(true)}
+                  className="rounded-xl border border-amber-400/45 bg-amber-500/15 px-3 py-1.5 font-mono text-xs font-bold text-amber-200 hover:bg-amber-500/25 transition whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  🏆 Chứng Nhận Pass Quỹ
+                </button>
+              )}
               <div className="flex rounded-xl border border-amber-500/25 bg-[#040710] p-1">
                 <button
                   type="button"
@@ -669,6 +680,13 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
           </div>
         </div>
       </div>
+      <PropCertificateModal
+        open={certModalOpen}
+        onClose={() => setCertModalOpen(false)}
+        totalEquity={totalEquity ?? totalBalance ?? 0}
+        netPnl={totalPnl ?? 0}
+        accountsCount={totalAccountsCount ?? 0}
+      />
     </div>
   );
 };
