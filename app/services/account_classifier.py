@@ -83,7 +83,8 @@ def calculate_normalized_lot_size(
     # If broker tick_value (USD per point per 1 lot) is explicitly supplied (!= 1.0), use it directly
     # without multiplying again by point_size * eff_contract.
     if abs(tv - 1.0) > 1e-6:
-        loss_per_lot = sl_distance_points * tv
+        # On Cent accounts (USC), broker tick_value is denominated in USC; convert to USD to match risk_amount
+        loss_per_lot = sl_distance_points * tv * (0.01 if is_cent else 1.0)
     else:
         usd_conv = quote_to_usd_rate(sym_u, entry_price)
         loss_per_lot = sl_distance_points * point_size * eff_contract * usd_conv

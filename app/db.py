@@ -36,8 +36,9 @@ def _configure_pg_conn(conn):
     """Set socket timeouts on PostgreSQL connection so paused/frozen servers abort quickly."""
     try:
         import socket
-        fd = getattr(getattr(conn, "pgconn", None), "socket", -1)
-        if fd and fd > 0:
+        raw_sock = getattr(getattr(conn, "pgconn", None), "socket", -1)
+        fd = raw_sock() if callable(raw_sock) else raw_sock
+        if isinstance(fd, int) and fd > 0:
             s = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
             try:
                 s.settimeout(3.0)

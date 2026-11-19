@@ -510,7 +510,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
                     headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
                   });
                   const d = await r.json().catch(() => ({}));
-                  setMsg(r.ok ? `Đã đồng bộ News Shield (${d.synced ?? d.count ?? 'OK'}).` : `Lỗi News Sync: ${d.detail || r.status}`);
+                  setMsg(r.ok ? `Đã đồng bộ News Shield (${d.added ?? d.synced ?? d.count ?? 'OK'}).` : `Lỗi News Sync: ${d.detail || r.status}`);
                 } catch (e: any) {
                   setMsg(`Lỗi mạng: ${e.message}`);
                 }

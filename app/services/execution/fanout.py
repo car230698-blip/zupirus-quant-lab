@@ -244,7 +244,9 @@ async def execute_fan_out_for_signal(
                     still_at_risk = (is_pos_buy and pos_sl < pos_open) or (not is_pos_buy and pos_sl > pos_open)
                     if still_at_risk:
                         pos_risk_usd = abs(pos_open - pos_sl) * pos_vol * eff_contract * quote_to_usd_rate(symbol, pos_open)
-                        open_idea_risk_pct += (pos_risk_usd / base_capital) * 100.0
+                        base_capital_usd = (base_capital / 100.0) if is_cent_acc else base_capital
+                        if base_capital_usd > 0:
+                            open_idea_risk_pct += (pos_risk_usd / base_capital_usd) * 100.0
 
                 if unprotected_same_idea:
                     logger.warning(f"Account {acc_id} (PROP LIVE) skipped fail-closed: open {symbol} {action} position has no SL.")

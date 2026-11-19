@@ -172,6 +172,13 @@ export function useRealtimePortalStream(portal: 'user' | 'admin', enabled: boole
       es.addEventListener('order_update', refreshUser);
       es.addEventListener('account_update', refreshUser);
     } else {
+      es.addEventListener('radar', (ev: MessageEvent) => {
+        try {
+          window.dispatchEvent(new CustomEvent('zupirus:admin-radar', { detail: JSON.parse(ev.data) }));
+        } catch {
+          // ignore malformed frame
+        }
+      });
       es.addEventListener('billing_paid', () => {
         void queryClient.invalidateQueries({ queryKey: ['admin-billing'] });
       });

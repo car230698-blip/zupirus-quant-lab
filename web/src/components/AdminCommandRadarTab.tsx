@@ -43,25 +43,19 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
 
   useEffect(() => {
     loadRadar();
-    let es: EventSource | null = null;
-    if (typeof window !== 'undefined' && typeof EventSource !== 'undefined') {
-      es = new EventSource('/api/v1/stream/admin', { withCredentials: true });
-      es.onopen = () => setSseLive(true);
-      es.addEventListener('radar', (ev: MessageEvent) => {
-        try {
-          setRadar(JSON.parse(ev.data));
-          setLoading(false);
-          setSseLive(true);
-        } catch {
-          // ignore malformed frame
-        }
-      });
-      es.onerror = () => setSseLive(false);
-    }
+    const onRadarEvent = (ev: Event) => {
+      const custom = ev as CustomEvent;
+      if (custom?.detail) {
+        setRadar(custom.detail);
+        setLoading(false);
+        setSseLive(true);
+      }
+    };
+    window.addEventListener('zupirus:admin-radar', onRadarEvent);
     const timer = setInterval(loadRadar, 20000);
     return () => {
       clearInterval(timer);
-      if (es) es.close();
+      window.removeEventListener('zupirus:admin-radar', onRadarEvent);
     };
   }, [loadRadar]);
 

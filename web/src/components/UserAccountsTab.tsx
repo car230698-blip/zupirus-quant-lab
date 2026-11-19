@@ -321,6 +321,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   };
 
   const handleToggleAccount = async (accountId: string, currentActive: boolean) => {
+    if (cloudBusy) return;
+    setCloudBusy(true);
     try {
       const res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/toggle`, {
         method: 'POST',
@@ -336,6 +338,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       refetchAccounts();
     } catch (e: any) {
       setCloudMsg(`Lỗi kết nối: ${e.message}`);
+    } finally {
+      setCloudBusy(false);
     }
   };
 

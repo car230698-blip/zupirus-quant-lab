@@ -79,7 +79,7 @@ class InMemoryRedisMock:
                 return 1
             return 0
 
-    def xadd(self, name: str, fields: Dict[str, Any], id: str = "*", maxlen: Optional[int] = None) -> str:
+    def xadd(self, name: str, fields: Dict[str, Any], id: str = "*", maxlen: Optional[int] = None, approximate: bool = True) -> str:
         with self._lock:
             if name not in self._streams:
                 self._streams[name] = []
@@ -89,6 +89,13 @@ class InMemoryRedisMock:
             if maxlen and len(self._streams[name]) > maxlen:
                 self._streams[name] = self._streams[name][-maxlen:]
             return entry_id
+
+    def xrevrange(self, name: str, max: str = "+", min: str = "-", count: Optional[int] = None) -> List[Any]:
+        with self._lock:
+            entries = list(reversed(self._streams.get(name, [])))
+            if count:
+                entries = entries[:count]
+            return [(e["id"], {k: str(v) for k, v in e["data"].items()}) for e in entries]
 
     def xread(self, streams: Dict[str, str], count: Optional[int] = None, block: Optional[int] = None) -> List[Any]:
         with self._lock:

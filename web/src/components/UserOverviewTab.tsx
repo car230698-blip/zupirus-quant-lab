@@ -627,7 +627,13 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                             {fmtNum(acc.lot_multiplier || acc.risk_multiplier || 1, 2)}
                           </div>
                         </div>
-                        <span className="rounded bg-emerald-500/15 border border-emerald-500/35 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300 shrink-0">
+                        <span
+                          className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold shrink-0 border ${
+                            isActive
+                              ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
+                              : 'bg-slate-800/80 border-slate-600/50 text-slate-400'
+                          }`}
+                        >
                           {isActive ? 'ONLINE' : 'PAUSED'}
                         </span>
                       </div>

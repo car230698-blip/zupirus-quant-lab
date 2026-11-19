@@ -44,7 +44,7 @@ def _write_learned_skill_md(skill_id: str, skill_md: str) -> Optional[str]:
     safe_id = os.path.basename(skill_id)
     candidate_bases = [
         LEARNED_SKILLS_DIR,
-        os.path.join(os.getenv("DATA_DIR", "/data"), "learned_skills"),
+        os.path.join(os.getenv("DATA_DIR", "/data"), "skills_learned"),
     ]
     for base in candidate_bases:
         target_dir = os.path.join(base, safe_id)

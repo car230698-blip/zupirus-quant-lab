@@ -98,8 +98,7 @@ class PositionWatcher:
         now_utc = now_dt or datetime.datetime.now(datetime.timezone.utc)
         date_str = now_utc.strftime("%Y-%m-%d")
         is_friday_weekend = (
-            (now_utc.weekday() == 4 and now_utc.hour >= WEEKEND_CLOSE_FRIDAY_HOUR_UTC)
-            or (now_utc.weekday() == 5 and now_utc.hour < 22)
+            now_utc.weekday() == 4 and now_utc.hour >= WEEKEND_CLOSE_FRIDAY_HOUR_UTC
         )
 
         with tx() as c:

@@ -303,14 +303,20 @@ async def process_successful_payment(
         sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
         sub_d = dict(sub) if sub else None
         current_sub_exp = float(sub_d["service_expires_at"] or 0) if sub_d and sub_d.get("service_expires_at") else 0.0
-        new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
-
         _tier_rank = {"starter": 1, "growth": 2, "alpha": 3}
         effective_tier = tier
+        is_lower_tier_on_active = False
         if sub_d and current_sub_exp > now_ts:
             existing_tier = str(sub_d.get("plan_tier") or "starter").lower()
             if _tier_rank.get(existing_tier, 1) > _tier_rank.get(tier, 1):
                 effective_tier = existing_tier
+                is_lower_tier_on_active = True
+
+        # Prevent stacking cheap lower-tier days onto an active higher-tier subscription
+        if is_lower_tier_on_active:
+            new_sub_exp = max(current_sub_exp, now_ts + duration_sec)
+        else:
+            new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
 
         is_growth = effective_tier in ("growth", "alpha")
         is_alpha = effective_tier == "alpha"

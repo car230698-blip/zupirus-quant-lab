@@ -2,9 +2,10 @@
 import time
 import logging
 from typing import Dict, Any
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.db import tx
+from app.routers.deps import get_current_admin
 from app.services.fx_rate import get_usd_vnd_rate
 from app.services.signal_ingestion.context import get_nearest_news_info
 from app.services.sources.curator import count_active_sources, get_sources_counts
@@ -253,8 +254,8 @@ def get_topbar_telemetry():
 
 
 @router.get("/metrics")
-def get_prometheus_metrics():
-    """Prometheus text exposition metrics for external monitoring (Grafana/Prometheus)."""
+def get_prometheus_metrics(_admin=Depends(get_current_admin)):
+    """Prometheus text exposition metrics (admin-authenticated) for Grafana/Prometheus."""
     from fastapi.responses import PlainTextResponse
 
     db_up = 0
