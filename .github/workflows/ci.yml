@@ -141,4 +141,4 @@ jobs:
       - name: Run Frontend Tests
         run: |
           npm test
-          npx --yes tsx --test web/src/utils/quantMath.test.ts
+          npx --yes tsx --test web/src/utils/quantMath.test.ts web/src/utils/stateMapping.test.ts web/src/components/PortalComponents.test.tsx
