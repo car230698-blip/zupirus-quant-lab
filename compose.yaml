@@ -74,6 +74,9 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
       TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET:-}
+      DISCORD_WEBHOOK_SIGNALS: ${DISCORD_WEBHOOK_SIGNALS:-}
+      DISCORD_WEBHOOK_ALERTS: ${DISCORD_WEBHOOK_ALERTS:-}
+      DISCORD_WEBHOOK_BILLING: ${DISCORD_WEBHOOK_BILLING:-}
     ports: ["127.0.0.1:8080:8000"]
     networks:
       - private
@@ -99,6 +102,9 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
+      DISCORD_WEBHOOK_SIGNALS: ${DISCORD_WEBHOOK_SIGNALS:-}
+      DISCORD_WEBHOOK_ALERTS: ${DISCORD_WEBHOOK_ALERTS:-}
+      DISCORD_WEBHOOK_BILLING: ${DISCORD_WEBHOOK_BILLING:-}
     healthcheck:
       test: [CMD, python, scripts/worker_health.py, execution_heartbeat]
       interval: 15s
@@ -130,6 +136,9 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
       SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
       TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET:-}
+      DISCORD_WEBHOOK_SIGNALS: ${DISCORD_WEBHOOK_SIGNALS:-}
+      DISCORD_WEBHOOK_ALERTS: ${DISCORD_WEBHOOK_ALERTS:-}
+      DISCORD_WEBHOOK_BILLING: ${DISCORD_WEBHOOK_BILLING:-}
     healthcheck:
       test: [CMD, python, scripts/worker_health.py, research_heartbeat]
       interval: 15s

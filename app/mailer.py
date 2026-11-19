@@ -185,7 +185,12 @@ def send_subscription_expiry_reminder(
 
 
 def send_admin_alert_email(title: str, detail: str) -> Dict[str, Any]:
-    """Send proactive operational/risk alert email to all real Admin users."""
+    """Send proactive operational/risk alert email to all real Admin users and mirror to Discord."""
+    try:
+        from app.services.discord_notifier import notify_discord_alert
+        notify_discord_alert(str(title), str(detail))
+    except Exception:
+        pass
     try:
         from app.db import tx
         with tx() as c:

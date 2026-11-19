@@ -296,6 +296,15 @@ export function PortalShell({
                 <span className="text-amber-300 font-mono tabular-nums">London G2 · OK</span>
               </div>
               <div className="flex flex-col gap-1.5 pt-0.5 w-full">
+                <a
+                  href="https://discord.gg/yxCx3dVe34"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/25 transition-colors flex items-center justify-between"
+                >
+                  <span>Cộng Đồng Discord</span>
+                  <span className="text-[10px] text-indigo-300">↗</span>
+                </a>
                 <button
                   type="button"
                   onClick={() => setCmdOpen(true)}
