@@ -492,18 +492,25 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
     }
 
 
-@router.get("/code-map")
-def get_admin_code_map(_admin=Depends(get_current_admin)):
-    """Return Understand-Anything Codebase Knowledge Graph (Scan -> Map -> Teach)."""
-    from app.services.code_map import get_code_knowledge_graph
-    return get_code_knowledge_graph(force_rescan=False)
+@router.get("/codegraph")
+def get_admin_codegraph(_admin=Depends(get_current_admin)):
+    """Return @colbymchenry/codegraph architectural overview, hotspots, and dead code."""
+    from app.services.codegraph_service import get_codegraph_overview
+    return get_codegraph_overview(force_reload=False)
 
 
-@router.post("/code-map/rescan")
-def rescan_admin_code_map(_admin=Depends(get_current_admin)):
-    """Re-scan the live repository AST/imports and refresh the knowledge graph."""
-    from app.services.code_map import get_code_knowledge_graph
-    return get_code_knowledge_graph(force_rescan=True)
+@router.get("/codegraph/symbol")
+def get_admin_codegraph_symbol(q: str = "", id: str = "", _admin=Depends(get_current_admin)):
+    """Search symbols and inspect Call Graph (Callers, Callees) & 2-hop Impact Radius."""
+    from app.services.codegraph_service import query_codegraph_symbol
+    return query_codegraph_symbol(q=q, symbol_id=id)
+
+
+@router.post("/codegraph/reindex")
+def reindex_admin_codegraph(_admin=Depends(get_current_admin)):
+    """Re-index with @colbymchenry/codegraph and reload snapshot."""
+    from app.services.codegraph_service import trigger_codegraph_reindex
+    return trigger_codegraph_reindex()
 
 
 

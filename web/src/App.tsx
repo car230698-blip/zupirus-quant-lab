@@ -9,12 +9,12 @@ import { UserOrdersTab } from './components/UserOrdersTab.tsx';
 import { AdminCommandRadarTab } from './components/AdminCommandRadarTab.tsx';
 import { AdminAIEvolutionTab } from './components/AdminAIEvolutionTab.tsx';
 import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTab.tsx';
-import { AdminCodeMapTab } from './components/AdminCodeMapTab.tsx';
+import { AdminCodeGraphTab } from './components/AdminCodeGraphTab.tsx';
 import { LandingPage } from './components/LandingPage.tsx';
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
 
 type UserTabKey = 'overview' | 'accounts' | 'orders';
-type AdminTabKey = 'radar' | 'ai' | 'business' | 'codemap';
+type AdminTabKey = 'radar' | 'ai' | 'business' | 'codegraph';
 export type PortalType = 'landing' | 'user' | 'admin';
 
 interface UserInfo {
@@ -429,7 +429,7 @@ const AppContent: React.FC = () => {
             <AdminBusinessCustomersTab accounts={monitorData.accounts} refetchAll={loadAdminMonitor} />
           )}
 
-          {adminTab === 'codemap' && <AdminCodeMapTab />}
+          {adminTab === 'codegraph' && <AdminCodeGraphTab />}
         </>
       )}
     </PortalShell>

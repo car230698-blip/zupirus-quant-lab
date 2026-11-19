@@ -29,7 +29,7 @@ function renderNavIcon(key: string): ReactNode {
       return <IconBrain className="w-4 h-4" />;
     case 'business':
       return <IconUsers className="w-4 h-4" />;
-    case 'codemap':
+    case 'codegraph':
       return <IconServer className="w-4 h-4" />;
     default:
       return <IconBolt className="w-4 h-4" />;
@@ -48,7 +48,7 @@ const navigation = {
     ['radar', 'Giám Sát AI & Cảnh Báo', '01'],
     ['ai', 'Trí Tuệ AI & Nguồn Tín Hiệu', '02'],
     ['business', 'Kinh Doanh & Khách Hàng', '03'],
-    ['codemap', 'Bản Đồ Mã Nguồn', '04'],
+    ['codegraph', 'CodeGraph', '04'],
   ],
 };
 
@@ -62,7 +62,7 @@ const pageTitles: Record<Portal, Record<string, string>> = {
     radar: 'Giám Sát Hoạt Động AI & Cảnh Báo Lỗi',
     ai: 'Trí Tuệ AI & Nguồn Tín Hiệu Tự Tiến Hóa',
     business: 'Cài Đặt Kinh Doanh, SePay & Khách Hàng',
-    codemap: 'Bản Đồ Mã Nguồn & Đồ Thị Kiến Trúc (Understand-Anything)',
+    codegraph: 'CodeGraph — Đồ Thị Mã Nguồn & Call Graph (@colbymchenry/codegraph)',
   },
 };
 
@@ -77,7 +77,7 @@ const pageSubtitles: Record<Portal, Record<string, string>> = {
     radar: 'Nhịp tim hệ thống 4 phân hệ, dòng thời gian quyết định của AI theo thời gian thực và hộp xử lý cảnh báo lỗi.',
     ai: 'Lộ trình tự tiến hóa 3 giai đoạn, nguồn hạt giống, kỹ năng AI tự học và cấu hình Gemini API Pool.',
     business: 'Cấu hình nhận tiền SePay, tỷ giá USD/VND, đối soát ngoại lệ đơn hàng và quản trị tài khoản khách hàng.',
-    codemap: 'Đồ thị tri thức mã nguồn tương tác (Scan → Map → Teach): phân tầng kiến trúc, luồng phụ thuộc và Guided Tours nghiệp vụ.',
+    codegraph: 'Chỉ mục ngữ nghĩa từ colbymchenry/codegraph: bản đồ 6 tầng kiến trúc, Call Graph (Callers/Callees), Impact Radius 2-hop và Dead Code.',
   },
 };
 
