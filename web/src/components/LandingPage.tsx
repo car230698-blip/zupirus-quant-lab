@@ -110,9 +110,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
       {/* Zone 1-3 Strict Top Bar Contract */}
       <header className="sticky top-0 z-40 border-b border-amber-500/20 bg-[#03050a]/90 backdrop-blur-2xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-8">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6 lg:px-8">
           {/* Zone 1: Brand Identity */}
-          <a href="#top" className="flex items-center gap-3 text-decoration-none group">
+          <a href="#top" className="flex items-center gap-3 text-decoration-none group shrink-0">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 via-amber-500 to-cyan-400 p-[1.5px] shadow-[0_0_24px_rgba(245,158,11,0.35)]">
               <div className="flex h-full w-full items-center justify-center rounded-[10.5px] bg-[#040711] font-mono text-lg font-extrabold text-amber-300">
                 Z
@@ -134,24 +134,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </a>
 
           {/* Zone 2: Primary Section Navigation */}
-          <nav aria-label="Điều hướng trang chủ" className="hidden lg:flex items-center gap-7 text-sm font-medium text-slate-300">
-            <a href="#pipeline" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
-              Mô Phỏng Quạt Lệnh
-            </a>
+          <nav aria-label="Điều hướng trang chủ" className="hidden lg:flex items-center justify-center gap-4 xl:gap-6 text-[13px] font-medium text-slate-300 min-w-0">
             <a href="#safety-shield" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
-              4 Lớp Giáp Vốn
-            </a>
-            <a href="#lot-calculator" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
-              Máy Tính Lot Quỹ Prop
+              4 Lớp Giáp
             </a>
             <a href="#track-record" className="hover:text-emerald-300 transition-colors whitespace-nowrap shrink-0">
-              Hiệu Suất Thực Tế
+              Hiệu Suất
             </a>
             <a href="#pricing" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
-              Bảng Giá SePay VietQR
+              Bảng Giá
             </a>
             <a href="/cong-cu/tinh-lot-size-xauusd" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
-              Tính Lot XAU/USD
+              Tính Lot
             </a>
             <a href="/huong-dan" className="hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0">
               Hướng Dẫn
@@ -160,7 +154,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               href="https://www.youtube.com/@ZupirusTradingAcademy"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-rose-300 hover:text-rose-200 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1 text-rose-300 hover:text-rose-200 transition-colors whitespace-nowrap shrink-0"
             >
               YouTube ↗
             </a>
@@ -168,7 +162,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               href="https://discord.gg/yxCx3dVe34"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-indigo-300 hover:text-indigo-200 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1 text-indigo-300 hover:text-indigo-200 transition-colors whitespace-nowrap shrink-0"
             >
               Discord ↗
             </a>
