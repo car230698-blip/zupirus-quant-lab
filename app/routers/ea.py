@@ -324,7 +324,7 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
             ).fetchall()
             for r in cloud_exec_rows:
                 rd = dict(r)
-                mapped_state = 'filled' if str(rd.get('status', '')).upper() == 'FILLED' else 'rejected'
+                mapped_state = 'filled' if str(rd.get('status', '')).upper() in {'FILLED', 'CLOSED', 'EXECUTED', 'COMPLETED'} else 'rejected'
                 if account_id and rd.get('account_id') != account_id:
                     continue
                 if state and mapped_state != state:
@@ -342,14 +342,18 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
                     'fill_price': rd.get('entry_price') or 0.0,
                     'sl': rd.get('sl') or rd.get('stop_loss'),
                     'tp': rd.get('tp') or rd.get('take_profit'),
-                    'ticket': rd.get('position_id') or '',
+                    'ticket': rd.get('ticket') or rd.get('position_id') or '',
                     'deal': rd.get('order_id') or '',
                     'state': mapped_state,
                     'status': rd.get('status') or 'FILLED',
+                    'pnl': rd.get('profit'),
+                    'profit': rd.get('profit'),
+                    'latency_ms': rd.get('latency_ms'),
                     'source': 'CLOUD_MT5',
                     'created': rd.get('executed_at'),
                     'created_at': rd.get('executed_at'),
-                    'updated': rd.get('executed_at'),
+                    'closed_at': rd.get('closed_at'),
+                    'updated': rd.get('closed_at') or rd.get('executed_at'),
                 })
         except Exception:
             pass
