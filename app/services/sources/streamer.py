@@ -188,8 +188,11 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                     mid = round(float(price), dec)
                     bid = round(mid - half_spread, dec)
                     ask = round(mid + half_spread, dec)
+                    # Only backdate now_ts if Yahoo regularMarketTime is >30m stale (e.g., weekend/closed market);
+                    # during active trading hours Yahoo chart meta can lag 3-15m behind real-time poll fetch.
                     if mkt_time and isinstance(mkt_time, (int, float)) and float(mkt_time) > 1000000000:
-                        now_ts = float(mkt_time)
+                        if (now_ts - float(mkt_time)) > 1800.0:
+                            now_ts = float(mkt_time)
 
                 timestamps = result.get("timestamp") or []
                 quote_arr = ((result.get("indicators") or {}).get("quote") or [{}])[0] or {}
