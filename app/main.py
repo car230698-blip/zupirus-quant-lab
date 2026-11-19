@@ -250,10 +250,20 @@ def _serve_spa_dir(base_dir: Path, full_path: str):
 async def spa_fallback(request: Request, full_path: str):
     if full_path.startswith('api/') or full_path in ('healthz', 'readyz', 'api'):
         return JSONResponse({'detail': f'Not Found: {full_path}'}, status_code=404)
+    host = (request.headers.get('host') or '').lower()
+    is_admin_host = host.startswith('adm.')
+    if full_path == 'robots.txt' and is_admin_host:
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse("User-agent: *\nDisallow: /\n", headers={"X-Robots-Tag": "noindex, nofollow"})
     for directory in (DIST_DIR, WEB_DIR):
         resp = _serve_spa_dir(directory, full_path)
         if resp is not None:
+            if is_admin_host:
+                resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
             return resp
     if (ROOT / 'index.html').exists():
-        return FileResponse(ROOT / 'index.html', headers=_NO_CACHE_HEADERS)
+        resp = FileResponse(ROOT / 'index.html', headers=_NO_CACHE_HEADERS)
+        if is_admin_host:
+            resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
+        return resp
     return JSONResponse({'detail': 'Not Found'}, status_code=404)
