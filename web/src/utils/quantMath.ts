@@ -50,8 +50,9 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
 
   const riskDollars = (safeEquity * safeRiskPct) / 100;
   const multiplier = acctKind === 'cent' ? 100 : 1;
-  const step = acctKind === 'cent' ? 0.1 : 0.01;
-  const minLot = acctKind === 'cent' ? 0.1 : 0.01;
+  const step = 0.01;
+  const minLot = 0.01;
+  const maxLot = 10.0;
   const rawLot = (riskDollars / safeSlPoints) * multiplier;
   const steppedLot = roundToStep(rawLot, step);
   const minLotRiskDollars = (minLot / multiplier) * safeSlPoints;
@@ -61,7 +62,7 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
       ? minLotRiskDollars <= riskDollars + 1e-6
         ? minLot
         : 0
-      : Math.min(steppedLot, 100.0);
+      : Math.min(steppedLot, maxLot);
   const effectiveRiskDollars = clampedLot > 0 ? (clampedLot / multiplier) * safeSlPoints : 0;
   const unitLabel = acctKind === 'cent' ? 'Cent Lots (USC)' : 'Standard Lots';
   const rawDdInput = Number(input.dailyDrawdownLimitPct);
@@ -84,7 +85,7 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
     riskUsd: Number(effectiveRiskDollars.toFixed(2)),
     rewardAt2RUsd: Number((effectiveRiskDollars * 2).toFixed(2)),
     maxConsecutiveLossesBeforeDailyCap,
-    propFirmSafe: clampedLot > 0 && safeRiskPct <= 1.5,
+    propFirmSafe: clampedLot > 0 && safeRiskPct <= 1.0,
   };
 }
 
@@ -150,8 +151,8 @@ export function computeOrderLedgerMetrics(orders: Array<Record<string, any>>) {
   let grossLoss = 0;
 
   for (const o of orders) {
-    const st = String(o.status || o.state || 'filled').toLowerCase();
-    if (st === 'filled' || st === 'executed' || st === 'completed') {
+    const st = String(o.state || o.status || 'filled').toLowerCase();
+    if (st === 'filled' || st === 'executed' || st === 'completed' || st === 'closed' || st === 'open') {
       filledCount += 1;
     }
     const pnl = Number(o.pnl ?? o.profit ?? o.realized_pnl ?? 0);

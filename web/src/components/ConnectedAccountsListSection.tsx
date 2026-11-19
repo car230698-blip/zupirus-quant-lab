@@ -122,8 +122,18 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       </span>
                       <span className="text-slate-600">·</span>
                       <span>
-                        Daily DD: <strong className="text-amber-300">{fmtNum(acc.daily_dd_pct || 0, 2)}%</strong> /{' '}
-                        {fmtNum(acc.max_daily_dd_pct || acc.max_daily_drawdown_pct || 4, 1)}%
+                        Daily DD:{' '}
+                        <strong className="text-amber-300">
+                          {fmtNum(
+                            acc.daily_dd_pct ??
+                              (Number(acc.balance) > 0 && Number(acc.equity) < Number(acc.balance)
+                                ? ((Number(acc.balance) - Number(acc.equity)) / Number(acc.balance)) * 100
+                                : 0),
+                            2
+                          )}
+                          %
+                        </strong>{' '}
+                        / {fmtNum(acc.prop_daily_dd_limit_pct || acc.max_daily_dd_pct || acc.max_daily_drawdown_pct || 4, 1)}%
                       </span>
                     </div>
                   </div>

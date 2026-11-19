@@ -254,8 +254,8 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                   const orderId = o.client_order_id || o.id || `ORD-${idx}`;
                   const isBuy = String(o.side || '').toUpperCase() === 'BUY';
                   const pnl = Number(o.pnl ?? o.profit ?? o.realized_pnl ?? 0);
-                  const orderState = o.status || o.state || 'filled';
-                  const price = o.filled_price || o.requested_price || o.price || 0;
+                  const orderState = o.state || o.status || 'filled';
+                  const price = o.fill_price || o.filled_price || o.requested_price || o.price || 0;
                   const slVal = o.stop_loss || o.sl;
                   const tpVal = o.take_profit || o.tp;
                   return (

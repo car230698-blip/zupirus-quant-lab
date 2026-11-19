@@ -177,13 +177,16 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     setCloudBusy(true);
     setCloudMsg('');
     try {
+      const rawTier = String(subTier || 'starter').toLowerCase();
+      const normalizedTier = rawTier === 'pro' ? 'growth' : rawTier === 'institutional' ? 'alpha' : rawTier;
       const res = await fetch('/api/v1/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
         credentials: 'include',
         body: JSON.stringify({
-          plan_tier: subTier,
+          plan_tier: normalizedTier,
           billing_cycle: subBillingCycle,
+          cloud_slots: effectiveSlots,
           cloud_accounts_count: effectiveSlots,
         }),
       });

@@ -26,9 +26,9 @@ export const AdminAIEvolutionTab: React.FC = () => {
   const loadAll = useCallback(async () => {
     try {
       const [eRes, gRes, sRes] = await Promise.all([
-        fetch('/api/v1/telemetry/ai-evolution'),
-        fetch('/api/admin/gemini/keys'),
-        fetch('/api/admin/ai/settings'),
+        fetch('/api/v1/telemetry/ai-evolution', { credentials: 'include' }),
+        fetch('/api/admin/gemini/keys', { credentials: 'include' }),
+        fetch('/api/admin/ai/settings', { credentials: 'include' }),
       ]);
       if (eRes.ok) setEvo(await eRes.json());
       if (gRes.ok) {
@@ -59,6 +59,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
     const res = await fetch('/api/admin/sources/auto-promote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+      credentials: 'include',
       body: JSON.stringify({ enabled: nextVal }),
     });
     if (res.ok) {
@@ -79,6 +80,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
       const res = await fetch('/api/admin/gemini/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        credentials: 'include',
         body: JSON.stringify({ key: k }),
       });
       if (res.ok) addedCount++;
@@ -96,6 +98,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
     const res = await fetch(`/api/admin/gemini/keys/${encodeURIComponent(kid)}/toggle`, {
       method: 'PUT',
       headers: { 'X-Zupirus': '1' },
+      credentials: 'include',
     });
     if (res.ok) await loadAll();
   };
@@ -104,6 +107,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
     const res = await fetch(`/api/admin/gemini/keys/${encodeURIComponent(kid)}`, {
       method: 'DELETE',
       headers: { 'X-Zupirus': '1' },
+      credentials: 'include',
     });
     if (res.ok) await loadAll();
   };
@@ -112,6 +116,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
     const res = await fetch('/api/admin/ai/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+      credentials: 'include',
       body: JSON.stringify(aiSettings),
     });
     if (res.ok) {
@@ -127,6 +132,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
       const res = await fetch('/api/admin/ai/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+        credentials: 'include',
         body: JSON.stringify({ prompt: 'Kiểm tra kết nối AI Swarm ZUPIRUS.' }),
       });
       const d = await res.json();
@@ -489,6 +495,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
                   const r = await fetch('/api/admin/research', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                    credentials: 'include',
                   });
                   const d = await r.json().catch(() => ({}));
                   setMsg(r.ok ? 'Đã kích hoạt chạy kiểm định WFO Research.' : `Lỗi WFO: ${d.detail || r.status}`);
@@ -508,6 +515,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
                   const r = await fetch('/api/admin/news/sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                    credentials: 'include',
                   });
                   const d = await r.json().catch(() => ({}));
                   setMsg(r.ok ? `Đã đồng bộ News Shield (${d.added ?? d.synced ?? d.count ?? 'OK'}).` : `Lỗi News Sync: ${d.detail || r.status}`);
@@ -526,6 +534,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
                   const r = await fetch('/api/v1/signals/test-ingest', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                    credentials: 'include',
                     body: JSON.stringify({ symbol: 'XAUUSD', action: 'BUY', source: 'ADMIN_BENCH' }),
                   });
                   const d = await r.json().catch(() => ({}));
@@ -560,6 +569,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
                     const r = await fetch(`/api/admin/skills/${encodeURIComponent(sk.skill_id)}`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                      credentials: 'include',
                       body: JSON.stringify({ enabled: !sk.enabled }),
                     });
                     if (r.ok) {

@@ -65,32 +65,48 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
     }
   };
 
+  const escapeHtml = (raw: unknown) =>
+    String(raw ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
   const handlePrintInvoice = (ord: BillingOrderItem) => {
+    if (String(ord.status || '').toUpperCase() !== 'PAID') {
+      return;
+    }
     const w = window.open('', '_blank', 'width=760,height=840');
     if (!w) return;
     const paidDate = ord.paid_at
       ? new Date(ord.paid_at * 1000).toLocaleString('vi-VN')
       : new Date(ord.created_at * 1000).toLocaleString('vi-VN');
     const amount = Number(ord.paid_amount_vnd || ord.expected_amount_vnd || 0).toLocaleString('vi-VN');
+    const safeCode = escapeHtml(ord.payment_code || ord.id);
+    const safeStatus = escapeHtml(ord.status);
+    const safeTier = escapeHtml(String(ord.plan_tier).toUpperCase());
+    const safeSlots = escapeHtml(ord.cloud_slots_count);
     w.document.write(`
-      <!doctype html><html><head><meta charset="utf-8"><title>Hóa Đơn ZUPIRUS - ${ord.payment_code || ord.id}</title>
+      <!doctype html><html><head><meta charset="utf-8"><title>Hóa Đơn ZUPIRUS - ${safeCode}</title>
       <style>body{font-family:Arial,sans-serif;padding:40px;color:#0f172a;max-width:680px;margin:auto}
       h1{margin:0;color:#b45309}table{width:100%;border-collapse:collapse;margin-top:24px}
       th,td{border:1px solid #cbd5e1;padding:10px;text-align:left}th{background:#f8fafc}</style></head>
       <body>
         <h1>ZUPIRUS QUANT LAB — BIÊN LAI THANH TOÁN</h1>
-        <p><strong>Mã đơn hàng:</strong> ${ord.payment_code || ord.id}<br/>
-        <strong>Trạng thái:</strong> ${ord.status}<br/>
-        <strong>Thời gian:</strong> ${paidDate}</p>
+        <p><strong>Mã đơn hàng:</strong> ${safeCode}<br/>
+        <strong>Trạng thái:</strong> ${safeStatus}<br/>
+        <strong>Thời gian:</strong> ${escapeHtml(paidDate)}</p>
         <table>
           <tr><th>Dịch vụ</th><th>Số Slot MT5</th><th>Thành tiền (VND)</th></tr>
-          <tr><td>Gói Cloud MT5 ${String(ord.plan_tier).toUpperCase()}</td><td>${ord.cloud_slots_count}</td><td><strong>${amount} ₫</strong></td></tr>
+          <tr><td>Gói Cloud MT5 ${safeTier}</td><td>${safeSlots}</td><td><strong>${escapeHtml(amount)} ₫</strong></td></tr>
         </table>
         <p style="margin-top:28px;font-size:12px;color:#64748b">Xác nhận tự động bởi hệ thống đối soát SePay VietQR — https://app.zupirus.com</p>
-        <script>window.onload=()=>window.print()</script>
       </body></html>
     `);
     w.document.close();
+    w.focus();
+    w.print();
   };
 
   return (

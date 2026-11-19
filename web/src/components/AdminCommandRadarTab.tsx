@@ -28,7 +28,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
 
   const loadRadar = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/telemetry/admin-radar');
+      const res = await fetch('/api/v1/telemetry/admin-radar', { credentials: 'include' });
       if (res.ok) {
         setRadar(await res.json());
       }
@@ -75,6 +75,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
         const res = await fetch('/api/v1/telemetry/admin-radar/retry-pending', {
           method: 'POST',
           headers: { 'X-Zupirus': '1' },
+          credentials: 'include',
         });
         const j = await res.json();
         setMsg(j.message || 'Đã thử lại kích hoạt MT5.');
@@ -91,6 +92,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
       const res = await fetch('/api/v1/telemetry/admin-radar/dry-run', {
         method: 'POST',
         headers: { 'X-Zupirus': '1' },
+        credentials: 'include',
       });
       if (res.ok) {
         const d = await res.json();

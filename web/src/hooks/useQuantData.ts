@@ -116,15 +116,22 @@ export interface LiveTopbarTelemetry {
   server_time: number;
 }
 
+let _sharedTopbarEs: EventSource | null = null;
+let _sharedTopbarSubscribers = 0;
+
 export function useLiveTopbarTelemetry() {
   const queryClient = useQueryClient();
   const [sseConnected, setSseConnected] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
-    const es = new EventSource('/api/v1/stream/topbar', { withCredentials: true });
-    es.onopen = () => setSseConnected(true);
-    es.addEventListener('topbar', (ev: MessageEvent) => {
+    _sharedTopbarSubscribers += 1;
+    if (!_sharedTopbarEs || _sharedTopbarEs.readyState === EventSource.CLOSED) {
+      _sharedTopbarEs = new EventSource('/api/v1/stream/topbar', { withCredentials: true });
+    }
+    const es = _sharedTopbarEs;
+    const onOpen = () => setSseConnected(true);
+    const onTopbar = (ev: MessageEvent) => {
       try {
         const parsed = JSON.parse(ev.data) as LiveTopbarTelemetry;
         queryClient.setQueryData(['telemetry', 'topbar'], parsed);
@@ -132,12 +139,25 @@ export function useLiveTopbarTelemetry() {
       } catch {
         // ignore malformed frame
       }
-    });
-    es.onerror = () => {
-      setSseConnected(false);
     };
+    const onErr = () => setSseConnected(false);
+
+    if (es.readyState === EventSource.OPEN) {
+      setSseConnected(true);
+    }
+    es.addEventListener('open', onOpen);
+    es.addEventListener('topbar', onTopbar);
+    es.addEventListener('error', onErr);
+
     return () => {
-      es.close();
+      es.removeEventListener('open', onOpen);
+      es.removeEventListener('topbar', onTopbar);
+      es.removeEventListener('error', onErr);
+      _sharedTopbarSubscribers = Math.max(0, _sharedTopbarSubscribers - 1);
+      if (_sharedTopbarSubscribers === 0 && _sharedTopbarEs) {
+        _sharedTopbarEs.close();
+        _sharedTopbarEs = null;
+      }
       setSseConnected(false);
     };
   }, [queryClient]);
@@ -167,6 +187,7 @@ export function useRealtimePortalStream(portal: 'user' | 'admin', enabled: boole
         void queryClient.invalidateQueries({ queryKey: ['accounts'] });
         void queryClient.invalidateQueries({ queryKey: ['orders'] });
         void queryClient.invalidateQueries({ queryKey: ['equity-history'] });
+        window.dispatchEvent(new CustomEvent('zupirus:user-refresh'));
       };
       es.addEventListener('payment_paid', refreshUser);
       es.addEventListener('order_update', refreshUser);
@@ -181,6 +202,7 @@ export function useRealtimePortalStream(portal: 'user' | 'admin', enabled: boole
       });
       es.addEventListener('billing_paid', () => {
         void queryClient.invalidateQueries({ queryKey: ['admin-billing'] });
+        window.dispatchEvent(new CustomEvent('zupirus:admin-billing-refresh'));
       });
     }
 

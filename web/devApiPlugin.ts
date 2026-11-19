@@ -2229,6 +2229,34 @@ export function zupirusApiPlugin(): Plugin {
     if (pathname?.startsWith('/api/admin/users/') && pathname.endsWith('/role') && method === 'PUT') {
       return sendJson(res, 200, { ok: true });
     }
+    if (pathname === '/api/v1/stream/topbar' && method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      const snap = {
+        xauusd: { symbol: 'XAUUSD', bid: 2948.2, ask: 2948.45, mid: 2948.32, spread_pips: 2.5, ts: nowSec(), source: 'DEV_MOCK' },
+        fx_rate: { usd_vnd: 25450, source: 'DEV_MOCK', updated_at: nowSec() },
+        shield_4_layer: { l1_idempotency: 'ACTIVE', l2_hard_sl_atr: 'ACTIVE', l3_news_shield: 'CLEAR', l4_slippage_guard: 'ACTIVE', news_blackout: false },
+        bridge: { region: 'london-g2', latency_ms: 12, status: 'CONNECTED' },
+        system_status: halted ? 'HALTED' : 'OPERATIONAL',
+        server_time: nowSec(),
+      };
+      res.write(`event: topbar\ndata: ${JSON.stringify(snap)}\n\n`);
+      res.end();
+      return;
+    }
+    if ((pathname === '/api/v1/stream/user' || pathname === '/api/v1/stream/admin') && method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      res.write(': connected\n\n');
+      res.end();
+      return;
+    }
 
     return sendJson(res, 404, { detail: `Endpoint not found: ${method} ${pathname}` });
   };
