@@ -18,6 +18,34 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
 
+  // Password Reset Modal State
+  const [resetTarget, setResetTarget] = useState<{ id: string; email: string } | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [showResetPw, setShowResetPw] = useState(true);
+  const [resetError, setResetError] = useState('');
+  const [resetSaving, setResetSaving] = useState(false);
+
+  // Create User Modal State
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createEmail, setCreateEmail] = useState('');
+  const [createPassword, setCreatePassword] = useState('');
+  const [createRole, setCreateRole] = useState<'customer' | 'admin'>('customer');
+  const [createError, setCreateError] = useState('');
+  const [createSaving, setCreateSaving] = useState(false);
+
+  // Delete User Confirm Modal State
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; email: string } | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+
+  const generateRandomPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
+    let out = 'Zup!';
+    for (let i = 0; i < 8; i += 1) {
+      out += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return out;
+  };
+
   const loadBilling = useCallback(async () => {
     try {
       const [sRes, oRes, uRes] = await Promise.all([
@@ -298,27 +326,12 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
           </div>
           <button
             type="button"
-            onClick={async () => {
-              const email = window.prompt('Nhập Email người dùng mới:');
-              if (!email) return;
-              const password = window.prompt('Nhập mật khẩu (>= 12 ký tự):');
-              if (!password || password.length < 12) {
-                setMsg('Mật khẩu phải tối thiểu 12 ký tự.');
-                return;
-              }
-              const role = window.confirm('Cấp quyền ADMIN cho tài khoản này? (Cancel = customer)') ? 'admin' : 'customer';
-              const r = await fetch('/api/admin/users', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                body: JSON.stringify({ email: email.trim(), password, role }),
-              });
-              const d = await r.json().catch(() => ({}));
-              if (r.ok) {
-                setMsg(`Đã tạo tài khoản ${email.trim()} (${role}).`);
-                await loadBilling();
-              } else {
-                setMsg(`Lỗi tạo user: ${d.detail || r.status}`);
-              }
+            onClick={() => {
+              setCreateEmail('');
+              setCreatePassword(generateRandomPassword());
+              setCreateRole('customer');
+              setCreateError('');
+              setShowCreateModal(true);
             }}
             className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
           >
@@ -342,18 +355,11 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   <td className="py-2 text-right space-x-2">
                     <button
                       type="button"
-                      onClick={async () => {
-                        const np = window.prompt(`Nhập mật khẩu mới (>= 12 ký tự) cho ${usr.email}:`);
-                        if (!np || np.length < 12) {
-                          if (np !== null) setMsg('Mật khẩu mới phải tối thiểu 12 ký tự.');
-                          return;
-                        }
-                        const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}/password`, {
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                          body: JSON.stringify({ password: np }),
-                        });
-                        setMsg(r.ok ? `Đã đặt lại mật khẩu cho ${usr.email}.` : 'Không thể đặt lại mật khẩu.');
+                      onClick={() => {
+                        setResetTarget({ id: usr.id, email: usr.email });
+                        setNewPasswordInput('');
+                        setShowResetPw(true);
+                        setResetError('');
                       }}
                       className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500/20 cursor-pointer"
                     >
@@ -361,16 +367,26 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                     </button>
                     <button
                       type="button"
+                      disabled={busyId === usr.id}
                       onClick={async () => {
                         const nextRole = usr.role === 'admin' ? 'customer' : 'admin';
-                        const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}/role`, {
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                          body: JSON.stringify({ role: nextRole }),
-                        });
-                        if (r.ok) {
-                          setMsg(`Đã đổi quyền ${usr.email} -> ${nextRole}.`);
-                          await loadBilling();
+                        setBusyId(usr.id);
+                        try {
+                          const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}/role`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                            credentials: 'include',
+                            body: JSON.stringify({ role: nextRole }),
+                          });
+                          const d = await r.json().catch(() => ({}));
+                          if (r.ok) {
+                            setMsg(`Đã đổi quyền ${usr.email} -> ${nextRole}.`);
+                            await loadBilling();
+                          } else {
+                            setMsg(`Không thể đổi quyền: ${typeof d.detail === 'string' ? d.detail : r.status}`);
+                          }
+                        } finally {
+                          setBusyId(null);
                         }
                       }}
                       className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-bold text-cyan-300 hover:bg-cyan-500/20 cursor-pointer"
@@ -379,17 +395,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                     </button>
                     <button
                       type="button"
-                      onClick={async () => {
-                        if (!window.confirm(`Xóa người dùng ${usr.email}?`)) return;
-                        const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}`, {
-                          method: 'DELETE',
-                          headers: { 'X-Zupirus': '1' },
-                        });
-                        if (r.ok) {
-                          setMsg(`Đã xóa người dùng ${usr.email}.`);
-                          await loadBilling();
-                        }
-                      }}
+                      onClick={() => setDeleteTarget({ id: usr.id, email: usr.email })}
                       className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:bg-rose-500/20 cursor-pointer"
                     >
                       Xóa
@@ -401,6 +407,297 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
           </table>
         </div>
       </div>
+
+      {/* Modal Đặt Lại Mật Khẩu Người Dùng */}
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-[#070d1c] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">
+                  Bảo Mật Tài Khoản
+                </div>
+                <h4 className="text-base font-bold text-white">Đặt Lại Mật Khẩu Người Dùng</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetTarget(null)}
+                className="text-slate-400 hover:text-white text-sm font-bold px-2 py-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-slate-900/70 px-3.5 py-2.5 text-xs">
+              <span className="text-slate-400">Tài khoản: </span>
+              <span className="font-mono font-bold text-amber-300">{resetTarget.email}</span>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300">
+                  Mật khẩu mới (tối thiểu 8 ký tự)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewPasswordInput(generateRandomPassword());
+                    setShowResetPw(true);
+                    setResetError('');
+                  }}
+                  className="text-[11px] font-bold text-cyan-300 hover:text-cyan-200 cursor-pointer"
+                >
+                  🎲 Tạo mật khẩu ngẫu nhiên
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  type={showResetPw ? 'text' : 'password'}
+                  value={newPasswordInput}
+                  onChange={(e) => {
+                    setNewPasswordInput(e.target.value);
+                    setResetError('');
+                  }}
+                  placeholder="Nhập mật khẩu mới (>= 8 ký tự)..."
+                  autoFocus
+                  className="w-full rounded-xl border border-white/15 bg-[#030711] px-3.5 py-2.5 pr-16 font-mono text-sm text-white focus:border-amber-400 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowResetPw((v) => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 hover:text-white cursor-pointer"
+                >
+                  {showResetPw ? 'Ẩn' : 'Hiện'}
+                </button>
+              </div>
+              {resetError && (
+                <div className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-2 text-xs text-rose-200">
+                  {resetError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setResetTarget(null)}
+                className="rounded-xl border border-white/10 bg-slate-800 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={resetSaving}
+                onClick={async () => {
+                  const clean = newPasswordInput.trim();
+                  if (clean.length < 8) {
+                    setResetError('Mật khẩu mới phải có ít nhất 8 ký tự.');
+                    return;
+                  }
+                  setResetSaving(true);
+                  setResetError('');
+                  try {
+                    const r = await fetch(`/api/admin/users/${encodeURIComponent(resetTarget.id)}/password`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                      credentials: 'include',
+                      body: JSON.stringify({ password: clean }),
+                    });
+                    const d = await r.json().catch(() => ({}));
+                    if (r.ok) {
+                      setMsg(`Đã đặt lại mật khẩu cho ${resetTarget.email} thành công.`);
+                      setResetTarget(null);
+                      await loadBilling();
+                    } else {
+                      const errText =
+                        typeof d.detail === 'string'
+                          ? d.detail
+                          : Array.isArray(d.detail) && d.detail[0]?.msg
+                            ? d.detail[0].msg
+                            : `Lỗi máy chủ (${r.status})`;
+                      setResetError(errText);
+                    }
+                  } catch {
+                    setResetError('Lỗi kết nối máy chủ. Vui lòng thử lại.');
+                  } finally {
+                    setResetSaving(false);
+                  }
+                }}
+                className="rounded-xl bg-amber-400 px-4 py-2 text-xs font-extrabold text-slate-950 hover:bg-amber-300 cursor-pointer disabled:opacity-50"
+              >
+                {resetSaving ? 'Đang lưu...' : 'Lưu Mật Khẩu Mới'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Tạo Người Dùng Mới */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-emerald-500/40 bg-[#070d1c] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h4 className="text-base font-bold text-white">Tạo Người Dùng Mới</h4>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="text-slate-400 hover:text-white text-sm font-bold px-2 py-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={createEmail}
+                  onChange={(e) => setCreateEmail(e.target.value)}
+                  placeholder="user@zupirus.com"
+                  autoFocus
+                  className="w-full rounded-xl border border-white/15 bg-[#030711] px-3.5 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-300">Mật khẩu (&gt;= 8 ký tự)</label>
+                  <button
+                    type="button"
+                    onClick={() => setCreatePassword(generateRandomPassword())}
+                    className="text-[11px] font-bold text-cyan-300 hover:text-cyan-200 cursor-pointer"
+                  >
+                    🎲 Ngẫu nhiên
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={createPassword}
+                  onChange={(e) => setCreatePassword(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-[#030711] px-3.5 py-2 font-mono text-sm text-white focus:border-emerald-400 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Phân quyền</label>
+                <select
+                  value={createRole}
+                  onChange={(e) => setCreateRole(e.target.value as 'customer' | 'admin')}
+                  className="w-full rounded-xl border border-white/15 bg-[#030711] px-3.5 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none"
+                >
+                  <option value="customer">Khách hàng (customer)</option>
+                  <option value="admin">Quản trị viên (admin)</option>
+                </select>
+              </div>
+              {createError && (
+                <div className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-2 text-xs text-rose-200">
+                  {createError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="rounded-xl border border-white/10 bg-slate-800 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={createSaving}
+                onClick={async () => {
+                  if (!createEmail.trim()) {
+                    setCreateError('Vui lòng nhập Email.');
+                    return;
+                  }
+                  if (createPassword.trim().length < 8) {
+                    setCreateError('Mật khẩu phải có ít nhất 8 ký tự.');
+                    return;
+                  }
+                  setCreateSaving(true);
+                  setCreateError('');
+                  try {
+                    const r = await fetch('/api/admin/users', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                      credentials: 'include',
+                      body: JSON.stringify({
+                        email: createEmail.trim(),
+                        password: createPassword.trim(),
+                        role: createRole,
+                      }),
+                    });
+                    const d = await r.json().catch(() => ({}));
+                    if (r.ok) {
+                      setMsg(`Đã tạo tài khoản ${createEmail.trim()} (${createRole}).`);
+                      setShowCreateModal(false);
+                      await loadBilling();
+                    } else {
+                      setCreateError(typeof d.detail === 'string' ? d.detail : `Lỗi (${r.status})`);
+                    }
+                  } finally {
+                    setCreateSaving(false);
+                  }
+                }}
+                className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-extrabold text-slate-950 hover:bg-emerald-300 cursor-pointer disabled:opacity-50"
+              >
+                {createSaving ? 'Đang tạo...' : 'Tạo Tài Khoản'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Xác Nhận Xóa Người Dùng */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-rose-500/40 bg-[#070d1c] p-6 shadow-2xl space-y-4">
+            <h4 className="text-base font-bold text-white">Xác nhận xóa người dùng</h4>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Bạn có chắc chắn muốn xóa vĩnh viễn tài khoản{' '}
+              <strong className="text-rose-300 font-mono">{deleteTarget.email}</strong> cùng toàn bộ dữ liệu liên quan?
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="rounded-xl border border-white/10 bg-slate-800 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={deleteSaving}
+                onClick={async () => {
+                  setDeleteSaving(true);
+                  try {
+                    const r = await fetch(`/api/admin/users/${encodeURIComponent(deleteTarget.id)}`, {
+                      method: 'DELETE',
+                      headers: { 'X-Zupirus': '1' },
+                      credentials: 'include',
+                    });
+                    const d = await r.json().catch(() => ({}));
+                    if (r.ok) {
+                      setMsg(`Đã xóa người dùng ${deleteTarget.email}.`);
+                      setDeleteTarget(null);
+                      await loadBilling();
+                    } else {
+                      setMsg(`Không thể xóa: ${typeof d.detail === 'string' ? d.detail : r.status}`);
+                      setDeleteTarget(null);
+                    }
+                  } finally {
+                    setDeleteSaving(false);
+                  }
+                }}
+                className="rounded-xl bg-rose-500 px-4 py-2 text-xs font-extrabold text-white hover:bg-rose-400 cursor-pointer disabled:opacity-50"
+              >
+                {deleteSaving ? 'Đang xóa...' : 'Xác Nhận Xóa'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
