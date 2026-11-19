@@ -150,6 +150,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <a href="#pricing" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
               Bảng Giá SePay VietQR
             </a>
+            <a href="/huong-dan" className="hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0">
+              Hướng Dẫn &amp; SEO
+            </a>
             <a
               href="https://discord.gg/yxCx3dVe34"
               target="_blank"

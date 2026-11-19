@@ -34,6 +34,7 @@ from app.routers import (
     webhooks_router,
 )
 from app.routers.growth import router as growth_router
+from app.routers.seo_pages import router as seo_pages_router
 
 logger = logging.getLogger("zupirus.api")
 
@@ -192,6 +193,7 @@ for _router in (
     skills_router,
     admin_ai_router,
     growth_router,
+    seo_pages_router,
 ):
     app.include_router(_router)
 
