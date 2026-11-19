@@ -51,8 +51,9 @@ def main() -> int:
 
     # 1. Health endpoint
     st, health, _ = http_json(base, "/api/health")
-    assert st == 200 and (health.get("status") in ("ok", "healthy", "up") or health.get("ok") is True), f"Unhealthy: {health}"
-    print("[E2E 1/5] /api/health OK")
+    assert st == 200 and health.get("status") in ("ready", "ok", "healthy", "up"), f"Unhealthy: {health}"
+    assert health.get("database", {}).get("connected", True) is True, f"DB disconnected: {health}"
+    print(f"[E2E 1/5] /api/health OK (status={health.get('status')})")
 
     # 2. Login
     st, login_data, hdrs = http_json(
