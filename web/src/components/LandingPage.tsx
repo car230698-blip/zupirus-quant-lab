@@ -786,7 +786,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 {!guardImgError ? (
                   <img
                     src={guardMatrixImg}
-                    alt="Kiến trúc 4 lớp giáp bảo vệ vốn"
+                    alt="Kiến trúc 4 lớp giáp bảo vệ vốn Fail-Closed bot trade vàng XAU/USD Cloud MT5 ZUPIRUS"
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       const target = e.currentTarget;

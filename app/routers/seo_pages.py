@@ -21,8 +21,8 @@ PUBLISHED_DATE = "2026-11-19"
 GUIDES: List[Dict[str, object]] = [
     {
         "slug": "bot-trade-vang-xauusd-cloud-mt5",
-        "title": "Bot Trade Vàng XAU/USD Cloud MT5 Không Cần VPS — Chuẩn Định Lượng 2026",
-        "meta_description": "Tìm hiểu cách bot trade vàng XAU/USD chạy trực tiếp trên Cloud MT5 Zero-VPS với 4 lớp giáp bảo vệ vốn Fail-Closed, Auto-SL ATR(14) và News Shield ±15 phút.",
+        "title": "Bot Trade Vàng XAU/USD Cloud MT5 Không Cần VPS | ZUPIRUS",
+        "meta_description": "Tìm hiểu cách bot trade vàng XAU/USD chạy trên Cloud MT5 Zero-VPS với 4 lớp giáp Fail-Closed, Auto-SL ATR(14) và News Shield ±15 phút.",
         "keywords": "bot trade vàng XAUUSD, bot giao dịch vàng tự động, cloud MT5 không cần VPS, ZUPIRUS",
         "h1": "Bot Trade Vàng XAU/USD Trên Cloud MT5 Không Cần VPS Hoạt Động Như Thế Nào?",
         "read_time": "6 phút đọc",
@@ -44,8 +44,8 @@ GUIDES: List[Dict[str, object]] = [
     },
     {
         "slug": "cach-pass-quy-ftmo-the5ers-fundednext",
-        "title": "Cách Pass Quỹ FTMO, The5ers & FundedNext Tự Động An Toàn Bằng Prop Firm Guard",
-        "meta_description": "Hướng dẫn chiến lược pass quỹ FTMO, The5ers và FundedNext bền vững bằng hệ thống tự động Prop Firm Guard: khóa Daily DD 4.0%, HWM 8.0% và chia lot chuẩn 0.75%-1.0%.",
+        "title": "Cách Pass Quỹ FTMO, The5ers & FundedNext An Toàn | ZUPIRUS",
+        "meta_description": "Chiến lược pass quỹ FTMO, The5ers, FundedNext bền vững với Prop Firm Guard: khóa Daily DD 4.0%, HWM 8.0% và chia lot chuẩn 0.75%-1.0%.",
         "keywords": "cách pass quỹ FTMO, pass quỹ The5ers, FundedNext, Prop Firm Guard, tài khoản quỹ live",
         "h1": "Cách Pass Quỹ FTMO, The5ers & FundedNext Bền Vững Với Prop Firm Guard",
         "read_time": "7 phút đọc",
@@ -309,8 +309,8 @@ def _render_shell(
 @router.get("/cong-cu/tinh-lot-size-xauusd", response_class=HTMLResponse)
 def seo_lot_calculator_page() -> HTMLResponse:
     canonical = "https://zupirus.com/cong-cu/tinh-lot-size-xauusd"
-    title = "Công Cụ Tính Lot Size Vàng XAU/USD & Daily Drawdown Quỹ Prop Firm Miễn Phí | ZUPIRUS"
-    desc = "Máy tính khối lượng Lot Size XAU/USD chuẩn xác cho tài khoản Standard, Cent (USC) và Quỹ FTMO, The5ers, FundedNext. Tự động tính số lệnh thua tối đa theo Daily Drawdown 4%-5%."
+    title = "Tính Lot Size Vàng XAU/USD & Drawdown Prop Firm | ZUPIRUS"
+    desc = "Công cụ tính Lot Size XAU/USD miễn phí cho Standard, Cent và quỹ FTMO, The5ers, FundedNext. Tự tính số lệnh thua tối đa theo Daily DD 4%-5%."
     keywords = "tính lot size XAUUSD, công cụ tính lot vàng, tính lot MT5 chuẩn quỹ, tính drawdown FTMO, tài khoản cent XAUUSD"
     json_ld = {
         "@context": "https://schema.org",
@@ -508,8 +508,8 @@ def seo_lot_calculator_page() -> HTMLResponse:
 @router.get("/huong-dan", response_class=HTMLResponse)
 def seo_guides_hub() -> HTMLResponse:
     canonical = "https://zupirus.com/huong-dan"
-    title = "Kiến Thức Bot Trade Vàng XAU/USD, Cloud MT5 & Pass Quỹ Prop Firm | ZUPIRUS"
-    desc = "Tổng hợp hướng dẫn chuyên sâu về bot trade vàng XAU/USD trên Cloud MT5 Zero-VPS, công thức tính lot chuẩn quỹ và cách pass FTMO, The5ers, FundedNext an toàn."
+    title = "Kiến Thức Bot Trade Vàng XAU/USD & Pass Quỹ | ZUPIRUS"
+    desc = "Tổng hợp hướng dẫn bot trade vàng XAU/USD trên Cloud MT5 Zero-VPS, công thức tính lot chuẩn quỹ và cách pass FTMO, The5ers, FundedNext."
     json_ld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
