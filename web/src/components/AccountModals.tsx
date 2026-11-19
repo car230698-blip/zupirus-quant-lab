@@ -1,4 +1,5 @@
 import React from 'react';
+import { IconClose } from './Icons';
 
 export interface AccountModalsProps {
   disclaimerModalOpen: boolean;
@@ -43,10 +44,11 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
               </div>
               <button
                 type="button"
+                aria-label="Đóng hộp thoại điều khoản"
                 onClick={() => setDisclaimerModalOpen(false)}
-                className="text-slate-400 hover:text-white text-sm"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
               >
-                ✕
+                <IconClose className="w-4 h-4" />
               </button>
             </div>
 
@@ -106,10 +108,11 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
               </div>
               <button
                 type="button"
+                aria-label="Đóng hộp thoại thanh toán"
                 onClick={() => setCheckoutModalOpen(false)}
-                className="text-slate-400 hover:text-white text-sm"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
               >
-                ✕
+                <IconClose className="w-4 h-4" />
               </button>
             </div>
 

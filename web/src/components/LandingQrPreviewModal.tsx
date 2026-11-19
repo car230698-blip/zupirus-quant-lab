@@ -1,5 +1,6 @@
 import React from 'react';
 import { calculateSubscriptionPricing, type BillingCycle } from '../utils/quantMath';
+import { IconClose } from './Icons';
 
 export interface LandingQrPreviewModalProps {
   qrPreviewTier: { name: string; baseUsd: number; slots: number } | null;
@@ -36,10 +37,11 @@ export const LandingQrPreviewModal: React.FC<LandingQrPreviewModalProps> = ({
               </div>
               <button
                 type="button"
+                aria-label="Đóng báo giá"
                 onClick={() => setQrPreviewTier(null)}
-                className="text-slate-400 hover:text-white font-mono text-xs cursor-pointer"
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-slate-400 hover:bg-white/10 hover:text-white font-mono text-xs transition cursor-pointer"
               >
-                ESC ✕
+                ESC <IconClose className="w-3.5 h-3.5" />
               </button>
             </div>
 

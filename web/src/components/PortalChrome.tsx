@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import type { PortalType } from '../App.tsx';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
+import { IconBolt, IconClose, IconMenu } from './Icons';
 
 export type Portal = 'user' | 'admin';
 
@@ -154,7 +155,7 @@ export function PortalShell({
   });
 
   return (
-    <div className={`quant-app quant-cyber-grid quant-${portal}`}>
+    <div data-portal={portal} className={`quant-app quant-cyber-grid quant-${portal}`}>
       {/* Mobile Backdrop Overlay */}
       {mobileMenuOpen && (
         <div
@@ -189,7 +190,7 @@ export function PortalShell({
             }
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:border-amber-400/60 hover:bg-amber-500/20 hover:text-white transition cursor-pointer font-mono text-xs"
           >
-            {mobileMenuOpen ? '✕' : sidebarCollapsed ? '»' : '«'}
+            {mobileMenuOpen ? <IconClose className="w-4 h-4" /> : sidebarCollapsed ? '»' : '«'}
           </button>
         </div>
 
@@ -221,8 +222,8 @@ export function PortalShell({
               ? 'ADM'
               : 'USR'
             : portal === 'admin'
-            ? '⚡ ROOT ADMIN COMMAND'
-            : '◈ TRADER WORKSPACE'}
+            ? <span className="inline-flex items-center gap-1.5"><IconBolt className="w-3.5 h-3.5" />ROOT ADMIN COMMAND</span>
+            : 'TRADER WORKSPACE'}
         </div>
 
         <nav className="quant-nav" aria-label="Menu chính">
@@ -350,11 +351,15 @@ export function PortalShell({
               onClick={handleToggleSidebar}
               title={sidebarCollapsed ? 'Mở thanh tác vụ bên trái (Ctrl+B)' : 'Thu gọn thanh tác vụ bên trái (Ctrl+B)'}
               aria-label="Đóng mở thanh điều hướng"
-              className="mr-2 flex h-8 w-8 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:border-amber-400/60 hover:bg-amber-500/20 transition cursor-pointer font-mono text-sm"
+              className={`mr-2 flex h-9 w-9 items-center justify-center rounded-lg border transition cursor-pointer ${
+                portal === 'admin'
+                  ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/20'
+                  : 'border-amber-500/30 bg-amber-500/10 text-amber-300 hover:border-amber-400/60 hover:bg-amber-500/20'
+              }`}
             >
-              ☰
+              <IconMenu className="w-4 h-4" />
             </button>
-            <span className="text-amber-300/80 hidden sm:inline font-semibold">
+            <span className={`hidden sm:inline font-semibold ${portal === 'admin' ? 'text-cyan-300/90' : 'text-amber-300/90'}`}>
               {portal === 'admin' ? 'TRẠM QUẢN TRỊ' : 'CỔNG TRADER'}
             </span>
             <span aria-hidden="true" className="text-slate-600 hidden sm:inline">/</span>
@@ -477,7 +482,7 @@ export function PortalShell({
               onClick={() => setMobileMenuOpen(true)}
               className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] text-slate-400 hover:text-amber-300 transition cursor-pointer"
             >
-              <span className="text-base leading-none">☰</span>
+              <span className="inline-flex items-center justify-center"><IconMenu className="w-4 h-4" /></span>
               <span>Menu</span>
             </button>
           </>
@@ -524,7 +529,7 @@ export function PortalShell({
               onClick={() => setMobileMenuOpen(true)}
               className="flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] text-slate-400 hover:text-amber-300 transition cursor-pointer"
             >
-              <span className="text-base leading-none">☰</span>
+              <span className="inline-flex items-center justify-center"><IconMenu className="w-4 h-4" /></span>
               <span>Tất cả</span>
             </button>
           </>
@@ -543,14 +548,14 @@ export function PortalShell({
           >
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2 font-mono text-xs text-amber-300">
-                <span>⚡ ZUPIRUS QUANTUM OS v4.0 — COMMAND PALETTE</span>
+                <span className="inline-flex items-center gap-1.5"><IconBolt className="w-3.5 h-3.5" />ZUPIRUS QUANTUM OS v5.0 — COMMAND PALETTE</span>
               </div>
               <button
                 type="button"
                 onClick={() => setCmdOpen(false)}
                 className="text-slate-400 hover:text-white font-mono text-xs cursor-pointer"
               >
-                ESC ✕
+                <span className="inline-flex items-center gap-1">ESC <IconClose className="w-3.5 h-3.5" /></span>
               </button>
             </div>
 

@@ -119,7 +119,7 @@ export function PortalAuth({
   }
 
   return (
-    <div className={`quant-app quant-auth quant-cyber-grid quant-${portal}`}>
+    <div data-portal={portal} className={`quant-app quant-auth quant-cyber-grid quant-${portal}`}>
       {/* Left Column: High-Tech Architectural Story & Visual Monolith */}
       <div className="quant-auth-story">
         <div className="flex items-center justify-between">
