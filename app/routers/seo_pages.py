@@ -111,12 +111,112 @@ GUIDES: List[Dict[str, object]] = [
             ),
         ],
     },
+    {
+        "slug": "so-sanh-ftmo-the5ers-fundednext",
+        "title": "So Sánh FTMO vs The5ers vs FundedNext 2026: Quỹ Nào Dễ Pass Bằng Bot XAU/USD?",
+        "meta_description": "So sánh chi tiết luật Daily Drawdown, Max Drawdown, spread vàng XAU/USD và chính sách dùng Bot/EA trên 3 quỹ lớn nhất: FTMO, The5ers và FundedNext năm 2026.",
+        "keywords": "so sánh FTMO The5ers FundedNext, quỹ prop firm tốt nhất 2026, thi quỹ bằng bot trade vàng, prop firm Việt Nam",
+        "h1": "So Sánh FTMO vs The5ers vs FundedNext 2026: Quỹ Nào Phù Hợp Nhất Cho Bot XAU/USD?",
+        "read_time": "8 phút đọc",
+        "badge": "SO SÁNH QUỸ · PROP FIRM",
+        "sections": [
+            (
+                "1. Bảng so sánh luật Drawdown & mục tiêu lợi nhuận (2-Step Standard)",
+                "Cả 3 quỹ lớn đều có khung luật khá chuẩn mực nhưng khác biệt ở điểm tính Daily Loss: FTMO áp dụng Daily Loss 5% tính trên Equity đầu ngày và Max Loss 10% (Static), mục tiêu Phase 1 là 10%, Phase 2 là 5%. The5ers (High Stakes) yêu cầu mục tiêu Phase 1 chỉ 8% và Phase 2 là 5% với Daily Pause 5% và Max Loss 10%. FundedNext (Stellar 2-Step) nổi bật với chia lợi nhuận ngay từ giai đoạn thi (15% Profit Share) cùng Daily Loss 5% và Max Loss 10%."
+            ),
+            (
+                "2. Khả năng tương thích với Bot Trade Vàng XAU/USD & News Trading",
+                "Cả FTMO, The5ers và FundedNext đều cho phép sử dụng hệ thống giao dịch tự động (EA/Bot) nếu không lạm dụng HFT/Tick Scalping hay Copy Trade chéo giữa các người dùng lạ. Tuy nhiên, tài khoản LIVE của FTMO và The5ers có quy định chặt quanh tin đỏ USD (CPI, NFP, FOMC ±2 đến ±5 phút). Vì vậy lớp giáp News Shield ±15 phút của ZUPIRUS là yếu tố bắt buộc để tránh bị hủy lợi nhuận do vi phạm luật tin tức."
+            ),
+            (
+                "3. Khuyến nghị phân bổ danh mục quỹ cho trader định lượng",
+                "Thay vì dồn toàn bộ vốn mua 1 tài khoản lớn ở một quỹ duy nhất, trader chuyên nghiệp thường chia đều 3 quỹ (ví dụ: FTMO $100K + The5ers $100K + FundedNext $200K) và đồng bộ qua gói Alpha VIP (tối đa 5 tài khoản MT5) với mức rủi ro 0.75%/lệnh. Cách này vừa phân tán rủi ro đối tác quỹ, vừa tận dụng tối đa nguồn vốn cấp lên tới $400,000+."
+            ),
+        ],
+    },
+    {
+        "slug": "ea-bot-trade-vang-co-bi-cam-prop-firm-khong",
+        "title": "Dùng Bot/EA Trade Vàng Trên Prop Firm Có Bị Cấm Không? 5 Luật Bắt Buộc Phải Tránh",
+        "meta_description": "Giải đáp chi tiết quy định dùng EA/Bot giao dịch vàng XAU/USD trên FTMO, The5ers, FundedNext: 5 hành vi bị cấm tuyệt đối (HFT, Martingale, tin đỏ) và cách cấu hình hợp lệ.",
+        "keywords": "dùng bot trade quỹ có bị cấm không, EA pass quỹ FTMO, luật cấm prop firm, Martingale prop firm",
+        "h1": "Dùng Bot/EA Trade Vàng Trên Quỹ Prop Firm Có Bị Cấm Không? 5 Luật Phải Tránh",
+        "read_time": "6 phút đọc",
+        "badge": "LUẬT QUỸ · COMPLIANCE",
+        "sections": [
+            (
+                "1. Các quỹ Prop Firm uy tín CÓ cho phép dùng Bot/EA hợp lệ",
+                "FTMO, The5ers, FundedNext và hầu hết quỹ uy tín đều cho phép dùng hệ thống giao dịch tự động (Algorithmic Trading / EA / Cloud API). Điều các quỹ cấm không phải là việc tự động hóa lệnh, mà là các kỹ thuật khai thác lỗi máy chủ demo hoặc đánh bạc rủi ro cực đoan."
+            ),
+            (
+                "2. 5 hành vi khiến tài khoản quỹ bị khóa ngay lập tức",
+                "Bạn tuyệt đối phải tránh: (1) High-Frequency Trading / Latency Arbitrage giữ lệnh dưới 30–60 giây, (2) Martingale / Grid gồng lỗ nhồi lot gấp thếp (vi phạm quy tắc Gambling / Risk Management), (3) Giao dịch sát giờ tin đỏ USD (CPI, NFP, FOMC) trên tài khoản Funded, (4) Đánh quá lớn một lệnh (>2% rủi ro) gọi là One-Sided Betting, và (5) Mở lệnh không có Stop Loss bảo vệ."
+            ),
+            (
+                "3. Tại sao kiến trúc ZUPIRUS an toàn 100% trước bài kiểm tra của Quỹ",
+                "ZUPIRUS không dùng Martingale, không dùng Grid và không đánh Tick Scalping. Mỗi lệnh XAU/USD khung M15 đều có Stop Loss cứng tính theo ATR(14), tỷ lệ R:R >= 1.8, trần rủi ro Idea Risk Cap <= 1.0% ở chế độ Prop LIVE, tự động chặn giao dịch ±15 phút quanh tin đỏ USD và ngắt mạch Daily DD tại 4.0% trước khi chạm luật 5.0% của sàn."
+            ),
+        ],
+    },
+    {
+        "slug": "so-sanh-cloud-mt5-va-vps-forex",
+        "title": "So Sánh Cloud MT5 Zero-VPS vs Thuê VPS Forex Truyền Thống (Chi Phí & Độ Trễ)",
+        "meta_description": "Phân tích ưu nhược điểm giữa hạ tầng Cloud MT5 Zero-VPS (London G2) và thuê VPS Windows Forex truyền thống: độ trễ khớp lệnh, rủi ro treo MT5 và tổng chi phí hàng tháng.",
+        "keywords": "so sánh Cloud MT5 và VPS Forex, thuê VPS chạy EA MT5, Cloud MT5 không cần VPS, độ trễ khớp lệnh MT5",
+        "h1": "So Sánh Cloud MT5 Zero-VPS vs Thuê VPS Forex Truyền Thống: Nên Chọn Gì?",
+        "read_time": "5 phút đọc",
+        "badge": "HẠ TẦNG · CLOUD VS VPS",
+        "sections": [
+            (
+                "1. Ba điểm yếu chí mạng của VPS Windows chạy MT5 truyền thống",
+                "Khi thuê VPS Windows giá $15–$35/tháng để cài phần mềm MT5 và kéo file .ex5 vào biểu đồ, trader thường gặp 3 sự cố nghiêm trọng: (1) Windows tự khởi động lại cập nhật làm tắt MT5 mà chủ tài khoản không hay biết, (2) Tràn RAM/CPU khi mở nhiều biểu đồ khiến lệnh cắt lỗ hoặc dời Break-Even bị treo, và (3) Độ trễ mạng cao (80–250ms) nếu chọn nhầm vị trí máy chủ xa broker."
+            ),
+            (
+                "2. Lợi thế của hạ tầng Cloud MT5 Zero-VPS London G2",
+                "Cloud MT5 loại bỏ hoàn toàn giao diện Windows nặng nề: kết nối trực tiếp tới máy chủ broker qua API độ trễ thấp (~10–25ms tại cụm London G2), tự động giám sát trạng thái kết nối 24/7, đẩy log thực thi real-time qua SSE lên điện thoại/web và kích hoạt Idempotency Lock để không bao giờ xảy ra lỗi vào đúp lệnh khi mạng chập chờn."
+            ),
+            (
+                "3. So sánh tổng chi phí sở hữu (TCO)",
+                "Với VPS truyền thống, bạn phải trả tiền thuê VPS riêng ($20–$40/tháng) cộng thêm tiền mua hoặc thuê EA ($50–$200/tháng) và tự chịu rủi ro bảo trì kỹ thuật. Với ZUPIRUS, gói Starter ($25/tháng) đã bao gồm trọn gói cả hạ tầng Cloud MT5 Zero-VPS, chiến lược định lượng XAU/USD và 4 lớp giáp bảo vệ vốn."
+            ),
+        ],
+    },
+    {
+        "slug": "cach-doc-profit-factor-sharpe-drawdown",
+        "title": "Cách Kiểm Tra Bot Trade Vàng Thật Hay Lừa Đảo Qua Profit Factor, Sharpe & Drawdown",
+        "meta_description": "Hướng dẫn 4 chỉ số định lượng bắt buộc để thẩm định Bot Trade Vàng XAU/USD: Profit Factor, Max Drawdown, Winrate vs R:R và cách phát hiện ảnh lợi nhuận ảo hoặc bot gồng lỗ.",
+        "keywords": "kiểm tra bot trade thật hay ảo, profit factor là gì, max drawdown là gì, đánh giá bot trade vàng",
+        "h1": "Cách Kiểm Tra Bot Trade Vàng Thật Hay Lừa Đảo Qua 4 Chỉ Số Định Lượng",
+        "read_time": "6 phút đọc",
+        "badge": "THẨM ĐỊNH · QUANT METRICS",
+        "sections": [
+            (
+                "1. Cạm bẫy lớn nhất: Winrate 95% nhưng không có Stop Loss",
+                "Rất nhiều nhóm bán bot trade vàng khoe lịch sử xanh 100% với Winrate 90–98%. Tuy nhiên, nếu kiểm tra sâu sẽ thấy họ KHÔNG đặt Stop Loss cứng hoặc dùng chiến thuật Martingale/Grid gồng âm trạng thái (Floating Drawdown) tới 40–70% tài khoản. Chỉ cần vàng chạy 1 chiều 400 pips trong phiên FOMC là toàn bộ lợi nhuận cả năm bốc hơi trong 1 đêm."
+            ),
+            (
+                "2. Bốn chỉ số vàng để thẩm định hệ thống định lượng chuẩn",
+                "Một hệ thống giao dịch XAU/USD đáng tin cậy cần đáp ứng đồng thời: (1) Profit Factor (Tổng lãi / Tổng lỗ) từ 1.5 đến 4.5 trên mẫu lệnh đủ lớn, (2) Max Drawdown thực tế dưới 5–10% (không giấu lệnh âm đang thả nổi), (3) Tỷ lệ Risk:Reward trung bình >= 1.5 để không phải gồng lỗ, và (4) Mọi lệnh đều có Stop Loss cứng ngay thời điểm khớp lệnh."
+            ),
+            (
+                "3. Kiểm chứng minh bạch sổ lệnh thực tế trên ZUPIRUS",
+                "ZUPIRUS công khai trực tiếp bảng Hiệu Suất Thực Tế (Public Verified Track Record) ngay trên trang chủ https://zupirus.com/#track-record với đầy đủ Winrate, Profit Factor, Max Drawdown, lợi nhuận ròng và lịch sử giao dịch đã ẩn danh từ cơ sở dữ liệu thực, giúp trader kiểm chứng bằng con số thay vì lời hứa hẹn."
+            ),
+        ],
+    },
 ]
 
 GUIDE_BY_SLUG = {str(g["slug"]): g for g in GUIDES}
 
 
-def _render_shell(title: str, description: str, canonical: str, keywords: str, json_ld: dict, body_html: str) -> str:
+def _render_shell(
+    title: str,
+    description: str,
+    canonical: str,
+    keywords: str,
+    json_ld: dict,
+    body_html: str,
+    extra_head_html: str = "",
+) -> str:
     esc_title = html.escape(title)
     esc_desc = html.escape(description)
     esc_kw = html.escape(keywords)
@@ -143,6 +243,7 @@ def _render_shell(title: str, description: str, canonical: str, keywords: str, j
   <meta name="twitter:title" content="{esc_title}" />
   <meta name="twitter:description" content="{esc_desc}" />
   <script type="application/ld+json">{ld_str}</script>
+  {extra_head_html}
   <style>
     :root {{ color-scheme: dark; }}
     * {{ box-sizing: border-box; }}
@@ -150,9 +251,9 @@ def _render_shell(title: str, description: str, canonical: str, keywords: str, j
     a {{ color: #fbbf24; text-decoration: none; }}
     a:hover {{ text-decoration: underline; }}
     header {{ position: sticky; top: 0; z-index: 20; background: rgba(2, 6, 23, 0.92); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255,255,255,0.08); }}
-    .nav {{ max-width: 980px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
+    .nav {{ max-width: 980px; margin: 0 auto; padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; }}
     .brand {{ font-weight: 800; letter-spacing: 0.08em; color: #fbbf24; font-size: 16px; }}
-    .nav-links {{ display: flex; gap: 18px; align-items: center; font-size: 13px; }}
+    .nav-links {{ display: flex; flex-wrap: wrap; gap: 16px; align-items: center; font-size: 13px; }}
     .cta {{ background: #fbbf24; color: #020617 !important; padding: 8px 16px; border-radius: 10px; font-weight: 800; font-size: 13px; text-decoration: none !important; }}
     main {{ max-width: 920px; margin: 0 auto; padding: 36px 20px 72px; }}
     .crumb {{ font-size: 12px; color: #94a3b8; margin-bottom: 18px; font-family: ui-monospace, SFMono-Regular, monospace; }}
@@ -163,6 +264,23 @@ def _render_shell(title: str, description: str, canonical: str, keywords: str, j
     .card {{ background: #071022; border: 1px solid rgba(255,255,255,0.09); border-radius: 16px; padding: 22px; margin-top: 18px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 24px; }}
     .cta-box {{ margin-top: 38px; background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(6,182,212,0.10)); border: 1px solid rgba(245,158,11,0.38); border-radius: 18px; padding: 26px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }}
+    .calc-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 18px; }}
+    .field label {{ display: block; font-size: 12px; font-weight: 700; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }}
+    .field input, .field select {{ width: 100%; background: #020617; color: #f8fafc; border: 1px solid rgba(148,163,184,0.28); border-radius: 10px; padding: 10px 12px; font-size: 15px; font-family: ui-monospace, SFMono-Regular, monospace; }}
+    .presets {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }}
+    .preset-btn {{ background: rgba(245,158,11,0.10); color: #fcd34d; border: 1px solid rgba(245,158,11,0.30); border-radius: 7px; padding: 4px 9px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: ui-monospace, monospace; }}
+    .preset-btn:hover {{ background: rgba(245,158,11,0.22); }}
+    .kpi-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; }}
+    .kpi {{ background: #020617; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; }}
+    .kpi-primary {{ border-color: rgba(251,191,36,0.5); background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(2,6,23,0.95)); }}
+    .kpi-label {{ font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; }}
+    .kpi-val {{ font-size: 22px; font-weight: 800; color: #f8fafc; font-family: ui-monospace, monospace; margin-top: 4px; }}
+    .kpi-primary .kpi-val {{ color: #fbbf24; font-size: 26px; }}
+    .kpi-sub {{ font-size: 11.5px; color: #94a3b8; margin-top: 4px; }}
+    .alert-box {{ display: none; margin-top: 16px; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.45); color: #fecaca; border-radius: 12px; padding: 14px 16px; font-size: 13.5px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }}
+    th, td {{ border: 1px solid rgba(255,255,255,0.1); padding: 10px 12px; text-align: left; }}
+    th {{ background: rgba(245,158,11,0.1); color: #fde68a; }}
     footer {{ border-top: 1px solid rgba(255,255,255,0.08); padding: 26px 20px; text-align: center; font-size: 12px; color: #64748b; }}
   </style>
 </head>
@@ -172,6 +290,7 @@ def _render_shell(title: str, description: str, canonical: str, keywords: str, j
       <a class="brand" href="https://zupirus.com/">⚡ ZUPIRUS QUANT LAB</a>
       <div class="nav-links">
         <a href="https://zupirus.com/#track-record">Hiệu Suất Thực Tế</a>
+        <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a>
         <a href="/huong-dan">Kiến Thức &amp; Hướng Dẫn</a>
         <a href="https://discord.gg/yxCx3dVe34" target="_blank" rel="noopener noreferrer">Discord</a>
         <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
@@ -181,10 +300,209 @@ def _render_shell(title: str, description: str, canonical: str, keywords: str, j
   <main>{body_html}</main>
   <footer>
     © 2026 ZUPIRUS Quant Lab · Hạ tầng Cloud MT5 XAU/USD Zero-VPS &amp; Prop Firm Guard ·
-    <a href="https://zupirus.com/">Trang Chủ</a> · <a href="/huong-dan">Hướng Dẫn</a> · <a href="https://app.zupirus.com/">Đăng Nhập</a>
+    <a href="https://zupirus.com/">Trang Chủ</a> · <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a> · <a href="/huong-dan">Hướng Dẫn</a> · <a href="https://app.zupirus.com/">Đăng Nhập</a>
   </footer>
 </body>
 </html>"""
+
+
+@router.get("/cong-cu/tinh-lot-size-xauusd", response_class=HTMLResponse)
+def seo_lot_calculator_page() -> HTMLResponse:
+    canonical = "https://zupirus.com/cong-cu/tinh-lot-size-xauusd"
+    title = "Công Cụ Tính Lot Size Vàng XAU/USD & Daily Drawdown Quỹ Prop Firm Miễn Phí | ZUPIRUS"
+    desc = "Máy tính khối lượng Lot Size XAU/USD chuẩn xác cho tài khoản Standard, Cent (USC) và Quỹ FTMO, The5ers, FundedNext. Tự động tính số lệnh thua tối đa theo Daily Drawdown 4%-5%."
+    keywords = "tính lot size XAUUSD, công cụ tính lot vàng, tính lot MT5 chuẩn quỹ, tính drawdown FTMO, tài khoản cent XAUUSD"
+    json_ld = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "WebApplication",
+                "name": "Công Cụ Tính Lot Size Vàng XAU/USD & Prop Firm Guard",
+                "url": canonical,
+                "applicationCategory": "FinanceApplication",
+                "operatingSystem": "Web",
+                "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+                "publisher": {"@type": "Organization", "name": "ZUPIRUS Quant Lab", "url": "https://zupirus.com/"},
+            },
+            {
+                "@type": "FAQPage",
+                "mainEntity": [
+                    {
+                        "@type": "Question",
+                        "name": "1 pip vàng XAU/USD bằng bao nhiêu USD trên 1 lot chuẩn?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Trên tài khoản Standard MT5 (1.00 lot = 100 oz vàng), 1 pip tương ứng biến động giá $0.10/oz và có giá trị bằng $10 USD. Với 0.10 lot là $1/pip và 0.01 lot là $0.10/pip.",
+                        },
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Nên để rủi ro bao nhiêu % mỗi lệnh khi thi quỹ FTMO, The5ers, FundedNext?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Mức rủi ro tối ưu nhất cho tài khoản quỹ Prop Firm là 0.50% đến 0.75% mỗi lệnh (tối đa 1.0% khi đã lên LIVE), giúp chịu được 5-8 lệnh thua liên tiếp trong ngày mà không chạm giới hạn Daily Drawdown 5%.",
+                        },
+                    },
+                ],
+            },
+            {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Trang chủ", "item": "https://zupirus.com/"},
+                    {"@type": "ListItem", "position": 2, "name": "Công cụ tính Lot XAU/USD", "item": canonical},
+                ],
+            },
+        ],
+    }
+
+    guide_links = "".join(
+        f'<li><a href="/huong-dan/{g["slug"]}">{html.escape(str(g["h1"]))}</a></li>'
+        for g in GUIDES[:5]
+    )
+
+    body = f"""
+      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / Công cụ tính Lot XAU/USD</div>
+      <span class="badge">FREE QUANT TOOL · XAU/USD LOT &amp; PROP GUARD</span>
+      <h1>Công Cụ Tính Lot Size Vàng XAU/USD &amp; Giới Hạn Drawdown Quỹ Prop Firm</h1>
+      <p>Tính toán chính xác khối lượng Lot XAU/USD theo nguyên tắc <strong>Fail-Closed</strong> (làm tròn xuống để không bao giờ vượt ngân sách rủi ro), hỗ trợ đầy đủ tài khoản <strong>Standard, Cent (USC)</strong> và quỹ <strong>FTMO / The5ers / FundedNext</strong>.</p>
+
+      <section class="card" aria-label="Máy tính Lot Size XAU/USD">
+        <div class="calc-grid">
+          <div class="field">
+            <label for="calc-mode">Loại tài khoản MT5</label>
+            <select id="calc-mode">
+              <option value="PROP_CHALLENGE">Quỹ Prop Firm — Đang Thi (Challenge)</option>
+              <option value="PROP_LIVE">Quỹ Prop Firm — Đã Cấp Vốn (LIVE)</option>
+              <option value="STANDARD">Tài khoản Standard (Exness, ICMarkets...)</option>
+              <option value="CENT">Tài khoản Cent / USC (1 Lot = 1 oz)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="calc-balance">Vốn tài khoản (USD)</label>
+            <input id="calc-balance" type="number" min="10" step="100" value="100000" />
+            <div class="presets">
+              <button type="button" class="preset-btn" data-preset-balance="1000">$1K</button>
+              <button type="button" class="preset-btn" data-preset-balance="10000">$10K</button>
+              <button type="button" class="preset-btn" data-preset-balance="50000">$50K</button>
+              <button type="button" class="preset-btn" data-preset-balance="100000">$100K</button>
+              <button type="button" class="preset-btn" data-preset-balance="200000">$200K</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="calc-risk">Rủi ro mỗi lệnh (% Equity)</label>
+            <input id="calc-risk" type="number" min="0.1" max="10" step="0.05" value="0.75" />
+            <div class="presets">
+              <button type="button" class="preset-btn" data-preset-risk="0.5">0.5%</button>
+              <button type="button" class="preset-btn" data-preset-risk="0.75">0.75%</button>
+              <button type="button" class="preset-btn" data-preset-risk="1.0">1.0%</button>
+              <button type="button" class="preset-btn" data-preset-risk="1.5">1.5%</button>
+              <button type="button" class="preset-btn" data-preset-risk="2.0">2.0%</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="calc-sl">Khoảng cách Stop Loss (Pips · 10 pips = $1/oz)</label>
+            <input id="calc-sl" type="number" min="5" max="500" step="1" value="35" />
+          </div>
+          <div class="field">
+            <label for="calc-rr">Tỷ lệ Risk : Reward (R:R)</label>
+            <input id="calc-rr" type="number" min="0.5" max="10" step="0.1" value="2.0" />
+          </div>
+          <div class="field">
+            <label for="calc-dd">Giới hạn Daily Drawdown sàn (%)</label>
+            <input id="calc-dd" type="number" min="1" max="15" step="0.5" value="5.0" />
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi kpi-primary">
+            <div class="kpi-label">Khối Lượng Lot Khuyến Nghị</div>
+            <div class="kpi-val" id="out-lot">2.14 Lot</div>
+            <div class="kpi-sub" id="out-raw-lot">Chính xác: 2.1429 · Làm tròn xuống (Fail-Closed)</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Rủi Ro Thực Tế (1R)</div>
+            <div class="kpi-val" id="out-risk-usd">$749.00</div>
+            <div class="kpi-sub" id="out-sl-usd">35 pips ($3.50/oz)</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Lợi Nhuận Mục Tiêu (TP)</div>
+            <div class="kpi-val" style="color:#34d399" id="out-target-usd">+$1,498.00</div>
+            <div class="kpi-sub">Theo tỷ lệ R:R đã chọn</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Sức Chịu Đựng Chuỗi Thua/Ngày</div>
+            <div class="kpi-val" style="font-size:16px" id="out-guard-losses">5 lệnh (khóa 4.0%)</div>
+            <div class="kpi-sub" id="out-broker-losses">6 lệnh (sàn 5.0%)</div>
+          </div>
+        </div>
+        <div class="alert-box" id="calc-alert" role="alert"></div>
+      </section>
+
+      <article class="card">
+        <h2 style="margin-top:0">Công thức tính Lot Size Vàng XAU/USD chuẩn định lượng</h2>
+        <p>Khối lượng vào lệnh an toàn được tính theo công thức: <strong>Lot = (Vốn USD × % Rủi ro) / (Số Pips SL × Giá trị 1 Pip)</strong>. Trong đó với XAU/USD trên hầu hết các sàn MT5 (Exness, ICMarkets, FTMO, The5ers, FundedNext):</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Loại tài khoản</th>
+              <th>Quy ước 1.00 Lot</th>
+              <th>Biến động 1 Pip ($0.10/oz)</th>
+              <th>Biến động $1.00/oz (10 Pips)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Standard / Prop Firm</strong></td>
+              <td>100 oz vàng</td>
+              <td>$10.00 / lot</td>
+              <td>$100.00 / lot</td>
+            </tr>
+            <tr>
+              <td><strong>Mini (0.10 Standard)</strong></td>
+              <td>10 oz vàng</td>
+              <td>$1.00 / lệnh</td>
+              <td>$10.00 / lệnh</td>
+            </tr>
+            <tr>
+              <td><strong>Micro (0.01 Standard)</strong></td>
+              <td>1 oz vàng</td>
+              <td>$0.10 / lệnh</td>
+              <td>$1.00 / lệnh</td>
+            </tr>
+            <tr>
+              <td><strong>Tài khoản Cent (USC)</strong></td>
+              <td>1 oz vàng (1.00 Cent Lot)</td>
+              <td>$0.10 / cent lot</td>
+              <td>$1.00 / cent lot</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+      <div class="card">
+        <h2 style="margin-top:0;font-size:17px">Tài liệu chuyên sâu về Bot XAU/USD &amp; Quỹ Prop Firm</h2>
+        <ul style="margin:8px 0 0;padding-left:20px;line-height:2">{guide_links}</ul>
+      </div>
+
+      <div class="cta-box">
+        <div>
+          <strong style="color:#fff;font-size:17px">Để hệ thống Cloud MT5 tự tính Lot &amp; khóa Daily DD 4.0% cho bạn 24/7</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Không cần tính tay, không cần thuê VPS · 4 lớp giáp Fail-Closed tự động trên cụm London G2.</p>
+        </div>
+        <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
+      </div>
+    """
+    return HTMLResponse(
+        _render_shell(
+            title,
+            desc,
+            canonical,
+            keywords,
+            json_ld,
+            body,
+            extra_head_html='<script src="/lot-calculator.js" defer></script>',
+        )
+    )
 
 
 @router.get("/huong-dan", response_class=HTMLResponse)
