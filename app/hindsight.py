@@ -197,7 +197,8 @@ def reflect_on_signal_outcome(
     mae: float = 0.0,
     mfe: float = 0.0,
     exit_price: float = 0.0,
-    exit_reason: str = "TP"
+    exit_reason: str = "TP",
+    accumulate_pnl: bool = False,
 ) -> str:
     """Post-trade reflection: Updates signal audit record with real trade metrics
     and generates reflective memory to learn why the external signal succeeded or failed."""
@@ -205,17 +206,21 @@ def reflect_on_signal_outcome(
     context_data: Dict[str, Any] = {}
     side = "UNKNOWN"
     entry_price = 0.0
+    effective_pnl = float(pnl or 0.0)
     try:
         row = c.execute(
-            "SELECT side, entry_price, context_snapshot FROM signal_audit_logs WHERE signal_id = ?",
+            "SELECT side, entry_price, context_snapshot, pnl FROM signal_audit_logs WHERE signal_id = ?",
             (signal_id,)
         ).fetchone()
         if row:
             side = row["side"] if hasattr(row, 'keys') else row[0]
             entry_price = float(row["entry_price"] if hasattr(row, 'keys') else row[1])
             ctx_str = row["context_snapshot"] if hasattr(row, 'keys') else row[2]
+            prev_pnl = row["pnl"] if hasattr(row, 'keys') else row[3]
             if ctx_str:
                 context_data = json.loads(ctx_str)
+            if accumulate_pnl and prev_pnl is not None:
+                effective_pnl = round(float(prev_pnl) + effective_pnl, 2)
 
         c.execute(
             """
@@ -223,12 +228,13 @@ def reflect_on_signal_outcome(
             SET pnl = ?, mae = ?, mfe = ?
             WHERE signal_id = ?
             """,
-            (pnl, mae, mfe, signal_id)
+            (effective_pnl, mae, mfe, signal_id)
         )
     except Exception as e:
         logger.warning(f"Could not update signal audit log outcome: {e}")
 
     # 2. Synthesize reflective post-mortem
+    pnl = effective_pnl
     outcome = "WIN" if pnl > 0 else ("LOSS" if pnl < 0 else "BE")
     session = context_data.get("session", "Unknown")
     atr_val = context_data.get("atr_14", 3.50)

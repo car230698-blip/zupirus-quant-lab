@@ -31,11 +31,12 @@ def get_public_track_record() -> Dict[str, Any]:
                    ta.account_type, ta.prop_stage
             FROM metaapi_trade_executions e
             JOIN trading_accounts ta ON e.account_id = ta.id
-            WHERE e.profit IS NOT NULL
-            ORDER BY COALESCE(e.closed_at, e.executed_at) ASC
+            WHERE e.profit IS NOT NULL AND UPPER(COALESCE(e.symbol, 'XAUUSD')) LIKE 'XAU%'
+            ORDER BY COALESCE(e.closed_at, e.executed_at) DESC
             LIMIT 250
             """
         ).fetchall()
+        exec_rows = list(reversed(exec_rows))
 
         acc_rows = c.execute(
             """

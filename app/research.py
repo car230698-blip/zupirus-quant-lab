@@ -80,9 +80,11 @@ def discover_candidate_from_observations(c=None) -> Dict[str, Any]:
             }
         }
 
-    # Extract winning patterns from real trades
-    session_wins: Dict[str, List[float]] = {}
+    # Extract winning patterns from real trades grouped by (session, side)
+    session_side_wins: Dict[Tuple[str, str], List[float]] = {}
     for r in rows:
+        raw_side = str((r["side"] if hasattr(r, "keys") else r[0]) or "BUY").upper()
+        side = "SELL" if raw_side == "SELL" else "BUY"
         pnl = float(r["pnl"] if hasattr(r, 'keys') else r[2])
         ctx_str = r["context_snapshot"] if hasattr(r, 'keys') else r[3]
         sess = "London"
@@ -91,20 +93,21 @@ def discover_candidate_from_observations(c=None) -> Dict[str, Any]:
                 sess = json.loads(ctx_str).get("session", "London")
             except Exception:
                 pass
-        session_wins.setdefault(sess, []).append(pnl)
+        session_side_wins.setdefault((sess, side), []).append(pnl)
 
-    # Pick session with highest positive expectancy
-    best_sess = max(session_wins.keys(), key=lambda k: sum(session_wins[k]))
-    pnls = session_wins[best_sess]
+    # Pick (session, side) cluster with highest positive expectancy
+    best_sess, best_side = max(session_side_wins.keys(), key=lambda k: sum(session_side_wins[k]))
+    pnls = session_side_wins[(best_sess, best_side)]
     preferred_session = best_sess
     win_rate = round(sum(1 for p in pnls if p > 0) / max(len(pnls), 1), 2)
     sample_size = len(pnls)
+    inferred_action = best_side if sum(pnls) >= 0 else ("SELL" if best_side == "BUY" else "BUY")
 
     candidate_id = f"cand_{uuid.uuid4().hex[:8]}"
     candidate_name = f"TabulaRasa-Alpha-{preferred_session}"
     rules = {
         "preferred_session": preferred_session,
-        "action": "BUY" if sum(pnls) > 0 else "SELL",
+        "action": inferred_action,
         "min_slope": 0.20,
         "sl_points": DEFAULT_SL_POINTS,
         "tp_points": DEFAULT_TP_POINTS,
@@ -149,7 +152,7 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
     returns = []
     position = None
 
-    for t in range(15, len(prices) - 1):
+    for t in range(15, len(prices)):
         bar = prices[t]
         is_ohlc = isinstance(bar, dict)
         close_p = float(bar["close"]) if is_ohlc else float(bar)
@@ -158,7 +161,7 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
 
         if position:
             entry, direction = position
-            # Conservative dual-hit rule: check Stop Loss before Take Profit using high/low wicks
+            # Conservative dual-hit rule: check Stop Loss before Take Profit using high/low wicks (including last bar)
             if direction == 1:
                 if low_p - entry <= -sl:
                     returns.append(-sl - 0.37)
@@ -179,7 +182,10 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
                     continue
             continue
 
-        # Evaluate candidate rule condition (momentum slope)
+        if t >= len(prices) - 1:
+            continue
+
+        # Evaluate candidate rule condition (momentum slope over 10 intervals)
         p_t10 = float(prices[t - 10]["close"]) if isinstance(prices[t - 10], dict) else float(prices[t - 10])
         p_next = float(prices[t + 1]["open"]) if isinstance(prices[t + 1], dict) and "open" in prices[t + 1] else (float(prices[t + 1]["close"]) if isinstance(prices[t + 1], dict) else float(prices[t + 1]))
         slope = (close_p - p_t10) / 10.0
@@ -242,8 +248,9 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
     base_price = float(prices[0]["close"]) if prices and isinstance(prices[0], dict) else (float(prices[0]) if prices and float(prices[0]) > 0 else 2650.0)
     max_dd_pct = round((dd / max(base_price, 1.0)) * 100.0, 2)
     if folds:
-        best_fold = max(folds, key=lambda f: f.get("oos_net_price_units", 0.0))
-        rules = {**rules, "min_slope": best_fold.get("tuned_slope", rules.get("min_slope", 0.20))}
+        # Select deployed slope strictly from the latest in-sample training window (zero OOS peeking)
+        latest_fold = folds[-1]
+        rules = {**rules, "min_slope": latest_fold.get("tuned_slope", rules.get("min_slope", 0.20))}
     trades_count = len(all_returns)
     wins = sum(1 for r in all_returns if r > 0)
     win_rate = round(wins / max(trades_count, 1), 2)
@@ -553,11 +560,18 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                     win_rate = float(rep.get("win_rate") or 0.0)
                     pf = float(rep.get("profit_factor") or 0.0)
                     trades_cnt = int(rep.get("trades") or 0)
-                    sample_sz = max(int(cand.get("sample_size") or 0), trades_cnt)
+                    oos_net = float(rep.get("oos_net_price_units") or 0.0)
+                    max_dd_pct = float(rep.get("max_drawdown_pct") or 0.0)
+                    obs_sz = int(cand.get("sample_size") or 0)
 
                     auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
                     auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
-                    qualifies = bool(win_rate >= 0.52 and pf >= 1.35 and sample_sz >= 25)
+                    qualifies = bool(
+                        (rep.get("production_qualified") or (trades_cnt >= 5 and oos_net > 0 and max_dd_pct <= 8.0))
+                        and win_rate >= 0.52
+                        and pf >= 1.35
+                        and obs_sz >= 25
+                    )
 
                     new_status = "APPROVED_FOR_PROD" if (auto_promote and qualifies) else "WAITING_APPROVAL"
                     c.execute(

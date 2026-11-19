@@ -419,11 +419,24 @@ def _evaluate_against_candles(
     is_buy = side == "BUY"
     mae = 0.0
     mfe = 0.0
+    first_time = float(candles[0]["time"]) if candles else 0.0
 
     for bar in candles:
         high = float(bar["high"])
         low = float(bar["low"])
         bar_time = float(bar["time"])
+        if (bar_time - first_time) >= 86400.0:
+            open_p = float(bar.get("open", bar["close"]))
+            pnl_exp = (open_p - entry) if is_buy else (entry - open_p)
+            return {
+                "status": "EXPIRED",
+                "exit_price": open_p,
+                "exit_time": bar_time,
+                "exit_reason": "SESSION_CLOSED",
+                "pnl_pips": round(pnl_exp * pip_mult, 1),
+                "mae": round(mae * pip_mult, 1),
+                "mfe": round(mfe * pip_mult, 1),
+            }
 
         if is_buy:
             bar_mae = max(0.0, entry - low)

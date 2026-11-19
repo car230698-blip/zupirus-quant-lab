@@ -131,17 +131,22 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
 
         # Evaluate active self-learned skills from Agent Skill Registry (advisory / session-specific filter)
         blocked_sides = set()
+        allowed_sides = set()
         try:
             from app.skills.registry import evaluate_active_learned_skills
             eval_res = evaluate_active_learned_skills(db_cursor=db_cursor)
             blocked_sides = set(eval_res.get("blocked_sides") or [])
+            allowed_sides = set(eval_res.get("allowed_sides") or [])
         except Exception:
             pass
 
-        # Evaluate learned rule criteria against recent price action
+        # Evaluate learned rule criteria against recent price action (10-interval slope matching backtest)
         if len(prices) >= 15:
-            recent_slope = (prices[-1] - prices[-10]) / 10.0
+            p_back10 = prices[-11] if len(prices) >= 11 else prices[-10]
+            recent_slope = (prices[-1] - p_back10) / 10.0
             target_action = rules.get("action", "BUY")
+            if target_action == "BOTH" and len(allowed_sides) == 1:
+                target_action = next(iter(allowed_sides))
             raw_thresh = float(rules.get("min_slope", 0.20))
             price_scale = 0.001 if prices[-1] < 10.0 else (0.1 if prices[-1] < 300.0 else 1.0)
             slope_threshold = raw_thresh * price_scale
@@ -496,6 +501,9 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
 
         from app.db import to_epoch_ts
         bars_asc = list(reversed([dict(b) for b in bars]))
+        # Drop currently forming M15 bar if its 900s interval has not closed yet
+        if len(bars_asc) > 25 and (to_epoch_ts(bars_asc[-1]["time"]) + 900.0) > now:
+            bars_asc = bars_asc[:-1]
         latest_bar_ts = to_epoch_ts(bars_asc[-1]["time"])
         last_eval_row = c.execute("SELECT value FROM kv WHERE key = ?", (last_ts_key,)).fetchone()
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:

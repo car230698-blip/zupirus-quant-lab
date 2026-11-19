@@ -504,20 +504,28 @@ class PositionWatcher:
                                 pos_ref = str(dl.get("positionId") or dl.get("orderId") or "")
                                 if pos_ref:
                                     ex_row = c.execute(
-                                        "SELECT signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY executed_at DESC LIMIT 1",
+                                        "SELECT id, signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY executed_at DESC LIMIT 1",
                                         (acc_id, pos_ref, pos_ref),
                                     ).fetchone()
-                                    if ex_row and ex_row[0] and not getkv(c, f"hindsight_reflected:{ex_row[0]}:{dl_id}"):
-                                        setkv(c, f"hindsight_reflected:{ex_row[0]}:{dl_id}", "1")
-                                        from app.hindsight import reflect_on_signal_outcome
-                                        reflect_on_signal_outcome(
-                                            c,
-                                            signal_id=ex_row[0],
-                                            pnl=round(profit, 2),
-                                            exit_price=_safe_float(dl.get("price")),
-                                            exit_reason="BROKER_DEAL_CLOSED",
+                                    if ex_row:
+                                        ex_id = ex_row["id"] if hasattr(ex_row, "keys") else ex_row[0]
+                                        sig_ref = ex_row["signal_id"] if hasattr(ex_row, "keys") else ex_row[1]
+                                        c.execute(
+                                            "UPDATE metaapi_trade_executions SET profit = COALESCE(profit, 0) + ?, closed_at = ? WHERE id = ?",
+                                            (round(profit, 2), time.time(), ex_id),
                                         )
-                                        setkv(c, f"deal_synced:{dl_id}", "1")
+                                        if sig_ref and not getkv(c, f"hindsight_reflected:{sig_ref}:{dl_id}"):
+                                            setkv(c, f"hindsight_reflected:{sig_ref}:{dl_id}", "1")
+                                            from app.hindsight import reflect_on_signal_outcome
+                                            reflect_on_signal_outcome(
+                                                c,
+                                                signal_id=sig_ref,
+                                                pnl=round(profit, 2),
+                                                exit_price=_safe_float(dl.get("price")),
+                                                exit_reason="BROKER_DEAL_CLOSED",
+                                                accumulate_pnl=True,
+                                            )
+                                            setkv(c, f"deal_synced:{dl_id}", "1")
                 except Exception as ds_err:
                     logger.debug(f"Deal history sync note for {acc_id}: {ds_err}")
 

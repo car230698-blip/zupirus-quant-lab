@@ -183,10 +183,13 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                 result = results_list[0] or {}
                 meta = result.get("meta") or {}
                 price = meta.get("regularMarketPrice")
+                mkt_time = meta.get("regularMarketTime")
                 if bid is None and price and float(price) > min_valid:
                     mid = round(float(price), dec)
                     bid = round(mid - half_spread, dec)
                     ask = round(mid + half_spread, dec)
+                    if mkt_time and isinstance(mkt_time, (int, float)) and float(mkt_time) > 1000000000:
+                        now_ts = float(mkt_time)
 
                 timestamps = result.get("timestamp") or []
                 quote_arr = ((result.get("indicators") or {}).get("quote") or [{}])[0] or {}
