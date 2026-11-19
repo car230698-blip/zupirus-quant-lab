@@ -273,37 +273,35 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
     gem_error = None
     if provider in ("GEMINI", "HYBRID"):
         try:
-            with tx() as c:
-                # Re-activate any rate-limited/error keys if user explicitly clicks Test, or if a direct Gemini key is provided
-                explicit_keys = None
-                if key and (key.startswith("AIza") or key.startswith("AQ.")):
-                    explicit_keys = [{"id": "direct_input", "key_cipher": key}]
-                eff_gem_model = model if model.startswith("gemini") else gemini_model
-                import asyncio
-                def _run_gem():
-                    with tx() as _c:
-                        return call_gemini(
-                            req.prompt,
-                            system_instruction=sys_instruction,
-                            active_keys=explicit_keys,
-                            c=_c,
-                            timeout=8.0,
-                            max_tries=5,
-                            model=eff_gem_model,
-                        )
-                gem_res, used_k = await asyncio.to_thread(_run_gem)
-                if gem_res:
-                    latency = round((time.perf_counter() - t0) * 1000, 1)
-                    return {
-                        "success": True,
-                        "provider": "Google Gemini",
-                        "model": eff_gem_model,
-                        "connected_api": f"Google Gemini ({used_k or 'Pool'})",
-                        "live_market_snapshot": live_snapshot,
-                        "latency_ms": latency,
-                        "response": gem_res,
-                    }
-                gem_error = "Google Gemini API tạm thời quá tải (503) hoặc các Key trong Pool đều bị từ chối."
+            explicit_keys = None
+            if key and (key.startswith("AIza") or key.startswith("AQ.")):
+                explicit_keys = [{"id": "direct_input", "key_cipher": key}]
+            eff_gem_model = model if model.startswith("gemini") else gemini_model
+            import asyncio
+            def _run_gem():
+                with tx() as _c:
+                    return call_gemini(
+                        req.prompt,
+                        system_instruction=sys_instruction,
+                        active_keys=explicit_keys,
+                        c=_c,
+                        timeout=8.0,
+                        max_tries=5,
+                        model=eff_gem_model,
+                    )
+            gem_res, used_k = await asyncio.to_thread(_run_gem)
+            if gem_res:
+                latency = round((time.perf_counter() - t0) * 1000, 1)
+                return {
+                    "success": True,
+                    "provider": "Google Gemini",
+                    "model": eff_gem_model,
+                    "connected_api": f"Google Gemini ({used_k or 'Pool'})",
+                    "live_market_snapshot": live_snapshot,
+                    "latency_ms": latency,
+                    "response": gem_res,
+                }
+            gem_error = "Google Gemini API tạm thời quá tải (503) hoặc các Key trong Pool đều bị từ chối."
         except Exception as e:
             logger.warning(f"Gemini call failed in test_ai_connection: {e}")
             gem_error = str(e)

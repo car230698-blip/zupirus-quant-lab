@@ -22,8 +22,13 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
     """Fan-Out Execution Engine: Dispatches market order directly to all connected MT5 Cloud accounts.
     Strictly protected: Admin-only, respects Kill-Switch, and enforces Mandatory Stop Loss.
     """
+    import hashlib
     now_ts = time.time()
-    signal_id = f"sig_{secrets.token_hex(6)}"
+    act_upper = p.action.upper()
+    sym_upper = p.symbol.upper()
+    # Deterministic 10-second idempotency fingerprint so double-clicks cannot dispatch duplicate orders
+    fp_raw = f"admin_direct:{sym_upper}:{act_upper}:{round(float(p.entry_price), 4)}:{round(float(p.sl or 0), 4)}:{int(now_ts // 10)}"
+    signal_id = f"sig_{hashlib.sha256(fp_raw.encode()).hexdigest()[:12]}"
 
     with tx() as c:
         # 1. Enforce System Kill-Switch
@@ -33,10 +38,14 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
             logger.warning(f"Admin signal dispatch rejected: System kill-switch is active (halted=1)")
             raise HTTPException(status_code=403, detail="System kill-switch is active. Signal dispatch is halted.")
 
-        # 2. Enforce Mandatory Stop Loss
+        # 2. Enforce Mandatory Stop Loss & Directional Geometry
         if p.sl is None or float(p.sl) <= 0:
             logger.warning(f"Admin signal dispatch rejected: Missing mandatory Stop Loss")
             raise HTTPException(status_code=422, detail="Mandatory Stop Loss missing. Direct dispatch requires valid SL.")
+        if act_upper == "BUY" and float(p.sl) >= float(p.entry_price):
+            raise HTTPException(status_code=422, detail="Invalid BUY Stop Loss: SL must be strictly below entry_price.")
+        if act_upper == "SELL" and float(p.sl) <= float(p.entry_price):
+            raise HTTPException(status_code=422, detail="Invalid SELL Stop Loss: SL must be strictly above entry_price.")
 
         # 3. Scan active cloud accounts with accepted disclaimers and active subscriptions
         now_ts = time.time()

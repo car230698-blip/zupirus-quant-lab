@@ -430,6 +430,7 @@ class MetaApiClient:
                     return await client.post(u, headers=self._headers(), json=p)
             tasks.append(_close(url, payload))
 
+        from app.services.execution.watcher import _is_metaapi_success
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for res in results:
@@ -442,11 +443,11 @@ class MetaApiClient:
                         try:
                             data = res.json()
                             if isinstance(data, dict) and ("numericCode" in data or "stringCode" in data):
-                                body_ok = self._is_metaapi_success(data)
+                                body_ok = _is_metaapi_success(data)
                         except Exception:
                             body_ok = True
                     elif isinstance(res, dict) and ("numericCode" in res or "stringCode" in res):
-                        body_ok = self._is_metaapi_success(res)
+                        body_ok = _is_metaapi_success(res)
                     if body_ok:
                         closed_count += 1
                     else:

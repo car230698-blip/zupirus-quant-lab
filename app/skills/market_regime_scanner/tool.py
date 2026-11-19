@@ -64,7 +64,8 @@ def scan_market_regime(
             tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
             tr_list.append(tr)
         if tr_list:
-            atr = round(sum(tr_list[-14:]) / min(len(tr_list), 14), 2)
+            from app.services.symbol_precision import digits_for_symbol
+            atr = round(sum(tr_list[-14:]) / min(len(tr_list), 14), max(2, digits_for_symbol(symbol)))
             last_close = float(candles[-1]["close"])
 
     # 3. Classify volatility regime (normalized to pips so FX pairs and XAUUSD use consistent pip thresholds)

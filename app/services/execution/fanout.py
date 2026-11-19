@@ -177,7 +177,12 @@ async def execute_fan_out_for_signal(
             t_val = float(acc.get("tick_value") or 1.0)
         except (ValueError, TypeError):
             t_val = 1.0
-        is_cent_acc = acc.get("account_type") == "CENT" or acc.get("currency") in ("USC", "EUC") or c_size <= 1.0
+        is_gold_sym = "XAU" in symbol.upper() or "GOLD" in symbol.upper()
+        is_cent_acc = (
+            str(acc.get("account_type") or "").upper() == "CENT"
+            or str(acc.get("currency") or "").upper() in ("USC", "EUC")
+            or (is_gold_sym and c_size <= 1.0)
+        )
 
         is_prop_mode = bool(acc.get("is_prop_firm_mode"))
         prop_stage = str(acc.get("prop_stage") or "CHALLENGE").upper()

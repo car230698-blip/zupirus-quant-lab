@@ -243,9 +243,14 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
     now_ts = time.time()
     cutoff_ts = now_ts - max(1, min(days, 365)) * 86400
     with tx() as c:
+        is_pg = bool(getattr(c, "_is_pg", False))
         accounts = []
+        if is_pg:
+            c.execute("SAVEPOINT sp_ea_cloud_exec")
         try:
             cloud_accs = [dict(r) for r in c.execute('SELECT * FROM trading_accounts WHERE user_id=?', (u['id'],))]
+            if is_pg:
+                c.execute("RELEASE SAVEPOINT sp_ea_cloud_exec")
             for ca in cloud_accs:
                 ca.pop('encrypted_master_password', None)
                 ca.pop('password', None)
@@ -257,22 +262,42 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
                 ca['is_active'] = bool(ca.get('auto_trade', 1))
             accounts.extend(cloud_accs)
         except Exception:
-            pass
+            if is_pg:
+                try:
+                    c.execute("ROLLBACK TO SAVEPOINT sp_ea_cloud_exec")
+                except Exception:
+                    pass
 
+        if is_pg:
+            c.execute("SAVEPOINT sp_ea_cloud_exec")
         try:
             real_accs = [dict(r) for r in c.execute('SELECT * FROM real_accounts WHERE user_id=?', (u['id'],))]
+            if is_pg:
+                c.execute("RELEASE SAVEPOINT sp_ea_cloud_exec")
             for ra in real_accs:
                 ra['mode'] = 'REAL'
                 ra['is_real'] = True
             accounts.extend(real_accs)
         except Exception:
-            pass
+            if is_pg:
+                try:
+                    c.execute("ROLLBACK TO SAVEPOINT sp_ea_cloud_exec")
+                except Exception:
+                    pass
 
+        if is_pg:
+            c.execute("SAVEPOINT sp_ea_cloud_exec")
         try:
             legacy_accs = [dict(r) for r in c.execute('SELECT * FROM accounts WHERE user_id=?', (u['id'],))]
+            if is_pg:
+                c.execute("RELEASE SAVEPOINT sp_ea_cloud_exec")
             accounts.extend(legacy_accs)
         except Exception:
-            pass
+            if is_pg:
+                try:
+                    c.execute("ROLLBACK TO SAVEPOINT sp_ea_cloud_exec")
+                except Exception:
+                    pass
 
         # Deduplicate accounts so each (login, server) appears only once
         seen_keys = set()
@@ -311,6 +336,9 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
         query += ' ORDER BY d.id DESC LIMIT 100'
         orders = [dict(r) for r in c.execute(query, tuple(params))]
         for d in orders: d.pop('nonce', None)
+        is_pg = bool(getattr(c, "_is_pg", False))
+        if is_pg:
+            c.execute("SAVEPOINT sp_ea_cloud_exec")
         try:
             cloud_exec_rows = c.execute(
                 """
@@ -322,6 +350,8 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
                 """,
                 (u['id'],)
             ).fetchall()
+            if is_pg:
+                c.execute("RELEASE SAVEPOINT sp_ea_cloud_exec")
             for r in cloud_exec_rows:
                 rd = dict(r)
                 raw_st = str(rd.get('status', '')).upper()
@@ -362,7 +392,11 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
                     'updated': rd.get('closed_at') or rd.get('executed_at'),
                 })
         except Exception:
-            pass
+            if is_pg:
+                try:
+                    c.execute("ROLLBACK TO SAVEPOINT sp_ea_cloud_exec")
+                except Exception:
+                    pass
 
         if account_id:
             raw_series = [

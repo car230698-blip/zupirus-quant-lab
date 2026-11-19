@@ -287,25 +287,25 @@ def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
         from app.services.signal_ingestion.context import get_trading_session
         shadow_rows = c.execute(
             """
-            SELECT side, entry_price, simulated_pnl_R, signal_time
+            SELECT side, entry_price, pnl_pips, signal_time
             FROM shadow_signals
-            WHERE eval_status IN ('TP_HIT', 'SL_HIT', 'TIME_CLOSED') AND simulated_pnl_R IS NOT NULL
+            WHERE eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED', 'TIME_CLOSED') AND pnl_pips IS NOT NULL
             ORDER BY signal_time DESC LIMIT 200
             """
         ).fetchall()
         for sr in shadow_rows:
             s_side = sr["side"] if hasattr(sr, "keys") else sr[0]
             s_entry = sr["entry_price"] if hasattr(sr, "keys") else sr[1]
-            s_pnl_r = float(sr["simulated_pnl_R"] if hasattr(sr, "keys") else sr[2])
+            s_pnl_pips = float(sr["pnl_pips"] if hasattr(sr, "keys") else sr[2])
             s_ts = float((sr["signal_time"] if hasattr(sr, "keys") else sr[3]) or time.time())
             rows.append({
                 "side": s_side,
                 "entry_price": s_entry,
-                "pnl": s_pnl_r * 100.0,
+                "pnl": s_pnl_pips,
                 "context_snapshot": json.dumps({"session": get_trading_session(s_ts)}),
             })
-    except Exception:
-        pass
+    except Exception as sh_err:
+        logger.debug(f"Shadow signals induction query note: {sh_err}")
 
     if not rows or len(rows) < min_samples:
         return []

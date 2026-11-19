@@ -495,7 +495,12 @@ class PositionWatcher:
                                 dl_id = str(dl.get("id") or "")
                                 if not dl_id or getkv(c, f"deal_synced:{dl_id}"):
                                     continue
-                                profit = _safe_float(dl.get("profit")) + _safe_float(dl.get("swap")) + _safe_float(dl.get("commission"))
+                                profit_raw = _safe_float(dl.get("profit")) + _safe_float(dl.get("swap")) + _safe_float(dl.get("commission"))
+                                is_cent_deal = (
+                                    str(acc.get("account_type") or "").upper() == "CENT"
+                                    or str(acc.get("currency") or "").upper() in ("USC", "EUC")
+                                )
+                                profit = (profit_raw / 100.0) if is_cent_deal else profit_raw
                                 pos_ref = str(dl.get("positionId") or dl.get("orderId") or "")
                                 if pos_ref:
                                     ex_row = c.execute(

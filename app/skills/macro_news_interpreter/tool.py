@@ -25,8 +25,8 @@ def interpret_macro_news(
                 SELECT title, currency, impact, ts
                 FROM news
                 WHERE currency = ? AND abs(ts - ?) <= ?
-                ORDER BY abs(ts - ?) ASC
-                LIMIT 5
+                ORDER BY CASE WHEN upper(impact) = 'HIGH' THEN 0 ELSE 1 END, abs(ts - ?) ASC
+                LIMIT 10
                 """,
                 (currency, now_ts, window_hours * 3600.0, now_ts)
             ).fetchall()

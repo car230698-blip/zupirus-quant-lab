@@ -27,6 +27,7 @@ class InMemoryRedisMock:
         self._expires: Dict[str, float] = {}
         self._streams: Dict[str, List[Dict[str, Any]]] = {STREAM_SIGNALS: []}
         self._acked: Dict[Any, set] = {}
+        self._stream_seq: Dict[str, int] = {}
         self._subscribers: List[Any] = []
 
     def _purge_expired(self):
@@ -80,11 +81,21 @@ class InMemoryRedisMock:
                 return 1
             return 0
 
+    @staticmethod
+    def _parse_stream_id(sid: str):
+        try:
+            parts = str(sid).split("-", 1)
+            return (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+        except Exception:
+            return (0, 0)
+
     def xadd(self, name: str, fields: Dict[str, Any], id: str = "*", maxlen: Optional[int] = None, approximate: bool = True) -> str:
         with self._lock:
             if name not in self._streams:
                 self._streams[name] = []
-            entry_id = f"{int(time.time() * 1000)}-{len(self._streams[name])}"
+            seq = self._stream_seq.get(name, 0) + 1
+            self._stream_seq[name] = seq
+            entry_id = f"{int(time.time() * 1000)}-{seq}"
             entry = {"id": entry_id, "data": fields, "ts": time.time()}
             self._streams[name].append(entry)
             if maxlen and len(self._streams[name]) > maxlen:
@@ -104,14 +115,16 @@ class InMemoryRedisMock:
             for stream_name, last_id in streams.items():
                 entries = self._streams.get(stream_name, [])
                 lid = str(last_id or "0-0")
-                if lid not in ("0", "0-0", "-", "", ">"):
-                    entries = [e for e in entries if str(e["id"]) > lid]
+                is_from_zero = lid in ("0", "0-0", "-", "", ">")
+                if not is_from_zero:
+                    lid_tuple = self._parse_stream_id(lid)
+                    entries = [e for e in entries if self._parse_stream_id(e["id"]) > lid_tuple]
                 filtered = [
                     (e["id"], {k: str(v) for k, v in e["data"].items()})
                     for e in entries
                 ]
                 if count:
-                    filtered = filtered[-count:]
+                    filtered = filtered[-count:] if is_from_zero else filtered[:count]
                 if filtered:
                     results.append((stream_name, filtered))
             return results
@@ -131,13 +144,14 @@ class InMemoryRedisMock:
                 entries = [e for e in self._streams.get(stream_name, []) if e["id"] not in acked_set]
                 lid = str(last_id or ">")
                 if lid not in ("0", "0-0", "-", "", ">"):
-                    entries = [e for e in entries if str(e["id"]) > lid]
+                    lid_tuple = self._parse_stream_id(lid)
+                    entries = [e for e in entries if self._parse_stream_id(e["id"]) > lid_tuple]
                 filtered = [
                     (e["id"], {k: str(v) for k, v in e["data"].items()})
                     for e in entries
                 ]
                 if count:
-                    filtered = filtered[-count:]
+                    filtered = filtered[:count]
                 if filtered:
                     results.append((stream_name, filtered))
             return results

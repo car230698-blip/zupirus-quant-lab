@@ -314,13 +314,20 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
         }
 
 
+def _normalize_session_slug(sess_str: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "_", str(sess_str or "").lower()).strip("_")
+
+
 def evaluate_active_learned_skills(db_cursor=None, current_time: Optional[float] = None) -> Dict[str, Any]:
-    """Evaluate all enabled self-learned skills for the current market session."""
+    """Evaluate all enabled self-learned skills for the exact current market session."""
+    import re
     from app.services.signal_ingestion.context import get_trading_session
     now_ts = current_time or time.time()
     cur_sess = get_trading_session(now_ts)
-    cur_sess_slug = cur_sess.lower().replace("/", "_").replace(" ", "_")
+    cur_sess_slug = _normalize_session_slug(cur_sess)
     allowed_sides = set()
+    blocked_sides = set()
     matched_skills = []
     try:
         def _query(cur):
@@ -336,19 +343,23 @@ def evaluate_active_learned_skills(db_cursor=None, current_time: Optional[float]
         for r in rows:
             rd = dict(r)
             sid = str(rd.get("skill_id") or "").lower()
-            blob = f"{sid} {rd.get('name', '')} {rd.get('trigger_condition', '')}".lower()
-            if cur_sess.lower() in blob or cur_sess_slug in sid:
-                matched_skills.append(rd.get("skill_id"))
-                if "buy" in blob:
-                    allowed_sides.add("BUY")
-                if "sell" in blob:
-                    allowed_sides.add("SELL")
+            # Match exact session slug prefix: learned_{session_slug}_{side}_filter
+            m = re.match(r"^learned_(.+)_(buy|sell)_(?:filter|avoid)$", sid)
+            if m:
+                skill_sess_slug, skill_side = m.group(1), m.group(2).upper()
+                if skill_sess_slug == cur_sess_slug:
+                    matched_skills.append(rd.get("skill_id"))
+                    if sid.endswith("_avoid"):
+                        blocked_sides.add(skill_side)
+                    else:
+                        allowed_sides.add(skill_side)
     except Exception:
         pass
     return {
         "session": cur_sess,
         "matched_skills": matched_skills,
         "allowed_sides": sorted(allowed_sides),
+        "blocked_sides": sorted(blocked_sides),
     }
 
 

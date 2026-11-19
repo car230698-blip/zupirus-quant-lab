@@ -25,6 +25,19 @@ def _sse_frame(event_name: str, data: dict) -> str:
     return f"event: {event_name}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
+_TOPBAR_CACHE: dict = {"ts": 0.0, "data": None}
+
+
+def _get_cached_topbar_telemetry() -> dict:
+    now = time.time()
+    if _TOPBAR_CACHE["data"] is not None and (now - _TOPBAR_CACHE["ts"]) < 1.2:
+        return _TOPBAR_CACHE["data"]
+    snap = get_topbar_telemetry()
+    _TOPBAR_CACHE["ts"] = now
+    _TOPBAR_CACHE["data"] = snap
+    return snap
+
+
 @router.get("/topbar")
 async def stream_topbar(request: Request, oneshot: bool = Query(default=False)):
     """Real-time SSE stream for XAU/USD spot price, spread, and 4-layer shield status."""
@@ -36,7 +49,7 @@ async def stream_topbar(request: Request, oneshot: bool = Query(default=False)):
             if await request.is_disconnected():
                 break
             try:
-                snap = await asyncio.to_thread(get_topbar_telemetry)
+                snap = await asyncio.to_thread(get_topbar_telemetry if oneshot else _get_cached_topbar_telemetry)
                 xau = snap.get("xauusd") or {}
                 sig = (xau.get("bid"), xau.get("ask"), xau.get("mid"), xau.get("spread_pips"), snap.get("system_status"))
                 if sig != last_sig or oneshot:

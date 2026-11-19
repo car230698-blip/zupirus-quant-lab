@@ -93,16 +93,22 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
         cand_id = cand["id"] if hasattr(cand, 'keys') else cand[0]
 
         # Auto-Rollback / Auto-Disable ("Bad Lesson" Protection):
-        # If recent live executions show >= 4 consecutive losses, automatically pause candidate & disable bad learned filters.
+        # Group by signal_id (not per-account fan-out rows) so 1 signal on 4 accounts counts as 1 signal outcome.
         try:
             active_cur = db_cursor
             if active_cur is not None:
-                recent_execs = active_cur.execute(
-                    "SELECT profit FROM metaapi_trade_executions WHERE profit IS NOT NULL ORDER BY executed_at DESC LIMIT 6"
+                recent_signals = active_cur.execute(
+                    """
+                    SELECT signal_id, AVG(profit) AS avg_profit, MAX(executed_at) AS last_ts
+                    FROM metaapi_trade_executions
+                    WHERE profit IS NOT NULL AND signal_id IS NOT NULL AND signal_id LIKE 'ag_%'
+                    GROUP BY signal_id
+                    ORDER BY last_ts DESC LIMIT 6
+                    """
                 ).fetchall()
                 losses_in_a_row = 0
-                for rx in recent_execs:
-                    pf_val = float(rx["profit"] if hasattr(rx, "keys") else rx[0])
+                for rx in recent_signals:
+                    pf_val = float(rx["avg_profit"] if hasattr(rx, "keys") else rx[1])
                     if pf_val < 0:
                         losses_in_a_row += 1
                     else:
@@ -112,26 +118,23 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                         "UPDATE strategy_candidates SET status = 'PAUSED_DRAWDOWN_GUARD' WHERE id = ?",
                         (cand_id,),
                     )
-                    active_cur.execute(
-                        "UPDATE agent_skills SET enabled = 0 WHERE skill_id LIKE 'learned_%' AND enabled = 1"
-                    )
                     return {
                         "side": None,
                         "strategy": cand_name,
                         "timeframe": timeframe,
                         "parameters": rules,
                         "version": STRATEGY_VERSION,
-                        "reason": f"AUTO_ROLLBACK_TRIGGERED: Chiến lược [{cand_name}] tạm ngắt sau {losses_in_a_row} lệnh thua liên tiếp.",
+                        "reason": f"AUTO_ROLLBACK_TRIGGERED: Chiến lược [{cand_name}] tạm ngắt sau {losses_in_a_row} tín hiệu AI thua liên tiếp.",
                     }
         except Exception:
             pass
 
-        # Evaluate active self-learned skills from Agent Skill Registry
-        learned_preferred_sides = set()
+        # Evaluate active self-learned skills from Agent Skill Registry (advisory / session-specific filter)
+        blocked_sides = set()
         try:
             from app.skills.registry import evaluate_active_learned_skills
             eval_res = evaluate_active_learned_skills(db_cursor=db_cursor)
-            learned_preferred_sides = set(eval_res.get("allowed_sides") or [])
+            blocked_sides = set(eval_res.get("blocked_sides") or [])
         except Exception:
             pass
 
@@ -144,7 +147,7 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
             slope_threshold = raw_thresh * price_scale
 
             if target_action in ("BUY", "BOTH") and recent_slope >= slope_threshold:
-                if learned_preferred_sides and "BUY" not in learned_preferred_sides:
+                if "BUY" in blocked_sides:
                     return {
                         "side": None,
                         "strategy": cand_name,
@@ -162,7 +165,7 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                     "reason": f"AUTONOMOUS_BUY: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
                 }
             elif target_action in ("SELL", "BOTH") and recent_slope <= -slope_threshold:
-                if learned_preferred_sides and "SELL" not in learned_preferred_sides:
+                if "SELL" in blocked_sides:
                     return {
                         "side": None,
                         "strategy": cand_name,

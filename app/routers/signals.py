@@ -125,27 +125,27 @@ def _parse_raw_signal_text(text: str, default_price: float = 2900.0):
     if "GOLD" in upper_t or "XAU" in upper_t:
         symbol = "XAUUSD"
 
-    # Match price: e.g. "BUY 2900.5" or "@ 2900" or "ENTRY 2900" or "NOW 2900"
+    # Match price: e.g. "BUY 2900.5" or "@ 1.0850" or "ENTRY 95000"
     price = default_price
-    m_price = re.search(r"(?:BUY|SELL|ENTRY|AT|PRICE|NOW)\s*([0-9]{4}(?:\.[0-9]+)?)", upper_t)
+    m_price = re.search(r"(?:BUY|SELL|ENTRY|AT|PRICE|NOW|@)\s*([0-9]+(?:\.[0-9]+)?)", upper_t)
     if m_price:
         try:
             price = float(m_price.group(1))
         except ValueError:
             pass
 
-    # Match TP: e.g. "TP 2880" or "TP1 2880" or "TP: 2880"
+    # Match TP: e.g. "TP 2880" or "TP1 1.0920" or "TP: 2880"
     tp = None
-    m_tp = re.search(r"TP[1-3]?\s*[:=]?\s*([0-9]{4}(?:\.[0-9]+)?)", upper_t)
+    m_tp = re.search(r"TP[1-3]?\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)", upper_t)
     if m_tp:
         try:
             tp = float(m_tp.group(1))
         except ValueError:
             pass
 
-    # Match SL: e.g. "SL 2915" or "SL: 2915"
+    # Match SL: e.g. "SL 2915" or "SL: 1.0800"
     sl = None
-    m_sl = re.search(r"SL\s*[:=]?\s*([0-9]{4}(?:\.[0-9]+)?)", upper_t)
+    m_sl = re.search(r"SL\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)", upper_t)
     if m_sl:
         try:
             sl = float(m_sl.group(1))
@@ -160,12 +160,16 @@ def test_ingest_signal(p: TestIngestPayload, admin=Depends(get_current_admin)):
     """Admin & CLI: Test signal ingestion through all 4 safety guards without executing real trades."""
     now_ts = time.time()
 
-    # Get fresh market price from quotes table
+    # Get fresh market price from quotes table filtered by symbol
+    target_sym = (p.symbol or "XAUUSD").upper()
     live_price = 2900.0
     with tx() as c:
-        q = c.execute("SELECT bid, ask FROM quotes ORDER BY ts DESC LIMIT 1").fetchone()
+        q = c.execute("SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1", (target_sym,)).fetchone()
+        if not q:
+            q = c.execute("SELECT bid, ask FROM quotes ORDER BY ts DESC LIMIT 1").fetchone()
         if q:
-            live_price = round((float(q["bid"]) + float(q["ask"])) / 2.0, 2)
+            from app.services.symbol_precision import digits_for_symbol
+            live_price = round((float(q["bid"]) + float(q["ask"])) / 2.0, digits_for_symbol(target_sym))
 
     if p.raw_message:
         action, symbol, entry_p, sl, tp = _parse_raw_signal_text(p.raw_message, default_price=live_price)
