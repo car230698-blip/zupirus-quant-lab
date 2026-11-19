@@ -9,8 +9,8 @@
   color-scheme: dark;
   font-synthesis: none;
 
-  /* Typography */
-  --font-display: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Typography (Strict 2-Font System: Inter + JetBrains Mono) */
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
@@ -149,6 +149,18 @@ code, pre, .font-mono, .tabular-nums {
 .animate-aurora { animation: aurora-pulse 10s ease-in-out infinite; }
 .animate-float { animation: float-slow 6s ease-in-out infinite; }
 .animate-laser-scan { animation: laser-scan-vertical 6s linear infinite; }
+
+@keyframes quant-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.quant-skeleton {
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.9) 25%, rgba(30, 41, 59, 0.85) 50%, rgba(15, 23, 42, 0.9) 75%);
+  background-size: 200% 100%;
+  animation: quant-shimmer 1.6s ease-in-out infinite;
+  border: 1px solid var(--color-border);
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

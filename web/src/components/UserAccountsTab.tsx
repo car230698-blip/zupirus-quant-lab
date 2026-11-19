@@ -3,6 +3,7 @@ import { useCloudAccounts } from '../hooks/useQuantData';
 import { fmtNum } from '../utils/strategyDecision';
 import { formatApiError } from '../utils/formatError.ts';
 import { AccountModals } from './AccountModals';
+import { IconShield } from './Icons';
 import { POPULAR_BROKERS } from '../data/quantConstants';
 
 export interface UserAccountsTabProps {
@@ -787,7 +788,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               </div>
               <div className="sm:col-span-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-200 flex items-center justify-between gap-3">
                 <div>
-                  <div className="font-bold text-emerald-300">🛡️ Quản trị Rủi ro &amp; Chia Lot Tự Động 100%</div>
+                  <div className="inline-flex items-center gap-1.5 font-semibold text-emerald-300"><IconShield className="w-4 h-4" />Quản trị Rủi ro &amp; Chia Lot Tự Động 100%</div>
                   <div className="mt-0.5 text-[11px] text-slate-300">
                     Hệ thống tự động nhận diện loại tài khoản (<strong className="text-white">Cent / Standard / Quỹ Prop</strong>), tự chia Lot theo số dư (<strong className="text-white">1.0x</strong>) và tự khóa cắt lỗ ngày (<strong className="text-white">4.0%</strong> cho Quỹ / <strong className="text-white">5.0%</strong> cho TK thường).
                   </div>

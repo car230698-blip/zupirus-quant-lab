@@ -34,6 +34,7 @@ export interface UserOverviewTabProps {
 }
 
 import { SHIELD_LAYERS } from '../data/quantConstants';
+import { IconSettings, IconSpark } from './Icons';
 
 export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   totalBalance = 0,
@@ -611,14 +612,16 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 onClick={() => activeTabSetter('accounts')}
                 className="quant-btn-secondary px-3.5 py-2 text-xs whitespace-nowrap shrink-0"
               >
-                ⚙ Cấu Hình Giáp Vốn
+                <IconSettings className="w-3.5 h-3.5" />
+                Cấu Hình Giáp Vốn
               </button>
               <button
                 type="button"
                 onClick={() => activeTabSetter('orders')}
                 className="quant-btn-primary px-3.5 py-2 text-xs whitespace-nowrap shrink-0"
               >
-                ✦ Sổ Lệnh AI
+                <IconSpark className="w-3.5 h-3.5" />
+                Sổ Lệnh AI
               </button>
             </div>
           )}

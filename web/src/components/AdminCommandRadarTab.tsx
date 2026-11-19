@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ToastNotification } from './ToastNotification.tsx';
+import { Panel, SkeletonBlock, StatusBadge } from './ui/Primitives';
+import { IconAlert, IconBolt, IconCheck, IconClose, IconRadar } from './Icons';
 
 export interface AdminCommandRadarTabProps {
   killSwitchLoading: boolean;
@@ -93,25 +95,23 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
       <ToastNotification message={msg || null} type="info" onClose={() => setMsg('')} />
 
       {/* Block 1: System Health Radar + Global Kill-Switch */}
-      <div className="quant-panel p-6 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
-          <div>
-            <div className="font-mono text-[11px] uppercase tracking-widest text-cyan-400">
-              Nhịp Tim Hệ Thống Tự Động 100%
-            </div>
-            <h2 className="mt-1 text-lg font-extrabold text-white">
-              Giám Sát Hoạt Động AI &amp; Cảnh Báo Lỗi
-            </h2>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
+      <Panel
+        title="Giám Sát Hoạt Động AI & Cảnh Báo Lỗi"
+        subtitle="Nhịp tim hệ thống tự động 100% — kiểm tra 4 phân hệ cốt lõi và điều khiển cầu dao khẩn cấp."
+        icon={<IconRadar className="w-4 h-4 text-cyan-300" />}
+        action={
+          <div className="flex flex-wrap items-center gap-2.5">
+            <StatusBadge tone={isHalted ? 'danger' : 'success'} dot pulse={!isHalted}>
+              {isHalted ? 'HALTED' : 'LIVE OPS'}
+            </StatusBadge>
             <button
               type="button"
               disabled={dryRunLoading}
               onClick={handleRunDryRun}
-              className="rounded-xl border border-cyan-400/40 bg-cyan-500/15 px-4 py-3 text-xs font-extrabold text-cyan-300 hover:bg-cyan-500/25 transition cursor-pointer"
+              className="quant-btn-secondary text-xs"
             >
-              {dryRunLoading ? 'Đang chạy Dry-Run...' : 'Chạy Thử Nghiệm Toàn Hệ Thống (Dry-Run Test)'}
+              <IconBolt className="w-3.5 h-3.5 text-cyan-300" />
+              {dryRunLoading ? 'Đang chạy Dry-Run...' : 'Chạy Dry-Run Test'}
             </button>
             <button
               type="button"
@@ -120,76 +120,74 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                 await handleToggleKillSwitch(isHalted);
                 await loadRadar();
               }}
-              className={`rounded-xl px-5 py-3 text-xs font-extrabold uppercase tracking-wider shadow-lg transition cursor-pointer ${
-                isHalted
-                  ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-                  : 'bg-rose-600 text-white hover:bg-rose-500 shadow-rose-600/30'
-              }`}
+              className={isHalted ? 'quant-btn-primary text-xs' : 'quant-btn-danger text-xs'}
             >
               {killSwitchLoading
                 ? 'Đang xử lý...'
                 : isHalted
-                ? 'MỞ LẠI HỆ THỐNG (ĐANG TẠM DỪNG)'
-                : 'CẦU DAO KHẨN CẤP (DỪNG TOÀN BỘ)'}
+                ? 'Mở Lại Hệ Thống'
+                : 'Cầu Dao Khẩn Cấp'}
             </button>
           </div>
-        </div>
-
+        }
+        bodyClassName="p-5 sm:p-6 space-y-5"
+      >
         {dryRunResult && (
-          <div className="rounded-2xl border border-cyan-500/30 bg-[#040710]/80 p-4 space-y-2">
+          <div className="rounded-xl border border-cyan-500/30 bg-slate-950/80 p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-[11px] font-bold uppercase text-cyan-300">
+              <span className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-cyan-300">
+                <IconCheck className="w-3.5 h-3.5" />
                 Kết Quả Dry-Run Test (Không Vào Tiền Thật)
               </span>
               <button
                 type="button"
+                aria-label="Đóng kết quả Dry-Run"
                 onClick={() => setDryRunResult(null)}
-                className="text-[11px] text-slate-400 hover:text-white cursor-pointer"
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
               >
-                Đóng
+                <IconClose className="w-3.5 h-3.5" />
               </button>
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {(dryRunResult.steps || []).map((st: any, idx: number) => (
                 <div
                   key={idx}
-                  className={`rounded-xl border p-3 text-xs ${
+                  className={`rounded-xl border p-3.5 text-xs ${
                     st.ok
                       ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
                       : 'border-amber-500/35 bg-amber-500/10 text-amber-200'
                   }`}
                 >
-                  <div className="font-bold">{st.step}</div>
-                  <div className="mt-1 text-[11px] opacity-90">{st.detail}</div>
+                  <div className="font-semibold flex items-center gap-1.5">
+                    {st.ok ? <IconCheck className="w-3.5 h-3.5 text-emerald-400" /> : <IconAlert className="w-3.5 h-3.5 text-amber-400" />}
+                    {st.step}
+                  </div>
+                  <div className="mt-1.5 text-[11px] text-slate-300 leading-relaxed">{st.detail}</div>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
           {(radar.health_cards || []).map((card: any) => (
             <div
               key={card.key}
-              className={`rounded-2xl border p-4 transition ${
+              className={`lg:col-span-3 rounded-xl border p-4 transition ${
                 card.ok
-                  ? 'border-emerald-500/30 bg-emerald-500/5'
+                  ? 'border-emerald-500/25 bg-emerald-500/[0.04]'
                   : 'border-rose-500/40 bg-rose-500/10'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-200">{card.title}</span>
-                <span
-                  className={`h-3 w-3 rounded-full ${
-                    card.ok
-                      ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]'
-                      : 'bg-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.8)] animate-pulse'
-                  }`}
-                />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-200">{card.title}</span>
+                <StatusBadge tone={card.ok ? 'success' : 'danger'} dot pulse={!card.ok}>
+                  {card.ok ? 'OK' : 'WARN'}
+                </StatusBadge>
               </div>
               <div
-                className={`mt-2 text-xs font-semibold ${
-                  card.ok ? 'text-emerald-300' : 'text-rose-300'
+                className={`mt-2.5 text-xs font-medium leading-relaxed ${
+                  card.ok ? 'text-emerald-300/90' : 'text-rose-200'
                 }`}
               >
                 {card.status_text}
@@ -197,15 +195,20 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             </div>
           ))}
           {loading && (radar.health_cards || []).length === 0 && (
-            <div className="col-span-4 text-xs text-slate-400">Đang kiểm tra trạng thái hệ thống...</div>
+            <>
+              <SkeletonBlock className="lg:col-span-3 h-20" />
+              <SkeletonBlock className="lg:col-span-3 h-20" />
+              <SkeletonBlock className="lg:col-span-3 h-20" />
+              <SkeletonBlock className="lg:col-span-3 h-20" />
+            </>
           )}
         </div>
-      </div>
+      </Panel>
 
-      {/* Block 2 & Block 3: Live AI Decision Feed & Error/Exception Alert Center */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {/* Block 2 & Block 3: 12-Column Bento Split (7 cols Live AI Feed + 5 cols Alert Center) */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Live AI Decision Feed */}
-        <div className="quant-panel p-6 space-y-4">
+        <div className="quant-panel lg:col-span-7 p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="font-mono text-[11px] uppercase tracking-widest text-cyan-400">
@@ -247,23 +250,17 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
         </div>
 
         {/* Error & Exception Alert Center */}
-        <div className="quant-panel p-6 space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="quant-panel lg:col-span-5 p-6 space-y-4">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">
                 Error &amp; Alert Center
               </div>
-              <h3 className="text-base font-bold text-white">Cảnh Báo Lỗi &amp; Ngoại Lệ Cần Chú Ý</h3>
+              <h3 className="text-base font-semibold text-white">Cảnh Báo Lỗi &amp; Ngoại Lệ Cần Chú Ý</h3>
             </div>
-            <span
-              className={`rounded-full px-3 py-1 font-mono text-[10px] font-bold ${
-                (radar.alerts || []).length > 0
-                  ? 'bg-rose-500/20 text-rose-300'
-                  : 'bg-emerald-500/20 text-emerald-300'
-              }`}
-            >
-              {(radar.alerts || []).length} CẢNH BÁO
-            </span>
+            <StatusBadge tone={(radar.alerts || []).length > 0 ? 'danger' : 'success'} dot>
+              {(radar.alerts || []).length} cảnh báo
+            </StatusBadge>
           </div>
 
           <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">

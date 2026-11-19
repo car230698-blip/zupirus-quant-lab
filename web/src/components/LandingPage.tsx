@@ -3,6 +3,7 @@ import { calculateQuantLotSizing, calculateSubscriptionPricing, type AccountKind
 import guardMatrixImg from '../assets/images/guard_matrix_architecture_1794792845754.jpg';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { LandingQrPreviewModal } from './LandingQrPreviewModal';
+import { IconBan, IconBolt, IconClose } from './Icons';
 import { LandingLotCalculator } from './LandingLotCalculator';
 import { GUARD_LAYERS, PRICING_TIERS } from '../data/landingData';
 
@@ -495,7 +496,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
               <div className="rounded-xl border border-rose-500/25 bg-rose-950/20 p-4 space-y-2.5">
-                <div className="font-mono font-bold text-rose-300 uppercase">✕ Tự Trade / Bot VPS Thường</div>
+                <div className="inline-flex items-center gap-1.5 font-mono font-bold text-rose-300 uppercase"><IconClose className="w-4 h-4" />Tự Trade / Bot VPS Thường</div>
                 <ul className="space-y-2 text-slate-300">
                   <li>• Phải thuê VPS $8-$15/tháng, hay treo EA mất kết nối.</li>
                   <li>• Gồng lỗ hoặc quên đặt Stop Loss khi thị trường giật mạnh.</li>
@@ -568,7 +569,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     : 'quant-btn-secondary'
                 }`}
               >
-                ⚡ Bắn Thử BUY XAU/USD
+                <IconBolt className="w-3.5 h-3.5" />
+                Bắn Thử BUY XAU/USD
               </button>
               <button
                 type="button"
@@ -580,19 +582,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     : 'quant-btn-secondary'
                 }`}
               >
-                ⚡ Bắn Thử SELL XAU/USD
+                <IconBolt className="w-3.5 h-3.5" />
+                Bắn Thử SELL XAU/USD
               </button>
               <button
                 type="button"
                 onClick={() => triggerSimulation('NO_SL')}
                 disabled={simRunning}
-                className={`px-4 py-2.5 text-xs font-mono font-bold rounded-xl border transition whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl border transition whitespace-nowrap shrink-0 cursor-pointer ${
                   simSide === 'NO_SL'
                     ? 'border-rose-400 bg-rose-500/25 text-rose-200'
                     : 'border-rose-500/30 bg-rose-950/20 text-rose-300 hover:bg-rose-500/20'
                 }`}
               >
-                ⛔ Thử Kịch Bản Thiếu SL (Fail-Closed)
+                <IconBan className="w-3.5 h-3.5" />
+                Thử Kịch Bản Thiếu SL (Fail-Closed)
               </button>
             </div>
           </div>

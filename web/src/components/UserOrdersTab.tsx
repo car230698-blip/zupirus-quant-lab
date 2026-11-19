@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { fmtNum, fmtPnL, fmtTime } from '../utils/strategyDecision';
 import { translateOrderStatus, orderStates } from '../utils/stateMapping';
 import { computeOrderLedgerMetrics } from '../utils/quantMath';
+import { MetricCard, Panel, StatusBadge } from './ui/Primitives';
+import { IconActivity, IconClose, IconReceipt, IconSearch, IconShield, IconTrendingUp } from './Icons';
 
 export interface UserOrdersTabProps {
   accounts?: any[];
@@ -51,79 +53,80 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
   const ledgerStats = computeOrderLedgerMetrics(filteredOrders);
 
   return (
-    <div className="space-y-5">
-      {/* Row 1: 4 Quantitative Ledger Summary Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="quant-card-interactive p-4">
-          <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-400">
-            Tổng Số Lệnh Sổ Cái
-          </div>
-          <div className="mt-1.5 font-mono text-2xl font-extrabold text-white tabular-nums">
-            {ledgerStats.totalCount}
-          </div>
-          <div className="mt-1.5 text-[11px] font-mono text-slate-400 tabular-nums">
-            Đã khớp: <strong className="text-cyan-300">{ledgerStats.filledCount}</strong>
-          </div>
-        </div>
-
-        <div className="quant-card-interactive p-4">
-          <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-400">
-            Tỷ Lệ Thắng (Win Rate)
-          </div>
-          <div className="mt-1.5 font-mono text-2xl font-extrabold text-emerald-400 tabular-nums">
-            {ledgerStats.winRatePct}%
-          </div>
-          <div className="mt-1.5 text-[11px] font-mono text-slate-400 tabular-nums">
-            Thắng {ledgerStats.winCount} / Thua {ledgerStats.lossCount}
-          </div>
-        </div>
-
-        <div className="quant-card-interactive p-4">
-          <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-400">
-            Hệ Số Lợi Nhuận (Profit Factor)
-          </div>
-          <div className="mt-1.5 font-mono text-2xl font-extrabold text-cyan-300 tabular-nums">
-            {fmtNum(ledgerStats.profitFactor, 2)}
-          </div>
-          <div className="mt-1.5 text-[11px] font-mono text-slate-400">
-            Chuẩn R:R định lượng ≥ 1.8
-          </div>
-        </div>
-
-        <div className="quant-card-interactive p-4">
-          <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-slate-400">
-            Tổng Lợi Nhuận Thực Tế
-          </div>
-          <div
-            className={`mt-1.5 font-mono text-2xl font-extrabold tabular-nums ${
-              ledgerStats.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
-            }`}
-          >
-            {fmtPnL(ledgerStats.netPnl)}
-          </div>
-          <div className="mt-1.5 text-[11px] font-mono text-slate-400">
-            Đối soát Ticket / Deal MT5
-          </div>
-        </div>
+    <div className="space-y-6">
+      {/* Row 1: 12-Column Bento KPI Strip (4 x 3 cols) */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
+        <MetricCard
+          className="lg:col-span-3"
+          label="Tổng Số Lệnh Sổ Cái"
+          value={ledgerStats.totalCount}
+          tone="cyan"
+          icon={<IconReceipt className="w-4 h-4" />}
+          subtext={
+            <span className="font-mono tabular-nums">
+              Đã khớp: <strong className="text-cyan-300">{ledgerStats.filledCount}</strong>
+            </span>
+          }
+        />
+        <MetricCard
+          className="lg:col-span-3"
+          label="Tỷ Lệ Thắng (Win Rate)"
+          value={<span className="text-emerald-400">{ledgerStats.winRatePct}%</span>}
+          tone="emerald"
+          icon={<IconTrendingUp className="w-4 h-4" />}
+          subtext={
+            <span className="font-mono tabular-nums">
+              Thắng {ledgerStats.winCount} / Thua {ledgerStats.lossCount}
+            </span>
+          }
+        />
+        <MetricCard
+          className="lg:col-span-3"
+          label="Hệ Số Lợi Nhuận (PF)"
+          value={<span className="text-cyan-300">{fmtNum(ledgerStats.profitFactor, 2)}</span>}
+          tone="amber"
+          icon={<IconActivity className="w-4 h-4" />}
+          subtext="Chuẩn R:R định lượng ≥ 1.8"
+        />
+        <MetricCard
+          className="lg:col-span-3"
+          label="Tổng Lợi Nhuận Thực Tế"
+          value={
+            <span className={ledgerStats.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+              {fmtPnL(ledgerStats.netPnl)}
+            </span>
+          }
+          tone={ledgerStats.netPnl >= 0 ? 'emerald' : 'rose'}
+          icon={<IconShield className="w-4 h-4" />}
+          subtext="Đối soát Ticket / Deal MT5"
+        />
       </div>
 
       {/* Header & Filter Bar */}
-      <div className="quant-panel flex flex-col justify-between gap-4 p-5 lg:flex-row lg:items-center">
-        <div>
-          <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
-            Sổ Cái Thực Thi Định Lượng
-          </span>
-          <h3 className="mt-0.5 text-lg font-bold text-white">Nhật Ký Khớp Lệnh & Đối Soát MT5</h3>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Tìm mã lệnh, Ticket, tài khoản..."
-            className="quant-input w-48 py-1.5 font-mono text-xs"
-          />
+      <Panel
+        title="Nhật Ký Khớp Lệnh & Đối Soát MT5"
+        subtitle="Sổ cái thực thi định lượng — lọc theo tài khoản, trạng thái hoặc mã Ticket/Deal."
+        icon={<IconReceipt className="w-4 h-4 text-amber-300" />}
+        action={
+          <StatusBadge tone="info" dot>
+            {filteredOrders.length} lệnh
+          </StatusBadge>
+        }
+        bodyClassName="p-4 sm:p-5"
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+              <IconSearch className="w-4 h-4" />
+            </span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm mã lệnh, Ticket, tài khoản..."
+              className="quant-input pl-9 font-mono text-xs"
+            />
+          </div>
 
           {setOrderAccountFilter && accounts.length > 0 && (
             <select
@@ -160,16 +163,16 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
             </select>
           )}
 
-          <div className="flex items-center gap-1 rounded-xl border border-white/[0.08] bg-[#040710] p-1">
+          <div className="flex items-center gap-1 rounded-xl border border-slate-800 bg-slate-950/90 p-1">
             {(['ALL', 'BUY', 'SELL'] as const).map((side) => (
               <button
                 key={side}
                 type="button"
                 onClick={() => setSideFilter(side)}
-                className={`rounded-lg px-3 py-1 font-mono text-xs font-semibold transition whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`rounded-lg px-3 py-1.5 font-mono text-xs font-semibold transition whitespace-nowrap shrink-0 cursor-pointer ${
                   sideFilter === side
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/35'
-                    : 'text-slate-400 hover:text-white'
+                    : 'text-slate-400 hover:text-white border border-transparent'
                 }`}
               >
                 {side === 'ALL' ? 'Tất Cả' : side}
@@ -177,7 +180,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
             ))}
           </div>
         </div>
-      </div>
+      </Panel>
 
       {/* Desktop High-Density Tabular Ledger */}
       <div className="quant-panel hidden md:block overflow-hidden">
@@ -336,10 +339,11 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               </div>
               <button
                 type="button"
+                aria-label="Đóng chi tiết lệnh"
                 onClick={() => setSelectedOrder(null)}
-                className="text-slate-400 hover:text-white cursor-pointer"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
               >
-                ✕
+                <IconClose className="w-4 h-4" />
               </button>
             </div>
 

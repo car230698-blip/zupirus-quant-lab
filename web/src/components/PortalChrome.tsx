@@ -1,7 +1,38 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import type { PortalType } from '../App.tsx';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
-import { IconBolt, IconClose, IconMenu } from './Icons';
+import {
+  IconBolt,
+  IconBrain,
+  IconChevronLeft,
+  IconChevronRight,
+  IconClose,
+  IconDashboard,
+  IconMenu,
+  IconRadar,
+  IconReceipt,
+  IconServer,
+  IconUsers,
+} from './Icons';
+
+function renderNavIcon(key: string): ReactNode {
+  switch (key) {
+    case 'overview':
+      return <IconDashboard className="w-4 h-4" />;
+    case 'accounts':
+      return <IconServer className="w-4 h-4" />;
+    case 'orders':
+      return <IconReceipt className="w-4 h-4" />;
+    case 'radar':
+      return <IconRadar className="w-4 h-4" />;
+    case 'ai':
+      return <IconBrain className="w-4 h-4" />;
+    case 'business':
+      return <IconUsers className="w-4 h-4" />;
+    default:
+      return <IconBolt className="w-4 h-4" />;
+  }
+}
 
 export type Portal = 'user' | 'admin';
 
@@ -190,7 +221,13 @@ export function PortalShell({
             }
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:border-amber-400/60 hover:bg-amber-500/20 hover:text-white transition cursor-pointer font-mono text-xs"
           >
-            {mobileMenuOpen ? <IconClose className="w-4 h-4" /> : sidebarCollapsed ? '»' : '«'}
+            {mobileMenuOpen ? (
+              <IconClose className="w-4 h-4" />
+            ) : sidebarCollapsed ? (
+              <IconChevronRight className="w-4 h-4" />
+            ) : (
+              <IconChevronLeft className="w-4 h-4" />
+            )}
           </button>
         </div>
 
@@ -227,7 +264,7 @@ export function PortalShell({
         </div>
 
         <nav className="quant-nav" aria-label="Menu chính">
-          {navigation[portal].map(([key, label, code]) => (
+          {navigation[portal].map(([key, label]) => (
             <button
               className="quant-nav-button"
               key={key}
@@ -238,10 +275,10 @@ export function PortalShell({
               }}
               aria-current={page === key ? 'page' : undefined}
             >
-              <span aria-hidden="true" className="font-mono text-[11px] font-bold">
-                {code}
+              <span aria-hidden="true">
+                {renderNavIcon(key)}
               </span>
-              {!sidebarCollapsed && <strong className="font-semibold truncate">{label}</strong>}
+              {!sidebarCollapsed && <strong className="font-medium truncate">{label}</strong>}
             </button>
           ))}
         </nav>
@@ -439,101 +476,36 @@ export function PortalShell({
         aria-label="Điều hướng di động"
         className="fixed bottom-0 left-0 right-0 z-30 flex md:hidden items-center justify-around border-t border-amber-500/25 bg-[#03060f]/95 px-1 py-1.5 backdrop-blur-2xl shadow-[0_-10px_30px_rgba(0,0,0,0.85)] pb-[max(0.375rem,env(safe-area-inset-bottom))]"
       >
-        {portal === 'user' ? (
-          <>
+        {navigation[portal].map(([key, label]) => {
+          const active = page === key;
+          const activeCls =
+            portal === 'admin'
+              ? 'text-cyan-300 font-semibold bg-cyan-500/12 border border-cyan-500/30'
+              : 'text-amber-300 font-semibold bg-amber-500/12 border border-amber-500/30';
+          return (
             <button
+              key={key}
               type="button"
-              onClick={() => onNavigate('overview')}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'overview'
-                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
-                  : 'text-slate-400 hover:text-slate-200'
+              onClick={() => onNavigate(key)}
+              aria-current={active ? 'page' : undefined}
+              className={`flex min-h-[44px] flex-col items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-[11px] transition cursor-pointer ${
+                active ? activeCls : 'text-slate-400 hover:text-slate-100 border border-transparent'
               }`}
             >
-              <span className="text-sm leading-none">01</span>
-              <span>Tổng quan</span>
+              {renderNavIcon(key)}
+              <span className="truncate max-w-[76px]">{label.split(' ').slice(0, 2).join(' ')}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('accounts')}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'accounts'
-                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="text-sm leading-none">02</span>
-              <span>Tài khoản</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('orders')}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'orders'
-                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="text-sm leading-none">03</span>
-              <span>Khớp lệnh</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl font-mono text-[10px] text-slate-400 hover:text-amber-300 transition cursor-pointer"
-            >
-              <span className="inline-flex items-center justify-center"><IconMenu className="w-4 h-4" /></span>
-              <span>Menu</span>
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => onNavigate('radar')}
-              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'radar'
-                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="text-sm leading-none">01</span>
-              <span>Giám sát</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('ai')}
-              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'ai'
-                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="text-sm leading-none">02</span>
-              <span>Trí tuệ AI</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('business')}
-              className={`flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] transition cursor-pointer ${
-                page === 'business'
-                  ? 'text-amber-300 font-bold bg-amber-500/15 border border-amber-500/35'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="text-sm leading-none">03</span>
-              <span>Kinh doanh</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              className="flex flex-col items-center gap-0.5 px-2.5 py-1 rounded-xl font-mono text-[10px] text-slate-400 hover:text-amber-300 transition cursor-pointer"
-            >
-              <span className="inline-flex items-center justify-center"><IconMenu className="w-4 h-4" /></span>
-              <span>Tất cả</span>
-            </button>
-          </>
-        )}
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => setMobileMenuOpen(true)}
+          aria-label="Mở menu đầy đủ"
+          className="flex min-h-[44px] flex-col items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-[11px] text-slate-400 hover:text-slate-100 transition cursor-pointer"
+        >
+          <IconMenu className="w-4 h-4" />
+          <span>Menu</span>
+        </button>
       </nav>
 
       {/* Quick Command Palette Modal (⌘K) */}
