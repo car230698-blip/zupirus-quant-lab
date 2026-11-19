@@ -304,7 +304,7 @@ def run_system_dry_run_test(_admin=Depends(get_current_admin)):
         # Clean up synthetic dry-run records so they never pollute production learning metrics or Hindsight lessons
         try:
             with tx() as c:
-                c.execute("DELETE FROM signal_audit_logs WHERE id = ?", (test_sig.id,))
+                c.execute("DELETE FROM signal_audit_logs WHERE signal_id = ? OR source_name = 'src_dryrun_test'", (test_sig.id,))
                 c.execute("DELETE FROM hindsight_memories WHERE content LIKE ?", (f"%{test_sig.id}%",))
         except Exception:
             pass
@@ -371,7 +371,7 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
 
         try:
             audit_cnt = c.execute(
-                "SELECT COUNT(*) FROM signal_audit_logs WHERE COALESCE(source, '') NOT IN ('src_dryrun_test', 'ADMIN_BENCH')"
+                "SELECT COUNT(*) FROM signal_audit_logs WHERE COALESCE(source_name, '') NOT IN ('src_dryrun_test', 'ADMIN_BENCH') AND pnl IS NOT NULL"
             ).fetchone()[0]
         except Exception:
             audit_cnt = 0
