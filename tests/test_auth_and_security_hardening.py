@@ -99,3 +99,12 @@ def test_admin_mailer_test_escapes_html(client, monkeypatch):
     assert res.status_code == 200
     assert "<script>" not in captured["html"]
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in captured["html"]
+
+
+def test_admin_telemetry_routes_registered(client):
+    assert client.post(
+        "/api/login",
+        json={"email": "admin@zupirus.local", "password": "test-only-admin-password-123"},
+    ).status_code == 200
+    assert client.get("/api/v1/telemetry/admin-radar").status_code == 200
+    assert client.get("/api/v1/telemetry/ai-evolution").status_code == 200

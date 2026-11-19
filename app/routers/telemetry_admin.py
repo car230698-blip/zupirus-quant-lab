@@ -10,7 +10,7 @@ from app.routers.deps import get_current_admin
 from app.routers.telemetry import get_live_xauusd_quote
 
 logger = logging.getLogger("zupirus.telemetry")
-router = APIRouter(tags=["telemetry"])
+router = APIRouter(prefix="/api/v1/telemetry", tags=["telemetry"])
 
 def _humanize_audit_event(event: str, detail_str: str) -> str:
     try:
