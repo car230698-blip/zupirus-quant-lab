@@ -63,20 +63,30 @@ interface CodeGraphPayload {
   edges: GraphEdge[];
 }
 
+const OVERVIEW_POS: Record<string, { x: number; y: number }> = {
+  frontend: { x: 40, y: 40 },
+  api: { x: 350, y: 40 },
+  execution: { x: 660, y: 40 },
+  ai: { x: 660, y: 270 },
+  data: { x: 350, y: 270 },
+  ops: { x: 40, y: 270 },
+};
+
 export const AdminCodeMapTab: React.FC = () => {
   const [graph, setGraph] = useState<CodeGraphPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [rescanning, setRescanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [viewMode, setViewMode] = useState<'overview' | 'detail'>('overview');
   const [search, setSearch] = useState('');
   const [enabledLayers, setEnabledLayers] = useState<Record<string, boolean>>({});
   const [activeTourId, setActiveTourId] = useState<string>('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
-  // Pan & Zoom state for interactive SVG canvas
-  const [zoom, setZoom] = useState(0.72);
-  const [pan, setPan] = useState({ x: 20, y: 12 });
+  // 1:1 CSS-pixel Pan & Zoom state (no shrinking viewBox!)
+  const [zoom, setZoom] = useState(0.85);
+  const [pan, setPan] = useState({ x: 24, y: 16 });
   const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; origX: number; origY: number }>({
     dragging: false,
     startX: 0,
@@ -147,6 +157,44 @@ export const AdminCodeMapTab: React.FC = () => {
     return m;
   }, [graph]);
 
+  // Aggregate layer stats & inter-layer edges for the crisp Architecture Overview mode
+  const layerOverview = useMemo(() => {
+    if (!graph) return { statsByLayer: {}, interEdges: [] as Array<{ from: string; to: string; count: number }> };
+    const statsByLayer: Record<string, { count: number; loc: number; topNodes: GraphNode[] }> = {};
+    graph.layers.forEach((l) => {
+      statsByLayer[l.id] = { count: 0, loc: 0, topNodes: [] };
+    });
+    graph.nodes.forEach((n) => {
+      const st = statsByLayer[n.layer];
+      if (st) {
+        st.count += 1;
+        st.loc += n.loc;
+        st.topNodes.push(n);
+      }
+    });
+    Object.values(statsByLayer).forEach((st) => {
+      st.topNodes.sort((a, b) => b.in_degree + b.out_degree - (a.in_degree + a.out_degree));
+      st.topNodes = st.topNodes.slice(0, 4);
+    });
+
+    const edgeCounts = new Map<string, number>();
+    graph.edges.forEach((e) => {
+      const s = nodeMap.get(e.source);
+      const t = nodeMap.get(e.target);
+      if (!s || !t || s.layer === t.layer) return;
+      const key = `${s.layer}->${t.layer}`;
+      edgeCounts.set(key, (edgeCounts.get(key) || 0) + 1);
+    });
+    const interEdges = Array.from(edgeCounts.entries())
+      .map(([k, count]) => {
+        const [from, to] = k.split('->');
+        return { from, to, count };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    return { statsByLayer, interEdges };
+  }, [graph, nodeMap]);
+
   const visibleNodes = useMemo(() => {
     if (!graph) return [];
     const q = search.trim().toLowerCase();
@@ -183,15 +231,31 @@ export const AdminCodeMapTab: React.FC = () => {
     return { outgoingIds: out, incomingIds: inc };
   }, [selectedNodeId, graph]);
 
-  const canvasBounds = useMemo(() => {
-    let maxX = 1800;
-    let maxY = 900;
-    visibleNodes.forEach((n) => {
-      if (n.x + 260 > maxX) maxX = n.x + 260;
-      if (n.y + 120 > maxY) maxY = n.y + 120;
+  const focusNodeInDetail = useCallback(
+    (nid: string) => {
+      setSelectedNodeId(nid);
+      const n = nodeMap.get(nid);
+      if (n) {
+        setViewMode('detail');
+        setZoom(0.95);
+        setPan({ x: Math.max(20, 280 - n.x * 0.95), y: Math.max(20, 200 - n.y * 0.95) });
+      }
+    },
+    [nodeMap],
+  );
+
+  const focusSingleLayer = (layerId: string) => {
+    if (!graph) return;
+    const next: Record<string, boolean> = {};
+    graph.layers.forEach((l) => {
+      next[l.id] = l.id === layerId;
     });
-    return { width: maxX, height: maxY };
-  }, [visibleNodes]);
+    setEnabledLayers(next);
+    setViewMode('detail');
+    const layerOrder = graph.layers.find((l) => l.id === layerId)?.order ?? 0;
+    setZoom(1.0);
+    setPan({ x: 40 - layerOrder * 280, y: 16 });
+  };
 
   const toggleLayer = (layerId: string) => {
     setEnabledLayers((prev) => ({ ...prev, [layerId]: prev[layerId] === false ? true : false }));
@@ -258,40 +322,82 @@ export const AdminCodeMapTab: React.FC = () => {
         </div>
       )}
 
-      {/* Row 2: Controls, Layer Filters & Guided Tours */}
+      {/* Row 2: Controls, View Switcher, Layer Filters & Guided Tours */}
       <Panel
         subtitle="UNDERSTAND-ANYTHING // KNOWLEDGE GRAPH"
         title="Bản Đồ Kiến Trúc & Luồng Nghiệp Vụ ZUPIRUS"
         action={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setZoom((z) => Math.max(0.35, Number((z - 0.12).toFixed(2))))}
-              className="quant-btn-secondary px-2.5 py-1.5 font-mono text-xs"
-            >
-              −
-            </button>
-            <span className="font-mono text-xs text-slate-300 tabular-nums w-12 text-center">
-              {Math.round(zoom * 100)}%
-            </span>
-            <button
-              type="button"
-              onClick={() => setZoom((z) => Math.min(1.5, Number((z + 0.12).toFixed(2))))}
-              className="quant-btn-secondary px-2.5 py-1.5 font-mono text-xs"
-            >
-              +
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setZoom(0.72);
-                setPan({ x: 20, y: 12 });
-                setActiveTourId('');
-              }}
-              className="quant-btn-secondary px-3 py-1.5 font-mono text-xs"
-            >
-              Reset View
-            </button>
+            {/* View Mode Toggle: Overview vs Detail Graph */}
+            <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#040710] p-1 font-mono text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('overview')}
+                className={`rounded-lg px-3 py-1 font-bold transition cursor-pointer ${
+                  viewMode === 'overview'
+                    ? 'bg-amber-400 text-slate-950'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Tổng Quan 6 Tầng
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode('detail');
+                  setZoom(0.85);
+                  setPan({ x: 24, y: 16 });
+                }}
+                className={`rounded-lg px-3 py-1 font-bold transition cursor-pointer ${
+                  viewMode === 'detail'
+                    ? 'bg-cyan-400 text-slate-950'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Chi Tiết ({graph?.stats.total_nodes ?? 0} Modules)
+              </button>
+            </div>
+
+            {viewMode === 'detail' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setZoom((z) => Math.max(0.4, Number((z - 0.15).toFixed(2))))}
+                  className="quant-btn-secondary px-2.5 py-1.5 font-mono text-xs"
+                >
+                  −
+                </button>
+                <span className="font-mono text-xs text-slate-300 tabular-nums w-12 text-center">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setZoom((z) => Math.min(1.8, Number((z + 0.15).toFixed(2))))}
+                  className="quant-btn-secondary px-2.5 py-1.5 font-mono text-xs"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setZoom(0.85);
+                    setPan({ x: 24, y: 16 });
+                    setActiveTourId('');
+                    if (graph) {
+                      const all: Record<string, boolean> = {};
+                      graph.layers.forEach((l) => {
+                        all[l.id] = true;
+                      });
+                      setEnabledLayers(all);
+                    }
+                  }}
+                  className="quant-btn-secondary px-3 py-1.5 font-mono text-xs"
+                >
+                  Reset View
+                </button>
+              </>
+            )}
+
             <button
               type="button"
               disabled={rescanning}
@@ -312,7 +418,10 @@ export const AdminCodeMapTab: React.FC = () => {
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                if (e.target.value.trim()) setViewMode('detail');
+              }}
               placeholder="Tìm file, router, hàm, component..."
               className="quant-input pl-9 font-mono text-xs"
             />
@@ -354,7 +463,9 @@ export const AdminCodeMapTab: React.FC = () => {
                 onClick={() => {
                   const next = isSel ? '' : t.id;
                   setActiveTourId(next);
-                  if (next && t.nodes[0]) setSelectedNodeId(t.nodes[0]);
+                  if (next && t.nodes[0]) {
+                    setSelectedNodeId(t.nodes[0]);
+                  }
                 }}
                 className={`rounded-lg border px-3 py-1 text-xs font-semibold transition cursor-pointer ${
                   isSel
@@ -380,7 +491,7 @@ export const AdminCodeMapTab: React.FC = () => {
                 <React.Fragment key={nid}>
                   <button
                     type="button"
-                    onClick={() => setSelectedNodeId(nid)}
+                    onClick={() => focusNodeInDetail(nid)}
                     className={`rounded px-2 py-0.5 border transition cursor-pointer ${
                       selectedNodeId === nid
                         ? 'border-amber-300 bg-amber-400 text-slate-950 font-bold'
@@ -397,179 +508,373 @@ export const AdminCodeMapTab: React.FC = () => {
         )}
       </Panel>
 
-      {/* Row 3: Interactive SVG Canvas (8 cols) + Node Inspector Drawer (4 cols) */}
+      {/* Row 3: Interactive Canvas (8 cols) + Node Inspector Drawer (4 cols) */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8 quant-panel overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2.5 text-[11px] font-mono text-slate-400">
-            <span>
-              Hiển thị <strong className="text-white">{visibleNodes.length}</strong> modules ·{' '}
-              <strong className="text-cyan-300">{visibleEdges.length}</strong> liên kết (kéo chuột để di chuyển)
-            </span>
-            <div className="hidden sm:flex items-center gap-3">
-              <span className="inline-flex items-center gap-1 text-amber-300">
-                <span className="h-2 w-2 rounded-full bg-amber-400" /> Import đi
-              </span>
-              <span className="inline-flex items-center gap-1 text-emerald-300">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" /> Được gọi bởi
-              </span>
-            </div>
-          </div>
+          {viewMode === 'overview' ? (
+            <>
+              <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2.5 text-[11px] font-mono text-slate-400">
+                <span>
+                  Chế độ <strong className="text-amber-300">TỔNG QUAN 6 TẦNG KIẾN TRÚC</strong> — bấm vào tên file để mở Inspector hoặc bấm &ldquo;Xem tầng này&rdquo; để phóng to chi tiết
+                </span>
+                <span className="hidden sm:inline text-cyan-300">
+                  {layerOverview.interEdges.length} luồng liên tầng
+                </span>
+              </div>
 
-          <div
-            className="relative h-[560px] w-full overflow-hidden bg-[#030712] cursor-grab active:cursor-grabbing select-none"
-            onMouseDown={(e) => {
-              dragRef.current = {
-                dragging: true,
-                startX: e.clientX,
-                startY: e.clientY,
-                origX: pan.x,
-                origY: pan.y,
-              };
-            }}
-            onMouseMove={(e) => {
-              if (!dragRef.current.dragging) return;
-              setPan({
-                x: dragRef.current.origX + (e.clientX - dragRef.current.startX),
-                y: dragRef.current.origY + (e.clientY - dragRef.current.startY),
-              });
-            }}
-            onMouseUp={() => {
-              dragRef.current.dragging = false;
-            }}
-            onMouseLeave={() => {
-              dragRef.current.dragging = false;
-            }}
-          >
-            <svg
-              width="100%"
-              height="100%"
-              viewBox={`0 0 ${canvasBounds.width} ${canvasBounds.height}`}
-              data-testid="understand-code-map-svg"
-            >
-              <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-                {/* Architectural Layer Column Headers */}
-                {(graph?.layers || []).map((l) => {
-                  if (enabledLayers[l.id] === false) return null;
-                  const colX = 90 + l.order * 280;
-                  return (
-                    <g key={l.id}>
-                      <rect
-                        x={colX - 18}
-                        y={14}
-                        width={242}
-                        height={36}
-                        rx={8}
-                        fill="rgba(15, 23, 42, 0.9)"
-                        stroke={l.color}
-                        strokeOpacity={0.45}
-                      />
-                      <text
-                        x={colX + 103}
-                        y={36}
-                        textAnchor="middle"
-                        fill={l.color}
-                        fontSize="12"
-                        fontWeight="800"
-                        fontFamily="JetBrains Mono, monospace"
+              <div className="p-4 sm:p-5 bg-[#030712] space-y-5">
+                {/* Crisp 6-Layer Architecture Map Diagram (SVG with fixed readable aspect ratio) */}
+                <div className="rounded-xl border border-white/[0.07] bg-[#050a18] p-3 overflow-x-auto">
+                  <svg viewBox="0 0 960 470" className="w-full min-w-[680px] h-auto select-none">
+                    <defs>
+                      <marker
+                        id="ua-arrow"
+                        viewBox="0 0 10 10"
+                        refX="8"
+                        refY="5"
+                        markerWidth="6"
+                        markerHeight="6"
+                        orient="auto-start-reverse"
                       >
-                        {l.label}
-                      </text>
-                    </g>
-                  );
-                })}
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8" fillOpacity="0.7" />
+                      </marker>
+                    </defs>
 
-                {/* Dependency Edges */}
-                {visibleEdges.map((edge) => {
-                  const s = nodeMap.get(edge.source);
-                  const t = nodeMap.get(edge.target);
-                  if (!s || !t) return null;
-                  const isOut = selectedNodeId === edge.source;
-                  const isIn = selectedNodeId === edge.target;
-                  const isTourEdge =
-                    activeTour && tourNodeSet.has(edge.source) && tourNodeSet.has(edge.target);
-                  const highlighted = isOut || isIn || isTourEdge;
-                  if (selectedNodeId && !highlighted && !activeTour) {
-                    // Dim unrelated edges heavily for clarity
-                  }
-                  const x1 = s.x + 102;
-                  const y1 = s.y + 22;
-                  const x2 = t.x + 102;
-                  const y2 = t.y + 22;
-                  const midX = (x1 + x2) / 2;
-                  const d = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
-                  const stroke = isOut
-                    ? '#fbbf24'
-                    : isIn
-                      ? '#34d399'
-                      : isTourEdge
-                        ? '#f59e0b'
-                        : 'rgba(148, 163, 184, 0.14)';
-                  return (
-                    <path
-                      key={`${edge.source}->${edge.target}`}
-                      d={d}
-                      fill="none"
-                      stroke={stroke}
-                      strokeWidth={highlighted ? 2.2 : 1}
-                      strokeOpacity={highlighted ? 0.92 : selectedNodeId ? 0.08 : 0.28}
-                    />
-                  );
-                })}
+                    {/* Inter-Layer Flow Curves */}
+                    {layerOverview.interEdges.slice(0, 12).map((ie) => {
+                      const p1 = OVERVIEW_POS[ie.from];
+                      const p2 = OVERVIEW_POS[ie.to];
+                      if (!p1 || !p2) return null;
+                      const x1 = p1.x + 130;
+                      const y1 = p1.y + 85;
+                      const x2 = p2.x + 130;
+                      const y2 = p2.y + 85;
+                      const mx = (x1 + x2) / 2;
+                      const my = (y1 + y2) / 2 - 24;
+                      return (
+                        <g key={`${ie.from}-${ie.to}`}>
+                          <path
+                            d={`M ${x1} ${y1} Q ${mx} ${my}, ${x2} ${y2}`}
+                            fill="none"
+                            stroke={layerColorMap[ie.from] || '#38bdf8'}
+                            strokeOpacity={0.45}
+                            strokeWidth={Math.min(4, 1.2 + ie.count / 15)}
+                            markerEnd="url(#ua-arrow)"
+                          />
+                          <rect x={mx - 18} y={my - 9} width={36} height={18} rx={9} fill="#0b1224" stroke="#334155" />
+                          <text
+                            x={mx}
+                            y={my + 3}
+                            textAnchor="middle"
+                            fill="#cbd5e1"
+                            fontSize="10"
+                            fontWeight="700"
+                            fontFamily="JetBrains Mono, monospace"
+                          >
+                            {ie.count}
+                          </text>
+                        </g>
+                      );
+                    })}
 
-                {/* Module Nodes */}
-                {visibleNodes.map((n) => {
-                  const color = layerColorMap[n.layer] || '#94a3b8';
-                  const isSel = selectedNodeId === n.id;
-                  const isNeighbor = outgoingIds.has(n.id) || incomingIds.has(n.id);
-                  const isInTour = tourNodeSet.has(n.id);
-                  const dimmed =
-                    (selectedNodeId && !isSel && !isNeighbor) ||
-                    (Boolean(activeTour) && !isInTour && !isSel);
-                  return (
-                    <g
-                      key={n.id}
-                      transform={`translate(${n.x}, ${n.y})`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedNodeId(n.id);
-                      }}
-                      className="cursor-pointer"
-                      opacity={dimmed ? 0.3 : 1}
-                    >
-                      <rect
-                        width={206}
-                        height={44}
-                        rx={8}
-                        fill={isSel ? 'rgba(30, 41, 59, 0.98)' : 'rgba(6, 12, 29, 0.92)'}
-                        stroke={isSel ? '#fbbf24' : isInTour ? '#f59e0b' : color}
-                        strokeWidth={isSel ? 2.4 : isInTour ? 1.8 : 1.1}
-                      />
-                      <rect width={4} height={44} rx={2} fill={color} />
-                      <text
-                        x={12}
-                        y={19}
-                        fill="#f8fafc"
-                        fontSize="11.5"
-                        fontWeight="700"
-                        fontFamily="JetBrains Mono, monospace"
+                    {/* 6 Architectural Layer Blocks */}
+                    {(graph?.layers || []).map((l) => {
+                      const pos = OVERVIEW_POS[l.id] || { x: 40, y: 40 };
+                      const st = layerOverview.statsByLayer[l.id] || { count: 0, loc: 0, topNodes: [] };
+                      const hasTourNode =
+                        activeTour && st.topNodes.some((n) => tourNodeSet.has(n.id));
+                      return (
+                        <g
+                          key={l.id}
+                          transform={`translate(${pos.x}, ${pos.y})`}
+                          className="cursor-pointer"
+                          onClick={() => focusSingleLayer(l.id)}
+                        >
+                          <rect
+                            width={260}
+                            height={172}
+                            rx={12}
+                            fill="#071022"
+                            stroke={hasTourNode ? '#fbbf24' : l.color}
+                            strokeWidth={hasTourNode ? 2.5 : 1.5}
+                            strokeOpacity={0.85}
+                          />
+                          <rect width={260} height={36} rx={12} fill={l.color} fillOpacity={0.14} />
+                          <circle cx={18} cy={18} r={5} fill={l.color} />
+                          <text
+                            x={30}
+                            y={22}
+                            fill="#f8fafc"
+                            fontSize="12.5"
+                            fontWeight="800"
+                            fontFamily="JetBrains Mono, monospace"
+                          >
+                            {l.label.split(' (')[0]}
+                          </text>
+                          <text
+                            x={248}
+                            y={22}
+                            textAnchor="end"
+                            fill={l.color}
+                            fontSize="11"
+                            fontWeight="700"
+                            fontFamily="JetBrains Mono, monospace"
+                          >
+                            {st.count} files
+                          </text>
+
+                          <text
+                            x={14}
+                            y={54}
+                            fill="#94a3b8"
+                            fontSize="10.5"
+                            fontFamily="JetBrains Mono, monospace"
+                          >
+                            {st.loc.toLocaleString('en-US')} dòng mã · Bấm để phóng to tầng
+                          </text>
+
+                          {st.topNodes.map((tn, idx) => (
+                            <g
+                              key={tn.id}
+                              transform={`translate(12, ${66 + idx * 24})`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedNodeId(tn.id);
+                              }}
+                            >
+                              <rect
+                                width={236}
+                                height={20}
+                                rx={5}
+                                fill={selectedNodeId === tn.id ? 'rgba(251,191,36,0.2)' : 'rgba(15,23,42,0.85)'}
+                                stroke={selectedNodeId === tn.id ? '#fbbf24' : 'rgba(148,163,184,0.18)'}
+                              />
+                              <text
+                                x={8}
+                                y={13.5}
+                                fill={selectedNodeId === tn.id ? '#fde68a' : '#e2e8f0'}
+                                fontSize="10.5"
+                                fontFamily="JetBrains Mono, monospace"
+                              >
+                                {tn.name.length > 24 ? `${tn.name.slice(0, 23)}…` : tn.name}
+                              </text>
+                              <text
+                                x={228}
+                                y={13.5}
+                                textAnchor="end"
+                                fill="#94a3b8"
+                                fontSize="9.5"
+                                fontFamily="JetBrains Mono, monospace"
+                              >
+                                {tn.loc}L
+                              </text>
+                            </g>
+                          ))}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+
+                {/* Inter-layer Summary Pills */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                  {(graph?.layers || []).map((l) => {
+                    const st = layerOverview.statsByLayer[l.id] || { count: 0, loc: 0, topNodes: [] };
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => focusSingleLayer(l.id)}
+                        className="flex items-center justify-between rounded-xl border border-white/10 bg-[#050914] px-3.5 py-2.5 text-left hover:border-cyan-400/40 transition cursor-pointer"
                       >
-                        {n.name.length > 23 ? `${n.name.slice(0, 22)}…` : n.name}
-                      </text>
-                      <text
-                        x={12}
-                        y={34}
-                        fill="#94a3b8"
-                        fontSize="9.5"
-                        fontFamily="JetBrains Mono, monospace"
-                      >
-                        {n.loc} LOC · in:{n.in_degree} · out:{n.out_degree}
-                      </text>
-                    </g>
-                  );
-                })}
-              </g>
-            </svg>
-          </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 font-mono text-xs font-bold text-white truncate">
+                            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                            {l.label}
+                          </div>
+                          <div className="mt-0.5 font-mono text-[11px] text-slate-400">
+                            {st.count} modules · {st.loc.toLocaleString('en-US')} LOC
+                          </div>
+                        </div>
+                        <span className="font-mono text-[10px] text-cyan-300 shrink-0 ml-2">Mở →</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2.5 text-[11px] font-mono text-slate-400">
+                <span>
+                  Hiển thị <strong className="text-white">{visibleNodes.length}</strong> modules ·{' '}
+                  <strong className="text-cyan-300">{visibleEdges.length}</strong> liên kết (kéo chuột để di chuyển · cuộn chuột để zoom)
+                </span>
+                <div className="hidden sm:flex items-center gap-3">
+                  <span className="inline-flex items-center gap-1 text-amber-300">
+                    <span className="h-2 w-2 rounded-full bg-amber-400" /> Import đi
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-emerald-300">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400" /> Được gọi bởi
+                  </span>
+                </div>
+              </div>
+
+              {/* 1:1 CSS Pixel SVG Canvas — crisp, never squished! */}
+              <div
+                className="relative h-[620px] w-full overflow-hidden bg-[#030712] cursor-grab active:cursor-grabbing select-none"
+                onWheel={(e) => {
+                  e.preventDefault();
+                  const delta = e.deltaY < 0 ? 0.1 : -0.1;
+                  setZoom((z) => Math.min(1.8, Math.max(0.35, Number((z + delta).toFixed(2)))));
+                }}
+                onMouseDown={(e) => {
+                  dragRef.current = {
+                    dragging: true,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    origX: pan.x,
+                    origY: pan.y,
+                  };
+                }}
+                onMouseMove={(e) => {
+                  if (!dragRef.current.dragging) return;
+                  setPan({
+                    x: dragRef.current.origX + (e.clientX - dragRef.current.startX),
+                    y: dragRef.current.origY + (e.clientY - dragRef.current.startY),
+                  });
+                }}
+                onMouseUp={() => {
+                  dragRef.current.dragging = false;
+                }}
+                onMouseLeave={() => {
+                  dragRef.current.dragging = false;
+                }}
+              >
+                <svg width="100%" height="100%" data-testid="understand-code-map-svg">
+                  <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+                    {/* Architectural Layer Column Headers */}
+                    {(graph?.layers || []).map((l) => {
+                      if (enabledLayers[l.id] === false) return null;
+                      const colX = 90 + l.order * 280;
+                      return (
+                        <g key={l.id}>
+                          <rect
+                            x={colX - 18}
+                            y={14}
+                            width={242}
+                            height={36}
+                            rx={8}
+                            fill="rgba(15, 23, 42, 0.95)"
+                            stroke={l.color}
+                            strokeOpacity={0.55}
+                          />
+                          <text
+                            x={colX + 103}
+                            y={36}
+                            textAnchor="middle"
+                            fill={l.color}
+                            fontSize="12"
+                            fontWeight="800"
+                            fontFamily="JetBrains Mono, monospace"
+                          >
+                            {l.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* Dependency Edges */}
+                    {visibleEdges.map((edge) => {
+                      const s = nodeMap.get(edge.source);
+                      const t = nodeMap.get(edge.target);
+                      if (!s || !t) return null;
+                      const isOut = selectedNodeId === edge.source;
+                      const isIn = selectedNodeId === edge.target;
+                      const isTourEdge =
+                        activeTour && tourNodeSet.has(edge.source) && tourNodeSet.has(edge.target);
+                      const highlighted = isOut || isIn || isTourEdge;
+                      const x1 = s.x + 102;
+                      const y1 = s.y + 22;
+                      const x2 = t.x + 102;
+                      const y2 = t.y + 22;
+                      const midX = (x1 + x2) / 2;
+                      const d = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+                      const stroke = isOut
+                        ? '#fbbf24'
+                        : isIn
+                          ? '#34d399'
+                          : isTourEdge
+                            ? '#f59e0b'
+                            : 'rgba(148, 163, 184, 0.16)';
+                      return (
+                        <path
+                          key={`${edge.source}->${edge.target}`}
+                          d={d}
+                          fill="none"
+                          stroke={stroke}
+                          strokeWidth={highlighted ? 2.2 : 1}
+                          strokeOpacity={highlighted ? 0.92 : selectedNodeId ? 0.08 : 0.28}
+                        />
+                      );
+                    })}
+
+                    {/* Module Nodes */}
+                    {visibleNodes.map((n) => {
+                      const color = layerColorMap[n.layer] || '#94a3b8';
+                      const isSel = selectedNodeId === n.id;
+                      const isNeighbor = outgoingIds.has(n.id) || incomingIds.has(n.id);
+                      const isInTour = tourNodeSet.has(n.id);
+                      const dimmed =
+                        (selectedNodeId && !isSel && !isNeighbor) ||
+                        (Boolean(activeTour) && !isInTour && !isSel);
+                      return (
+                        <g
+                          key={n.id}
+                          transform={`translate(${n.x}, ${n.y})`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedNodeId(n.id);
+                          }}
+                          className="cursor-pointer"
+                          opacity={dimmed ? 0.3 : 1}
+                        >
+                          <rect
+                            width={206}
+                            height={44}
+                            rx={8}
+                            fill={isSel ? 'rgba(30, 41, 59, 0.98)' : 'rgba(6, 12, 29, 0.94)'}
+                            stroke={isSel ? '#fbbf24' : isInTour ? '#f59e0b' : color}
+                            strokeWidth={isSel ? 2.4 : isInTour ? 1.8 : 1.1}
+                          />
+                          <rect width={4} height={44} rx={2} fill={color} />
+                          <text
+                            x={12}
+                            y={19}
+                            fill="#f8fafc"
+                            fontSize="11.5"
+                            fontWeight="700"
+                            fontFamily="JetBrains Mono, monospace"
+                          >
+                            {n.name.length > 23 ? `${n.name.slice(0, 22)}…` : n.name}
+                          </text>
+                          <text
+                            x={12}
+                            y={34}
+                            fill="#94a3b8"
+                            fontSize="9.5"
+                            fontFamily="JetBrains Mono, monospace"
+                          >
+                            {n.loc} LOC · in:{n.in_degree} · out:{n.out_degree}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </g>
+                </svg>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Right 4 Columns: Node Inspector ("Teach") & Hotspots */}
@@ -582,16 +887,25 @@ export const AdminCodeMapTab: React.FC = () => {
             {selectedNode ? (
               <>
                 <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className="rounded-md px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-slate-950"
-                      style={{ backgroundColor: layerColorMap[selectedNode.layer] || '#94a3b8' }}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="rounded-md px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-slate-950"
+                        style={{ backgroundColor: layerColorMap[selectedNode.layer] || '#94a3b8' }}
+                      >
+                        {selectedNode.layer}
+                      </span>
+                      <span className="font-mono text-[11px] text-slate-400">
+                        {selectedNode.loc} dòng · {selectedNode.language}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => focusNodeInDetail(selectedNode.id)}
+                      className="rounded-md border border-cyan-500/35 bg-cyan-500/10 px-2 py-0.5 font-mono text-[10px] font-bold text-cyan-300 hover:bg-cyan-500/20 cursor-pointer"
                     >
-                      {selectedNode.layer}
-                    </span>
-                    <span className="font-mono text-[11px] text-slate-400">
-                      {selectedNode.loc} dòng · {selectedNode.language}
-                    </span>
+                      Định vị trên Graph
+                    </button>
                   </div>
                   <div className="font-mono text-[11px] text-cyan-300 break-all">{selectedNode.path}</div>
                   <p className="text-xs text-slate-200 leading-relaxed rounded-lg border border-white/10 bg-[#040710]/80 p-3">
@@ -677,7 +991,7 @@ export const AdminCodeMapTab: React.FC = () => {
               <button
                 key={h.id}
                 type="button"
-                onClick={() => setSelectedNodeId(h.id)}
+                onClick={() => focusNodeInDetail(h.id)}
                 className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-left font-mono text-xs transition cursor-pointer ${
                   selectedNodeId === h.id
                     ? 'border-amber-400/50 bg-amber-500/15 text-amber-200'
