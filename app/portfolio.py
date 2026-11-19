@@ -1,6 +1,7 @@
 """Quant Portfolio Optimization & Multi-Asset Risk Allocation Engine.
 Includes Multi-Asset Universe specifications, ATR & Kelly position sizing,
 and Monte Carlo simulation for Drawdown & Risk of Ruin confidence intervals."""
+import math
 import random
 from typing import Dict, Any, List, Optional
 

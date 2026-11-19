@@ -314,7 +314,12 @@ async def process_successful_payment(
 
         # Prevent stacking cheap lower-tier days onto an active higher-tier subscription
         if is_lower_tier_on_active:
-            new_sub_exp = max(current_sub_exp, now_ts + duration_sec)
+            if (now_ts + duration_sec) > current_sub_exp:
+                # If the new lower-tier cycle extends beyond the remaining high-tier window, switch tier to the purchased plan
+                effective_tier = tier
+                new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
+            else:
+                new_sub_exp = current_sub_exp
         else:
             new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
 
@@ -372,20 +377,23 @@ async def process_successful_payment(
                 )
             )
 
-        # 6. Extend cloud_expires_at on user's trading_accounts and re-enable auto_trade
+        # 6. Extend cloud_expires_at on user's trading_accounts (only re-enable auto_trade if account was expired/undeployed, preserving user manual pause)
         acc_rows = c.execute(
-            "SELECT id, metaapi_account_id, cloud_expires_at FROM trading_accounts WHERE user_id = ? LIMIT ?",
+            "SELECT id, metaapi_account_id, cloud_expires_at, deployment_state, auto_trade FROM trading_accounts WHERE user_id = ? LIMIT ?",
             (user_id, max_accounts)
         ).fetchall()
         for a_row in acc_rows:
             a = dict(a_row)
             curr_c_exp = float(a["cloud_expires_at"] or 0) if a.get("cloud_expires_at") else 0.0
             new_c_exp = max(curr_c_exp, now_ts) + duration_sec
+            dep_st = str(a.get("deployment_state") or "").upper()
+            was_expired_or_undeployed = dep_st in ("UNDEPLOYED", "EXPIRED_PROTECTING", "DEPLOY_PENDING") or (curr_c_exp > 0 and curr_c_exp <= now_ts)
+            next_auto_trade = 1 if was_expired_or_undeployed else int(a.get("auto_trade") if a.get("auto_trade") is not None else 1)
             c.execute(
-                "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = 1 WHERE id = ? AND user_id = ?",
-                (new_c_exp, a["id"], user_id),
+                "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = ? WHERE id = ? AND user_id = ?",
+                (new_c_exp, next_auto_trade, a["id"], user_id),
             )
-            if a.get("metaapi_account_id"):
+            if a.get("metaapi_account_id") and (was_expired_or_undeployed or dep_st != "DEPLOYED"):
                 accounts_to_deploy.append((a["id"], a["metaapi_account_id"]))
 
         if not accounts_to_deploy:

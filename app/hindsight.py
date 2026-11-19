@@ -308,6 +308,7 @@ def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
                 "side": s_side,
                 "entry_price": s_entry,
                 "pnl": s_pnl_pips,
+                "is_shadow": True,
                 "context_snapshot": json.dumps({"session": get_trading_session(s_ts)}),
             })
     except Exception as sh_err:
@@ -316,12 +317,14 @@ def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
     if not rows or len(rows) < min_samples:
         return []
 
-    # Cluster by session and side
+    # Cluster by session and side (tracking USD live PnL separately from shadow pips)
     clusters: Dict[Tuple[str, str], List[float]] = {}
+    shadow_pips_clusters: Dict[Tuple[str, str], List[float]] = {}
     for r in rows:
         side = r["side"] if hasattr(r, 'keys') else r[0]
         pnl = float(r["pnl"] if hasattr(r, 'keys') else r[2])
         ctx_str = r["context_snapshot"] if hasattr(r, 'keys') else r[3]
+        is_sh = bool(r.get("is_shadow")) if isinstance(r, dict) else False
         session = "London"
         if ctx_str:
             try:
@@ -330,15 +333,21 @@ def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
                 pass
         key = (session, side)
         clusters.setdefault(key, []).append(pnl)
+        if is_sh:
+            shadow_pips_clusters.setdefault(key, []).append(pnl)
 
     discovered_rules = []
     for (sess, side), pnls in clusters.items():
         if len(pnls) >= min_samples:
             wins = sum(1 for p in pnls if p > 0)
             win_rate = round(wins / len(pnls), 2)
-            total_pnl = round(sum(pnls), 2)
+            sh_pips_list = shadow_pips_clusters.get((sess, side), [])
+            sh_pips_sum = round(sum(sh_pips_list), 2)
+            live_usd_sum = round(sum(pnls) - sum(sh_pips_list), 2)
+            total_pnl = live_usd_sum if (len(pnls) > len(sh_pips_list)) else sh_pips_sum
+            unit_lbl = "USD" if (len(pnls) > len(sh_pips_list) and not sh_pips_list) else ("pips (Shadow)" if len(sh_pips_list) == len(pnls) else f"USD (Live: {live_usd_sum:+.2f} USD, Shadow: {sh_pips_sum:+.1f} pips)")
             if win_rate >= 0.60:
-                rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}% (Mẫu: {len(pnls)} lệnh, Tổng PnL: {total_pnl:+.2f})."
+                rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}% (Mẫu: {len(pnls)} lệnh, Hiệu suất: {total_pnl:+.2f} {unit_lbl})."
                 store_memory(
                     c,
                     category=CATEGORY_SEMANTIC,
@@ -362,7 +371,7 @@ def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
 - Phiên giao dịch: {sess}
 - Hướng lệnh: {side}
 - Tỷ lệ thắng thực nghiệm: {win_rate*100:.0f}%
-- Tổng PnL tích lũy: {total_pnl:+.2f} USD
+- Hiệu suất tích lũy: {total_pnl:+.2f} {unit_lbl}
 
 ## Hướng Dẫn Kích Hoạt
 Khi có tín hiệu {side} được gửi đến trong phiên {sess}, AI Agent đối chiếu với quy tắc này để ưu tiên giữ lệnh hoặc cộng thêm điểm số tin cậy cho nguồn phát tín hiệu.

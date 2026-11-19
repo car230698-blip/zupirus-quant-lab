@@ -36,7 +36,7 @@ export interface LotCalculationResult {
 
 export function roundToStep(value: number, step: number): number {
   if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) return 0;
-  return Math.round(value / step) * step;
+  return Math.floor((value + 1e-9) / step) * step;
 }
 
 export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculationResult {
@@ -53,7 +53,16 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
   const step = acctKind === 'cent' ? 0.1 : 0.01;
   const minLot = acctKind === 'cent' ? 0.1 : 0.01;
   const rawLot = (riskDollars / safeSlPoints) * multiplier;
-  const clampedLot = Math.min(Math.max(roundToStep(rawLot, step), minLot), 100.0);
+  const steppedLot = roundToStep(rawLot, step);
+  const minLotRiskDollars = (minLot / multiplier) * safeSlPoints;
+  // Fail-closed: if minLot requires more dollar risk than riskDollars budget, return 0 lots
+  const clampedLot =
+    steppedLot < minLot
+      ? minLotRiskDollars <= riskDollars + 1e-6
+        ? minLot
+        : 0
+      : Math.min(steppedLot, 100.0);
+  const effectiveRiskDollars = clampedLot > 0 ? (clampedLot / multiplier) * safeSlPoints : 0;
   const unitLabel = acctKind === 'cent' ? 'Cent Lots (USC)' : 'Standard Lots';
   const rawDdInput = Number(input.dailyDrawdownLimitPct);
   const validPropDd = Number.isFinite(rawDdInput) && rawDdInput > 0 ? rawDdInput : 4.5;
@@ -61,21 +70,21 @@ export function calculateQuantLotSizing(input: LotCalculationInput): LotCalculat
   const maxConsecutiveLossesBeforeDailyCap = Math.max(1, Math.floor(ddCapPct / safeRiskPct));
 
   return {
-    riskDollars: Number(riskDollars.toFixed(2)),
+    riskDollars: Number(effectiveRiskDollars.toFixed(2)),
     recommendedLot: Number(clampedLot.toFixed(2)),
     lotUnitLabel: unitLabel,
-    oneRProfitDollars: Number(riskDollars.toFixed(2)),
-    twoRProfitDollars: Number((riskDollars * 2).toFixed(2)),
-    threeRProfitDollars: Number((riskDollars * 3).toFixed(2)),
+    oneRProfitDollars: Number(effectiveRiskDollars.toFixed(2)),
+    twoRProfitDollars: Number((effectiveRiskDollars * 2).toFixed(2)),
+    threeRProfitDollars: Number((effectiveRiskDollars * 3).toFixed(2)),
     propDailyLimitDollars: Number((safeEquity * (validPropDd / 100)).toFixed(2)),
     propMaxDrawdownDollars: Number((safeEquity * ((validPropDd * 2) / 100)).toFixed(2)),
     pointsPerDollar: Number((safeSlPoints / 100).toFixed(2)),
     displayLots: Number(clampedLot.toFixed(2)),
     unitLabel,
-    riskUsd: Number(riskDollars.toFixed(2)),
-    rewardAt2RUsd: Number((riskDollars * 2).toFixed(2)),
+    riskUsd: Number(effectiveRiskDollars.toFixed(2)),
+    rewardAt2RUsd: Number((effectiveRiskDollars * 2).toFixed(2)),
     maxConsecutiveLossesBeforeDailyCap,
-    propFirmSafe: safeRiskPct <= 1.5,
+    propFirmSafe: clampedLot > 0 && safeRiskPct <= 1.5,
   };
 }
 

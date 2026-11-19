@@ -40,26 +40,46 @@ class State(TypedDict, total=False):
     disposition: str
 
 
-def discover_candidate_from_observations(c=None) -> Dict[str, Any]:
+def discover_candidate_from_observations(
+    c=None,
+    symbol: str = "XAUUSD",
+    max_created_at: Optional[float] = None,
+) -> Dict[str, Any]:
     """Tabula Rasa induction: Analyzes real observed external signals from signal_audit_logs
-    and discovers rule candidates from profitable clusters.
+    and discovers rule candidates from profitable clusters (isolated by symbol and cutoff timestamp).
     Returns status='insufficient_data' if real concluded trades with pnl are insufficient.
     """
     if c is None:
         with tx() as conn:
-            return discover_candidate_from_observations(conn)
+            return discover_candidate_from_observations(conn, symbol=symbol, max_created_at=max_created_at)
 
-    # 1. Query observed signals with real market context snapshots and realized PnL
+    sym_u = str(symbol or "XAUUSD").strip().upper()
+    # 1. Query observed signals with real market context snapshots and realized PnL for target symbol
     rows = []
     try:
-        rows = c.execute(
-            """
-            SELECT side, entry_price, pnl, context_snapshot
-            FROM signal_audit_logs
-            WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
-            ORDER BY created_at DESC LIMIT 200
-            """
-        ).fetchall()
+        if max_created_at is not None:
+            rows = c.execute(
+                """
+                SELECT side, entry_price, pnl, context_snapshot
+                FROM signal_audit_logs
+                WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
+                  AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
+                  AND created_at <= ?
+                ORDER BY created_at DESC LIMIT 200
+                """,
+                (sym_u, float(max_created_at)),
+            ).fetchall()
+        else:
+            rows = c.execute(
+                """
+                SELECT side, entry_price, pnl, context_snapshot
+                FROM signal_audit_logs
+                WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
+                  AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
+                ORDER BY created_at DESC LIMIT 200
+                """,
+                (sym_u,),
+            ).fetchall()
     except Exception as e:
         logger.debug(f"Query signal_audit_logs error: {e}")
 
@@ -106,6 +126,7 @@ def discover_candidate_from_observations(c=None) -> Dict[str, Any]:
     candidate_id = f"cand_{uuid.uuid4().hex[:8]}"
     candidate_name = f"TabulaRasa-Alpha-{preferred_session}"
     rules = {
+        "symbol": sym_u,
         "preferred_session": preferred_session,
         "action": inferred_action,
         "min_slope": 0.20,
@@ -251,11 +272,30 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         # Select deployed slope strictly from the latest in-sample training window (zero OOS peeking)
         latest_fold = folds[-1]
         rules = {**rules, "min_slope": latest_fold.get("tuned_slope", rules.get("min_slope", 0.20))}
+        # Evaluate the fixed final rule-set across all OOS test windows so reported metrics validate the exact saved rules
+        fixed_returns: List[float] = []
+        for start in range(0, len(prices) - 180 + 1, 60):
+            test_win = prices[start + 120:start + 180]
+            _, f_rets = score_candidate_on_window(test_win, rules)
+            fixed_returns.extend(f_rets)
+        if fixed_returns:
+            all_returns = fixed_returns
+            equity = peak = dd = 0.0
+            for value in all_returns:
+                equity += value
+                peak = max(peak, equity)
+                dd = max(dd, peak - equity)
+            net_oos = round(sum(all_returns), 4)
+            max_dd = round(dd, 4)
+            max_dd_pct = round((dd / max(base_price, 1.0)) * 100.0, 2)
+
     trades_count = len(all_returns)
     wins = sum(1 for r in all_returns if r > 0)
     win_rate = round(wins / max(trades_count, 1), 2)
+    gross_win = abs(sum(r for r in all_returns if r > 0))
+    gross_loss = abs(sum(r for r in all_returns if r < 0))
     profit_factor = round(
-        abs(sum(r for r in all_returns if r > 0)) / max(abs(sum(r for r in all_returns if r < 0)), 0.01),
+        (gross_win / gross_loss) if gross_loss > 0 else (min(gross_win, 9.99) if gross_win > 0 else 0.0),
         2
     )
 
@@ -549,7 +589,21 @@ def run_autonomous_induction_and_wfo(force: bool = False):
         with tx() as c:
             synthesize_inductive_rules(c, min_samples=5)
 
-            cand = discover_candidate_from_observations(c)
+            # Compute observation fingerprint for XAUUSD so identical evidence cannot trigger duplicate auto-promotions
+            obs_meta = c.execute(
+                """
+                SELECT COUNT(*), COALESCE(MAX(created_at), 0), COALESCE(ROUND(SUM(pnl), 2), 0)
+                FROM signal_audit_logs
+                WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
+                  AND UPPER(COALESCE(symbol, 'XAUUSD')) = 'XAUUSD'
+                """
+            ).fetchone()
+            obs_fp = f"{obs_meta[0]}:{obs_meta[1]}:{obs_meta[2]}" if obs_meta else "0:0:0"
+            prev_fp_row = c.execute("SELECT value FROM kv WHERE key = 'wfo:last_promoted_obs_fp'").fetchone()
+            prev_fp = str(prev_fp_row[0]) if prev_fp_row and prev_fp_row[0] else ""
+            is_new_evidence = (obs_fp != prev_fp)
+
+            cand = discover_candidate_from_observations(c, symbol="XAUUSD")
             if cand and cand.get("id"):
                 candle_rows = c.execute(
                     "SELECT open, high, low, close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
@@ -560,20 +614,24 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                     win_rate = float(rep.get("win_rate") or 0.0)
                     pf = float(rep.get("profit_factor") or 0.0)
                     trades_cnt = int(rep.get("trades") or 0)
-                    oos_net = float(rep.get("oos_net_price_units") or 0.0)
-                    max_dd_pct = float(rep.get("max_drawdown_pct") or 0.0)
                     obs_sz = int(cand.get("sample_size") or 0)
 
                     auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
                     auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
                     qualifies = bool(
-                        (rep.get("production_qualified") or (trades_cnt >= 5 and oos_net > 0 and max_dd_pct <= 8.0))
+                        rep.get("production_qualified")
+                        and is_new_evidence
                         and win_rate >= 0.52
                         and pf >= 1.35
                         and obs_sz >= 25
                     )
 
                     new_status = "APPROVED_FOR_PROD" if (auto_promote and qualifies) else "WAITING_APPROVAL"
+                    if auto_promote and qualifies:
+                        c.execute(
+                            "INSERT INTO kv (key, value) VALUES ('wfo:last_promoted_obs_fp', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            (obs_fp,),
+                        )
                     c.execute(
                         """
                         UPDATE strategy_candidates

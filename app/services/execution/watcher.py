@@ -487,6 +487,12 @@ class PositionWatcher:
                         should_sync_deals = not last_ds or (time.time() - float(last_ds)) >= 60.0
                     if should_sync_deals and hasattr(self.client, "get_closed_deals"):
                         deals = await self.client.get_closed_deals(meta_id, hours=24)
+                        open_pos_ids = set()
+                        try:
+                            cur_open = await self.client.get_open_positions(meta_id) or []
+                            open_pos_ids = {str(p.get("id") or "") for p in cur_open if p.get("id")}
+                        except Exception:
+                            open_pos_ids = set()
                         with tx() as c:
                             setkv(c, f"deals_sync_ts:{acc_id}", str(time.time()))
                             for dl in deals or []:
@@ -502,6 +508,7 @@ class PositionWatcher:
                                 )
                                 profit = (profit_raw / 100.0) if is_cent_deal else profit_raw
                                 pos_ref = str(dl.get("positionId") or dl.get("orderId") or "")
+                                is_still_open_partial = bool(pos_ref and pos_ref in open_pos_ids)
                                 if pos_ref:
                                     ex_row = c.execute(
                                         "SELECT id, signal_id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY executed_at DESC LIMIT 1",
@@ -510,10 +517,16 @@ class PositionWatcher:
                                     if ex_row:
                                         ex_id = ex_row["id"] if hasattr(ex_row, "keys") else ex_row[0]
                                         sig_ref = ex_row["signal_id"] if hasattr(ex_row, "keys") else ex_row[1]
-                                        c.execute(
-                                            "UPDATE metaapi_trade_executions SET profit = COALESCE(profit, 0) + ?, closed_at = ? WHERE id = ?",
-                                            (round(profit, 2), time.time(), ex_id),
-                                        )
+                                        if is_still_open_partial:
+                                            c.execute(
+                                                "UPDATE metaapi_trade_executions SET profit = COALESCE(profit, 0) + ? WHERE id = ?",
+                                                (round(profit, 2), ex_id),
+                                            )
+                                        else:
+                                            c.execute(
+                                                "UPDATE metaapi_trade_executions SET profit = COALESCE(profit, 0) + ?, closed_at = ? WHERE id = ?",
+                                                (round(profit, 2), time.time(), ex_id),
+                                            )
                                         if sig_ref and not getkv(c, f"hindsight_reflected:{sig_ref}:{dl_id}"):
                                             setkv(c, f"hindsight_reflected:{sig_ref}:{dl_id}", "1")
                                             from app.hindsight import reflect_on_signal_outcome
@@ -522,7 +535,7 @@ class PositionWatcher:
                                                 signal_id=sig_ref,
                                                 pnl=round(profit, 2),
                                                 exit_price=_safe_float(dl.get("price")),
-                                                exit_reason="BROKER_DEAL_CLOSED",
+                                                exit_reason="BROKER_PARTIAL_CLOSED" if is_still_open_partial else "BROKER_DEAL_CLOSED",
                                                 accumulate_pnl=True,
                                             )
                                             setkv(c, f"deal_synced:{dl_id}", "1")

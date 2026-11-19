@@ -141,16 +141,26 @@ async def run_subscription_lifecycle_cycle(
                         )
                     stats["protecting_open"] += 1
                 else:
+                    undeploy_ok = True
                     try:
-                        await meta_client.undeploy_account(meta_id)
+                        if meta_id:
+                            undeploy_ok = bool(await meta_client.undeploy_account(meta_id))
                     except Exception as e:
                         logger.debug(f"Undeploy error for expired account {acc['id']}: {e}")
+                        undeploy_ok = False
                     with tx() as c:
-                        c.execute(
-                            "UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0 WHERE id = ?",
-                            (acc["id"],),
-                        )
-                        audit(c, "subscription_lifecycle", "expired_account_undeployed", {"account_id": acc["id"], "user_id": user_id})
-                    stats["undeployed_idle"] += 1
+                        if undeploy_ok:
+                            c.execute(
+                                "UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0 WHERE id = ?",
+                                (acc["id"],),
+                            )
+                            audit(c, "subscription_lifecycle", "expired_account_undeployed", {"account_id": acc["id"], "user_id": user_id})
+                        else:
+                            c.execute(
+                                "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
+                                (acc["id"],),
+                            )
+                    if undeploy_ok:
+                        stats["undeployed_idle"] += 1
 
     return stats

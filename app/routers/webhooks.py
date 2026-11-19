@@ -70,7 +70,8 @@ async def handle_tradingview_webhook(
                 from app.services.symbol_precision import digits_for_symbol
                 val = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
                 parts = val.split(":")
-                live_price = round((float(parts[0]) + float(parts[1])) / 2.0, digits_for_symbol(norm_signal.symbol))
+                if len(parts) < 3 or (now_ts - float(parts[2])) < 120.0:
+                    live_price = round((float(parts[0]) + float(parts[1])) / 2.0, digits_for_symbol(norm_signal.symbol))
         except Exception:
             pass
 
@@ -96,8 +97,9 @@ async def handle_tradingview_webhook(
         logger.warning(f"Signal rejected: Source '{norm_signal.source}' is SUSPENDED.")
         return {"status": "REJECTED", "reason": "SOURCE_SUSPENDED", "executed": 0}
 
-    if src_status == "SHADOW_ONLY":
-        logger.info(f"Signal from SHADOW_ONLY source '{norm_signal.source}' routed through Sanitizer + Shadow Ledger.")
+    # Fail-closed: Only explicitly ACTIVE_LIVE sources may dispatch live orders; SHADOW_ONLY and DEMOTED go to Shadow Ledger
+    if src_status != "ACTIVE_LIVE":
+        logger.info(f"Signal from {src_status} source '{norm_signal.source}' routed through Sanitizer + Shadow Ledger.")
         # Run 4-Layer Sanitizer (including L1 Dedup & Context Snapshot logging) before recording shadow signal
         sh_approved, sh_reason, sh_sanitized = sanitize_and_audit_signal(
             signal=norm_signal,

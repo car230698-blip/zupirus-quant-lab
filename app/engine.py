@@ -65,7 +65,7 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
         def _get_cand(cursor):
             return cursor.execute(
                 """
-                SELECT id, name, rules_json, win_rate, profit_factor
+                SELECT id, name, rules_json, win_rate, profit_factor, updated_at
                 FROM strategy_candidates
                 WHERE status = 'APPROVED_FOR_PROD'
                 ORDER BY updated_at DESC LIMIT 1
@@ -91,9 +91,10 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
         rules = json.loads(cand["rules_json"] if hasattr(cand, 'keys') else cand[2])
         cand_name = cand["name"] if hasattr(cand, 'keys') else cand[1]
         cand_id = cand["id"] if hasattr(cand, 'keys') else cand[0]
+        cand_updated_at = float((cand["updated_at"] if hasattr(cand, "keys") else cand[5]) or 0.0)
 
         # Auto-Rollback / Auto-Disable ("Bad Lesson" Protection):
-        # Group by signal_id (not per-account fan-out rows) so 1 signal on 4 accounts counts as 1 signal outcome.
+        # Group by signal_id and scope strictly to signals executed AFTER this candidate was approved (executed_at >= cand_updated_at)
         try:
             active_cur = db_cursor
             if active_cur is not None:
@@ -102,9 +103,11 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                     SELECT signal_id, AVG(profit) AS avg_profit, MAX(executed_at) AS last_ts
                     FROM metaapi_trade_executions
                     WHERE profit IS NOT NULL AND signal_id IS NOT NULL AND signal_id LIKE 'ag_%'
+                      AND executed_at >= ?
                     GROUP BY signal_id
                     ORDER BY last_ts DESC LIMIT 6
-                    """
+                    """,
+                    (cand_updated_at,),
                 ).fetchall()
                 losses_in_a_row = 0
                 for rx in recent_signals:
@@ -491,19 +494,24 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
             rules = json.loads(cand_d.get("rules_json") or "{}")
         except Exception:
             rules = {}
+        rule_sym = str(rules.get("symbol") or "XAUUSD").strip().upper()
+        if rule_sym not in ("ANY", "ALL", sym_u):
+            return {"status": "SKIPPED", "reason": f"CANDIDATE_SYMBOL_MISMATCH_{rule_sym}_VS_{sym_u}"}
 
         bars = c.execute(
             "SELECT time, close FROM candles WHERE symbol = ? AND timeframe = 'M15' ORDER BY time DESC LIMIT 40",
             (sym_u,),
         ).fetchall()
-        if not bars or len(bars) < 25:
+        if not bars:
             return {"status": "SKIPPED", "reason": f"INSUFFICIENT_M15_CANDLES_{sym_u}"}
 
         from app.db import to_epoch_ts
         bars_asc = list(reversed([dict(b) for b in bars]))
-        # Drop currently forming M15 bar if its 900s interval has not closed yet
-        if len(bars_asc) > 25 and (to_epoch_ts(bars_asc[-1]["time"]) + 900.0) > now:
-            bars_asc = bars_asc[:-1]
+        # Unconditionally strip any currently forming (unclosed) M15 bar before checking min count
+        while bars_asc and (to_epoch_ts(bars_asc[-1]["time"]) + 900.0) > now:
+            bars_asc.pop()
+        if len(bars_asc) < 25:
+            return {"status": "SKIPPED", "reason": f"INSUFFICIENT_M15_CANDLES_{sym_u}"}
         latest_bar_ts = to_epoch_ts(bars_asc[-1]["time"])
         last_eval_row = c.execute("SELECT value FROM kv WHERE key = ?", (last_ts_key,)).fetchone()
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:

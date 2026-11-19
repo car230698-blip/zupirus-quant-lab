@@ -31,7 +31,10 @@ def get_public_track_record() -> Dict[str, Any]:
                    ta.account_type, ta.prop_stage
             FROM metaapi_trade_executions e
             JOIN trading_accounts ta ON e.account_id = ta.id
-            WHERE e.profit IS NOT NULL AND UPPER(COALESCE(e.symbol, 'XAUUSD')) LIKE 'XAU%'
+            WHERE e.profit IS NOT NULL
+              AND UPPER(COALESCE(e.symbol, 'XAUUSD')) LIKE 'XAU%'
+              AND UPPER(COALESCE(ta.account_type, '')) IN ('PROP', 'PROP_FIRM')
+              AND UPPER(COALESCE(ta.prop_stage, '')) = 'LIVE'
             ORDER BY COALESCE(e.closed_at, e.executed_at) DESC
             LIMIT 250
             """
@@ -43,6 +46,8 @@ def get_public_track_record() -> Dict[str, Any]:
             SELECT account_type, prop_stage, balance, equity
             FROM trading_accounts
             WHERE deployment_state = 'DEPLOYED'
+              AND UPPER(COALESCE(account_type, '')) IN ('PROP', 'PROP_FIRM')
+              AND UPPER(COALESCE(prop_stage, '')) = 'LIVE'
             """
         ).fetchall()
 

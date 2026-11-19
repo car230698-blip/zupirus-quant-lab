@@ -366,7 +366,7 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
             if not future_candles:
                 continue
 
-            outcome = _evaluate_against_candles(future_candles, entry, sl, tp, side, symbol=symbol)
+            outcome = _evaluate_against_candles(future_candles, entry, sl, tp, side, symbol=symbol, sig_time=sig_t)
 
             c.execute(
                 """
@@ -412,6 +412,7 @@ def _evaluate_against_candles(
     tp: Optional[float],
     side: str,
     symbol: str = "XAUUSD",
+    sig_time: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Evaluate against actual M1 high/low bars with conservative dual-touch rule."""
     from app.services.symbol_precision import pip_multiplier_for_symbol
@@ -419,7 +420,7 @@ def _evaluate_against_candles(
     is_buy = side == "BUY"
     mae = 0.0
     mfe = 0.0
-    first_time = float(candles[0]["time"]) if candles else 0.0
+    first_time = float(sig_time) if (sig_time is not None and sig_time > 0) else (float(candles[0]["time"]) if candles else 0.0)
 
     for bar in candles:
         high = float(bar["high"])
