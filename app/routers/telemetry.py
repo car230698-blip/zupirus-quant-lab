@@ -252,3 +252,68 @@ def get_topbar_telemetry():
     }
 
 
+@router.get("/metrics")
+def get_prometheus_metrics():
+    """Prometheus text exposition metrics for external monitoring (Grafana/Prometheus)."""
+    from fastapi.responses import PlainTextResponse
+
+    db_up = 0
+    redis_up = 0
+    halted = 0
+    accounts_total = 0
+    executions_total = 0
+    quote = _get_live_xau_quote()
+
+    try:
+        from app.redis_client import get_redis_client
+        r = get_redis_client()
+        if r and r.ping():
+            redis_up = 1
+    except Exception:
+        pass
+
+    try:
+        with tx() as c:
+            c.execute("SELECT 1")
+            db_up = 1
+            h_row = c.execute("SELECT value FROM kv WHERE key='halted'").fetchone()
+            if h_row and str(h_row[0]).strip() in ("1", "true", "True"):
+                halted = 1
+            acc_row = c.execute("SELECT COUNT(*) FROM trading_accounts").fetchone()
+            if acc_row:
+                accounts_total = int(acc_row[0] or 0)
+            exec_row = c.execute("SELECT COUNT(*) FROM metaapi_trade_executions").fetchone()
+            if exec_row:
+                executions_total = int(exec_row[0] or 0)
+    except Exception:
+        pass
+
+    xau_mid = float(quote.get("mid") or 0.0)
+    xau_live = 1 if quote.get("live") else 0
+    lines = [
+        "# HELP zupirus_db_up PostgreSQL/TimescaleDB reachability (1=up, 0=down)",
+        "# TYPE zupirus_db_up gauge",
+        f"zupirus_db_up {db_up}",
+        "# HELP zupirus_redis_up Redis reachability (1=up, 0=down)",
+        "# TYPE zupirus_redis_up gauge",
+        f"zupirus_redis_up {redis_up}",
+        "# HELP zupirus_system_halted Global Kill-Switch status (1=halted, 0=operational)",
+        "# TYPE zupirus_system_halted gauge",
+        f"zupirus_system_halted {halted}",
+        "# HELP zupirus_trading_accounts_total Total connected Cloud MT5 trading accounts",
+        "# TYPE zupirus_trading_accounts_total gauge",
+        f"zupirus_trading_accounts_total {accounts_total}",
+        "# HELP zupirus_trade_executions_total Total Cloud MT5 trade executions logged",
+        "# TYPE zupirus_trade_executions_total counter",
+        f"zupirus_trade_executions_total {executions_total}",
+        "# HELP zupirus_xauusd_mid Latest XAU/USD mid price",
+        "# TYPE zupirus_xauusd_mid gauge",
+        f"zupirus_xauusd_mid {xau_mid}",
+        "# HELP zupirus_xauusd_live Whether XAU/USD quote stream is live (1=live, 0=stale)",
+        "# TYPE zupirus_xauusd_live gauge",
+        f"zupirus_xauusd_live {xau_live}",
+    ]
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
+

@@ -275,15 +275,19 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
                 if key and (key.startswith("AIza") or key.startswith("AQ.")):
                     explicit_keys = [{"id": "direct_input", "key_cipher": key}]
                 eff_gem_model = model if model.startswith("gemini") else gemini_model
-                gem_res, used_k = call_gemini(
-                    req.prompt,
-                    system_instruction=sys_instruction,
-                    active_keys=explicit_keys,
-                    c=c,
-                    timeout=8.0,
-                    max_tries=5,
-                    model=eff_gem_model,
-                )
+                import asyncio
+                def _run_gem():
+                    with tx() as _c:
+                        return call_gemini(
+                            req.prompt,
+                            system_instruction=sys_instruction,
+                            active_keys=explicit_keys,
+                            c=_c,
+                            timeout=8.0,
+                            max_tries=5,
+                            model=eff_gem_model,
+                        )
+                gem_res, used_k = await asyncio.to_thread(_run_gem)
                 if gem_res:
                     latency = round((time.perf_counter() - t0) * 1000, 1)
                     return {

@@ -179,6 +179,44 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               </button>
             ))}
           </div>
+
+          <button
+            type="button"
+            disabled={filteredOrders.length === 0}
+            onClick={() => {
+              const esc = (v: unknown) => {
+                let s = String(v ?? '');
+                if (/^[=+\-@]/.test(s)) s = `'${s}`;
+                return `"${s.replace(/"/g, '""')}"`;
+              };
+              const headers = ['ID', 'Ticket', 'Account', 'Symbol', 'Side', 'Volume', 'Price', 'SL', 'TP', 'Status', 'PnL_USD', 'Time'];
+              const rows = filteredOrders.map((o) => [
+                o.client_order_id || o.id || '',
+                o.ticket || '',
+                o.account_login || o.account_id || '',
+                o.symbol || 'XAUUSD',
+                o.side || '',
+                o.volume ?? '',
+                o.fill_price || o.price || '',
+                o.sl ?? '',
+                o.tp ?? '',
+                o.status || o.state || '',
+                o.pnl ?? o.profit ?? 0,
+                o.created_at || o.created ? new Date(Number(o.created_at || o.created) * 1000).toISOString() : '',
+              ]);
+              const csv = '\uFEFF' + [headers, ...rows].map((r) => r.map(esc).join(',')).join('\n');
+              const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `zupirus_orders_${new Date().toISOString().slice(0, 10)}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="ml-auto quant-btn-secondary px-3 py-1.5 font-mono text-xs whitespace-nowrap shrink-0 disabled:opacity-40"
+          >
+            Xuất CSV ({filteredOrders.length})
+          </button>
         </div>
       </Panel>
 

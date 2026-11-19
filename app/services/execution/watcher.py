@@ -205,12 +205,14 @@ class PositionWatcher:
                         try:
                             from app.mailer import send_admin_alert_email
                             if close_ok:
-                                send_admin_alert_email(
+                                await asyncio.to_thread(
+                                    send_admin_alert_email,
                                     f"Ngắt mạch Prop DD tài khoản {acc_id}",
                                     f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. Hệ thống đã tự động đóng toàn bộ vị thế và khóa giao dịch.",
                                 )
                             else:
-                                send_admin_alert_email(
+                                await asyncio.to_thread(
+                                    send_admin_alert_email,
                                     f"KHẨN: Ngắt mạch Prop DD {acc_id} chưa đóng hết lệnh",
                                     f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}%. Đã tắt auto_trade và sẽ thử đóng lại ở chu kỳ sau. Chi tiết: {close_res}",
                                 )
@@ -284,12 +286,14 @@ class PositionWatcher:
                             try:
                                 from app.mailer import send_admin_alert_email
                                 if close_ok:
-                                    send_admin_alert_email(
+                                    await asyncio.to_thread(
+                                        send_admin_alert_email,
                                         f"Ngắt mạch HWM Trailing DD 8% tài khoản {acc_id}",
                                         f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã đóng toàn bộ lệnh và khóa giao dịch.",
                                     )
                                 else:
-                                    send_admin_alert_email(
+                                    await asyncio.to_thread(
+                                        send_admin_alert_email,
                                         f"KHẨN: Ngắt mạch HWM 8% {acc_id} chưa đóng hết lệnh",
                                         f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã tắt auto_trade và sẽ thử đóng lại ở chu kỳ sau. Chi tiết: {close_res}",
                                     )

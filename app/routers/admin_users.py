@@ -107,24 +107,11 @@ async def delete_admin_user(target_uid: str, u=Depends(get_current_admin)):
         except Exception:
             pass
 
-    if meta_ids_to_cleanup:
-        from app.metaapi import MetaApiClient
-        client = MetaApiClient()
-        for mid in meta_ids_to_cleanup:
-            try:
-                await client.undeploy_account(mid)
-            except Exception as e:
-                logger.warning(f"Failed to undeploy MetaApi account {mid} during user deletion: {e}")
-            try:
-                await client.delete_account(mid)
-            except Exception as e:
-                logger.warning(f"Failed to delete MetaApi account {mid} during user deletion: {e}")
-
     with tx() as c:
-        # 1. Accounts belonging to user & their foreign key children
+        # 1. Accounts belonging to user & their foreign key children (including pairings & devices)
         acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
         for aid in acc_ids:
-            for dep_t in ('snapshots', 'sim_positions', 'dispatches', 'metaapi_trade_executions', 'account_symbol_map'):
+            for dep_t in ('snapshots', 'sim_positions', 'dispatches', 'metaapi_trade_executions', 'account_symbol_map', 'pairings', 'devices'):
                 try:
                     c.execute(f'DELETE FROM {dep_t} WHERE account_id=?', (aid,))
                 except Exception:
@@ -152,7 +139,7 @@ async def delete_admin_user(target_uid: str, u=Depends(get_current_admin)):
         except Exception:
             pass
 
-        # 4. User level records (orders, subscriptions, transactions, disclaimers, sessions, memories)
+        # 4. User level records (orders, subscriptions, transactions, disclaimers, sessions, memories, otp_codes)
         for usr_t in ('orders', 'subscriptions', 'payment_transactions', 'legal_disclaimers', 'sessions', 'hindsight_memories'):
             try:
                 c.execute(f'DELETE FROM {usr_t} WHERE user_id=?', (target_uid,))
@@ -162,4 +149,19 @@ async def delete_admin_user(target_uid: str, u=Depends(get_current_admin)):
         # 5. Delete user record
         c.execute('DELETE FROM users WHERE id=?', (target_uid,))
         audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': user_email, 'cleaned_metaapi_ids': list(meta_ids_to_cleanup)})
+
+    # 6. Clean up remote MetaApi resources only AFTER DB transaction commits cleanly
+    if meta_ids_to_cleanup:
+        from app.metaapi import MetaApiClient
+        client = MetaApiClient()
+        for mid in meta_ids_to_cleanup:
+            try:
+                await client.undeploy_account(mid)
+            except Exception as e:
+                logger.warning(f"Failed to undeploy MetaApi account {mid} during user deletion: {e}")
+            try:
+                await client.delete_account(mid)
+            except Exception as e:
+                logger.warning(f"Failed to delete MetaApi account {mid} during user deletion: {e}")
+
     return {'ok': True, 'message': f'Đã xoá người dùng {user_email} thành công.'}
