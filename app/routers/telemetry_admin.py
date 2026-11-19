@@ -492,25 +492,3 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
     }
 
 
-@router.get("/codegraph")
-def get_admin_codegraph(_admin=Depends(get_current_admin)):
-    """Return @colbymchenry/codegraph architectural overview, hotspots, and dead code."""
-    from app.services.codegraph_service import get_codegraph_overview
-    return get_codegraph_overview(force_reload=False)
-
-
-@router.get("/codegraph/symbol")
-def get_admin_codegraph_symbol(q: str = "", id: str = "", _admin=Depends(get_current_admin)):
-    """Search symbols and inspect Call Graph (Callers, Callees) & 2-hop Impact Radius."""
-    from app.services.codegraph_service import query_codegraph_symbol
-    return query_codegraph_symbol(q=q, symbol_id=id)
-
-
-@router.post("/codegraph/reindex")
-def reindex_admin_codegraph(_admin=Depends(get_current_admin)):
-    """Re-index with @colbymchenry/codegraph and reload snapshot."""
-    from app.services.codegraph_service import trigger_codegraph_reindex
-    return trigger_codegraph_reindex()
-
-
-
