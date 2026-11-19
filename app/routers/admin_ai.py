@@ -174,6 +174,10 @@ def _save_ai_settings(req: AISettingsUpdate):
 
     api_key = req.api_key.strip() if req.api_key else (_decrypt_ai_key(existing.get("api_key", "")) or os.getenv("AI_API_KEY", ""))
     base_url = (req.base_url or existing.get("base_url", "https://api.openai.com/v1")).strip().rstrip("/")
+    from app.skills.mcp_bridge import _is_safe_external_url
+    if base_url and not _is_safe_external_url(base_url):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="base_url không hợp lệ hoặc bị chặn bởi bộ lọc bảo mật SSRF (chỉ chấp nhận HTTPS công khai).")
     model = (req.model or existing.get("model", "gpt-4o-mini")).strip()
     provider = (req.provider or existing.get("provider", "OPENAI")).strip().upper()
     gemini_model = (req.gemini_model or existing.get("gemini_model", "gemini-2.0-flash")).strip()
@@ -217,8 +221,8 @@ def _save_ai_settings(req: AISettingsUpdate):
                     (g_id, g_hash, g_mask, encrypt_secret(g_raw), now_ts)
                 )
 
-    # Dynamically update process environment
-    if api_key:
+    # Dynamically update process environment (never store Google AIza/AQ keys in OpenAI AI_API_KEY)
+    if api_key and not (api_key.startswith("AIza") or api_key.startswith("AQ.")):
         os.environ["AI_API_KEY"] = api_key
     if base_url:
         os.environ["AI_BASE_URL"] = base_url
@@ -319,9 +323,14 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
             )
 
     # 2. Try OpenAI / OpenRouter / Custom LLM if key is provided (never send Google AIza keys to OpenAI)
+    from app.skills.mcp_bridge import _is_safe_external_url
+    if base_url and not _is_safe_external_url(base_url):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="base_url không hợp lệ hoặc bị chặn bởi bộ lọc bảo mật SSRF.")
     is_real_key = bool(
         key and len(key) >= 10
         and not key.startswith("AIza")
+        and not key.startswith("AQ.")
         and not any(x in key.lower() for x in ("chua_cau_hinh",))
     )
 

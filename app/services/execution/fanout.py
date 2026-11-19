@@ -283,12 +283,14 @@ async def execute_fan_out_for_signal(
             continue
 
         # Acquire Redis + DB idempotency lock only after all guards and sizing pass
+        redis_locked = False
         if redis_client:
             lock_key = f"zupirus:lock:signal:{signal_id}:{acc_id}"
             try:
                 if not redis_client.set(lock_key, "1", ex=120, nx=True):
                     logger.warning(f"Idempotency: Signal {signal_id} already locked in Redis for {acc_id}. Skipping.")
                     continue
+                redis_locked = True
             except Exception as e:
                 logger.error(f"Redis idempotency lock error: {e}")
 
@@ -301,14 +303,16 @@ async def execute_fan_out_for_signal(
                 )
                 if getattr(lock_cur, "rowcount", 1) == 0:
                     logger.warning(f"Idempotency: Signal {signal_id} already locked in DB for {acc_id}. Skipping.")
-                    if redis_client:
+                    if redis_client and redis_locked:
                         try:
                             redis_client.delete(f"zupirus:lock:signal:{signal_id}:{acc_id}")
                         except Exception:
                             pass
                     continue
-        except Exception:
-            pass
+        except Exception as db_lock_err:
+            if not redis_locked:
+                logger.error(f"Fail-Closed Idempotency: Both Redis and DB locks unavailable for {acc_id}: {db_lock_err}")
+                continue
 
         account_metas.append({
             "account_id": acc_id,

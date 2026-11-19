@@ -64,7 +64,7 @@ def interpret_macro_news(
         "nearest_event_title": nearest_title or "Không có tin USD tác động mạnh",
         "nearest_impact": nearest_impact,
         "distance_minutes": round(min_dist_mins, 1),
-        "is_in_blackout": min_dist_mins <= 30.0,
+        "is_in_blackout": min_dist_mins <= float(NEWS_SHIELD_MINUTES),
         "risk_status": status,
         "is_safe_for_execution": is_safe,
         "recommendation": rec,

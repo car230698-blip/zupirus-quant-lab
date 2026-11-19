@@ -261,9 +261,20 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
                 take_profit=item["tp"],
                 created_at=now_ts,
             )
+            live_quote_price = float(item["entry"])
+            try:
+                with tx() as qc:
+                    q_row = qc.execute(
+                        "SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
+                        (sym,),
+                    ).fetchone()
+                    if q_row and q_row[0] and q_row[1]:
+                        live_quote_price = (float(q_row[0]) + float(q_row[1])) / 2.0
+            except Exception:
+                pass
             ok, reason, sanitized = sanitize_and_audit_signal(
                 signal=norm_sig,
-                live_price=item["entry"],
+                live_price=live_quote_price,
                 current_time=now_ts,
             )
             if ok and sanitized is not None:

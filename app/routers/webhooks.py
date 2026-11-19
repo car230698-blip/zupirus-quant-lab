@@ -97,7 +97,20 @@ async def handle_tradingview_webhook(
         return {"status": "REJECTED", "reason": "SOURCE_SUSPENDED", "executed": 0}
 
     if src_status == "SHADOW_ONLY":
-        logger.info(f"Signal from SHADOW_ONLY source '{norm_signal.source}' recorded for observation.")
+        logger.info(f"Signal from SHADOW_ONLY source '{norm_signal.source}' routed through Sanitizer + Shadow Ledger.")
+        # Run 4-Layer Sanitizer (including L1 Dedup & Context Snapshot logging) before recording shadow signal
+        sh_approved, sh_reason, sh_sanitized = sanitize_and_audit_signal(
+            signal=norm_signal,
+            live_price=live_price,
+            current_time=now_ts,
+        )
+        if not sh_approved and sh_reason and "DUPLICATE" in sh_reason.upper():
+            return {
+                "status": "REJECTED",
+                "signal_id": norm_signal.id,
+                "reason": sh_reason,
+                "executed": 0,
+            }
         from app.services.sources.curator import record_shadow_signal
         from app.services.symbol_precision import digits_for_symbol, pip_size_for_symbol
         is_buy = norm_signal.action == "BUY"
@@ -111,8 +124,8 @@ async def handle_tradingview_webhook(
                 symbol=norm_signal.symbol,
                 side=norm_signal.action,
                 entry_price=norm_signal.entry_price,
-                sl=norm_signal.stop_loss or def_sl,
-                tp=norm_signal.take_profit or def_tp,
+                sl=norm_signal.stop_loss or (sh_sanitized.stop_loss if sh_sanitized else None) or def_sl,
+                tp=norm_signal.take_profit or (sh_sanitized.take_profit if sh_sanitized else None) or def_tp,
                 db_cursor=c
             )
         return {

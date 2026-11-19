@@ -187,7 +187,7 @@ def run_risk_guardian_cycle(c) -> Dict[str, Any]:
     pnl_rows = c.execute(
         "SELECT pnl FROM signal_audit_logs WHERE pnl IS NOT NULL ORDER BY created_at DESC LIMIT 100"
     ).fetchall()
-    real_trades = [float(r[0]) for r in pnl_rows] if pnl_rows else []
+    real_trades = [float(r["pnl"] if hasattr(r, "keys") else r[0]) for r in pnl_rows] if pnl_rows else []
     mc = run_monte_carlo_simulation(trades=real_trades, initial_equity=max(1000.0, total_equity), iterations=1000)
     var_99 = mc["var_99_max_drawdown_pct"]
     risk_of_ruin = mc["risk_of_ruin_pct"]

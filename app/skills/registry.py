@@ -268,7 +268,7 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
         return synthesize_strategy_candidate(**kwargs)
 
     else:
-        # Check if it's a self-learned skill in database
+        # Check if it's a self-learned skill in database and actively evaluate its session/side rule
         try:
             with tx() as c:
                 row = c.execute(
@@ -277,13 +277,32 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
                 ).fetchone()
                 if row:
                     r_d = dict(row)
+                    from app.services.signal_ingestion.context import get_trading_session
+                    cur_session = str(kwargs.get("session") or get_trading_session(time.time()))
+                    text_blob = f"{skill_id} {r_d.get('name', '')} {r_d.get('trigger_condition', '')}".upper()
+                    rule_side = "BUY" if "BUY" in text_blob else ("SELL" if "SELL" in text_blob else "BOTH")
+                    sess_match = True
+                    for candidate_sess in ("LONDON", "NEW YORK", "ASIA", "OVERLAP"):
+                        if candidate_sess in text_blob and candidate_sess not in cur_session.upper():
+                            sess_match = False
+                            break
+                    req_side = str(kwargs.get("side") or "").upper()
+                    side_match = (not req_side) or (rule_side in ("BOTH", req_side))
+                    passed = bool(r_d.get("enabled")) and sess_match and side_match
                     return {
                         "skill_id": skill_id,
                         "name": r_d.get("name"),
                         "status": "executed",
                         "approval_state": "ACTIVE" if r_d.get("enabled") else "PENDING_APPROVAL",
                         "type": "self_learned_rule_filter",
-                        "result": "Quy tắc phân tích tự học (Read-Only Filter) đã được đối chiếu trên bối cảnh thị trường hiện tại.",
+                        "current_session": cur_session,
+                        "recommended_side": rule_side,
+                        "matches_context": sess_match and side_match,
+                        "verdict": "PASS" if passed else ("INACTIVE" if not r_d.get("enabled") else "FILTER_OUT"),
+                        "result": (
+                            f"Quy tắc phân tích tự học (Read-Only Filter) đã được đối chiếu trên bối cảnh thị trường hiện tại "
+                            f"[Phiên={cur_session}, Chiều={rule_side}, Kết quả={'KHỚP' if (sess_match and side_match) else 'LỌC'}]."
+                        ),
                         "parameters": kwargs,
                     }
         except Exception:
@@ -293,6 +312,44 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
             "error": f"Không tìm thấy công cụ thực thi cho skill_id '{skill_id}'.",
             "status": "failed",
         }
+
+
+def evaluate_active_learned_skills(db_cursor=None, current_time: Optional[float] = None) -> Dict[str, Any]:
+    """Evaluate all enabled self-learned skills for the current market session."""
+    from app.services.signal_ingestion.context import get_trading_session
+    now_ts = current_time or time.time()
+    cur_sess = get_trading_session(now_ts)
+    cur_sess_slug = cur_sess.lower().replace("/", "_").replace(" ", "_")
+    allowed_sides = set()
+    matched_skills = []
+    try:
+        def _query(cur):
+            return cur.execute(
+                "SELECT skill_id, name, trigger_condition FROM agent_skills WHERE skill_id LIKE 'learned_%' AND enabled = 1"
+            ).fetchall()
+
+        rows = _query(db_cursor) if db_cursor is not None else []
+        if db_cursor is None:
+            with tx() as c:
+                rows = _query(c)
+
+        for r in rows:
+            rd = dict(r)
+            sid = str(rd.get("skill_id") or "").lower()
+            blob = f"{sid} {rd.get('name', '')} {rd.get('trigger_condition', '')}".lower()
+            if cur_sess.lower() in blob or cur_sess_slug in sid:
+                matched_skills.append(rd.get("skill_id"))
+                if "buy" in blob:
+                    allowed_sides.add("BUY")
+                if "sell" in blob:
+                    allowed_sides.add("SELL")
+    except Exception:
+        pass
+    return {
+        "session": cur_sess,
+        "matched_skills": matched_skills,
+        "allowed_sides": sorted(allowed_sides),
+    }
 
 
 def list_skills(enabled_only: bool = False) -> List[Dict[str, Any]]:

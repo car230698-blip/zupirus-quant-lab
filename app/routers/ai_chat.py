@@ -126,8 +126,8 @@ def chat_assistant(payload: ChatPayload, u=Depends(get_current_user)):
             "Trạng thái 4 Lớp Giáp Bảo Vệ Vốn:\n"
             "1. Idempotency Lock băm SHA-256 triệt tiêu trùng lệnh.\n"
             "2. Bắt buộc Hard Stop-Loss (100% lệnh phải có SL hợp lệ) và tự động dời hòa vốn Auto Break-Even (1R).\n"
-            "3. Lá chắn Macro USD phong tỏa lệnh trước/sau 30 phút tin đỏ (CPI, NFP, FOMC).\n"
-            "4. Cầu dao Drawdown Circuit-Breaker ngắt khẩn cấp khi chạm ngưỡng sụt giảm ngày 4.5%."
+            "3. Lá chắn Macro USD phong tỏa lệnh trước/sau 15 phút tin đỏ (CPI, NFP, FOMC).\n"
+            "4. Cầu dao Drawdown Circuit-Breaker ngắt khẩn cấp khi chạm ngưỡng sụt giảm ngày 4.0% (Quỹ) / 5.0% (Standard)."
         )
     elif any(k in q_low for k in ('m15', 'thị trường', 'xu hướng', 'xau', 'vàng', 'gold')):
         advisor_hint = (
@@ -193,9 +193,10 @@ def chat_admin_agent(payload: ChatPayload, u=Depends(get_current_admin)):
 @router.get('/api/timescale/candles')
 def get_timescale_candles(symbol: str = 'XAUUSD', timeframe: str = 'M15', source: str = 'ALL', limit: int = 100):
     """Retrieve continuous candles aggregated by TimescaleDB.
-    Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO vs REPLAY)."""
+    Strictly validates timeframe (M1, M5, M15, H1, D1), clamps limit (1..1000), and isolates source."""
+    safe_limit = max(1, min(int(limit or 100), 1000))
     try:
-        candles = query_timescale_candles(symbol=symbol, timeframe=timeframe, source=source, limit=limit)
+        candles = query_timescale_candles(symbol=symbol, timeframe=timeframe, source=source, limit=safe_limit)
         return {'symbol': symbol, 'timeframe': timeframe, 'source': source, 'candles': candles}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

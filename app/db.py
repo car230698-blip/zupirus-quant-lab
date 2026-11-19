@@ -461,11 +461,11 @@ def _sanitize_candle_outliers(candles: List[Dict[str, Any]], max_dev_pct: float 
 
 def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", source: str = "ALL", limit: int = 100) -> List[Dict[str, Any]]:
     """Query recent aggregated OHLCV candles from TimescaleDB or snapshots.
-    Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source (DEMO, REPLAY, LIVE_FEED, ALL)."""
+    Strictly validates timeframe (M1, M5, M15, H1, D1) and isolates source."""
     if timeframe not in SUPPORTED_TIMEFRAMES:
         raise ValueError(f"Unsupported timeframe '{timeframe}'. Supported: {', '.join(SUPPORTED_TIMEFRAMES.keys())}")
-    if source not in ("DEMO", "REPLAY", "LIVE_FEED", "ALL"):
-        raise ValueError(f"Unsupported source '{source}'. Supported: DEMO, REPLAY, LIVE_FEED, ALL")
+    if source not in ("DEMO", "REPLAY", "LIVE_FEED", "METAAPI", "MARKET_LIVE", "ALL"):
+        raise ValueError(f"Unsupported source '{source}'. Supported: DEMO, REPLAY, LIVE_FEED, METAAPI, MARKET_LIVE, ALL")
 
     bucket_interval = SUPPORTED_TIMEFRAMES[timeframe]
 
@@ -520,10 +520,14 @@ def query_timescale_candles(symbol: str = "XAUUSD", timeframe: str = "M15", sour
             merged: Dict[str, Dict[str, Any]] = {}
             for r in hist_rows:
                 d = dict(r)
+                if "time" not in d and d.get("bucket") is not None:
+                    d["time"] = to_epoch_ts(d.get("bucket"))
                 bkey = str(d.get("bucket"))
                 merged[bkey] = d
             for r in quote_rows:
                 d = dict(r)
+                if "time" not in d and d.get("bucket") is not None:
+                    d["time"] = to_epoch_ts(d.get("bucket"))
                 bkey = str(d.get("bucket"))
                 if bkey not in merged:
                     merged[bkey] = d

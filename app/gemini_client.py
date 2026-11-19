@@ -121,6 +121,7 @@ def call_gemini(
     timeout: float = 8.0,
     max_tries: int = 5,
     model: Optional[str] = None,
+    image: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Calls Google Gemini API with multi-key AND multi-model failover across the configured pool.
     Returns (response_text, used_key_id)."""
@@ -145,8 +146,19 @@ def call_gemini(
 
     model_candidates = [req_model] + [m for m in GEMINI_FALLBACK_MODELS if m != req_model]
 
+    parts_list: List[Dict[str, Any]] = [{"text": prompt}]
+    if image and isinstance(image, str):
+        img_str = image.strip()
+        mime_type = "image/png"
+        b64_data = img_str
+        if img_str.startswith("data:") and ";base64," in img_str:
+            header, b64_data = img_str.split(";base64,", 1)
+            mime_type = header[5:] or "image/png"
+        if b64_data and not b64_data.startswith("http"):
+            parts_list.append({"inlineData": {"mimeType": mime_type, "data": b64_data}})
+
     payload: Dict[str, Any] = {
-        "contents": [{"parts": [{"text": prompt}]}],
+        "contents": [{"parts": parts_list}],
         "generationConfig": {
             "temperature": 0.2,
             "maxOutputTokens": 1024,

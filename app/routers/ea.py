@@ -324,7 +324,13 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
             ).fetchall()
             for r in cloud_exec_rows:
                 rd = dict(r)
-                mapped_state = 'filled' if str(rd.get('status', '')).upper() in {'FILLED', 'CLOSED', 'EXECUTED', 'COMPLETED'} else 'rejected'
+                raw_st = str(rd.get('status', '')).upper()
+                if raw_st in {'FILLED', 'CLOSED', 'EXECUTED', 'COMPLETED', 'OPEN'}:
+                    mapped_state = 'filled'
+                elif raw_st in {'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT'}:
+                    mapped_state = 'queued'
+                else:
+                    mapped_state = 'rejected'
                 if account_id and rd.get('account_id') != account_id:
                     continue
                 if state and mapped_state != state:
@@ -361,16 +367,28 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
         if account_id:
             raw_series = [
                 dict(r) for r in c.execute(
-                    'SELECT s.* FROM snapshots s JOIN accounts a ON a.id=s.account_id WHERE a.user_id=? AND s.account_id=? AND s.ts>=? ORDER BY s.ts DESC LIMIT 400',
-                    (u['id'], account_id, cutoff_ts)
+                    """
+                    SELECT s.* FROM snapshots s
+                    WHERE s.account_id = ? AND s.ts >= ?
+                      AND (EXISTS (SELECT 1 FROM accounts a WHERE a.id = s.account_id AND a.user_id = ?)
+                           OR EXISTS (SELECT 1 FROM trading_accounts ta WHERE ta.id = s.account_id AND ta.user_id = ?))
+                    ORDER BY s.ts DESC LIMIT 400
+                    """,
+                    (account_id, cutoff_ts, u['id'], u['id'])
                 )
             ][::-1]
             series = raw_series
         else:
             raw_series = [
                 dict(r) for r in c.execute(
-                    'SELECT s.* FROM snapshots s JOIN accounts a ON a.id=s.account_id WHERE a.user_id=? AND s.ts>=? ORDER BY s.ts ASC LIMIT 1200',
-                    (u['id'], cutoff_ts)
+                    """
+                    SELECT s.* FROM snapshots s
+                    WHERE s.ts >= ?
+                      AND (EXISTS (SELECT 1 FROM accounts a WHERE a.id = s.account_id AND a.user_id = ?)
+                           OR EXISTS (SELECT 1 FROM trading_accounts ta WHERE ta.id = s.account_id AND ta.user_id = ?))
+                    ORDER BY s.ts ASC LIMIT 1200
+                    """,
+                    (cutoff_ts, u['id'], u['id'])
                 )
             ]
             distinct_acc_ids = {str(pt.get('account_id') or 'default') for pt in raw_series}

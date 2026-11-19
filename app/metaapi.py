@@ -437,7 +437,21 @@ class MetaApiClient:
                     failed_count += 1
                     logger.error(f"close_all_positions exception for {metaapi_account_id}: {res}")
                 elif getattr(res, "status_code", 0) in (200, 201):
-                    closed_count += 1
+                    body_ok = True
+                    if hasattr(res, "json"):
+                        try:
+                            data = res.json()
+                            if isinstance(data, dict) and ("numericCode" in data or "stringCode" in data):
+                                body_ok = self._is_metaapi_success(data)
+                        except Exception:
+                            body_ok = True
+                    elif isinstance(res, dict) and ("numericCode" in res or "stringCode" in res):
+                        body_ok = self._is_metaapi_success(res)
+                    if body_ok:
+                        closed_count += 1
+                    else:
+                        failed_count += 1
+                        logger.error(f"close_all_positions broker reject for {metaapi_account_id}: {res}")
                 else:
                     failed_count += 1
                     logger.error(f"close_all_positions HTTP {getattr(res, 'status_code', '?')} for {metaapi_account_id}")

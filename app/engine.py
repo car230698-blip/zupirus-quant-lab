@@ -90,6 +90,50 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
 
         rules = json.loads(cand["rules_json"] if hasattr(cand, 'keys') else cand[2])
         cand_name = cand["name"] if hasattr(cand, 'keys') else cand[1]
+        cand_id = cand["id"] if hasattr(cand, 'keys') else cand[0]
+
+        # Auto-Rollback / Auto-Disable ("Bad Lesson" Protection):
+        # If recent live executions show >= 4 consecutive losses, automatically pause candidate & disable bad learned filters.
+        try:
+            active_cur = db_cursor
+            if active_cur is not None:
+                recent_execs = active_cur.execute(
+                    "SELECT profit FROM metaapi_trade_executions WHERE profit IS NOT NULL ORDER BY executed_at DESC LIMIT 6"
+                ).fetchall()
+                losses_in_a_row = 0
+                for rx in recent_execs:
+                    pf_val = float(rx["profit"] if hasattr(rx, "keys") else rx[0])
+                    if pf_val < 0:
+                        losses_in_a_row += 1
+                    else:
+                        break
+                if losses_in_a_row >= 4:
+                    active_cur.execute(
+                        "UPDATE strategy_candidates SET status = 'PAUSED_DRAWDOWN_GUARD' WHERE id = ?",
+                        (cand_id,),
+                    )
+                    active_cur.execute(
+                        "UPDATE agent_skills SET enabled = 0 WHERE skill_id LIKE 'learned_%' AND enabled = 1"
+                    )
+                    return {
+                        "side": None,
+                        "strategy": cand_name,
+                        "timeframe": timeframe,
+                        "parameters": rules,
+                        "version": STRATEGY_VERSION,
+                        "reason": f"AUTO_ROLLBACK_TRIGGERED: Chiến lược [{cand_name}] tạm ngắt sau {losses_in_a_row} lệnh thua liên tiếp.",
+                    }
+        except Exception:
+            pass
+
+        # Evaluate active self-learned skills from Agent Skill Registry
+        learned_preferred_sides = set()
+        try:
+            from app.skills.registry import evaluate_active_learned_skills
+            eval_res = evaluate_active_learned_skills(db_cursor=db_cursor)
+            learned_preferred_sides = set(eval_res.get("allowed_sides") or [])
+        except Exception:
+            pass
 
         # Evaluate learned rule criteria against recent price action
         if len(prices) >= 15:
@@ -100,6 +144,15 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
             slope_threshold = raw_thresh * price_scale
 
             if target_action in ("BUY", "BOTH") and recent_slope >= slope_threshold:
+                if learned_preferred_sides and "BUY" not in learned_preferred_sides:
+                    return {
+                        "side": None,
+                        "strategy": cand_name,
+                        "timeframe": timeframe,
+                        "parameters": rules,
+                        "version": STRATEGY_VERSION,
+                        "reason": "LEARNED_SKILL_FILTER_BLOCKED: Bộ lọc tự học chặn chiều BUY trong phiên hiện tại.",
+                    }
                 return {
                     "side": "BUY",
                     "strategy": cand_name,
@@ -109,6 +162,15 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                     "reason": f"AUTONOMOUS_BUY: Thỏa mãn bộ quy tắc tự học [{cand_name}] (Slope={recent_slope:.2f})",
                 }
             elif target_action in ("SELL", "BOTH") and recent_slope <= -slope_threshold:
+                if learned_preferred_sides and "SELL" not in learned_preferred_sides:
+                    return {
+                        "side": None,
+                        "strategy": cand_name,
+                        "timeframe": timeframe,
+                        "parameters": rules,
+                        "version": STRATEGY_VERSION,
+                        "reason": "LEARNED_SKILL_FILTER_BLOCKED: Bộ lọc tự học chặn chiều SELL trong phiên hiện tại.",
+                    }
                 return {
                     "side": "SELL",
                     "strategy": cand_name,
@@ -151,8 +213,10 @@ def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[
     now = now or time.time()
     sid = hashlib.sha256(f'{source}:{key}'.encode()).hexdigest()[:24]
     sign = 1 if side == 'BUY' else -1
-    sl_price = price - sign * SL_DISTANCE
-    tp_price = price + sign * TP_DISTANCE
+    eff_sl_dist = SL_DISTANCE if price >= 50.0 else round(max(0.0020, price * 0.0025), 5)
+    eff_tp_dist = TP_DISTANCE if price >= 50.0 else round(eff_sl_dist * 2.0, 5)
+    sl_price = price - sign * eff_sl_dist
+    tp_price = price + sign * eff_tp_dist
     expires_at = now + 45
 
     c.execute(
@@ -498,6 +562,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
             rows = c.execute(
                 """
                 SELECT a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
+                       a.currency, a.tick_value,
                        a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
                        a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
                        a.account_type, a.contract_size,

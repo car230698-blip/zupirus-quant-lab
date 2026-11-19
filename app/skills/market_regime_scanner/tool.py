@@ -67,12 +67,15 @@ def scan_market_regime(
             atr = round(sum(tr_list[-14:]) / min(len(tr_list), 14), 2)
             last_close = float(candles[-1]["close"])
 
-    # 3. Classify volatility regime
-    if atr < 2.0:
+    # 3. Classify volatility regime (normalized to pips so FX pairs and XAUUSD use consistent pip thresholds)
+    from app.services.symbol_precision import pip_size_for_symbol
+    p_size = pip_size_for_symbol(symbol)
+    atr_pips = (atr / p_size) if p_size > 0 else (atr * 10.0)
+    if atr_pips < 20.0:
         regime = "LOW_VOLATILITY"
-    elif atr <= 5.5:
+    elif atr_pips <= 55.0:
         regime = "NORMAL_VOLATILITY"
-    elif atr <= 10.0:
+    elif atr_pips <= 100.0:
         regime = "HIGH_VOLATILITY"
     else:
         regime = "EXTREME_VOLATILITY"

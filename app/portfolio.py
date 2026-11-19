@@ -180,8 +180,8 @@ def calculate_position_size(
         half_kelly_factor = max(0.2, min(full_kelly * 0.5, 1.5)) if full_kelly > 0 else 0.2
         raw_lot = raw_lot * half_kelly_factor
 
-    # Safety clamps (fail-closed: return 0.0 if calculated lot < 0.01)
-    rounded_lot = round(raw_lot, 2)
+    # Safety clamps (fail-closed: floor to 0.01 step and return 0.0 if calculated lot < 0.01)
+    rounded_lot = math.floor(raw_lot * 100.0) / 100.0
     if rounded_lot < 0.01:
         return {
             "symbol": symbol,

@@ -328,11 +328,17 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
         if not pending:
             return {"evaluated": 0, "status": "no_pending_signals"}
 
-        # Fetch recent M1 candles for evaluation (from candles table)
+        # Fetch recent M1 candles bounded by oldest pending signal_time (never load full table unbounded)
+        from app.db import is_postgres, to_epoch_ts
+        min_sig_ts = min(
+            (float(dict(pr).get("signal_time") or now_ts) for pr in pending),
+            default=now_ts - 86400 * 7,
+        )
+        time_cond = "time >= to_timestamp(?)" if is_postgres() else "time >= ?"
         candles = c.execute(
-            "SELECT symbol, time, open, high, low, close FROM candles WHERE timeframe = 'M1' ORDER BY time ASC"
+            f"SELECT symbol, time, open, high, low, close FROM candles WHERE timeframe = 'M1' AND {time_cond} ORDER BY time ASC LIMIT 10000",
+            (min_sig_ts,),
         ).fetchall()
-        from app.db import to_epoch_ts
         candle_list = []
         for cd in candles:
             item = dict(cd)

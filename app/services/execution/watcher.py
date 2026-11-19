@@ -155,8 +155,9 @@ class PositionWatcher:
                     if not int(acc.get("auto_trade") or 0):
                         continue
 
-                # Track start-of-day balance
-                day_start_balance = current_balance
+                # Track start-of-day anchor as max(balance, equity) per Prop Firm standard
+                day_anchor_init = max(current_balance, current_equity)
+                day_start_balance = day_anchor_init
                 with tx() as c:
                     day_key = f"daily_start_bal:{acc_id}:{date_str}"
                     val = getkv(c, day_key)
@@ -164,9 +165,9 @@ class PositionWatcher:
                         try:
                             day_start_balance = float(val)
                         except Exception:
-                            day_start_balance = current_balance
+                            day_start_balance = day_anchor_init
                     else:
-                        setkv(c, day_key, str(current_balance))
+                        setkv(c, day_key, str(day_anchor_init))
 
                 # 2. Universal Daily Drawdown Check (Circuit Breaker for all accounts)
                 if day_start_balance > 0 and prop_dd_limit > 0:
@@ -373,7 +374,19 @@ class PositionWatcher:
                         if be_sl_done and (tp1_done or volume < 0.02):
                             continue
 
-                        risk_distance = abs(open_price - sl)
+                        orig_risk_key = f"orig_risk_dist:{acc_id}:{pos_id}"
+                        raw_risk_dist = abs(open_price - sl)
+                        risk_distance = raw_risk_dist
+                        with tx() as c:
+                            saved_rd = getkv(c, orig_risk_key)
+                            if saved_rd:
+                                try:
+                                    risk_distance = float(saved_rd)
+                                except Exception:
+                                    risk_distance = raw_risk_dist
+                            elif raw_risk_dist > 0 and not be_sl_done:
+                                setkv(c, orig_risk_key, str(raw_risk_dist))
+
                         if risk_distance <= 0 and not be_sl_done:
                             continue
 

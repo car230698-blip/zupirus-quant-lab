@@ -342,9 +342,17 @@ def execute_mcp_tool(server_id: str, **kwargs) -> Dict[str, Any]:
             req_headers = {**headers}
             if api_key:
                 req_headers["Authorization"] = f"Bearer {api_key}"
-            with httpx.Client(timeout=8.0, headers=req_headers) as client:
+            with httpx.Client(timeout=8.0, headers=req_headers, follow_redirects=False) as client:
                 if kwargs:
-                    payload = {"tool": kwargs.get("tool") or server_id, "arguments": kwargs}
+                    tool_name = kwargs.get("tool") or server_id
+                    payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": tool_name, "arguments": kwargs},
+                        "tool": tool_name,
+                        "arguments": kwargs,
+                    }
                     r = client.post(target_url, json=payload)
                     if r.status_code == 405:
                         r = client.get(target_url, params={k: str(v) for k, v in kwargs.items()})

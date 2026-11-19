@@ -459,17 +459,20 @@ def ai_text(prompt, image=None):
                 gemini_ans, used_key = call_gemini(
                     prompt,
                     system_instruction="Bạn là trợ lý AI định lượng ZUPIRUS Quant Lab. Phân tích thận trọng, bảo vệ an toàn tài khoản, trả lời súc tích bằng tiếng Việt.",
-                    c=c
+                    c=c,
+                    image=image,
                 )
                 if gemini_ans:
+                    used_model = used_key.split("·")[-1].strip() if (used_key and "·" in str(used_key)) else "gemini-3-flash-preview"
                     latency = (time.perf_counter() - t0) * 1000
-                    trace_ai_interaction(prompt, gemini_ans, "gemini-flash-latest", len(prompt) // 4, len(gemini_ans) // 4, latency)
+                    trace_ai_interaction(prompt, gemini_ans, used_model, len(prompt) // 4, len(gemini_ans) // 4, latency)
                     return {'available': True, 'text': gemini_ans, 'provider': 'gemini', 'key_used': used_key}
         except Exception as e:
             logger.debug(f"Gemini call attempt: {e}")
 
-    # 2. Try OpenAI / OpenRouter key if configured
-    if key:
+    # 2. Try OpenAI / OpenRouter key if configured (never send Google AIza/AQ keys or unsafe SSRF base_url)
+    from app.skills.mcp_bridge import _is_safe_external_url
+    if key and not key.startswith("AIza") and not key.startswith("AQ.") and _is_safe_external_url(base_url):
         content = [{'type': 'text', 'text': prompt}]
         if image:
             content.append({'type': 'image_url', 'image_url': {'url': image}})

@@ -26,6 +26,7 @@ class InMemoryRedisMock:
         self._data: Dict[str, Any] = {}
         self._expires: Dict[str, float] = {}
         self._streams: Dict[str, List[Dict[str, Any]]] = {STREAM_SIGNALS: []}
+        self._acked: Dict[Any, set] = {}
         self._subscribers: List[Any] = []
 
     def _purge_expired(self):
@@ -102,6 +103,9 @@ class InMemoryRedisMock:
             results = []
             for stream_name, last_id in streams.items():
                 entries = self._streams.get(stream_name, [])
+                lid = str(last_id or "0-0")
+                if lid not in ("0", "0-0", "-", "", ">"):
+                    entries = [e for e in entries if str(e["id"]) > lid]
                 filtered = [
                     (e["id"], {k: str(v) for k, v in e["data"].items()})
                     for e in entries
@@ -113,15 +117,37 @@ class InMemoryRedisMock:
             return results
 
     def xgroup_create(self, name: str, groupname: str, id: str = "$", mkstream: bool = False) -> bool:
-        if mkstream and name not in self._streams:
-            self._streams[name] = []
-        return True
+        with self._lock:
+            if mkstream and name not in self._streams:
+                self._streams[name] = []
+            self._acked.setdefault((name, groupname), set())
+            return True
 
     def xreadgroup(self, groupname: str, consumername: str, streams: Dict[str, str], count: Optional[int] = None, block: Optional[int] = None) -> List[Any]:
-        return self.xread(streams, count=count, block=block)
+        with self._lock:
+            results = []
+            for stream_name, last_id in streams.items():
+                acked_set = self._acked.get((stream_name, groupname), set())
+                entries = [e for e in self._streams.get(stream_name, []) if e["id"] not in acked_set]
+                lid = str(last_id or ">")
+                if lid not in ("0", "0-0", "-", "", ">"):
+                    entries = [e for e in entries if str(e["id"]) > lid]
+                filtered = [
+                    (e["id"], {k: str(v) for k, v in e["data"].items()})
+                    for e in entries
+                ]
+                if count:
+                    filtered = filtered[-count:]
+                if filtered:
+                    results.append((stream_name, filtered))
+            return results
 
     def xack(self, name: str, groupname: str, *ids: str) -> int:
-        return len(ids)
+        with self._lock:
+            acked_set = self._acked.setdefault((name, groupname), set())
+            for item_id in ids:
+                acked_set.add(str(item_id))
+            return len(ids)
 
     def publish(self, channel: str, message: str) -> int:
         return 1

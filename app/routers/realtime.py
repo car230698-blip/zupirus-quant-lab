@@ -82,7 +82,7 @@ async def stream_admin(
                         "halted": radar.get("halted"),
                         "cards": [(c.get("key"), c.get("ok"), c.get("status_text")) for c in radar.get("health_cards", [])],
                         "alerts": len(radar.get("alerts", [])),
-                        "tl": (radar.get("timeline") or [{}])[0].get("time") if radar.get("timeline") else None,
+                        "tl": ((radar.get("timeline") or [{}])[0].get("ts") or (radar.get("timeline") or [{}])[0].get("time")) if radar.get("timeline") else None,
                     },
                     sort_keys=True,
                 )
