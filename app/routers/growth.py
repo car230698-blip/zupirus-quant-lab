@@ -197,15 +197,21 @@ def get_my_billing_orders(u=Depends(get_current_user)) -> Dict[str, Any]:
     """Return the authenticated customer's SePay billing orders for invoice/PDF receipt printing."""
     with tx() as c:
         rows = c.execute(
-            """
-            SELECT id, payment_code, plan_tier, cloud_slots_count,
-                   expected_amount_vnd, paid_amount_vnd, status,
-                   created_at, paid_at
-            FROM orders
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT 30
-            """,
+            "SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
             (u["id"],),
         ).fetchall()
-    return {"orders": [dict(r) for r in rows]}
+    out = []
+    for r in rows:
+        d = dict(r)
+        out.append({
+            "id": d.get("id"),
+            "payment_code": d.get("transfer_content") or d.get("payment_code") or d.get("id"),
+            "plan_tier": d.get("plan_tier") or "starter",
+            "cloud_slots_count": int(d.get("cloud_slots_count") or 1),
+            "expected_amount_vnd": float(d.get("expected_amount_vnd") or d.get("amount_vnd") or 0),
+            "paid_amount_vnd": float(d.get("paid_amount_vnd") or 0),
+            "status": d.get("status") or "PENDING",
+            "created_at": d.get("created_at") or 0,
+            "paid_at": d.get("paid_at"),
+        })
+    return {"orders": out}
