@@ -292,6 +292,7 @@ def _render_shell(
         <a href="https://zupirus.com/#track-record">Hiệu Suất Thực Tế</a>
         <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a>
         <a href="/huong-dan">Kiến Thức &amp; Hướng Dẫn</a>
+        <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a>
         <a href="https://discord.gg/yxCx3dVe34" target="_blank" rel="noopener noreferrer">Discord</a>
         <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
       </div>
@@ -300,7 +301,7 @@ def _render_shell(
   <main>{body_html}</main>
   <footer>
     © 2026 ZUPIRUS Quant Lab · Hạ tầng Cloud MT5 XAU/USD Zero-VPS &amp; Prop Firm Guard ·
-    <a href="https://zupirus.com/">Trang Chủ</a> · <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a> · <a href="/huong-dan">Hướng Dẫn</a> · <a href="https://app.zupirus.com/">Đăng Nhập</a>
+    <a href="https://zupirus.com/">Trang Chủ</a> · <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a> · <a href="/huong-dan">Hướng Dẫn</a> · <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a> · <a href="https://app.zupirus.com/">Đăng Nhập</a>
   </footer>
 </body>
 </html>"""

@@ -157,12 +157,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               Hướng Dẫn
             </a>
             <a
+              href="https://www.youtube.com/@ZupirusTradingAcademy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-rose-300 hover:text-rose-200 transition-colors whitespace-nowrap shrink-0"
+            >
+              YouTube ↗
+            </a>
+            <a
               href="https://discord.gg/yxCx3dVe34"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-indigo-300 hover:text-indigo-200 transition-colors whitespace-nowrap shrink-0"
             >
-              Cộng Đồng Discord ↗
+              Discord ↗
             </a>
           </nav>
 
