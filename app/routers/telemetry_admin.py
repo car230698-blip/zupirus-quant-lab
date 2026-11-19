@@ -492,3 +492,18 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
     }
 
 
+@router.get("/code-map")
+def get_admin_code_map(_admin=Depends(get_current_admin)):
+    """Return Understand-Anything Codebase Knowledge Graph (Scan -> Map -> Teach)."""
+    from app.services.code_map import get_code_knowledge_graph
+    return get_code_knowledge_graph(force_rescan=False)
+
+
+@router.post("/code-map/rescan")
+def rescan_admin_code_map(_admin=Depends(get_current_admin)):
+    """Re-scan the live repository AST/imports and refresh the knowledge graph."""
+    from app.services.code_map import get_code_knowledge_graph
+    return get_code_knowledge_graph(force_rescan=True)
+
+
+
