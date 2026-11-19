@@ -301,6 +301,13 @@ def run_system_dry_run_test(_admin=Depends(get_current_admin)):
             created_at=now_ts,
         )
         ok_s, reason_s, _ = sanitize_and_audit_signal(test_sig, live_price=mid, current_time=now_ts)
+        # Clean up synthetic dry-run records so they never pollute production learning metrics or Hindsight lessons
+        try:
+            with tx() as c:
+                c.execute("DELETE FROM signal_audit_logs WHERE id = ?", (test_sig.id,))
+                c.execute("DELETE FROM hindsight_memories WHERE content LIKE ?", (f"%{test_sig.id}%",))
+        except Exception:
+            pass
         shield_ok = True  # Sanitizer executed properly regardless of whether news/spread blocked
         shield_detail = "4 lớp màng lọc hoạt động chuẩn (Cho phép qua)." if ok_s else f"4 lớp màng lọc hoạt động chuẩn (Đã chặn an toàn: {reason_s})."
     except Exception as e:
@@ -337,14 +344,35 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
             shadow_eval_cnt = c.execute(
                 "SELECT COUNT(*) FROM shadow_signals WHERE eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED')"
             ).fetchone()[0]
+            shadow_open_cnt = c.execute(
+                "SELECT COUNT(*) FROM shadow_signals WHERE eval_status = 'OPEN'"
+            ).fetchone()[0]
             shadow_wins = c.execute(
                 "SELECT COUNT(*) FROM shadow_signals WHERE eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED') AND (eval_status = 'WIN_TP' OR pnl_pips > 0)"
             ).fetchone()[0]
+            per_src_rows = c.execute(
+                """
+                SELECT
+                    source_id,
+                    SUM(CASE WHEN eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED') THEN 1 ELSE 0 END) AS eval_cnt,
+                    SUM(CASE WHEN eval_status = 'OPEN' THEN 1 ELSE 0 END) AS open_cnt,
+                    SUM(CASE WHEN eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED') AND (eval_status = 'WIN_TP' OR pnl_pips > 0) THEN 1 ELSE 0 END) AS win_cnt
+                FROM shadow_signals
+                GROUP BY source_id
+                """
+            ).fetchall()
+            per_src_stats = {
+                str(r[0]): (int(r[1] or 0), int(r[2] or 0), int(r[3] or 0))
+                for r in per_src_rows
+            }
         except Exception:
-            shadow_eval_cnt, shadow_wins = 0, 0
+            shadow_eval_cnt, shadow_open_cnt, shadow_wins = 0, 0, 0
+            per_src_stats = {}
 
         try:
-            audit_cnt = c.execute("SELECT COUNT(*) FROM signal_audit_logs").fetchone()[0]
+            audit_cnt = c.execute(
+                "SELECT COUNT(*) FROM signal_audit_logs WHERE COALESCE(source, '') NOT IN ('src_dryrun_test', 'ADMIN_BENCH')"
+            ).fetchone()[0]
         except Exception:
             audit_cnt = 0
 
@@ -354,33 +382,46 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
         sources = []
         try:
             s_rows = c.execute(
-                "SELECT id, name, source_type, status, trust_score, win_rate, profit_factor, evaluated_signals FROM signal_sources ORDER BY trust_score DESC"
+                "SELECT id, name, source_type, status, trust_score, win_rate, profit_factor, evaluated_signals FROM signal_sources"
             ).fetchall()
             for sr in s_rows:
-                wr = float(sr[5] or 0.0)
+                sid = str(sr[0])
+                real_eval, real_open, real_wins = per_src_stats.get(sid, (0, 0, 0))
+                real_wr = round((real_wins / real_eval) * 100.0, 1) if real_eval > 0 else 0.0
                 sources.append({
-                    "id": sr[0],
+                    "id": sid,
                     "name": sr[1],
                     "source_type": sr[2],
                     "status": sr[3],
-                    "trust_score": round(float(sr[4] or 0.0), 1),
-                    "win_rate_pct": round(wr * 100.0 if wr <= 1.0 else wr, 1),
-                    "profit_factor": round(float(sr[6] or 1.0), 2),
-                    "evaluated_signals": int(sr[7] or 0),
+                    "trust_score": round(float(sr[4] or 0.0), 1) if real_eval > 0 else 0.0,
+                    "win_rate_pct": real_wr,
+                    "profit_factor": round(float(sr[6] or 0.0), 2) if real_eval > 0 else 0.0,
+                    "evaluated_signals": real_eval,
+                    "open_signals": real_open,
                 })
+            sources.sort(key=lambda x: (x["evaluated_signals"], x["open_signals"], x["trust_score"]), reverse=True)
         except Exception:
             pass
 
         hindsight_lessons = []
         try:
             h_rows = c.execute(
-                "SELECT id, category, content, relevance_score, created FROM hindsight_memories ORDER BY created DESC LIMIT 10"
+                """
+                SELECT id, category, content, relevance_score, created
+                FROM hindsight_memories
+                WHERE COALESCE(content, '') NOT LIKE '%src_dryrun_test%'
+                  AND COALESCE(content, '') NOT LIKE '%ADMIN_BENCH%'
+                  AND COALESCE(content, '') NOT LIKE 'User chat:%'
+                ORDER BY created DESC LIMIT 10
+                """
             ).fetchall()
             for hr in h_rows:
+                raw_content = str(hr[2] or "")
+                clean_content = raw_content.split(" | meta:")[0].strip()
                 hindsight_lessons.append({
                     "id": hr[0],
                     "category": hr[1],
-                    "content": hr[2],
+                    "content": clean_content,
                     "confidence": round(float(hr[3] or 0.0), 2),
                     "created_at": hr[4],
                 })
@@ -440,6 +481,7 @@ def get_ai_evolution_monitor(_admin=Depends(get_current_admin)):
         },
         "shadow_summary": {
             "total_evaluated": int(shadow_eval_cnt),
+            "total_open": int(shadow_open_cnt),
             "overall_win_rate_pct": overall_wr,
             "sources": sources,
         },

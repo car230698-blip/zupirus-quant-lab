@@ -221,7 +221,8 @@ export const AdminAIEvolutionTab: React.FC = () => {
                 Đối Chiếu Nến M1 Thực Tế
               </div>
               <h3 className="text-base font-bold text-white">
-                Nhật Ký Chấm Điểm Nguồn Tín Hiệu ({evo.shadow_summary?.total_evaluated || 0} lệnh ẩn)
+                Nhật Ký Chấm Điểm Nguồn Tín Hiệu ({evo.shadow_summary?.total_evaluated || 0} đã chấm
+                {Number(evo.shadow_summary?.total_open || 0) > 0 ? ` • ${evo.shadow_summary.total_open} đang mở` : ''})
               </h3>
             </div>
             <span className="rounded-full bg-emerald-500/15 px-3 py-1 font-mono text-xs font-bold text-emerald-300">
@@ -241,7 +242,8 @@ export const AdminAIEvolutionTab: React.FC = () => {
                   <div>
                     <div className="font-bold text-white">{src.name}</div>
                     <div className="mt-0.5 text-[11px] text-slate-400">
-                      {src.status === 'ACTIVE_LIVE' ? 'Đang chạy thật' : 'Đang học ngầm (M1)'} • {src.evaluated_signals} mẫu
+                      {src.status === 'ACTIVE_LIVE' ? 'Đang chạy thật' : src.status === 'DEMOTED' ? 'Đã hạ cấp' : 'Đang học ngầm (M1)'} • {src.evaluated_signals} đã chấm
+                      {Number(src.open_signals || 0) > 0 ? ` • ${src.open_signals} đang mở` : ''}
                     </div>
                   </div>
                   <div className="text-right font-mono">
