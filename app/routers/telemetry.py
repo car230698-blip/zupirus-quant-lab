@@ -262,7 +262,7 @@ def get_prometheus_metrics():
     halted = 0
     accounts_total = 0
     executions_total = 0
-    quote = _get_live_xau_quote()
+    quote = get_live_xauusd_quote()
 
     try:
         from app.redis_client import get_redis_client
