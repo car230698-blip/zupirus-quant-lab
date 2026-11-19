@@ -39,10 +39,30 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     }
   }, []);
 
+  const [sseLive, setSseLive] = useState(false);
+
   useEffect(() => {
     loadRadar();
-    const timer = setInterval(loadRadar, 5000);
-    return () => clearInterval(timer);
+    let es: EventSource | null = null;
+    if (typeof window !== 'undefined' && typeof EventSource !== 'undefined') {
+      es = new EventSource('/api/v1/stream/admin', { withCredentials: true });
+      es.onopen = () => setSseLive(true);
+      es.addEventListener('radar', (ev: MessageEvent) => {
+        try {
+          setRadar(JSON.parse(ev.data));
+          setLoading(false);
+          setSseLive(true);
+        } catch {
+          // ignore malformed frame
+        }
+      });
+      es.onerror = () => setSseLive(false);
+    }
+    const timer = setInterval(loadRadar, 20000);
+    return () => {
+      clearInterval(timer);
+      if (es) es.close();
+    };
   }, [loadRadar]);
 
   const handleAlertAction = async (alert: any) => {
@@ -102,7 +122,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
         action={
           <div className="flex flex-wrap items-center gap-2.5">
             <StatusBadge tone={isHalted ? 'danger' : 'success'} dot pulse={!isHalted}>
-              {isHalted ? 'HALTED' : 'LIVE OPS'}
+              {isHalted ? 'HALTED' : sseLive ? 'LIVE SSE' : 'LIVE OPS'}
             </StatusBadge>
             <button
               type="button"

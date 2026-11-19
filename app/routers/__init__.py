@@ -11,6 +11,7 @@ from app.routers.auth import router as auth_router
 from app.routers.billing import router as billing_router
 from app.routers.ea import router as ea_router
 from app.routers.metaapi_dispatch import router as metaapi_dispatch_router
+from app.routers.realtime import router as realtime_router
 from app.routers.signals import router as signals_router
 from app.routers.skills import router as skills_router
 from app.routers.sources import router as sources_router
@@ -31,6 +32,7 @@ __all__ = [
     "billing_router",
     "ea_router",
     "metaapi_dispatch_router",
+    "realtime_router",
     "signals_router",
     "skills_router",
     "sources_router",

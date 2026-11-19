@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import type { PortalType } from '../App.tsx';
-import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
+import { useLiveTopbarTelemetry, useRealtimePortalStream } from '../hooks/useQuantData.ts';
 import {
   IconBolt,
   IconBrain,
@@ -139,6 +139,7 @@ export function PortalShell({
   const [pwdBusy, setPwdBusy] = useState(false);
   const [pwdMsg, setPwdMsg] = useState<string | null>(null);
   const { data: telemetryData } = useLiveTopbarTelemetry();
+  useRealtimePortalStream(portal, Boolean(email));
 
   const liveSpot = {
     bid: Number(telemetryData?.xauusd?.bid || 0),

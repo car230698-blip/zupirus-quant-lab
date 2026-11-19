@@ -108,3 +108,29 @@ def test_admin_telemetry_routes_registered(client):
     ).status_code == 200
     assert client.get("/api/v1/telemetry/admin-radar").status_code == 200
     assert client.get("/api/v1/telemetry/ai-evolution").status_code == 200
+
+
+def test_realtime_sse_endpoints_and_auth(client):
+    # Public topbar SSE returns text/event-stream with event: topbar
+    pub = client.get("/api/v1/stream/topbar?oneshot=1")
+    assert pub.status_code == 200
+    assert "text/event-stream" in pub.headers.get("content-type", "")
+    assert "event: topbar" in pub.text
+
+    # Unauthenticated admin/user SSE streams are blocked with 401
+    assert client.get("/api/v1/stream/admin?oneshot=1").status_code == 401
+    assert client.get("/api/v1/stream/user?oneshot=1").status_code == 401
+
+    # Authenticated admin can stream both admin and user SSE endpoints
+    assert client.post(
+        "/api/login",
+        json={"email": "admin@zupirus.local", "password": "test-only-admin-password-123"},
+    ).status_code == 200
+
+    adm = client.get("/api/v1/stream/admin?oneshot=1")
+    assert adm.status_code == 200
+    assert "event: radar" in adm.text
+
+    usr = client.get("/api/v1/stream/user?oneshot=1")
+    assert usr.status_code == 200
+    assert "event: connected" in usr.text

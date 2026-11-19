@@ -407,6 +407,21 @@ async def process_successful_payment(
         except Exception as mail_err:
             logger.warning(f"Failed sending payment receipt email to {user_email}: {mail_err}")
 
+    try:
+        from app.redis_client import publish_realtime_event
+        publish_realtime_event(
+            f"user:{order['user_id']}",
+            "payment_paid",
+            {"order_id": order["id"], "plan_tier": tier, "expires_at": new_sub_exp},
+        )
+        publish_realtime_event(
+            "admin",
+            "billing_paid",
+            {"order_id": order["id"], "user_id": order["user_id"], "plan_tier": tier},
+        )
+    except Exception:
+        pass
+
     logger.info(f"Order {order['id']} fulfilled successfully for user {order['user_id']}.")
     return True
 

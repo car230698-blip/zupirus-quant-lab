@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export interface CloudAccountItem {
   id: string;
@@ -116,6 +117,31 @@ export interface LiveTopbarTelemetry {
 }
 
 export function useLiveTopbarTelemetry() {
+  const queryClient = useQueryClient();
+  const [sseConnected, setSseConnected] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    const es = new EventSource('/api/v1/stream/topbar', { withCredentials: true });
+    es.onopen = () => setSseConnected(true);
+    es.addEventListener('topbar', (ev: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(ev.data) as LiveTopbarTelemetry;
+        queryClient.setQueryData(['telemetry', 'topbar'], parsed);
+        setSseConnected(true);
+      } catch {
+        // ignore malformed frame
+      }
+    });
+    es.onerror = () => {
+      setSseConnected(false);
+    };
+    return () => {
+      es.close();
+      setSseConnected(false);
+    };
+  }, [queryClient]);
+
   return useQuery<LiveTopbarTelemetry>({
     queryKey: ['telemetry', 'topbar'],
     queryFn: async () => {
@@ -123,7 +149,36 @@ export function useLiveTopbarTelemetry() {
       if (!res.ok) throw new Error('Không thể tải dữ liệu telemetry');
       return res.json();
     },
-    staleTime: 2500,
-    refetchInterval: 3000,
+    staleTime: sseConnected ? 30_000 : 2500,
+    refetchInterval: sseConnected ? false : 5000,
   });
+}
+
+export function useRealtimePortalStream(portal: 'user' | 'admin', enabled: boolean) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!enabled || typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    const url = portal === 'admin' ? '/api/v1/stream/admin' : '/api/v1/stream/user';
+    const es = new EventSource(url, { withCredentials: true });
+
+    if (portal === 'user') {
+      const refreshUser = () => {
+        void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+        void queryClient.invalidateQueries({ queryKey: ['orders'] });
+        void queryClient.invalidateQueries({ queryKey: ['equity-history'] });
+      };
+      es.addEventListener('payment_paid', refreshUser);
+      es.addEventListener('order_update', refreshUser);
+      es.addEventListener('account_update', refreshUser);
+    } else {
+      es.addEventListener('billing_paid', () => {
+        void queryClient.invalidateQueries({ queryKey: ['admin-billing'] });
+      });
+    }
+
+    return () => {
+      es.close();
+    };
+  }, [portal, enabled, queryClient]);
 }

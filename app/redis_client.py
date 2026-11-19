@@ -344,3 +344,59 @@ def dispatch_lock(account_id: str, signal_id: str, ttl_seconds: int = 15):
     finally:
         release_dispatch_lock(account_id, signal_id, token)
 
+
+# ---------------------------------------------------------------------------
+# 4. Real-Time SSE Event Bus (Redis Streams + In-Memory Fallback)
+# ---------------------------------------------------------------------------
+
+_RT_LOCK = threading.Lock()
+_RT_LOCAL_BUS: Dict[str, List[Dict[str, Any]]] = {}
+
+
+def publish_realtime_event(channel: str, event_type: str, payload: Dict[str, Any]) -> bool:
+    """Publish a real-time UI event for SSE subscribers (best-effort, non-blocking)."""
+    now_ts = time.time()
+    entry = {
+        "event": event_type,
+        "data": payload,
+        "ts": now_ts,
+    }
+    try:
+        r = get_redis_client()
+        stream_key = f"zupirus:rt:{channel}"
+        r.xadd(stream_key, {"payload": json.dumps(entry, default=str)}, maxlen=100, approximate=True)
+        return True
+    except Exception:
+        with _RT_LOCK:
+            bucket = _RT_LOCAL_BUS.setdefault(channel, [])
+            bucket.append(entry)
+            if len(bucket) > 100:
+                del bucket[:-100]
+        return False
+
+
+def poll_realtime_events(channel: str, since_ts: float) -> List[Dict[str, Any]]:
+    """Read real-time events newer than since_ts for SSE delivery."""
+    events: List[Dict[str, Any]] = []
+    try:
+        r = get_redis_client()
+        stream_key = f"zupirus:rt:{channel}"
+        if hasattr(r, "xrevrange"):
+            rows = r.xrevrange(stream_key, count=20)
+            for _msg_id, fields in reversed(rows):
+                raw = fields.get("payload") if isinstance(fields, dict) else None
+                if not raw:
+                    continue
+                item = json.loads(raw)
+                if float(item.get("ts") or 0.0) > since_ts:
+                    events.append(item)
+            return events
+    except Exception:
+        pass
+
+    with _RT_LOCK:
+        for item in _RT_LOCAL_BUS.get(channel, []):
+            if float(item.get("ts") or 0.0) > since_ts:
+                events.append(item)
+    return events
+
