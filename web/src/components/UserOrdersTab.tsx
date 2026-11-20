@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { fmtNum, fmtPnL, fmtTime } from '../utils/strategyDecision';
 import { translateOrderStatus, orderStates } from '../utils/stateMapping';
 import { computeOrderLedgerMetrics } from '../utils/quantMath';
+import { useLiveTopbarStream } from '../hooks/useQuantData';
 import { MetricCard, Panel, StatusBadge } from './ui/Primitives';
 import { IconActivity, IconClose, IconReceipt, IconSearch, IconShield, IconTrendingUp } from './Icons';
 
@@ -33,11 +34,38 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
   const [sideFilter, setSideFilter] = useState<'ALL' | 'BUY' | 'SELL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [localSelectedOrder, setLocalSelectedOrder] = useState<any | null>(null);
+  const { tick: liveTick } = useLiveTopbarStream();
+  const liveMidPrice = Number(liveTick?.mid || liveTick?.bid || 0);
 
   const selectedOrder = externalSelectedOrder !== undefined ? externalSelectedOrder : localSelectedOrder;
   const setSelectedOrder = externalSetSelectedOrder || setLocalSelectedOrder;
 
-  const rawOrders = filteredUserOrders ?? externalOrders ?? [];
+  const rawOrders = (filteredUserOrders ?? externalOrders ?? []).map((o) => {
+    const isBuy = String(o.side || '').toUpperCase() === 'BUY';
+    const orderState = String(o.state || o.status || 'filled').toLowerCase();
+    const fillPrice = Number(o.fill_price || o.filled_price || o.requested_price || o.price || 0);
+    let vol = Number(o.volume ?? o.quantity ?? 0);
+    if (!vol && o.reason) {
+      const m = String(o.reason).match(/([0-9]+\.[0-9]+)\s*lot/i);
+      if (m) vol = Number(m[1]);
+    }
+    if (!vol && orderState === 'filled') vol = 0.01;
+    const refLive = liveMidPrice > 0 ? liveMidPrice : Number(o.live_price || 0);
+    let pnl = Number(o.pnl ?? o.profit ?? o.realized_pnl ?? 0);
+    const isLiveOpen = orderState === 'filled' && !o.closed_at && fillPrice > 0 && refLive > 0;
+    if (isLiveOpen) {
+      const diff = isBuy ? refLive - fillPrice : fillPrice - refLive;
+      pnl = Math.round(diff * vol * 100 * 100) / 100;
+    }
+    return {
+      ...o,
+      volume: vol,
+      pnl,
+      profit: pnl,
+      live_price: refLive > 0 ? refLive : undefined,
+      _isLiveOpen: isLiveOpen,
+    };
+  });
   const filteredOrders = rawOrders.filter((o) => {
     if (sideFilter !== 'ALL' && String(o.side || '').toUpperCase() !== sideFilter) {
       return false;
@@ -271,7 +299,16 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                         </div>
                       </td>
                       <td className="font-mono text-xs text-slate-300">
-                        {o.account_id || o.source || 'MT5-Cloud'}
+                        <div className="font-semibold text-white">
+                          {o.account_login
+                            ? `#${o.account_login} · ${o.account_server || 'MT5'}`
+                            : o.account_id || o.source || 'MT5-Cloud'}
+                        </div>
+                        {(o.ticket || o.deal) && (
+                          <div className="text-[11px] text-cyan-400/90 tabular-nums">
+                            Ticket #{o.ticket || o.deal}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div className="flex items-center gap-2 font-mono text-xs">
@@ -286,7 +323,12 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                         {fmtNum(o.volume ?? o.quantity ?? 0, 2)} lot
                       </td>
                       <td className="text-right font-mono text-xs text-slate-200 tabular-nums">
-                        {fmtNum(price, 2)}
+                        <div>{fmtNum(price, 2)}</div>
+                        {o._isLiveOpen && o.live_price && (
+                          <div className="text-[10px] text-cyan-400 tabular-nums">
+                            Live: {fmtNum(o.live_price, 2)}
+                          </div>
+                        )}
                       </td>
                       <td className="text-right font-mono text-[11px] text-slate-400 tabular-nums">
                         <span className="text-rose-300/90">{slVal ? fmtNum(slVal, 2) : 'Auto'}</span>
@@ -298,16 +340,21 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                           pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
                         }`}
                       >
-                        {fmtPnL(pnl)}
+                        <div>{fmtPnL(pnl)}</div>
+                        {o._isLiveOpen && (
+                          <div className="text-[10px] font-normal text-emerald-300/80">Real-time</div>
+                        )}
                       </td>
                       <td className="text-right font-mono text-xs text-slate-300">
                         <span className="inline-flex items-center gap-1.5">
                           <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              String(orderState).toLowerCase() === 'filled' ? 'bg-emerald-400' : 'bg-amber-400'
+                            className={`h-2 w-2 rounded-full ${
+                              String(orderState).toLowerCase() === 'filled'
+                                ? 'bg-emerald-400 animate-pulse'
+                                : 'bg-amber-400'
                             }`}
                           />
-                          {translateOrderStatus(orderState)}
+                          {o._isLiveOpen ? 'Đang chạy Live · Đã khớp' : translateOrderStatus(orderState)}
                         </span>
                       </td>
                     </tr>

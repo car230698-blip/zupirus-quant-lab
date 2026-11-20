@@ -348,9 +348,6 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   };
 
   const handleDeleteAccount = async (accountId: string) => {
-    if (!window.confirm(`Bạn có chắc chắn muốn ngắt kết nối và xoá tài khoản #${accountId} khỏi hệ thống không?`)) {
-      return;
-    }
     setCloudBusy(true);
     try {
       const res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}`, {
@@ -832,6 +829,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         expandedConfigId={expandedConfigId}
         setExpandedConfigId={setExpandedConfigId}
         cloudBusy={cloudBusy}
+        cloudMsg={cloudMsg}
         editConfigForm={editConfigForm}
         setEditConfigForm={setEditConfigForm}
         handleSyncAccount={handleSyncAccount}

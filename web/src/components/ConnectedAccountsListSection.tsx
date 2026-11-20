@@ -16,6 +16,7 @@ export interface ConnectedAccountsListSectionProps {
   expandedConfigId: string | null;
   setExpandedConfigId: (id: string | null) => void;
   cloudBusy: boolean;
+  cloudMsg?: string;
   editConfigForm: EditAccountConfigForm;
   setEditConfigForm: React.Dispatch<React.SetStateAction<EditAccountConfigForm>>;
   handleSyncAccount: (accountId: string) => void;
@@ -31,6 +32,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
   expandedConfigId,
   setExpandedConfigId,
   cloudBusy,
+  cloudMsg,
   editConfigForm,
   setEditConfigForm,
   handleSyncAccount,
@@ -40,6 +42,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
   handleDeleteAccount,
   handleSaveAccountConfig,
 }) => {
+  const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
   return (
     <div className="quant-panel p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -55,6 +58,12 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
           Tổng cộng: {accounts.length} tài khoản
         </span>
       </div>
+
+      {cloudMsg && (
+        <div className="mb-4 rounded-xl border border-cyan-500/30 bg-cyan-950/30 px-4 py-2.5 text-xs text-cyan-200">
+          {cloudMsg}
+        </div>
+      )}
 
       {accounts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-[#040710]/50 p-8 text-center text-sm text-slate-400">
@@ -178,15 +187,39 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       {isActive ? 'Tạm Dừng Copy' : 'Kích Hoạt Copy'}
                     </button>
 
-                    <button
-                      type="button"
-                      disabled={cloudBusy}
-                      onClick={() => handleDeleteAccount(id)}
-                      className="rounded-xl px-2.5 py-1.5 text-xs font-bold transition whitespace-nowrap shrink-0 border border-rose-500/40 bg-rose-950/30 text-rose-300 hover:bg-rose-900/50 hover:text-white"
-                      title="Xoá và ngắt kết nối tài khoản"
-                    >
-                      Xoá
-                    </button>
+                    {confirmDeleteId === id ? (
+                      <div className="inline-flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={cloudBusy}
+                          onClick={() => {
+                            setConfirmDeleteId(null);
+                            handleDeleteAccount(id);
+                          }}
+                          className="rounded-xl px-2.5 py-1.5 text-xs font-bold transition whitespace-nowrap shrink-0 border border-rose-400 bg-rose-600 text-white hover:bg-rose-500"
+                        >
+                          Xác nhận Xoá
+                        </button>
+                        <button
+                          type="button"
+                          disabled={cloudBusy}
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="rounded-xl px-2 py-1.5 text-xs font-semibold transition whitespace-nowrap shrink-0 border border-white/15 bg-slate-900 text-slate-300 hover:text-white"
+                        >
+                          Huỷ
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={cloudBusy}
+                        onClick={() => setConfirmDeleteId(id)}
+                        className="rounded-xl px-2.5 py-1.5 text-xs font-bold transition whitespace-nowrap shrink-0 border border-rose-500/40 bg-rose-950/30 text-rose-300 hover:bg-rose-900/50 hover:text-white"
+                        title="Xoá và ngắt kết nối tài khoản"
+                      >
+                        Xoá
+                      </button>
+                    )}
                   </div>
                 </div>
 

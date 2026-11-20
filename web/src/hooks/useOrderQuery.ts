@@ -32,7 +32,7 @@ export function useOrderQuery(url: string | null, sessionKey: string | null) {
     }
 
     void refresh();
-    const timer = window.setInterval(refresh, 5000);
+    const timer = window.setInterval(refresh, 2500);
     return () => {
       active = false;
       controller?.abort();

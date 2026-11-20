@@ -35,11 +35,16 @@ async def toggle_account(account_id: str, request: Request, u: dict = Depends(ge
         else:
             new_state = 1 if int(acc_d.get("auto_trade") or 0) == 0 else 0
 
-        c.execute("UPDATE trading_accounts SET auto_trade=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
-        try:
-            c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
-        except Exception:
-            pass
+        if acc_d.get("_is_ea_bridge"):
+            c.execute("UPDATE accounts SET enabled=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
+            if not new_state:
+                c.execute("UPDATE dispatches SET state='cancelled',updated=? WHERE account_id=? AND state='queued'", (time.time(), real_id))
+        else:
+            c.execute("UPDATE trading_accounts SET auto_trade=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
+            try:
+                c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
+            except Exception:
+                pass
         audit(c, u["id"], "trading_account_toggle_auto_trade", {
             "account_id": real_id,
             "auto_trade": new_state
@@ -79,11 +84,15 @@ async def cloud_deploy_action(account_id: str, action: str, u: dict = Depends(ge
             fail(502, f"Thao tác {act.upper()} trên MetaApi Cloud thất bại. Trạng thái hiện tại được giữ nguyên.")
 
     with tx() as c:
-        c.execute("UPDATE trading_accounts SET deployment_state=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
-        try:
-            c.execute("UPDATE metaapi_cloud_accounts SET metaapi_state=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
-        except Exception:
-            pass
+        if acc.get("_is_ea_bridge"):
+            new_en = 1 if act == "deploy" else 0
+            c.execute("UPDATE accounts SET enabled=? WHERE id=? AND user_id=?", (new_en, real_id, owner_id))
+        else:
+            c.execute("UPDATE trading_accounts SET deployment_state=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
+            try:
+                c.execute("UPDATE metaapi_cloud_accounts SET metaapi_state=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
+            except Exception:
+                pass
 
     return {
         "id": real_id,
@@ -107,7 +116,7 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     meta_id = acc.get("metaapi_account_id") or real_id
     eq = float(acc.get("equity") or 0.0)
     bal = float(acc.get("balance") or 0.0)
-    if not client.is_mock:
+    if not acc.get("_is_ea_bridge") and not client.is_mock:
         info = await client.get_account_information(meta_id)
         if isinstance(info, dict) and info.get("connected", True):
             new_eq = float(info.get("equity") or 0.0)
@@ -118,17 +127,23 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     now_ts = time.time()
 
     with tx() as c:
-        c.execute(
-            "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
-            (eq, bal, now_ts, real_id, owner_id)
-        )
-        try:
+        if acc.get("_is_ea_bridge"):
             c.execute(
-                "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
+                "UPDATE accounts SET equity=?, balance=?, seen=? WHERE id=? AND user_id=?",
                 (eq, bal, now_ts, real_id, owner_id)
             )
-        except Exception:
-            pass
+        else:
+            c.execute(
+                "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
+                (eq, bal, now_ts, real_id, owner_id)
+            )
+            try:
+                c.execute(
+                    "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
+                    (eq, bal, now_ts, real_id, owner_id)
+                )
+            except Exception:
+                pass
 
     return {"id": real_id, "equity": eq, "balance": bal, "last_sync": now_ts}
 
@@ -240,23 +255,43 @@ async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
             logger.warning(f"Could not delete MetaApi account {meta_id}: {e}")
 
     with tx() as c:
+        is_pg = bool(getattr(c, "_is_pg", False))
         # Resolve only matching legacy accounts.id belonging to target_user_id
         if resolved_legacy_id:
             matching_acc_ids = [resolved_legacy_id]
         else:
             matching_acc_ids = [
                 r[0] for r in c.execute(
-                    "SELECT id FROM accounts WHERE id=? AND user_id=?",
-                    (account_id, target_user_id),
+                    "SELECT id FROM accounts WHERE (id=? OR login=?) AND user_id=?",
+                    (account_id, account_id, target_user_id),
                 ).fetchall()
             ]
+        from app.db import setkv
+        from app.redis_client import get_redis_client
         for aid in matching_acc_ids:
-            for dep_table in ("snapshots", "sim_positions", "dispatches", "metaapi_trade_executions", "account_symbol_map"):
+            login_row = c.execute("SELECT login FROM accounts WHERE id=?", (aid,)).fetchone()
+            if login_row and login_row[0]:
+                setkv(c, f"ea_deleted:{login_row[0]}", str(int(time.time())))
+            for dep_table in ("devices", "pairings", "snapshots", "dispatches", "metaapi_trade_executions", "account_symbol_map", "sim_positions"):
+                if is_pg:
+                    c.execute("SAVEPOINT sp_del_dep")
                 try:
                     c.execute(f"DELETE FROM {dep_table} WHERE account_id=?", (aid,))
+                    if is_pg:
+                        c.execute("RELEASE SAVEPOINT sp_del_dep")
                 except Exception:
-                    pass
+                    if is_pg:
+                        try:
+                            c.execute("ROLLBACK TO SAVEPOINT sp_del_dep")
+                        except Exception:
+                            pass
             c.execute("DELETE FROM accounts WHERE id=? AND user_id=?", (aid, target_user_id))
+            try:
+                r_cli = get_redis_client()
+                if r_cli:
+                    r_cli.delete(f"hb:{aid}")
+            except Exception:
+                pass
 
         # Delete from real_accounts strictly by id and user_id
         target_rid = resolved_real_id or account_id
@@ -265,26 +300,42 @@ async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
         # Delete from trading_accounts and dependent tables strictly by id and user_id
         target_tid = resolved_trading_id or account_id
         for dep_table in ("metaapi_trade_executions", "account_symbol_map", "signal_dispatch_locks"):
+            if is_pg:
+                c.execute("SAVEPOINT sp_del_tdep")
             try:
                 c.execute(
                     f"DELETE FROM {dep_table} WHERE account_id IN (SELECT id FROM trading_accounts WHERE id=? AND user_id=?)",
                     (target_tid, target_user_id),
                 )
+                if is_pg:
+                    c.execute("RELEASE SAVEPOINT sp_del_tdep")
             except Exception:
-                pass
+                if is_pg:
+                    try:
+                        c.execute("ROLLBACK TO SAVEPOINT sp_del_tdep")
+                    except Exception:
+                        pass
         c.execute("DELETE FROM trading_accounts WHERE id=? AND user_id=?", (target_tid, target_user_id))
 
         # Delete from metaapi_cloud_accounts strictly by id and user_id
         target_cid = resolved_cloud_id or target_tid
+        if is_pg:
+            c.execute("SAVEPOINT sp_del_cdep")
         try:
             c.execute("DELETE FROM metaapi_cloud_accounts WHERE id=? AND user_id=?", (target_cid, target_user_id))
+            if is_pg:
+                c.execute("RELEASE SAVEPOINT sp_del_cdep")
         except Exception:
-            pass
+            if is_pg:
+                try:
+                    c.execute("ROLLBACK TO SAVEPOINT sp_del_cdep")
+                except Exception:
+                    pass
 
         audit(c, u["id"], "trading_account_deleted", {
-            "account_id": target_tid,
+            "account_id": resolved_trading_id or resolved_legacy_id or account_id,
             "target_user_id": target_user_id,
             "metaapi_account_id": meta_id,
         })
 
-    return {"ok": True, "id": resolved_trading_id or account_id, "status": "DELETED", "message": "Đã xoá tài khoản MT5 thành công."}
+    return {"ok": True, "id": resolved_trading_id or resolved_legacy_id or account_id, "status": "DELETED", "message": "Đã xoá tài khoản MT5 thành công."}

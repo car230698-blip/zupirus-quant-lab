@@ -121,6 +121,11 @@ def pair(p: Pair):
         row = c.execute('SELECT p.*,a.login,a.server,a.mode FROM pairings p JOIN accounts a ON a.id=p.account_id WHERE code=?', (digest(p.code),)).fetchone()
         master_code = os.getenv('EA_DEMO_MASTER_CODE', 'ZUPIRUS-DEMO-2026').strip()
         if (not row or row['used'] or row['expires'] < time.time()) and p.mode == 'DEMO' and master_code and p.code.strip() == master_code:
+            # Check if this login was explicitly deleted by the user from Web UI recently
+            from app.db import getkv
+            deleted_ts = getkv(c, f"ea_deleted:{p.login}")
+            if deleted_ts and (time.time() - float(deleted_ts)) < 300:
+                fail(403, 'Account was deleted from Web Portal. Remove and re-attach EA after 5 minutes to re-pair.')
             admin_u = c.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
             if admin_u:
                 uid = admin_u['id']
@@ -395,7 +400,27 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
 
         query += ' ORDER BY d.id DESC LIMIT 100'
         orders = [dict(r) for r in c.execute(query, tuple(params))]
-        for d in orders: d.pop('nonce', None)
+        import re as _re
+        from app.routers.telemetry import get_live_xauusd_quote
+        live_q = get_live_xauusd_quote()
+        live_mid = float(live_q.get('mid') or 0.0)
+        for d in orders:
+            d.pop('nonce', None)
+            d['symbol'] = d.get('symbol') or 'XAUUSD'
+            # Extract real lot size from execution receipt reason (e.g. "Executed 0.01 lot XAUUSD")
+            if not d.get('volume'):
+                m_lot = _re.search(r'([0-9]+\.[0-9]+)\s*lot', str(d.get('reason') or ''), _re.IGNORECASE)
+                d['volume'] = float(m_lot.group(1)) if m_lot else 0.01
+            fp = float(d.get('fill_price') or d.get('price') or 0.0)
+            d['fill_price'] = fp
+            # Compute live floating PnL for filled EA Bridge orders against real-time XAU/USD feed
+            if d.get('state') == 'filled' and fp > 0 and live_mid > 0 and d.get('pnl') is None:
+                vol = float(d.get('volume') or 0.01)
+                side_u = str(d.get('side') or 'BUY').upper()
+                diff = (live_mid - fp) if side_u == 'BUY' else (fp - live_mid)
+                d['pnl'] = round(diff * vol * 100.0, 2)
+                d['profit'] = d['pnl']
+                d['live_price'] = live_mid
         is_pg = bool(getattr(c, "_is_pg", False))
         if is_pg:
             c.execute("SAVEPOINT sp_ea_cloud_exec")

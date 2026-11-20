@@ -416,7 +416,7 @@ async def _create_account_locked(
 
 
 def _resolve_target_account(c, account_id: str, u: dict) -> dict:
-    """Resolve an account row with strict tenant isolation (WHERE id=? AND user_id=?)."""
+    """Resolve an account row with strict tenant isolation (supports both trading_accounts and EA Bridge accounts)."""
     is_admin = u.get("role") == "admin"
     user_id = u["id"]
     row = c.execute(
@@ -426,7 +426,7 @@ def _resolve_target_account(c, account_id: str, u: dict) -> dict:
     if row:
         return dict(row)
 
-    # Check if account exists under another user
+    # Check if trading_account exists under another user
     any_row = c.execute(
         "SELECT * FROM trading_accounts WHERE id=? OR mt5_login=? OR metaapi_account_id=?",
         (account_id, account_id, account_id),
@@ -436,6 +436,24 @@ def _resolve_target_account(c, account_id: str, u: dict) -> dict:
         if is_admin:
             return acc
         fail(403, "Không có quyền thao tác trên tài khoản này.")
+
+    # Fallback: check EA Bridge accounts table
+    ea_row = c.execute(
+        "SELECT * FROM accounts WHERE (id=? OR login=?) AND user_id=?",
+        (account_id, account_id, user_id),
+    ).fetchone()
+    if not ea_row and is_admin:
+        ea_row = c.execute(
+            "SELECT * FROM accounts WHERE id=? OR login=?",
+            (account_id, account_id),
+        ).fetchone()
+    if ea_row:
+        d = dict(ea_row)
+        d["_is_ea_bridge"] = True
+        d["auto_trade"] = int(d.get("enabled", 1))
+        d["mt5_login"] = d.get("login")
+        d["broker_server"] = d.get("server")
+        return d
 
     fail(404, "Tài khoản không tồn tại.")
 
@@ -528,6 +546,19 @@ def update_account_risk(
         if p.auto_trade is not None:
             updates.append("auto_trade=?")
             params.append(1 if p.auto_trade else 0)
+
+        if acc.get("_is_ea_bridge"):
+            if p.prop_daily_dd_limit_pct is not None:
+                c.execute("UPDATE accounts SET max_dd=? WHERE id=? AND user_id=?", (float(p.prop_daily_dd_limit_pct), real_id, owner_id))
+            if p.auto_trade is not None:
+                c.execute("UPDATE accounts SET enabled=? WHERE id=? AND user_id=?", (1 if p.auto_trade else 0, real_id, owner_id))
+            updated_ea = c.execute("SELECT * FROM accounts WHERE id=? AND user_id=?", (real_id, owner_id)).fetchone()
+            return {
+                "id": real_id,
+                "status": "UPDATED",
+                "account": dict(updated_ea) if updated_ea else {"id": real_id},
+                "message": "Đã cập nhật cấu hình rủi ro cho trạm EA Bridge thành công."
+            }
 
         if updates:
             updates.append("risk_config=?")
