@@ -1,5 +1,6 @@
 import React from 'react';
 import { type AccountKind, type LotCalculationResult } from '../utils/quantMath';
+import { TiltCard } from './TiltCard';
 
 export interface LandingLotCalculatorProps {
   calcAccountKind: AccountKind;
@@ -108,35 +109,39 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-amber-500/35 bg-[#040710]/95 p-6 space-y-4 font-mono tabular-nums lg:col-span-5">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3 text-xs">
-                <span className="text-amber-300 font-bold">KẾT QUẢ PHÂN BỔ KHỐI LƯỢNG</span>
-                <span className="text-emerald-400 font-bold">{lotCalc.propFirmSafe ? 'PROP SAFE ✓' : 'CẢNH BÁO RỦI RO'}</span>
-              </div>
+            <div className="lg:col-span-5">
+              <TiltCard className="rounded-2xl">
+                <div className="rounded-2xl border border-amber-500/35 bg-[#040710]/95 p-6 space-y-4 font-mono tabular-nums">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3 text-xs">
+                    <span className="text-amber-300 font-bold">KẾT QUẢ PHÂN BỔ KHỐI LƯỢNG</span>
+                    <span className="text-emerald-400 font-bold">{lotCalc.propFirmSafe ? 'PROP SAFE ✓' : 'CẢNH BÁO RỦI RO'}</span>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-[10px] text-slate-400 uppercase">Khối Lượng Khuyến Nghị</div>
-                  <div className="mt-1 text-3xl font-extrabold text-amber-300">
-                    {lotCalc.displayLots.toFixed(2)} <span className="text-xs font-normal text-slate-400">{lotCalc.unitLabel}</span>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-[10px] text-slate-400 uppercase">Khối Lượng Khuyến Nghị</div>
+                      <div className="mt-1 text-3xl font-extrabold text-amber-300">
+                        {lotCalc.displayLots.toFixed(2)} <span className="text-xs font-normal text-slate-400">{lotCalc.unitLabel}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-400 uppercase">Rủi Ro Tuyệt Đối (1R)</div>
+                      <div className="mt-1 text-2xl font-extrabold text-white">${lotCalc.riskUsd.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 border-t border-white/10 pt-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 block">Mục tiêu chốt lời (2R):</span>
+                      <strong className="text-emerald-400">+${lotCalc.rewardAt2RUsd.toFixed(2)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block">Số lệnh tối đa trước trần DD:</span>
+                      <strong className="text-cyan-300">{lotCalc.maxConsecutiveLossesBeforeDailyCap} lệnh liên tiếp</strong>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-[10px] text-slate-400 uppercase">Rủi Ro Tuyệt Đối (1R)</div>
-                  <div className="mt-1 text-2xl font-extrabold text-white">${lotCalc.riskUsd.toFixed(2)}</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 border-t border-white/10 pt-3 text-xs">
-                <div>
-                  <span className="text-slate-400 block">Mục tiêu chốt lời (2R):</span>
-                  <strong className="text-emerald-400">+${lotCalc.rewardAt2RUsd.toFixed(2)}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-400 block">Số lệnh tối đa trước trần DD:</span>
-                  <strong className="text-cyan-300">{lotCalc.maxConsecutiveLossesBeforeDailyCap} lệnh liên tiếp</strong>
-                </div>
-              </div>
+              </TiltCard>
             </div>
           </div>
         </section>

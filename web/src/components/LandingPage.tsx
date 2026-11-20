@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { calculateQuantLotSizing, type AccountKind, type BillingCycle } from '../utils/quantMath';
-import guardMatrixImg from '../assets/images/guard_matrix_architecture_1794792845754.jpg';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { LandingQrPreviewModal } from './LandingQrPreviewModal';
 import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
@@ -8,6 +7,9 @@ import { PublicTrackRecordSection } from './PublicTrackRecordSection';
 import { IconBan, IconBolt, IconClose } from './Icons';
 import { LandingLotCalculator } from './LandingLotCalculator';
 import { GUARD_LAYERS, PRICING_TIERS } from '../data/landingData';
+import { ThreeCanvasBackground } from './ThreeCanvasBackground';
+import { ThreeHolographicMatrix } from './ThreeHolographicMatrix';
+import { TiltCard } from './TiltCard';
 
 export interface LandingPageProps {
   onEnterPortal?: () => void;
@@ -31,6 +33,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [simStep, setSimStep] = useState<number>(4);
   const [simRunning, setSimRunning] = useState(false);
   const [heroFlash, setHeroFlash] = useState<string | null>(null);
+  const [pulseTrigger, setPulseTrigger] = useState(0);
 
   // Interactive Safety Guard Selection
   const [selectedGuardIdx, setSelectedGuardIdx] = useState(0);
@@ -45,7 +48,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('QUARTERLY');
   const [currencyMode, setCurrencyMode] = useState<'VND' | 'USD'>('VND');
   const [qrPreviewTier, setQrPreviewTier] = useState<typeof PRICING_TIERS[number] | null>(null);
-  const [guardImgError, setGuardImgError] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-quant-theme', quantTheme);
@@ -55,6 +57,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     setSimSide(mode);
     setSimRunning(true);
     setSimStep(1);
+    setPulseTrigger((prev) => prev + 1);
     setHeroFlash(
       mode === 'NO_SL'
         ? '⛔ CHẶN BỞI LỚP GIÁP #02: Tín hiệu thiếu Stop-Loss cứng!'
@@ -102,6 +105,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   return (
     <div className="min-h-screen bg-[#03050a] text-slate-100 quant-cyber-grid selection:bg-amber-500/30 selection:text-amber-200">
+      {/* Interactive 3D WebGL Quantum Space Background */}
+      <ThreeCanvasBackground theme={quantTheme} pulseTrigger={pulseTrigger} />
+
       {/* Ambient Sovereign Gold & Cyan Illumination */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden z-0">
         <div className="absolute -top-36 left-1/4 h-[520px] w-[520px] rounded-full bg-amber-500/12 blur-[140px] animate-aurora" />
@@ -320,16 +326,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
           {/* Right 5 Columns: Interactive Sovereign XAU/USD Orderflow & Multi-Account Cockpit */}
           <div className="lg:col-span-5">
-            <div className="quant-panel quant-hud-corner p-5 sm:p-6 space-y-4 border-amber-500/35 shadow-[0_24px_70px_rgba(0,0,0,0.75)]">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="flex items-center gap-2 font-mono text-xs">
-                  <span className="h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse" />
-                  <span className="font-bold text-amber-300">QUANTUM ORDERFLOW COCKPIT · XAU/USD</span>
+            <TiltCard className="rounded-2xl">
+              <div className="quant-panel quant-hud-corner p-5 sm:p-6 space-y-4 border-amber-500/35 shadow-[0_24px_70px_rgba(0,0,0,0.75)]">
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2 font-mono text-xs">
+                    <span className="h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse" />
+                    <span className="font-bold text-amber-300">QUANTUM ORDERFLOW COCKPIT · XAU/USD</span>
+                  </div>
+                  <span className="rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-300 tabular-nums">
+                    24.0 ms G2
+                  </span>
                 </div>
-                <span className="rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-300 tabular-nums">
-                  24.0 ms G2
-                </span>
-              </div>
 
               {/* Top Quote & 1-Click Execution Trigger Strip */}
               <div className="grid grid-cols-3 gap-2.5 font-mono tabular-nums">
@@ -456,6 +463,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
               </div>
             </div>
+            </TiltCard>
           </div>
         </section>
 
@@ -783,76 +791,35 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           <div className="lg:col-span-6">
-            <div className="quant-panel p-6 sm:p-8 space-y-5 border-amber-500/35">
-              <div className="relative h-48 w-full overflow-hidden rounded-xl border border-amber-500/25 bg-[#050914]">
-                {!guardImgError ? (
-                  <img
-                    src={guardMatrixImg}
-                    alt="Kiến trúc 4 lớp giáp bảo vệ vốn Fail-Closed bot trade vàng XAU/USD Cloud MT5 ZUPIRUS"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      if (target.dataset.triedPublic !== '1') {
-                        target.dataset.triedPublic = '1';
-                        target.src = '/assets/images/guard_matrix_architecture_1794792845754.jpg';
-                      } else {
-                        setGuardImgError(true);
-                      }
-                    }}
-                    className="h-full w-full object-cover opacity-80"
+            <TiltCard className="rounded-2xl">
+              <div className="quant-panel p-6 sm:p-8 space-y-5 border-amber-500/35">
+                <div className="relative h-64 sm:h-72 w-full overflow-hidden rounded-xl border border-amber-500/25 bg-[#030611]">
+                  <ThreeHolographicMatrix
+                    selectedLayerIdx={selectedGuardIdx}
+                    onSelectLayer={setSelectedGuardIdx}
                   />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center p-4 bg-[#030611]">
-                    <svg viewBox="0 0 360 160" className="w-full h-full max-h-40 overflow-visible">
-                      <rect x="20" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#f59e0b" strokeWidth="1.5" />
-                      <text x="55" y="55" textAnchor="middle" fill="#fde68a" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#01</text>
-                      <text x="55" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">REDIS</text>
-                      <text x="55" y="87" textAnchor="middle" fill="#10b981" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">&lt;0.8ms</text>
-
-                      <rect x="105" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#06b6d4" strokeWidth="1.5" />
-                      <text x="140" y="55" textAnchor="middle" fill="#67e8f9" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#02</text>
-                      <text x="140" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">HARD SL</text>
-                      <text x="140" y="87" textAnchor="middle" fill="#06b6d4" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">1R BE</text>
-
-                      <rect x="190" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#eab308" strokeWidth="1.5" />
-                      <text x="225" y="55" textAnchor="middle" fill="#fef08a" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#03</text>
-                      <text x="225" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">NEWS</text>
-                      <text x="225" y="87" textAnchor="middle" fill="#eab308" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">±15m</text>
-
-                      <rect x="275" y="20" width="70" height="90" rx="8" fill="#04091a" stroke="#10b981" strokeWidth="1.5" />
-                      <text x="310" y="55" textAnchor="middle" fill="#a7f3d0" fontSize="11" fontWeight="800" fontFamily="JetBrains Mono, monospace">#04</text>
-                      <text x="310" y="75" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="JetBrains Mono, monospace">PROP DD</text>
-                      <text x="310" y="87" textAnchor="middle" fill="#10b981" fontSize="7.5" fontWeight="700" fontFamily="JetBrains Mono, monospace">4.5% MAX</text>
-
-                      <line x1="20" y1="130" x2="345" y2="130" stroke="rgba(245,158,11,0.4)" strokeWidth="1.5" strokeDasharray="4 3" />
-                      <circle cx="55" cy="130" r="3" fill="#f59e0b" />
-                      <circle cx="140" cy="130" r="3" fill="#06b6d4" />
-                      <circle cx="225" cy="130" r="3" fill="#eab308" />
-                      <circle cx="310" cy="130" r="3" fill="#10b981" />
-                    </svg>
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#050914] via-transparent to-transparent pointer-events-none" />
+                  <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between font-mono text-xs pointer-events-none">
+                    <span className="font-bold text-amber-300">LỚP ĐANG CHỌN: #{activeGuard.id}</span>
+                    <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-emerald-300 font-bold">
+                      FAIL-CLOSED ENFORCED
+                    </span>
                   </div>
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#050914] via-[#050914]/40 to-transparent pointer-events-none" />
-                <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between font-mono text-xs">
-                  <span className="font-bold text-amber-300">LỚP ĐANG CHỌN: #{activeGuard.id}</span>
-                  <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-emerald-300 font-bold">
-                    FAIL-CLOSED ENFORCED
-                  </span>
                 </div>
-              </div>
 
-              <div className="space-y-3">
-                <div className="font-mono text-xs text-cyan-300 uppercase tracking-wider">
-                  {activeGuard.code}
-                </div>
-                <h3 className="text-xl font-bold text-white">{activeGuard.title}</h3>
-                <p className="text-sm leading-relaxed text-slate-300">{activeGuard.desc}</p>
-                <div className="rounded-xl border border-amber-500/30 bg-[#03060e] p-3.5 font-mono text-xs text-amber-200">
-                  <span className="text-slate-500 block text-[10px] mb-1">QUY TẮC THỰC THI NGUYÊN TỬ:</span>
-                  <code>{activeGuard.rule}</code>
+                <div className="space-y-3">
+                  <div className="font-mono text-xs text-cyan-300 uppercase tracking-wider">
+                    {activeGuard.code}
+                  </div>
+                  <h3 className="text-xl font-bold text-white">{activeGuard.title}</h3>
+                  <p className="text-sm leading-relaxed text-slate-300">{activeGuard.desc}</p>
+                  <div className="rounded-xl border border-amber-500/30 bg-[#03060e] p-3.5 font-mono text-xs text-amber-200">
+                    <span className="text-slate-500 block text-[10px] mb-1">QUY TẮC THỰC THI NGUYÊN TỬ:</span>
+                    <code>{activeGuard.rule}</code>
+                  </div>
                 </div>
               </div>
-            </div>
+            </TiltCard>
           </div>
         </section>
 

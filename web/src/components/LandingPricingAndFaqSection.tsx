@@ -1,5 +1,6 @@
 import React from 'react';
 import { calculateSubscriptionPricing, type BillingCycle } from '../utils/quantMath';
+import { TiltCard } from './TiltCard';
 
 export interface LandingPricingTier {
   id: string;
@@ -111,59 +112,60 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
           {tiers.map((tier) => {
             const pricing = calculateSubscriptionPricing(tier.baseUsd, tier.slots, billingCycle, usdVndRate);
             return (
-              <div
-                key={tier.id}
-                className={`quant-panel p-6 sm:p-7 flex flex-col justify-between ${
-                  tier.popular ? 'border-amber-400/55 shadow-[0_0_40px_rgba(245,158,11,0.16)]' : ''
-                }`}
-              >
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between font-mono text-xs">
-                    <span className="text-amber-300 font-bold">{tier.code}</span>
-                    <span className="rounded-lg bg-amber-500/15 border border-amber-400/35 px-2.5 py-0.5 text-[10px] font-bold text-amber-200">
-                      {tier.badge}
-                    </span>
-                  </div>
-
-                  <div>
-                    <h3 className="text-xl font-extrabold text-white">{tier.name}</h3>
-                    <div className="mt-2 font-mono text-3xl font-extrabold text-amber-300 tabular-nums">
-                      {currencyMode === 'VND'
-                        ? `${pricing.totalVnd.toLocaleString('vi-VN')} ₫`
-                        : `$${pricing.totalUsd.toFixed(2)}`}
-                      <span className="ml-1.5 text-xs font-normal text-slate-400">
-                        / {pricing.months} tháng
+              <TiltCard key={tier.id} className="h-full">
+                <div
+                  className={`quant-panel p-6 sm:p-7 flex flex-col justify-between h-full ${
+                    tier.popular ? 'border-amber-400/55 shadow-[0_0_40px_rgba(245,158,11,0.16)]' : ''
+                  }`}
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between font-mono text-xs">
+                      <span className="text-amber-300 font-bold">{tier.code}</span>
+                      <span className="rounded-lg bg-amber-500/15 border border-amber-400/35 px-2.5 py-0.5 text-[10px] font-bold text-amber-200">
+                        {tier.badge}
                       </span>
                     </div>
+
+                    <div>
+                      <h3 className="text-xl font-extrabold text-white">{tier.name}</h3>
+                      <div className="mt-2 font-mono text-3xl font-extrabold text-amber-300 tabular-nums">
+                        {currencyMode === 'VND'
+                          ? `${pricing.totalVnd.toLocaleString('vi-VN')} ₫`
+                          : `$${pricing.totalUsd.toFixed(2)}`}
+                        <span className="ml-1.5 text-xs font-normal text-slate-400">
+                          / {pricing.months} tháng
+                        </span>
+                      </div>
+                    </div>
+
+                    <ul className="space-y-2.5 border-t border-white/10 pt-4 text-xs text-slate-300">
+                      {tier.features.map((f) => (
+                        <li key={f} className="flex items-start gap-2">
+                          <span className="text-amber-400 font-bold">✓</span>
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
 
-                  <ul className="space-y-2.5 border-t border-white/10 pt-4 text-xs text-slate-300">
-                    {tier.features.map((f) => (
-                      <li key={f} className="flex items-start gap-2">
-                        <span className="text-amber-400 font-bold">✓</span>
-                        <span>{f}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="mt-6 grid grid-cols-2 gap-2.5 pt-4 border-t border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => setQrPreviewTier(tier)}
+                      className="quant-btn-secondary py-2.5 text-xs whitespace-nowrap shrink-0"
+                    >
+                      Xem Báo Giá Gói
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onEnterPortal}
+                      className="quant-btn-primary py-2.5 text-xs whitespace-nowrap shrink-0"
+                    >
+                      Kích Hoạt Ngay →
+                    </button>
+                  </div>
                 </div>
-
-                <div className="mt-6 grid grid-cols-2 gap-2.5 pt-4 border-t border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => setQrPreviewTier(tier)}
-                    className="quant-btn-secondary py-2.5 text-xs whitespace-nowrap shrink-0"
-                  >
-                    Xem Báo Giá Gói
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onEnterPortal}
-                    className="quant-btn-primary py-2.5 text-xs whitespace-nowrap shrink-0"
-                  >
-                    Kích Hoạt Ngay →
-                  </button>
-                </div>
-              </div>
+              </TiltCard>
             );
           })}
         </div>
