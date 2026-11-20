@@ -129,17 +129,17 @@ def pair(p: Pair):
                 if acc:
                     aid = acc['id']
                     c.execute(
-                        "UPDATE accounts SET user_id=?, mode='DEMO', enabled=1, risk=0.5, max_spread=5.0, max_positions=10, max_dd=10.0, seen=? WHERE id=?",
-                        (uid, now_ts, aid),
+                        "UPDATE accounts SET user_id=?, mode='DEMO', enabled=1, risk=0.5, max_spread=5.0, max_positions=10, max_dd=50.0 WHERE id=?",
+                        (uid, aid),
                     )
                 else:
                     aid = f"ea_demo_{secrets.token_hex(6)}"
                     c.execute(
                         """
                         INSERT INTO accounts(id, user_id, login, server, mode, enabled, risk, max_spread, max_positions, max_dd, balance, equity, peak, positions, seen)
-                        VALUES(?, ?, ?, ?, 'DEMO', 1, 0.5, 5.0, 10, 10.0, 10000.0, 10000.0, 10000.0, 0, ?)
+                        VALUES(?, ?, ?, ?, 'DEMO', 1, 0.5, 5.0, 10, 50.0, 0.0, 0.0, 0.0, 0, 0)
                         """,
-                        (aid, uid, p.login, p.server, now_ts),
+                        (aid, uid, p.login, p.server),
                     )
                 c.execute('DELETE FROM devices WHERE account_id=?', (aid,))
                 t = token()
