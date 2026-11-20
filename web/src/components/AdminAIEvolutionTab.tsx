@@ -226,6 +226,27 @@ export const AdminAIEvolutionTab: React.FC = () => {
     }
   };
 
+  const handleReclassifyAll = async () => {
+    if (!window.confirm('Tái phân loại toàn bộ tài liệu đã nạp theo chuẩn phân biệt: Kiến Thức Thị Trường & Vĩ Mô vs Phương Pháp Kỹ Thuật?')) return;
+    try {
+      setMsg('Đang tái phân tích và chuẩn hóa danh mục tài liệu...');
+      const res = await fetch('/api/admin/skills/reclassify-all', {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+        credentials: 'include',
+      });
+      const d = await res.json();
+      if (res.ok && d.ok) {
+        setMsg(`✓ Đã tái phân loại thành công ${d.reclassified_count} tài liệu sang đúng nhóm Vĩ Mô & Kiến Thức Thị Trường.`);
+        await loadAll();
+      } else {
+        setMsg(`Lỗi tái phân loại: ${d.detail || res.status}`);
+      }
+    } catch (e: any) {
+      setMsg(`Lỗi mạng: ${e.message}`);
+    }
+  };
+
   const activeMode = String(evo.stage?.active_mode || 'EXTERNAL_FEED').toUpperCase();
   const stages = [
     { key: 'EXTERNAL_FEED', title: 'Chặng 1: EXTERNAL_FEED', desc: 'Học từ nguồn chuẩn & cào ngầm nến M1' },
@@ -569,10 +590,10 @@ export const AdminAIEvolutionTab: React.FC = () => {
               Nạp Tri Thức &amp; Tự Động Tổng Hợp Kỹ Năng Quant
             </div>
             <h3 className="mt-1 text-base font-bold text-white">
-              Huấn Luyện AI Từ Sách &amp; Tài Liệu PDF (PDF Knowledge Ingestion)
+              Huấn Luyện AI Từ Sách, Báo Cáo Vĩ Mô &amp; Tài Liệu PDF (PDF Knowledge Ingestion)
             </h3>
             <p className="mt-0.5 text-xs text-slate-300">
-              Tải lên tài liệu PDF, sách chiến lược hoặc cẩm nang giao dịch. Gemini sẽ bóc tách quy tắc định lượng, ép chuẩn Stop-Loss Fail-Closed và tự động biên soạn thành kỹ năng mới cho AI.
+              Tải lên tài liệu PDF, sách chiến lược hoặc cẩm nang giao dịch. Hỗ trợ cả 2 dạng: (1) <strong>Kiến Thức Thị Trường, Báo Cáo Vĩ Mô &amp; Chính Sách Fed, Dòng Tiền Vàng</strong>; (2) <strong>Phương Pháp Giao Dịch Kỹ Thuật (SMC, Price Action, Scalping)</strong>. Hỗ trợ file lên tới 35MB.
             </p>
           </div>
         </div>
@@ -581,7 +602,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                CHỌN FILE TÀI LIỆU (.PDF, .TXT, .MD)
+                CHỌN FILE TÀI LIỆU (.PDF, .TXT, .MD — TỐI ĐA 35MB)
               </label>
               <input
                 ref={fileInputRef}
@@ -617,7 +638,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
 
             <div>
               <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                TÊN CHIẾN LƯỢC (TỰ ĐỘNG ĐIỀN HOẶC TÙY CHỈNH)
+                TÊN TÀI LIỆU / CHIẾN LƯỢC (TỰ ĐỘNG ĐIỀN HOẶC TÙY CHỈNH)
               </label>
               <input
                 type="text"
@@ -631,8 +652,8 @@ export const AdminAIEvolutionTab: React.FC = () => {
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <div className="text-[11px] font-mono text-emerald-300/90 flex items-center gap-1.5">
-              <span>✨ AI Tự Động Phân Loại:</span>
-              <span className="text-slate-300">Hệ thống tự động quét nội dung nhận diện trường phái (SMC / Price Action / Breakout / ATR / Quản trị vốn) mà bạn không cần chọn thủ công.</span>
+              <span>✨ AI Tự Động Phân Biệt:</span>
+              <span className="text-slate-300">Nhận diện đúng bản chất tài liệu (Kinh tế Vĩ mô / Chính sách Fed / Dòng tiền Vàng vs Chiến lược SMC / Price Action) mà không cần chọn thủ công.</span>
             </div>
 
             <button
@@ -719,62 +740,91 @@ export const AdminAIEvolutionTab: React.FC = () => {
               Thư Viện Tri Thức AI Đã Bóc Tách
             </div>
             <h3 className="mt-1 text-base font-bold text-white flex items-center gap-2">
-              <span>Sách &amp; Tài Liệu PDF Đã Huấn Luyện Thành Kỹ Năng</span>
+              <span>Kho Sách, Báo Cáo Vĩ Mô &amp; Kỹ Năng Đã Huấn Luyện</span>
               <span className="rounded-full bg-cyan-500/20 border border-cyan-400/40 px-2 py-0.5 text-xs font-mono text-cyan-300">
                 {ingestedList.length} tài liệu
               </span>
             </h3>
           </div>
-          <button
-            type="button"
-            onClick={loadAll}
-            className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/10 cursor-pointer font-mono"
-          >
-            ↻ Làm Mới
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleReclassifyAll}
+              title="Quét lại các tài liệu cũ và phân loại lại sang đúng nhóm Kinh Tế Vĩ Mô & Fed Policy"
+              className="rounded-lg border border-cyan-400/30 bg-cyan-500/15 px-3 py-1 text-xs text-cyan-200 hover:bg-cyan-500/25 cursor-pointer font-mono font-bold transition"
+            >
+              ⚡ Tái Phân Loại Chuẩn Vĩ Mô
+            </button>
+            <button
+              type="button"
+              onClick={loadAll}
+              className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/10 cursor-pointer font-mono"
+            >
+              ↻ Làm Mới
+            </button>
+          </div>
         </div>
 
         {ingestedList.length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-slate-400 text-xs">
             <div className="text-2xl mb-2">📚</div>
-            Chưa có tài liệu PDF nào được bóc tách. Hãy tải lên sách chiến lược, cẩm nang SMC, Price Action ở bảng phía trên để AI tự động tổng hợp kỹ năng.
+            Chưa có tài liệu nào được nạp. Hãy tải lên tài liệu PDF, báo cáo vĩ mô hoặc cẩm nang giao dịch ở bảng phía trên để AI tự động đúc kết.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {ingestedList.map((item: any) => (
-              <div
-                key={item.skill_id}
-                className="rounded-xl border border-white/10 bg-[#02050f]/80 p-4 space-y-3 hover:border-cyan-500/40 transition"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-bold text-white text-sm truncate flex items-center gap-2">
-                      <span>📘</span>
-                      <span>{item.name || item.skill_id}</span>
+            {ingestedList.map((item: any) => {
+              const nameLower = String(item.name || '').toLowerCase();
+              const descLower = String(item.description || '').toLowerCase();
+              const isMacro = nameLower.includes('fed') || nameLower.includes('vĩ mô') || nameLower.includes('waller') || nameLower.includes('dollar') || descLower.includes('vĩ mô') || descLower.includes('tiền tệ');
+              const isGold = nameLower.includes('gold') || nameLower.includes('vàng') || descLower.includes('vàng');
+              
+              return (
+                <div
+                  key={item.skill_id}
+                  className="rounded-xl border border-white/10 bg-[#02050f]/80 p-4 space-y-3 hover:border-cyan-500/40 transition"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-white text-sm truncate flex items-center gap-2">
+                        <span>{isMacro ? '🌐' : isGold ? '🪙' : '📘'}</span>
+                        <span title={item.name}>{item.name || item.skill_id}</span>
+                      </div>
+                      <div className="font-mono text-[10px] text-slate-400 truncate mt-0.5">
+                        ID: {item.skill_id}
+                      </div>
                     </div>
-                    <div className="font-mono text-[10px] text-slate-400 truncate mt-0.5">
-                      ID: {item.skill_id}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`rounded border px-2 py-0.5 font-mono text-[10px] ${
+                        isMacro
+                          ? 'bg-purple-500/15 border-purple-400/40 text-purple-200'
+                          : isGold
+                          ? 'bg-amber-500/15 border-amber-400/40 text-amber-200'
+                          : 'bg-cyan-500/15 border-cyan-400/30 text-cyan-300'
+                      }`}>
+                        {isMacro ? 'VĨ MÔ & FED' : isGold ? 'DÒNG TIỀN VÀNG' : 'CHIẾN LƯỢC QUANT'}
+                      </span>
+                      <span
+                        className={`rounded px-1.5 py-0.5 font-mono text-[9px] font-bold ${
+                          item.enabled
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                            : 'bg-slate-700 text-slate-400'
+                        }`}
+                      >
+                        {item.enabled ? 'ACTIVE' : 'OFF'}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="rounded bg-cyan-500/15 border border-cyan-400/30 px-2 py-0.5 font-mono text-[10px] text-cyan-300">
-                      {item.trigger_condition || 'QUANT_SKILL'}
-                    </span>
-                    <span
-                      className={`rounded px-1.5 py-0.5 font-mono text-[9px] font-bold ${
-                        item.enabled
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
-                          : 'bg-slate-700 text-slate-400'
-                      }`}
-                    >
-                      {item.enabled ? 'ACTIVE' : 'OFF'}
-                    </span>
-                  </div>
-                </div>
 
-                <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
-                  {item.description || 'Kỹ năng định lượng được Gemini tự động đúc kết từ tài liệu.'}
-                </p>
+                  <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                    {item.description || 'Hồ sơ tri thức được AI bóc tách từ tài liệu.'}
+                  </p>
+
+                  {item.trigger_condition && (
+                    <div className="rounded border border-white/5 bg-[#030612] px-2.5 py-1.5 text-[11px] font-mono text-cyan-200/90 leading-snug">
+                      <span className="text-amber-400 font-bold">🎯 Ứng dụng: </span>
+                      <span>{item.trigger_condition}</span>
+                    </div>
+                  )}
 
                 <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] text-[11px] font-mono">
                   <span className="text-slate-400">
@@ -814,7 +864,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
                   </div>
                 </div>
               </div>
-            ))}
+            );})}
           </div>
         )}
       </div>

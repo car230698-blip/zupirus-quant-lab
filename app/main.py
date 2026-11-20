@@ -72,13 +72,14 @@ ORIGINS = os.getenv(
 @app.middleware('http')
 async def perimeter(request: Request, call_next):
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        max_body_size = 35_000_000 if request.url.path == '/api/admin/skills/ingest-pdf' else 3_000_000
         raw_len = request.headers.get('content-length')
         if raw_len is not None:
-            if not raw_len.isdigit() or int(raw_len) > 3_000_000:
+            if not raw_len.isdigit() or int(raw_len) > max_body_size:
                 return JSONResponse({'detail': 'Body too large'}, 413)
         elif 'chunked' in request.headers.get('transfer-encoding', '').lower():
             body_bytes = await request.body()
-            if len(body_bytes) > 3_000_000:
+            if len(body_bytes) > max_body_size:
                 return JSONResponse({'detail': 'Body too large'}, 413)
         # External webhooks bypass browser origin checks
         if request.url.path.startswith('/api/v1/webhooks') or request.url.path.startswith('/api/sepay') or request.url.path == '/api/webhooks/sepay':

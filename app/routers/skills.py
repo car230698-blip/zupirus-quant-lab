@@ -250,17 +250,18 @@ async def ingest_trading_document(
     _admin=Depends(get_current_admin),
 ):
     """
-    Ingest a Forex / Trading PDF or Markdown/Text document, extract quantitative rules,
-    pass through Gemini with Fail-Closed Stop-Loss requirements, and package into an Agent Skill.
-    Strategy category is 100% automatically classified by AI based on document content.
+    Ingest a Forex / Trading / Macroeconomic PDF or Markdown/Text document,
+    extract intelligence or quantitative rules, pass through Gemini with Fail-Closed Stop-Loss requirements,
+    and package into an Agent Knowledge Unit or Skill.
+    Automatically differentiates Market Knowledge / Macro / Fed Policy vs Technical Trading Methods.
     """
     filename = (file.filename or "trading_doc.pdf").lower()
     if not (filename.endswith(".pdf") or filename.endswith(".txt") or filename.endswith(".md")):
         raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file định dạng .pdf, .txt, hoặc .md.")
 
     content_bytes = await file.read()
-    if len(content_bytes) > 25 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Dung lượng file tối đa là 25MB.")
+    if len(content_bytes) > 35 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Dung lượng file tối đa là 35MB.")
 
     extracted_text = ""
     page_count = 1
@@ -270,8 +271,8 @@ async def ingest_trading_document(
             import pypdf
             reader = pypdf.PdfReader(io.BytesIO(content_bytes))
             page_count = len(reader.pages)
-            # Read up to 80 pages of dense material to avoid token overflow
-            pages_to_read = min(page_count, 80)
+            # Read up to 100 pages of dense material to avoid token overflow
+            pages_to_read = min(page_count, 100)
             text_parts = []
             for i in range(pages_to_read):
                 txt = reader.pages[i].extract_text() or ""
@@ -294,57 +295,169 @@ async def ingest_trading_document(
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", clean_title.lower()).strip("_")
     skill_id = f"doc_{slug[:32]}"
 
-    # Heuristic category classifier for resilience
-    text_lower = (extracted_text[:15000] + " " + clean_title).lower()
-    auto_cat_detected = "Price Action & Candlestick"
-    if any(k in text_lower for k in ("smc", "ict", "order block", "orderblock", "liquidity", "fair value gap", "fvg", "choch", "bos", "inducement")):
+    # Intelligent heuristic classification: Market Knowledge / Macro vs Technical Trading Method
+    text_lower = (extracted_text[:25000] + " " + clean_title).lower()
+
+    is_macro = any(k in text_lower for k in (
+        "federal reserve", "the fed", "fomc", "central bank", "monetary policy",
+        "chính sách tiền tệ", "ngân hàng trung ương", "interest rate", "lãi suất",
+        "inflation", "lạm phát", "cpi", "pce", "gdp", "dxy", "us dollar", "dollar index",
+        "waller", "powell", "treasury", "trái phiếu", "yield", "vĩ mô", "macroeconomic",
+        "balance sheet", "quantitative easing", "quantitative tightening", "qt", "qe"
+    ))
+    is_gold_sentiment = any(k in text_lower for k in (
+        "gold reserve", "de-dollarization", "bullion", "intermarket", "tâm lý thị trường",
+        "trending conversation", "conversations_gold", "precious metal", "dự trữ vàng", "vàng"
+    ))
+    is_market_structure = any(k in text_lower for k in (
+        "market microstructure", "liquidity theory", "order book", "market structure", "thanh khoản thị trường"
+    ))
+
+    if is_macro:
+        doc_type = "MARKET_KNOWLEDGE"
+        auto_cat_detected = "Kinh Tế Vĩ Mô & Chính Sách Tiền Tệ (Fed & Central Bank)"
+        fallback_trigger = "Kích hoạt khi định hướng thiên kiến vĩ mô (Macro Bias XAU/USD), lọc tin tức FOMC/CPI và bảo vệ vốn trước giờ ra tin."
+        fallback_desc = f"Hồ sơ tri thức kinh tế vĩ mô & chính sách tiền tệ bóc tách từ tài liệu '{clean_title}', định hướng xu hướng trung-dài hạn."
+        fallback_sl = "Bảo vệ vốn Fail-Closed: Khóa cấp lệnh mới trước tin vĩ mô 30 phút, tối đa rủi ro danh mục 4.0%."
+        fallback_tp = "Chiến lược phân bổ tỷ trọng theo chu kỳ chính sách tiền tệ với Trailing Stop bảo toàn lợi nhuận."
+        fallback_rules = [
+            "Tự động xếp loại: Tri thức Kinh tế Vĩ mô & Chính sách Ngân hàng Trung Ương (Fed/ECB/BOJ).",
+            "Định hình thiên kiến vĩ mô (Macro Bias: Hawkish vs Dovish) làm điều kiện tiên quyết trước khi duyệt lệnh kỹ thuật.",
+            "Tự động kích hoạt News Shield đóng băng giao dịch trước các cuộc họp FOMC và dữ liệu CPI/PCE/NFP.",
+            "Phân tích tương quan nghịch chiều giữa sức mạnh đồng USD (DXY) và xu hướng giá vàng XAU/USD.",
+        ]
+    elif is_gold_sentiment:
+        doc_type = "MARKET_KNOWLEDGE"
+        auto_cat_detected = "Tâm Lý & Phân Tích Luồng Dòng Tiền Vàng (Gold Intermarket Sentiment)"
+        fallback_trigger = "Kích hoạt khi đánh giá dòng tiền định chế, xu hướng mua ròng vàng của các ngân hàng trung ương và tâm lý liên thị trường."
+        fallback_desc = f"Hồ sơ tri thức phân tích tâm lý thị trường và luồng dòng tiền vàng bóc tách từ tài liệu '{clean_title}'."
+        fallback_sl = "Bảo vệ vốn Fail-Closed: Cắt lỗ chủ động khi tâm lý thị trường đảo chiều đột ngột; khống chế rủi ro 1.5R."
+        fallback_tp = "Tận dụng sóng dòng tiền định chế gom hàng, chốt lời từng phần tại các mốc kháng cự tâm lý số tròn."
+        fallback_rules = [
+            "Tự động xếp loại: Tri thức Tâm lý & Phân tích Luồng Dòng Tiền Vàng (Gold Sentiment).",
+            "Đo lường xu thế phi đô-la hóa (De-dollarization) và nhu cầu dự trữ vàng vật chất toàn cầu.",
+            "Định vị các vùng tích lũy thanh khoản của dòng tiền thông minh trên thị trường vàng.",
+            "Kết hợp dữ liệu tâm lý để lọc bỏ các bẫy giá giả (Bull/Bear Trap) trong phiên Á và Âu.",
+        ]
+    elif is_market_structure:
+        doc_type = "MARKET_KNOWLEDGE"
+        auto_cat_detected = "Cấu Trúc Thị Trường & Lý Thuyết Thanh Khoản (Market Structure)"
+        fallback_trigger = "Kích hoạt khi quét vùng thanh khoản lớn và cấu trúc thị trường đa khung thời gian."
+        fallback_desc = f"Tri thức cấu trúc vi mô thị trường và lý thuyết thanh khoản bóc tách từ tài liệu '{clean_title}'."
+        fallback_sl = "Cắt lỗ cứng cách vùng râu quét thanh khoản (Liquidity Pool) 15 pips theo ATR(14) M15."
+        fallback_tp = "Chốt lời tại vùng thanh khoản đối diện (External Liquidity Pool); R:R tối thiểu 1:2."
+        fallback_rules = [
+            "Tự động xếp loại: Cấu Trúc Thị Trường & Lý Thuyết Thanh Khoản.",
+            "Nhận diện các vùng thanh khoản mua (BSL) và thanh khoản bán (SSL) chưa được khai thác.",
+            "Xác nhận thay đổi tính chất cấu trúc (CHoCH / BOS) trước khi cho phép vào lệnh.",
+        ]
+    elif any(k in text_lower for k in ("smc", "ict", "order block", "orderblock", "fair value gap", "fvg", "choch", "bos", "inducement")):
+        doc_type = "QUANT_STRATEGY"
         auto_cat_detected = "Smart Money Concept (SMC / ICT)"
-    elif any(k in text_lower for k in ("breakout", "break out", "momentum", "donchian", "range break", "resistance break")):
+        fallback_trigger = "Tín hiệu xác nhận quét thanh khoản và hồi quy Order Block (OB) trên khung M15."
+        fallback_desc = f"Chiến lược định lượng SMC bóc tách từ tài liệu '{clean_title}'."
+        fallback_sl = "Bắt buộc Stop-Loss cứng cách râu nến OB 1.5 * ATR(14) M15, tối đa 35 pips."
+        fallback_tp = "R:R tối thiểu 1:2. Dời SL về hòa vốn (Auto BE) tại +1R."
+        fallback_rules = [
+            "Tự động nhận diện trường phái: Smart Money Concept (SMC / ICT).",
+            "Chờ quét thanh khoản đỉnh/đáy phiên Á trước khi tìm kiếm tín hiệu đảo chiều.",
+            "Cắt lỗ cứng theo ATR(14) M15 (Fail-Closed).",
+            "Khóa giao dịch khi chạm giới hạn rủi ro 4% quỹ.",
+        ]
+    elif any(k in text_lower for k in ("breakout", "break out", "momentum", "donchian", "range break")):
+        doc_type = "QUANT_STRATEGY"
         auto_cat_detected = "Breakout & Momentum"
+        fallback_trigger = "Tín hiệu breakout bứt phá khỏi vùng biên tích lũy kèm khối lượng đột biến trên M15."
+        fallback_desc = f"Chiến lược Breakout & Momentum bóc tách từ tài liệu '{clean_title}'."
+        fallback_sl = "Stop-Loss đặt tại biên đối diện của vùng breakout hoặc 1.5 * ATR(14) M15."
+        fallback_tp = "R:R 1:2. Kích hoạt Auto Break-Even khi đạt 1R."
+        fallback_rules = [
+            "Tự động nhận diện trường phái: Breakout & Momentum.",
+            "Giao dịch bứt phá trong phiên London - New York Overlap.",
+            "Cắt lỗ cứng Fail-Closed.",
+        ]
     elif any(k in text_lower for k in ("atr", "volatility", "bollinger", "keltner", "scalp", "m1", "m5")):
+        doc_type = "QUANT_STRATEGY"
         auto_cat_detected = "Volatility Scalping (ATR)"
-    elif any(k in text_lower for k in ("risk", "drawdown", "prop firm", "ftmo", "the5ers", "lot size", "money management", "position sizing")):
+        fallback_trigger = "Tín hiệu co thắt dải biến động ATR/Bollinger mở rộng trên M5/M15."
+        fallback_desc = f"Chiến lược Scalping theo biên độ dao động ATR bóc tách từ tài liệu '{clean_title}'."
+        fallback_sl = "Stop-Loss cứng 1.2 * ATR(14), không gồng lỗ."
+        fallback_tp = "Chốt lời tại biên Bollinger đối diện hoặc R:R 1:1.5."
+        fallback_rules = [
+            "Tự động nhận diện trường phái: Volatility Scalping (ATR).",
+            "Lọc nhiễu Spread > 3.0 pips.",
+        ]
+    elif any(k in text_lower for k in ("risk", "drawdown", "prop firm", "ftmo", "the5ers", "lot size")):
+        doc_type = "RISK_GOVERNANCE"
         auto_cat_detected = "Quản Trị Rủi Ro & Vốn Quỹ Prop Firm"
-    elif any(k in text_lower for k in ("ema", "moving average", "macd", "trend", "supertrend", "rsi")):
-        auto_cat_detected = "Trend Following (Theo Xu Hướng)"
+        fallback_trigger = "Kích hoạt giám sát tỷ lệ sụt giảm vốn (Drawdown) và tính toán Lot Size chuẩn quỹ."
+        fallback_desc = f"Bộ quy tắc quản trị rủi ro & an toàn tài khoản quỹ bóc tách từ tài liệu '{clean_title}'."
+        fallback_sl = "Tuyệt đối không để sụt giảm tài khoản quá 4% (Khóa hệ thống Fail-Closed)."
+        fallback_tp = "Mục tiêu lợi nhuận ổn định 5-8%/tháng với drawdown dưới 3%."
+        fallback_rules = [
+            "Tự động nhận diện: Quản Trị Rủi Ro & Vốn Quỹ Prop Firm.",
+            "Ép buộc chuẩn tỷ lệ Rủi Ro / Lệnh <= 0.5% - 1.0% vốn.",
+        ]
+    else:
+        doc_type = "MARKET_KNOWLEDGE"
+        auto_cat_detected = "Kiến Thức & Cẩm Nang Nghiên Cứu Thị Trường (Market Research)"
+        fallback_trigger = "Kích hoạt khi tham vấn bối cảnh tổng quan thị trường tài chính và hành vi giá."
+        fallback_desc = f"Tài liệu nghiên cứu và cẩm nang kiến thức thị trường bóc tách từ '{clean_title}'."
+        fallback_sl = "Tuân thủ kỷ luật rủi ro Fail-Closed: Quản lý vốn nghiêm ngặt, cắt lỗ tối đa 35 pips."
+        fallback_tp = "Chiến lược nắm giữ vị thế có kiểm soát theo xu hướng chủ đạo."
+        fallback_rules = [
+            "Tự động xếp loại: Kiến Thức & Nghiên Cứu Thị Trường.",
+            "Cung cấp góc nhìn bổ trợ cho AI Swarm trong việc thẩm định bối cảnh giao dịch.",
+        ]
 
     final_cat = category.strip() if category and category.strip() else auto_cat_detected
 
     # Structure prompt for Gemini Knowledge Extraction
-    truncated_sample = extracted_text[:12000] # First ~12k characters for extraction prompt
+    truncated_sample = extracted_text[:22000] # Pass substantial content for rich extraction
     sys_instruction = (
-        "Bạn là Giám Đốc Phân Tích Định Lượng (Chief Quant Officer) kiêm Trưởng Ban Rủi Ro Quỹ Prop Firm tại ZUPIRUS Quant Lab. "
-        "Nhiệm vụ của bạn là đọc tài liệu giao dịch được cung cấp và chuẩn hóa thành một KỸ NĂNG ĐỊNH LƯỢNG (Agent Skill) "
-        "dành riêng cho cặp vàng XAU/USD và Forex.\n"
-        "BẮT BUỘC TUÂN THỦ NGUYÊN TẮC FAIL-CLOSED CỦA ZUPIRUS:\n"
-        "1. TỰ ĐỘNG PHÂN LOẠI CHIẾN LƯỢC (detected_category): Phân tích nội dung và tự động xác định trường phái chính xác nhất "
-        "(ví dụ: 'Smart Money Concept (SMC / ICT)', 'Price Action & Candlestick', 'Breakout & Momentum', 'Volatility Scalping (ATR)', "
-        "'Trend Following', 'Order Flow & Liquidity', hoặc 'Quản Trị Rủi Ro & Vốn Quỹ'). Người dùng không cần chọn thủ công.\n"
-        "2. MỌI chiến lược bắt buộc phải có STOP LOSS CỨNG (Hard SL tính theo ATR(14) hoặc Pips). Nếu tài liệu không nêu rõ SL, bạn phải tự bổ sung quy tắc SL an toàn (mặc định 1.5 * ATR(14) M15).\n"
-        "3. Xác định rõ khung thời gian (Timeframe), phiên giao dịch (Á/Âu/Mỹ), và điều kiện kích hoạt vào lệnh (Trigger Conditions).\n"
-        "4. Trả về định dạng JSON hợp lệ chứa các trường:\n"
-        "   - skill_name: Tên kỹ năng ngắn gọn, chuyên nghiệp\n"
-        "   - detected_category: Trường phái chiến lược mà bạn tự động nhận diện từ tài liệu\n"
-        "   - description: Tóm tắt 1 câu cốt lõi của chiến lược\n"
-        "   - trigger_condition: Điều kiện kích hoạt rõ ràng\n"
-        "   - stop_loss_rule: Quy tắc cắt lỗ bắt buộc\n"
-        "   - take_profit_rule: Quy tắc chốt lời và Auto Break-Even\n"
-        "   - rules_summary: Danh sách 3-5 gạch đầu dòng các quy tắc trọng tâm\n"
-        "   - full_skill_md: Nội dung hoàn chỉnh file SKILL.md theo chuẩn ZUPIRUS Agent Skill"
+        "Bạn là Giám Đốc Phân Tích Định Lượng (Chief Quant Officer) kiêm Chuyên Gia Kinh Tế Vĩ Mô tại ZUPIRUS Quant Lab. "
+        "Nhiệm vụ của bạn là đọc tài liệu được cung cấp và chuẩn hóa thành một ĐƠN VỊ TRI THỨC HOẶC KỸ NĂNG ĐỊNH LƯỢNG (Agent Knowledge / Skill) "
+        "dành cho hệ thống AI giao dịch tự động XAU/USD và Forex.\n"
+        "ĐẶC BIỆT CHÚ Ý PHÂN BIỆT RÕ 2 DẠNG TÀI LIỆU:\n"
+        "1. DẠNG KIẾN THỨC THỊ TRƯỜNG & VĨ MÔ (Market Knowledge / Macro / Central Bank / Fed Policy / Gold Sentiment):\n"
+        "   - Nếu tài liệu nói về Ngân hàng Trung Ương (Fed, ECB, BOJ), chính sách tiền tệ, lãi suất, lạm phát (CPI, PCE), DXY, "
+        "     chu kỳ kinh tế, báo cáo dòng tiền, tâm lý thị trường, dự trữ vàng, hoặc nghiên cứu vĩ mô: "
+        "     BẮT BUỘC đặt doc_type là 'MARKET_KNOWLEDGE' và detected_category là trường phái vĩ mô tương ứng.\n"
+        "   - KHÔNG ĐƯỢC ép tài liệu vĩ mô thành 'chiến lược breakout/retest M15'. Thay vào đó, trigger_condition phải là "
+        "     'Kích hoạt khi định hướng thiên kiến vĩ mô (Macro Bias XAU/USD), lọc tin tức FOMC/CPI và hiệu chỉnh tỷ trọng danh mục'.\n"
+        "   - stop_loss_rule: 'Bảo vệ vốn Fail-Closed: Khóa cấp lệnh mới trước tin vĩ mô 30 phút, tối đa rủi ro danh mục 4.0%'.\n"
+        "   - take_profit_rule: 'Nắm giữ vị thế theo xu hướng chu kỳ tiền tệ với Trailing Stop bảo toàn lợi nhuận'.\n"
+        "2. DẠNG PHƯƠNG PHÁP GIAO DỊCH KỸ THUẬT (Technical Execution Strategy):\n"
+        "   - Nếu tài liệu là phương pháp vào lệnh kỹ thuật (SMC, Price Action, Candlestick, Breakout, Scalping ATR): "
+        "     Đặt doc_type là 'QUANT_STRATEGY'. Xác định rõ Entry, Hard Stop Loss (1.5 * ATR(14) M15), và Take Profit (R:R >= 1:2, Auto BE tại +1R).\n"
+        "3. Trả về đúng 1 đối tượng JSON chứa:\n"
+        "   - skill_name: Tên tri thức / kỹ năng ngắn gọn, chuyên nghiệp\n"
+        "   - doc_type: 'MARKET_KNOWLEDGE' hoặc 'QUANT_STRATEGY'\n"
+        "   - detected_category: Tên phân loại chuẩn xác nhất\n"
+        "   - description: Tóm tắt 1-2 câu giá trị cốt lõi của tài liệu đối với hệ thống giao dịch\n"
+        "   - trigger_condition: Tình huống kích hoạt tham vấn tri thức này\n"
+        "   - stop_loss_rule: Quy tắc cắt lỗ hoặc bảo vệ vốn Fail-Closed phù hợp\n"
+        "   - take_profit_rule: Quy tắc chốt lời / quản trị vị thế\n"
+        "   - rules_summary: 3-5 gạch đầu dòng các quy tắc / luận điểm trọng tâm\n"
+        "   - full_skill_md: Nội dung hoàn chỉnh file SKILL.md theo chuẩn ZUPIRUS"
     )
 
     prompt = (
-        f"Hãy đọc và tự động phân loại, bóc tách tài liệu sau đây thành Kỹ Năng Định Lượng ZUPIRUS:\n"
+        f"Hãy đọc, tự động phân loại đúng bản chất và bóc tách tài liệu sau đây thành Tri Thức / Kỹ Năng ZUPIRUS:\n"
         f"Tên tài liệu: {clean_title}\n"
         f"Gợi ý phân loại sơ bộ: {final_cat}\n"
         f"Nội dung trích xuất:\n{truncated_sample}\n\n"
-        "Trả về ĐÚNG MỘ ĐỐI TƯỢNG JSON (không kèm markdown ```json bọc ngoài nếu có thể, hoặc chuẩn JSON)."
+        "Trả về ĐÚNG MỘ ĐỐI TƯỢNG JSON (không kèm markdown bọc ngoài nếu có thể)."
     )
 
     extracted_data = {}
     try:
         raw_res = call_gemini(prompt, system_instruction=sys_instruction, model="gemini-3-flash-preview")
-        if raw_res:
+        # Handle tuple return (text, key_id)
+        if isinstance(raw_res, (list, tuple)):
+            raw_res = raw_res[0] if len(raw_res) > 0 else None
+
+        if raw_res and isinstance(raw_res, str):
             clean_res = raw_res.strip()
             if clean_res.startswith("```json"):
                 clean_res = clean_res[7:]
@@ -354,42 +467,37 @@ async def ingest_trading_document(
                 clean_res = clean_res[:-3]
             clean_res = clean_res.strip()
             extracted_data = __import__("json").loads(clean_res)
-    except Exception:
-        # Fallback synthesis if Gemini pool is under temporary load
+    except Exception as exc:
+        # Fallback to intelligent heuristic synthesis
         pass
 
     if not extracted_data:
-        # Resilient fallback synthesis
+        # Resilient heuristic fallback
         extracted_data = {
-            "skill_name": f"{clean_title[:40]} Quant Strategy",
+            "skill_name": f"{clean_title[:40]} Knowledge",
+            "doc_type": doc_type,
             "detected_category": final_cat,
-            "description": f"Chiến lược định lượng tự động phân loại '{final_cat}' bóc tách từ tài liệu '{clean_title}'.",
-            "trigger_condition": f"Tín hiệu xác nhận breakout/retest theo trường phái {final_cat} trên nến M15.",
-            "stop_loss_rule": "Bắt buộc Stop-Loss cứng = 1.5 * ATR(14) khung M15, tối đa 35 pips.",
-            "take_profit_rule": "R:R tối thiểu 1:2. Dời SL về hòa vốn (Auto BE) khi giá đạt +1R.",
-            "rules_summary": [
-                f"Tự động nhận diện trường phái: {final_cat}.",
-                "Khung thời gian tối ưu M15, phiên London & New York.",
-                "Cắt lỗ cứng theo ATR(14) M15 (Fail-Closed).",
-                "Khóa giao dịch khi chạm giới hạn rủi ro 4% quỹ.",
-            ],
+            "description": fallback_desc,
+            "trigger_condition": fallback_trigger,
+            "stop_loss_rule": fallback_sl,
+            "take_profit_rule": fallback_tp,
+            "rules_summary": fallback_rules,
             "full_skill_md": (
-                f"# {clean_title} — Quant Skill Spec\n\n"
-                f"## 1. Tổng Quan\nChiến lược giao dịch bóc tách tự động từ tài liệu `{clean_title}`, tự động xếp loại: `{final_cat}`.\n\n"
-                f"## 2. Quy Tắc Rủi Ro Bắt Buộc (Fail-Closed)\n"
-                f"- **Stop Loss**: 1.5 * ATR(14) M15 (Không bao giờ thả nổi không SL).\n"
-                f"- **Auto BE**: Kích hoạt khi lợi nhuận đạt 1R.\n"
-                f"- **News Shield**: Dừng vào lệnh trước/sau tin đỏ 15 phút.\n\n"
-                f"## 3. Điều Kiện Vào Lệnh\n"
-                f"- Xu hướng đồng thuận khung H1 và M15.\n"
-                f"- Retest vùng thanh khoản với Spread < 3.0 pips.\n"
+                f"# {clean_title} — ZUPIRUS Market Intelligence Spec\n\n"
+                f"## 1. Bản Chất Tri Thức\n- **Loại tài liệu**: `{doc_type}`\n- **Trường phái**: `{final_cat}`\n- **Tài liệu nguồn**: `{clean_title}`\n\n"
+                f"## 2. Ý Nghĩa Đối Với Hệ Thống AI\n{fallback_desc}\n\n"
+                f"## 3. Quy Tắc Ứng Dụng & Quản Trị Rủi Ro\n"
+                f"- **Kích hoạt**: {fallback_trigger}\n"
+                f"- **Bảo vệ vốn**: {fallback_sl}\n"
+                f"- **Quản trị vị thế**: {fallback_tp}\n"
             ),
         }
 
     detected_category = extracted_data.get("detected_category") or final_cat
-    skill_name = extracted_data.get("skill_name") or f"{clean_title[:35]} (Learned)"
-    skill_desc = extracted_data.get("description") or f"Chiến lược học từ {filename} [{detected_category}]"
-    trigger_cond = extracted_data.get("trigger_condition") or f"Tín hiệu kỹ thuật {detected_category}"
+    detected_doc_type = extracted_data.get("doc_type") or doc_type
+    skill_name = extracted_data.get("skill_name") or f"{clean_title[:35]}"
+    skill_desc = extracted_data.get("description") or fallback_desc
+    trigger_cond = extracted_data.get("trigger_condition") or fallback_trigger
     full_md = extracted_data.get("full_skill_md") or f"# {skill_name}\n\n{skill_desc}"
 
     # Write SKILL.md to learned folder
@@ -422,6 +530,7 @@ async def ingest_trading_document(
         "skill_id": skill_id,
         "name": skill_name,
         "description": skill_desc,
+        "doc_type": detected_doc_type,
         "category": detected_category,
         "detected_category": detected_category,
         "auto_classified": True,
@@ -432,8 +541,58 @@ async def ingest_trading_document(
         "rules_summary": extracted_data.get("rules_summary", []),
         "file_saved": bool(saved_file),
         "created_at": now,
-        "message": f"Đã tự động phân loại [{detected_category}] và bóc tách thành công kỹ năng '{skill_name}'.",
+        "message": f"Đã tự động nhận diện [{detected_category}] và bóc tách thành công tri thức '{skill_name}'.",
     }
+
+
+@router.post("/reclassify-all")
+def reclassify_all_ingested_documents(_admin=Depends(get_current_admin)):
+    """Re-analyze and properly re-classify all existing uploaded documents to their true Macro / Market Knowledge nature."""
+    with tx() as c:
+        rows = c.execute(
+            "SELECT skill_id, name, description, skill_md FROM agent_skills WHERE skill_id LIKE 'doc_%'"
+        ).fetchall()
+
+    updated = []
+    now = time.time()
+    for r in rows:
+        sk_id = r["skill_id"]
+        sk_name = r["name"]
+        combined_text = (sk_id + " " + sk_name + " " + (r["description"] or "") + " " + (r["skill_md"] or "")[:2000]).lower()
+
+        if any(k in combined_text for k in ("fed", "federal reserve", "fomc", "waller", "dollar", "monetary", "interest rate", "lãi suất", "tiền tệ", "cpi", "inflation")):
+            new_name = sk_name.replace("Quant Strategy", "Báo Cáo Vĩ Mô & Fed Policy").replace("PRICE_ACTION", "").strip()
+            new_cat = "Kinh Tế Vĩ Mô & Chính Sách Tiền Tệ (Fed & Central Bank)"
+            new_trigger = "Kích hoạt khi định hướng thiên kiến vĩ mô (Macro Bias XAU/USD), lọc tin tức FOMC/CPI và bảo vệ vốn trước giờ ra tin."
+            new_desc = f"Hồ sơ tri thức vĩ mô & chính sách tiền tệ bóc tách từ tài liệu '{sk_name}', phục vụ định hướng xu hướng trung-dài hạn."
+        elif any(k in combined_text for k in ("gold", "xau", "vàng", "bullion", "de-dollarization", "reserve", "conversations")):
+            new_name = sk_name.replace("Quant Strategy", "Phân Tích Dòng Tiền Vàng").replace("PRICE_ACTION", "").strip()
+            new_cat = "Tâm Lý & Phân Tích Luồng Dòng Tiền Vàng (Gold Sentiment)"
+            new_trigger = "Kích hoạt khi đánh giá dòng tiền định chế và tâm lý mua ròng vàng của các ngân hàng trung ương toàn cầu."
+            new_desc = f"Hồ sơ tri thức phân tích tâm lý thị trường và luồng dòng tiền vàng bóc tách từ tài liệu '{sk_name}'."
+        elif any(k in combined_text for k in ("smc", "ict", "order block", "orderblock", "liquidity")):
+            new_name = sk_name
+            new_cat = "Smart Money Concept (SMC / ICT)"
+            new_trigger = "Tín hiệu xác nhận quét thanh khoản và hồi quy Order Block (OB) trên khung M15."
+            new_desc = f"Chiến lược định lượng SMC bóc tách từ tài liệu '{sk_name}'."
+        else:
+            new_name = sk_name.replace("Quant Strategy", "Cẩm Nang Thị Trường").strip()
+            new_cat = "Kiến Thức & Nghiên Cứu Bối Cảnh Thị Trường (Market Research)"
+            new_trigger = "Kích hoạt khi tham vấn bối cảnh tổng quan thị trường tài chính và cấu trúc giá XAU/USD."
+            new_desc = f"Hồ sơ tri thức nghiên cứu thị trường bóc tách từ tài liệu '{sk_name}'."
+
+        with tx() as c:
+            c.execute(
+                """
+                UPDATE agent_skills
+                SET name = ?, description = ?, trigger_condition = ?, updated_at = ?
+                WHERE skill_id = ?
+                """,
+                (new_name, new_desc, new_trigger, now, sk_id),
+            )
+        updated.append({"skill_id": sk_id, "name": new_name, "category": new_cat})
+
+    return {"ok": True, "reclassified_count": len(updated), "skills": updated}
 
 
 @router.get("/ingested")
