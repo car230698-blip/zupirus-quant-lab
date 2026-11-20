@@ -21,7 +21,7 @@ from app.security import digest, token
 from app.routers.telemetry import get_live_xauusd_quote
 
 
-def run_ea_bridge_simulation(base_url: str = "http://127.0.0.1:8080") -> None:
+def run_ea_bridge_simulation(base_url: str = os.getenv("EA_BRIDGE_BASE_URL", "http://127.0.0.1:8000")) -> None:
     print("=" * 72)
     print(" ZUPIRUS MT5 DIRECT EA BRIDGE — 5-STEP LIVE PROTOCOL SIMULATION")
     print("=" * 72)
