@@ -24,19 +24,22 @@ export const AdminAIEvolutionTab: React.FC = () => {
   const [msg, setMsg] = useState('');
 
   // PDF / Document Ingestion state
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfTitle, setPdfTitle] = useState('');
   const [pdfCategory, setPdfCategory] = useState('PRICE_ACTION');
   const [isIngesting, setIsIngesting] = useState(false);
   const [ingestStep, setIngestStep] = useState(0);
   const [lastIngestedResult, setLastIngestedResult] = useState<any>(null);
+  const [ingestedList, setIngestedList] = useState<any[]>([]);
 
   const loadAll = useCallback(async () => {
     try {
-      const [eRes, gRes, sRes] = await Promise.all([
+      const [eRes, gRes, sRes, iRes] = await Promise.all([
         fetch('/api/v1/telemetry/ai-evolution', { credentials: 'include' }),
         fetch('/api/admin/gemini/keys', { credentials: 'include' }),
         fetch('/api/admin/ai/settings', { credentials: 'include' }),
+        fetch('/api/admin/skills/ingested', { credentials: 'include' }),
       ]);
       if (eRes.ok) setEvo(await eRes.json());
       if (gRes.ok) {
@@ -50,6 +53,10 @@ export const AdminAIEvolutionTab: React.FC = () => {
           if (prev._hydrated) return prev;
           return { ...prev, ...(sd.settings || sd), api_key: '', _hydrated: true };
         });
+      }
+      if (iRes.ok) {
+        const idata = await iRes.json();
+        setIngestedList(idata.ingested_skills || []);
       }
     } catch {
       // keep existing state
@@ -186,6 +193,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
         setMsg(`✓ Huấn luyện thành công: Đã tạo kỹ năng '${data.name}' từ tài liệu.`);
         setPdfFile(null);
         setPdfTitle('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
         await loadAll();
       } else {
         setMsg(`Lỗi bóc tách tài liệu: ${data.detail || data.message || 'Không thể xử lý'}`);
@@ -195,6 +203,26 @@ export const AdminAIEvolutionTab: React.FC = () => {
     } finally {
       setIsIngesting(false);
       setTimeout(() => setIngestStep(0), 4000);
+    }
+  };
+
+  const handleDeleteIngested = async (skillId: string) => {
+    if (!window.confirm(`Bạn có chắc muốn xóa tài liệu / kỹ năng '${skillId}' khỏi hệ thống?`)) return;
+    try {
+      const res = await fetch(`/api/admin/skills/ingested/${encodeURIComponent(skillId)}`, {
+        method: 'DELETE',
+        headers: { 'X-Zupirus': '1' },
+        credentials: 'include',
+      });
+      if (res.ok) {
+        setMsg(`Đã xóa tài liệu '${skillId}' khỏi bộ não AI.`);
+        await loadAll();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setMsg(`Lỗi khi xóa: ${d.detail || res.status}`);
+      }
+    } catch (e: any) {
+      setMsg(`Lỗi mạng: ${e.message}`);
     }
   };
 
@@ -556,6 +584,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
                 CHỌN FILE TÀI LIỆU (.PDF, .TXT, .MD)
               </label>
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".pdf,.txt,.md"
                 onChange={(e) => {
@@ -569,6 +598,21 @@ export const AdminAIEvolutionTab: React.FC = () => {
                 }}
                 className="w-full text-xs text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-cyan-500/20 file:text-cyan-300 hover:file:bg-cyan-500/30 cursor-pointer rounded-xl border border-white/10 bg-[#040710] p-1.5"
               />
+              {pdfFile && (
+                <div className="mt-2 flex items-center justify-between rounded-lg border border-cyan-400/30 bg-cyan-950/40 px-3 py-1.5 text-xs text-cyan-200">
+                  <span className="font-mono truncate">📄 {pdfFile.name} ({(pdfFile.size / 1024 / 1024).toFixed(2)} MB)</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPdfFile(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                    className="text-slate-400 hover:text-rose-400 ml-2 font-mono text-xs cursor-pointer"
+                  >
+                    ✕ Hủy
+                  </button>
+                </div>
+              )}
             </div>
 
             <div>
@@ -662,6 +706,115 @@ export const AdminAIEvolutionTab: React.FC = () => {
                 ))}
               </ul>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* 5.1 Thư Viện Kỹ Năng Đã Bóc Tách Từ Tài Liệu (Knowledge Base Ingested) */}
+      <div className="quant-panel p-6 space-y-4 border border-cyan-500/30 bg-[#040816]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+          <div>
+            <div className="font-mono text-[11px] uppercase tracking-widest text-cyan-400 flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-cyan-400" />
+              Thư Viện Tri Thức AI Đã Bóc Tách
+            </div>
+            <h3 className="mt-1 text-base font-bold text-white flex items-center gap-2">
+              <span>Sách &amp; Tài Liệu PDF Đã Huấn Luyện Thành Kỹ Năng</span>
+              <span className="rounded-full bg-cyan-500/20 border border-cyan-400/40 px-2 py-0.5 text-xs font-mono text-cyan-300">
+                {ingestedList.length} tài liệu
+              </span>
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={loadAll}
+            className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-slate-300 hover:bg-white/10 cursor-pointer font-mono"
+          >
+            ↻ Làm Mới
+          </button>
+        </div>
+
+        {ingestedList.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-slate-400 text-xs">
+            <div className="text-2xl mb-2">📚</div>
+            Chưa có tài liệu PDF nào được bóc tách. Hãy tải lên sách chiến lược, cẩm nang SMC, Price Action ở bảng phía trên để AI tự động tổng hợp kỹ năng.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {ingestedList.map((item: any) => (
+              <div
+                key={item.skill_id}
+                className="rounded-xl border border-white/10 bg-[#02050f]/80 p-4 space-y-3 hover:border-cyan-500/40 transition"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-bold text-white text-sm truncate flex items-center gap-2">
+                      <span>📘</span>
+                      <span>{item.name || item.skill_id}</span>
+                    </div>
+                    <div className="font-mono text-[10px] text-slate-400 truncate mt-0.5">
+                      ID: {item.skill_id}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="rounded bg-cyan-500/15 border border-cyan-400/30 px-2 py-0.5 font-mono text-[10px] text-cyan-300">
+                      {item.trigger_condition || 'QUANT_SKILL'}
+                    </span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 font-mono text-[9px] font-bold ${
+                        item.enabled
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40'
+                          : 'bg-slate-700 text-slate-400'
+                      }`}
+                    >
+                      {item.enabled ? 'ACTIVE' : 'OFF'}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-300 line-clamp-2 leading-relaxed">
+                  {item.description || 'Kỹ năng định lượng được Gemini tự động đúc kết từ tài liệu.'}
+                </p>
+
+                <div className="flex items-center justify-between pt-2 border-t border-white/[0.06] text-[11px] font-mono">
+                  <span className="text-slate-400">
+                    Đã tham vấn: <strong className="text-amber-300">{item.usage_count || 0}</strong> lần
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const r = await fetch(`/api/admin/skills/${encodeURIComponent(item.skill_id)}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
+                            credentials: 'include',
+                            body: JSON.stringify({ enabled: !Boolean(item.enabled) }),
+                          });
+                          if (r.ok) await loadAll();
+                        } catch (e: any) {
+                          setMsg(`Lỗi đổi trạng thái: ${e.message}`);
+                        }
+                      }}
+                      className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition ${
+                        item.enabled
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-400/30 hover:bg-amber-500/25'
+                          : 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/30 hover:bg-emerald-500/25'
+                      }`}
+                    >
+                      {item.enabled ? 'Tạm Dừng' : 'Kích Hoạt'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteIngested(item.skill_id)}
+                      className="px-2 py-1 rounded text-[10px] font-bold text-rose-300 bg-rose-500/15 border border-rose-400/30 hover:bg-rose-500/25 cursor-pointer transition"
+                    >
+                      Xóa
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

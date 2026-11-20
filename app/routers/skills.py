@@ -3,6 +3,7 @@ import io
 import os
 import re
 import time
+import secrets
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
@@ -397,19 +398,23 @@ async def ingest_trading_document(
 
     # Persist into DB
     now = time.time()
+    record_id = secrets.token_hex(16)
     with tx() as c:
-        # Check if table has custom columns or standard
         c.execute(
             """
-            INSERT INTO agent_skills (skill_id, name, description, trigger_condition, is_builtin, usage_count, enabled)
-            VALUES (?, ?, ?, ?, 0, 0, 1)
+            INSERT INTO agent_skills (
+                id, skill_id, name, description, trigger_condition, skill_md, is_builtin, usage_count, enabled, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 1, ?, ?)
             ON CONFLICT(skill_id) DO UPDATE SET
                 name = excluded.name,
                 description = excluded.description,
                 trigger_condition = excluded.trigger_condition,
-                enabled = 1
+                skill_md = excluded.skill_md,
+                enabled = 1,
+                updated_at = excluded.updated_at
             """,
-            (skill_id, skill_name, skill_desc, trigger_cond),
+            (record_id, skill_id, skill_name, skill_desc, trigger_cond, full_md, now, now),
         )
 
     return {
@@ -426,6 +431,7 @@ async def ingest_trading_document(
         "take_profit_rule": extracted_data.get("take_profit_rule"),
         "rules_summary": extracted_data.get("rules_summary", []),
         "file_saved": bool(saved_file),
+        "created_at": now,
         "message": f"Đã tự động phân loại [{detected_category}] và bóc tách thành công kỹ năng '{skill_name}'.",
     }
 
@@ -436,14 +442,23 @@ def list_ingested_skills(_admin=Depends(get_current_admin)):
     with tx() as c:
         rows = c.execute(
             """
-            SELECT skill_id, name, description, trigger_condition, enabled, usage_count
+            SELECT skill_id, name, description, trigger_condition, enabled, usage_count, created_at, skill_md
             FROM agent_skills
             WHERE skill_id LIKE 'doc_%' OR is_builtin = 0
-            ORDER BY skill_id DESC
+            ORDER BY created_at DESC
             """
         ).fetchall()
         return {
             "ingested_skills": [dict(r) for r in rows],
             "total": len(rows),
         }
+
+
+@router.delete("/ingested/{skill_id}")
+def delete_ingested_skill(skill_id: str, _admin=Depends(get_current_admin)):
+    """Delete an ingested skill from database."""
+    with tx() as c:
+        c.execute("DELETE FROM agent_skills WHERE skill_id = ? AND is_builtin = 0", (skill_id,))
+    return {"ok": True, "skill_id": skill_id, "message": f"Đã xóa tài liệu/kỹ năng '{skill_id}' thành công."}
+
 
