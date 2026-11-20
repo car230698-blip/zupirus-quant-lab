@@ -34,13 +34,11 @@ def run_ea_bridge_simulation(base_url: str = os.getenv("EA_BRIDGE_BASE_URL", "ht
 
     print(f"[LIVE FEED] XAU/USD Mid={live_mid} | Spread={quote.get('spread_pips', 2.8)} pips | Source={quote.get('source')}")
 
-    # Target active accounts on the system so the user sees it immediately on Dashboard
+    # Strictly target ONLY the admin/sandbox account — never touch real customer accounts
     with tx() as c:
         users = c.execute(
-            "SELECT id, email, role FROM users WHERE email IN ('tuleba2k8@gmail.com', 'admin@zupirus.local') ORDER BY role"
+            "SELECT id, email, role FROM users WHERE email = 'admin@zupirus.local' OR role = 'admin' LIMIT 1"
         ).fetchall()
-        if not users:
-            users = c.execute("SELECT id, email, role FROM users LIMIT 2").fetchall()
 
     for idx, u in enumerate(users, 1):
         uid = u["id"]
