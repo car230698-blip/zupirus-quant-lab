@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { EquityHistory } from './EquityHistory';
 import { CandlestickTelemetryChart } from './CandlestickTelemetryChart';
 import { PropCertificateModal } from './PropCertificateModal';
+import { VipLibraryModal } from './VipLibraryModal';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 
@@ -69,6 +70,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const [showEmaOverlay, setShowEmaOverlay] = useState(true);
   const [showBbChannel, setShowBbChannel] = useState(true);
   const [certModalOpen, setCertModalOpen] = useState(false);
+  const [vipModalOpen, setVipModalOpen] = useState(false);
   const [hoveredCandleIdx, setHoveredCandleIdx] = useState<number | null>(null);
   const [activeShieldIdx, setActiveShieldIdx] = useState<number>(0);
   const [subInfo, setSubInfo] = useState<any>(null);
@@ -451,6 +453,14 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setVipModalOpen(true)}
+                className="rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-500/20 to-amber-600/10 px-3.5 py-1.5 font-mono text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition shadow-sm shadow-amber-500/20 whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1.5"
+              >
+                <span>📚</span>
+                <span>Tủ Sách VIP (12 Ebooks)</span>
+              </button>
               {(totalAccountsCount ?? 0) > 0 && (
                 <button
                   type="button"
@@ -686,6 +696,10 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
         totalEquity={totalEquity ?? totalBalance ?? 0}
         netPnl={totalPnl ?? 0}
         accountsCount={totalAccountsCount ?? 0}
+      />
+      <VipLibraryModal
+        open={vipModalOpen}
+        onClose={() => setVipModalOpen(false)}
       />
     </div>
   );
