@@ -59,10 +59,15 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
       if (m) vol = Number(m[1]);
     }
     if (!vol && orderState === 'filled') vol = 0.01;
-    const refLive = liveMidPrice > 0 ? liveMidPrice : Number(o.live_price || 0);
+    const isExactMt5 = Boolean(o.mt5_exact_pnl);
+    const refLive = isExactMt5
+      ? Number(o.live_price || liveMidPrice || 0)
+      : liveMidPrice > 0
+      ? liveMidPrice
+      : Number(o.live_price || 0);
     let pnl = Number(o.pnl ?? o.profit ?? o.realized_pnl ?? 0);
     const isLiveOpen = orderState === 'filled' && !o.closed_at && fillPrice > 0 && refLive > 0;
-    if (isLiveOpen) {
+    if (isLiveOpen && !isExactMt5) {
       const diff = isBuy ? refLive - fillPrice : fillPrice - refLive;
       pnl = Math.round(diff * vol * 100 * 100) / 100;
     }

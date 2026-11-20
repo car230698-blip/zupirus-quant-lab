@@ -168,10 +168,26 @@ def device(c, request: Request, p):
     if (a['login'], a['server'], a['mode']) != (p.login, p.server, p.mode) or p.mode != 'DEMO': fail(403, 'Demo identity required')
     return a
 
+class OpenPositionItem(Model):
+    ticket: str
+    symbol: str = 'XAUUSD'
+    side: Literal['BUY', 'SELL'] = 'BUY'
+    volume: float = Field(gt=0, le=1000)
+    open_price: float = Field(gt=0, le=1e6)
+    sl: float = Field(default=0.0, ge=0, le=1e6)
+    tp: float = Field(default=0.0, ge=0, le=1e6)
+    current_price: float = Field(default=0.0, ge=0, le=1e6)
+    profit: float = Field(default=0.0)
+
+
 class Heartbeat(Identity):
     balance: float = Field(ge=0, le=1e12)
     equity: float = Field(ge=0, le=1e12)
     positions: int = Field(ge=0, le=10000)
+    bid: Optional[float] = Field(default=None, ge=0, le=1e6)
+    ask: Optional[float] = Field(default=None, ge=0, le=1e6)
+    open_positions: Optional[List[OpenPositionItem]] = None
+
 
 @router.post('/api/ea/heartbeat', response_class=PlainTextResponse)
 def heartbeat(p: Heartbeat, request: Request):
@@ -183,6 +199,54 @@ def heartbeat(p: Heartbeat, request: Request):
             (p.balance, p.equity, p.equity, p.equity, p.equity, p.positions, now, a['id'])
         )
         c.execute('INSERT INTO snapshots(account_id,ts,balance,equity) VALUES(?,?,?,?)', (a['id'], now, p.balance, p.equity))
+
+        # If the EA sent open_positions, synchronize dispatches table so manual/open MT5 trades match 100%
+        if p.open_positions is not None:
+            live_tickets = set()
+            for pos in p.open_positions:
+                live_tickets.add(str(pos.ticket))
+                existing_d = c.execute(
+                    "SELECT id, signal_id FROM dispatches WHERE account_id=? AND ticket=?",
+                    (a['id'], str(pos.ticket)),
+                ).fetchone()
+                reason_str = f"MT5 Live Demo Executed {pos.volume:.2f} lot {pos.symbol}"
+                if existing_d:
+                    c.execute(
+                        "UPDATE dispatches SET state='filled', fill_price=?, reason=?, updated=? WHERE id=?",
+                        (pos.open_price, reason_str, now, existing_d['id']),
+                    )
+                    c.execute(
+                        "UPDATE signals SET side=?, price=?, sl=?, tp=? WHERE id=?",
+                        (pos.side, pos.open_price, pos.sl, pos.tp, existing_d['signal_id']),
+                    )
+                else:
+                    sig_id = f"sig_mt5_{pos.ticket}"
+                    c.execute(
+                        """
+                        INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
+                        VALUES(?, 'DEMO', ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET side=excluded.side, price=excluded.price, sl=excluded.sl, tp=excluded.tp
+                        """,
+                        (sig_id, pos.side, pos.open_price, pos.sl, pos.tp, now, now + 86400),
+                    )
+                    c.execute(
+                        """
+                        INSERT INTO dispatches(signal_id, account_id, state, ticket, deal, fill_price, reason, created, updated)
+                        VALUES(?, ?, 'filled', ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(account_id, signal_id) DO UPDATE SET state='filled', ticket=excluded.ticket, fill_price=excluded.fill_price, reason=excluded.reason, updated=excluded.updated
+                        """,
+                        (sig_id, a['id'], str(pos.ticket), str(pos.ticket), pos.open_price, reason_str, now, now),
+                    )
+            # Remove stale filled dispatches whose tickets are no longer open on MT5
+            if live_tickets:
+                placeholders = ",".join(["?"] * len(live_tickets))
+                c.execute(
+                    f"DELETE FROM dispatches WHERE account_id=? AND state='filled' AND ticket IS NOT NULL AND ticket NOT IN ({placeholders})",
+                    tuple([a['id'], *live_tickets]),
+                )
+            elif p.positions == 0:
+                c.execute("DELETE FROM dispatches WHERE account_id=? AND state='filled'", (a['id'],))
+
         # Cache heartbeat in Redis with 60s TTL
         cache_heartbeat(a['id'], {
             'login': a['login'],
@@ -190,6 +254,9 @@ def heartbeat(p: Heartbeat, request: Request):
             'balance': p.balance,
             'equity': p.equity,
             'positions': p.positions,
+            'bid': p.bid,
+            'ask': p.ask,
+            'open_positions': [pos.model_dump() for pos in p.open_positions] if p.open_positions else None,
             'last_seen': now
         }, ttl=60)
         return 'OK'
@@ -404,23 +471,57 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
         from app.routers.telemetry import get_live_xauusd_quote
         live_q = get_live_xauusd_quote()
         live_mid = float(live_q.get('mid') or 0.0)
+        acc_by_id = {str(a.get('id')): a for a in accounts}
+        filled_per_acc: Dict[str, List[dict]] = {}
         for d in orders:
             d.pop('nonce', None)
             d['symbol'] = d.get('symbol') or 'XAUUSD'
-            # Extract real lot size from execution receipt reason (e.g. "Executed 0.01 lot XAUUSD")
             if not d.get('volume'):
                 m_lot = _re.search(r'([0-9]+\.[0-9]+)\s*lot', str(d.get('reason') or ''), _re.IGNORECASE)
                 d['volume'] = float(m_lot.group(1)) if m_lot else 0.01
             fp = float(d.get('fill_price') or d.get('price') or 0.0)
             d['fill_price'] = fp
-            # Compute live floating PnL for filled EA Bridge orders against real-time XAU/USD feed
-            if d.get('state') == 'filled' and fp > 0 and live_mid > 0 and d.get('pnl') is None:
+            if d.get('state') == 'filled':
+                filled_per_acc.setdefault(str(d.get('account_id')), []).append(d)
+
+        for d in orders:
+            fp = float(d.get('fill_price') or 0.0)
+            if d.get('state') == 'filled' and fp > 0 and d.get('pnl') is None:
+                acc_obj = acc_by_id.get(str(d.get('account_id')))
                 vol = float(d.get('volume') or 0.01)
                 side_u = str(d.get('side') or 'BUY').upper()
-                diff = (live_mid - fp) if side_u == 'BUY' else (fp - live_mid)
-                d['pnl'] = round(diff * vol * 100.0, 2)
-                d['profit'] = d['pnl']
-                d['live_price'] = live_mid
+                # Check if heartbeat has exact per-position profit or single-position account floating PnL
+                hb_positions = (acc_obj or {}).get('cached_heartbeat', {}).get('open_positions') if acc_obj else None
+                matched_hb_pos = None
+                if isinstance(hb_positions, list):
+                    for hp in hb_positions:
+                        if str(hp.get('ticket')) == str(d.get('ticket')):
+                            matched_hb_pos = hp
+                            break
+                if matched_hb_pos is not None:
+                    d['pnl'] = round(float(matched_hb_pos.get('profit') or 0.0), 2)
+                    d['profit'] = d['pnl']
+                    d['live_price'] = round(float(matched_hb_pos.get('current_price') or live_mid), 3)
+                    d['mt5_exact_pnl'] = True
+                elif (
+                    acc_obj
+                    and int(acc_obj.get('positions') or 0) > 0
+                    and len(filled_per_acc.get(str(d.get('account_id')), [])) == 1
+                    and float(acc_obj.get('balance') or 0.0) > 0
+                ):
+                    # Exact floating PnL straight from MT5 terminal's AccountInfoDouble(ACCOUNT_EQUITY) - BALANCE
+                    exact_pnl = round(float(acc_obj.get('equity') or 0.0) - float(acc_obj.get('balance') or 0.0), 2)
+                    d['pnl'] = exact_pnl
+                    d['profit'] = exact_pnl
+                    price_delta = exact_pnl / (vol * 100.0) if vol > 0 else 0.0
+                    implied_live = (fp + price_delta) if side_u == 'BUY' else (fp - price_delta)
+                    d['live_price'] = round(implied_live, 3)
+                    d['mt5_exact_pnl'] = True
+                elif live_mid > 0:
+                    diff = (live_mid - fp) if side_u == 'BUY' else (fp - live_mid)
+                    d['pnl'] = round(diff * vol * 100.0, 2)
+                    d['profit'] = d['pnl']
+                    d['live_price'] = live_mid
         is_pg = bool(getattr(c, "_is_pg", False))
         if is_pg:
             c.execute("SAVEPOINT sp_ea_cloud_exec")

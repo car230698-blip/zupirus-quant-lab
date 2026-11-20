@@ -77,7 +77,7 @@ bool PairDevice()
 }
 
 //+------------------------------------------------------------------+
-//| Bước 3: Gửi nhịp tim & số dư thực tế (/api/ea/heartbeat)         |
+//| Bước 3: Gửi nhịp tim, số dư & danh sách lệnh đang mở trên MT5    |
 //+------------------------------------------------------------------+
 bool SendHeartbeat()
 {
@@ -85,9 +85,43 @@ bool SendHeartbeat()
    double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
    int posCnt = PositionsTotal();
 
+   string sym = (StringLen(InpTradeSymbol) > 0) ? InpTradeSymbol : _Symbol;
+   MqlTick tick;
+   double bid = 0.0, ask = 0.0;
+   if(SymbolInfoTick(sym, tick))
+   {
+      bid = tick.bid;
+      ask = tick.ask;
+   }
+
+   string posJson = "[";
+   int added = 0;
+   for(int i = 0; i < posCnt; i++)
+   {
+      ulong pTicket = PositionGetTicket(i);
+      if(pTicket == 0) continue;
+      string pSym   = PositionGetString(POSITION_SYMBOL);
+      long   pType  = PositionGetInteger(POSITION_TYPE);
+      string pSide  = (pType == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+      double pVol   = PositionGetDouble(POSITION_VOLUME);
+      double pOpen  = PositionGetDouble(POSITION_PRICE_OPEN);
+      double pSl    = PositionGetDouble(POSITION_SL);
+      double pTp    = PositionGetDouble(POSITION_TP);
+      double pCur   = PositionGetDouble(POSITION_PRICE_CURRENT);
+      double pProf  = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+
+      if(added > 0) posJson += ",";
+      posJson += StringFormat(
+         "{\"ticket\":\"%I64u\",\"symbol\":\"%s\",\"side\":\"%s\",\"volume\":%.2f,\"open_price\":%.3f,\"sl\":%.3f,\"tp\":%.3f,\"current_price\":%.3f,\"profit\":%.2f}",
+         pTicket, pSym, pSide, pVol, pOpen, pSl, pTp, pCur, pProf
+      );
+      added++;
+   }
+   posJson += "]";
+
    string payload = StringFormat(
-      "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"balance\":%.2f,\"equity\":%.2f,\"positions\":%d}",
-      ExtLogin, ExtBrokerSrv, bal, eq, posCnt
+      "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"balance\":%.2f,\"equity\":%.2f,\"positions\":%d,\"bid\":%.3f,\"ask\":%.3f,\"open_positions\":%s}",
+      ExtLogin, ExtBrokerSrv, bal, eq, posCnt, bid, ask, posJson
    );
    string resp = "";
    int code = HttpPostJson("/api/ea/heartbeat", payload, ExtDeviceToken, resp);
