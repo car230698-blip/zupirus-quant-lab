@@ -32,6 +32,13 @@ class MetaApiClient:
         if self.is_mock:
             logger.info("MetaApi running in Mock/Simulated Cloud Execution mode (METAAPI_TOKEN not set).")
 
+    def _is_mock_account(self, metaapi_account_id: Optional[str] = None) -> bool:
+        """Return True if client is in global mock mode OR if this specific account ID is a simulated/sandbox account."""
+        if self.is_mock:
+            return True
+        mid = str(metaapi_account_id or "").strip().lower()
+        return mid.startswith(("mock_", "sim_", "metaapi_", "demo_"))
+
     def _headers(self) -> Dict[str, str]:
         return {
             "auth-token": self.token,
@@ -52,7 +59,9 @@ class MetaApiClient:
         Deploy an MT5 account to MetaApi Cloud.
         Returns dict containing metaapi_account_id and state.
         """
-        if self.is_mock:
+        srv_low = str(server or "").strip().lower()
+        is_sandbox_srv = any(k in srv_low for k in ("sandbox", "simulated", "mock", "zupirus"))
+        if self.is_mock or is_sandbox_srv:
             simulated_id = f"metaapi_{uuid.uuid4().hex[:16]}"
             return {
                 "id": simulated_id,
@@ -93,7 +102,7 @@ class MetaApiClient:
 
     async def deploy_account(self, metaapi_account_id: str) -> bool:
         """Deploy cloud MT5 terminal to start hosting."""
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             return True
         url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}/deploy"
         try:
@@ -106,7 +115,7 @@ class MetaApiClient:
 
     async def undeploy_account(self, metaapi_account_id: str) -> bool:
         """Undeploy cloud MT5 terminal to stop hosting billing."""
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             return True
         url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}/undeploy"
         try:
@@ -119,7 +128,7 @@ class MetaApiClient:
 
     async def delete_account(self, metaapi_account_id: str) -> bool:
         """Delete cloud MT5 account from MetaApi Provisioning API to stop all cloud billing."""
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             return True
         url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}"
         try:
@@ -132,7 +141,7 @@ class MetaApiClient:
 
     async def get_account_information(self, metaapi_account_id: str) -> Dict[str, Any]:
         """Retrieve real-time account metrics (balance, equity, margin, freeMargin)."""
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             # In real production (outside pytest), NEVER fabricate fake $10,000 balance/equity
             if (
                 not os.getenv("PYTEST_CURRENT_TEST")
@@ -190,7 +199,7 @@ class MetaApiClient:
             raise ValueError(f"Unsupported trade action: {action}")
         action_type = "ORDER_TYPE_BUY" if action_u == "BUY" else "ORDER_TYPE_SELL"
 
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             # Simulate real network hop ~25-45ms
             await asyncio.sleep(0.03)
             order_id = str(uuid.uuid4().int)[:10]
@@ -250,7 +259,7 @@ class MetaApiClient:
 
     async def get_open_positions(self, metaapi_account_id: str, raise_on_error: bool = False) -> List[Dict[str, Any]]:
         """Retrieve all currently active open positions on MT5 via MetaApi."""
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             return []
 
         url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/positions"
@@ -270,7 +279,7 @@ class MetaApiClient:
 
     async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
         """Retrieve closed execution deals from MetaApi history for real PnL reflection."""
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             return []
         from datetime import datetime, timedelta, timezone
         end_dt = datetime.now(timezone.utc)
@@ -300,7 +309,7 @@ class MetaApiClient:
         start_ts = time.time()
         from app.services.symbol_precision import digits_for_symbol
         dec = digits_for_symbol(symbol) if symbol else 5
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             return {
                 "numericCode": 10009,
                 "stringCode": "TRADE_RETCODE_DONE",
@@ -352,7 +361,7 @@ class MetaApiClient:
         """Close partial lot (e.g. 50% TP1) of an open position."""
         start_ts = time.time()
         vol = max(0.01, round(volume_to_close, 2))
-        if self.is_mock:
+        if self._is_mock_account(metaapi_account_id):
             return {
                 "numericCode": 10009,
                 "stringCode": "TRADE_RETCODE_DONE",
@@ -420,7 +429,7 @@ class MetaApiClient:
             pos_id = pos.get("id")
             if not pos_id:
                 continue
-            if self.is_mock:
+            if self._is_mock_account(metaapi_account_id):
                 closed_count += 1
                 continue
             url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
