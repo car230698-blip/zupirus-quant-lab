@@ -334,7 +334,7 @@ async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
 
         # Delete from trading_accounts and dependent tables strictly by id and user_id
         target_tid = resolved_trading_id or account_id
-        for dep_table in ("metaapi_trade_executions", "account_symbol_map", "signal_dispatch_locks"):
+        for dep_table in ("metaapi_trade_executions", "account_symbol_map", "signal_dispatch_locks", "snapshots", "dispatches", "sim_positions"):
             if is_pg:
                 c.execute("SAVEPOINT sp_del_tdep")
             try:
@@ -351,6 +351,12 @@ async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
                     except Exception:
                         pass
         c.execute("DELETE FROM trading_accounts WHERE id=? AND user_id=?", (target_tid, target_user_id))
+        try:
+            r_cli = get_redis_client()
+            if r_cli:
+                r_cli.delete(f"hb:{target_tid}")
+        except Exception:
+            pass
 
         # Delete from metaapi_cloud_accounts strictly by id and user_id
         target_cid = resolved_cloud_id or target_tid

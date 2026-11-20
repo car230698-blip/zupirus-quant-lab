@@ -158,10 +158,23 @@ class PositionWatcher:
                             "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
                             (current_equity, current_balance, now_watch_ts, acc_id)
                         )
-                        c.execute(
-                            "INSERT INTO snapshots(account_id, ts, balance, equity) VALUES(?, ?, ?, ?)",
-                            (acc_id, now_watch_ts, current_balance, current_equity)
-                        )
+                        # Deadband snapshot throttling (avoid DB bloat while keeping accuracy)
+                        last_snap = c.execute(
+                            "SELECT ts, balance, equity FROM snapshots WHERE account_id=? ORDER BY ts DESC LIMIT 1",
+                            (acc_id,)
+                        ).fetchone()
+                        should_insert_snap = True
+                        if last_snap:
+                            l_ts = float(last_snap['ts'] if isinstance(last_snap, dict) else last_snap[0])
+                            l_bal = float(last_snap['balance'] if isinstance(last_snap, dict) else last_snap[1])
+                            l_eq = float(last_snap['equity'] if isinstance(last_snap, dict) else last_snap[2])
+                            if (now_watch_ts - l_ts < 60) and abs(current_balance - l_bal) < 0.01 and abs(current_equity - l_eq) < 0.01:
+                                should_insert_snap = False
+                        if should_insert_snap:
+                            c.execute(
+                                "INSERT INTO snapshots(account_id, ts, balance, equity) VALUES(?, ?, ?, ?)",
+                                (acc_id, now_watch_ts, current_balance, current_equity)
+                            )
                 except Exception as db_sync_err:
                     logger.debug(f"PositionWatcher DB sync note for {acc_id}: {db_sync_err}")
 
@@ -244,6 +257,32 @@ class PositionWatcher:
                                     )
                     except Exception as sync_op_err:
                         logger.debug(f"PositionWatcher sync manual positions note for {acc_id}: {sync_op_err}")
+
+                # Reconcile executions: mark any open executions no longer in live_pos_ids as CLOSED
+                try:
+                    with tx() as c:
+                        if live_pos_ids:
+                            placeholders = ",".join(["?"] * len(live_pos_ids))
+                            c.execute(
+                                f"""
+                                UPDATE metaapi_trade_executions
+                                SET status='CLOSED', closed_at=COALESCE(closed_at, ?)
+                                WHERE account_id=? AND status IN ('FILLED', 'OPEN')
+                                  AND COALESCE(position_id, ticket) NOT IN ({placeholders})
+                                """,
+                                (now_watch_ts, acc_id, *live_pos_ids)
+                            )
+                        else:
+                            c.execute(
+                                """
+                                UPDATE metaapi_trade_executions
+                                SET status='CLOSED', closed_at=COALESCE(closed_at, ?)
+                                WHERE account_id=? AND status IN ('FILLED', 'OPEN')
+                                """,
+                                (now_watch_ts, acc_id)
+                            )
+                except Exception as rec_err:
+                    logger.debug(f"PositionWatcher reconcile executions note for {acc_id}: {rec_err}")
 
                 with tx() as c:
                     already_locked = bool(getkv(c, f"drawdown_locked:{acc_id}") or getkv(c, get_drawdown_halt_key(acc_id, date_str)))

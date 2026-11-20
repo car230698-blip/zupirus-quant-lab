@@ -201,7 +201,21 @@ def heartbeat(p: Heartbeat, request: Request):
             'UPDATE accounts SET balance=?,equity=?,peak=CASE WHEN seen=0 THEN ? WHEN peak > ? THEN peak ELSE ? END,positions=?,seen=? WHERE id=?',
             (p.balance, p.equity, p.equity, p.equity, p.equity, p.positions, now, a['id'])
         )
-        c.execute('INSERT INTO snapshots(account_id,ts,balance,equity) VALUES(?,?,?,?)', (a['id'], now, p.balance, p.equity))
+
+        # Deadband snapshot throttling (avoid DB bloat while keeping accuracy)
+        last_snap = c.execute(
+            'SELECT ts, balance, equity FROM snapshots WHERE account_id=? ORDER BY ts DESC LIMIT 1',
+            (a['id'],)
+        ).fetchone()
+        should_snap = True
+        if last_snap:
+            l_ts = float(last_snap['ts'] if isinstance(last_snap, dict) else last_snap[0])
+            l_bal = float(last_snap['balance'] if isinstance(last_snap, dict) else last_snap[1])
+            l_eq = float(last_snap['equity'] if isinstance(last_snap, dict) else last_snap[2])
+            if (now - l_ts < 60) and abs(p.balance - l_bal) < 0.01 and abs(p.equity - l_eq) < 0.01:
+                should_snap = False
+        if should_snap:
+            c.execute('INSERT INTO snapshots(account_id,ts,balance,equity) VALUES(?,?,?,?)', (a['id'], now, p.balance, p.equity))
 
         # If the EA sent open_positions, synchronize dispatches table so manual/open MT5 trades match 100%
         if p.open_positions is not None:
@@ -215,8 +229,8 @@ def heartbeat(p: Heartbeat, request: Request):
                 reason_str = f"MT5 Live Demo Executed {pos.volume:.2f} lot {pos.symbol}"
                 if existing_d:
                     c.execute(
-                        "UPDATE dispatches SET state='filled', fill_price=?, reason=?, updated=? WHERE id=?",
-                        (pos.open_price, reason_str, now, existing_d['id']),
+                        "UPDATE dispatches SET state='filled', fill_price=?, volume=?, profit=?, reason=?, updated=? WHERE id=?",
+                        (pos.open_price, pos.volume, pos.profit, reason_str, now, existing_d['id']),
                     )
                     c.execute(
                         "UPDATE signals SET side=?, price=?, sl=?, tp=? WHERE id=?",
@@ -234,21 +248,21 @@ def heartbeat(p: Heartbeat, request: Request):
                     )
                     c.execute(
                         """
-                        INSERT INTO dispatches(signal_id, account_id, state, ticket, deal, fill_price, reason, created, updated)
-                        VALUES(?, ?, 'filled', ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(account_id, signal_id) DO UPDATE SET state='filled', ticket=excluded.ticket, fill_price=excluded.fill_price, reason=excluded.reason, updated=excluded.updated
+                        INSERT INTO dispatches(signal_id, account_id, state, ticket, deal, fill_price, volume, profit, reason, created, updated)
+                        VALUES(?, ?, 'filled', ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(account_id, signal_id) DO UPDATE SET state='filled', ticket=excluded.ticket, fill_price=excluded.fill_price, volume=excluded.volume, profit=excluded.profit, reason=excluded.reason, updated=excluded.updated
                         """,
-                        (sig_id, a['id'], str(pos.ticket), str(pos.ticket), pos.open_price, reason_str, now, now),
+                        (sig_id, a['id'], str(pos.ticket), str(pos.ticket), pos.open_price, pos.volume, pos.profit, reason_str, now, now),
                     )
-            # Remove stale filled dispatches whose tickets are no longer open on MT5
+            # Soft-close filled dispatches whose tickets are no longer open on MT5 (NEVER HARD DELETE)
             if live_tickets:
                 placeholders = ",".join(["?"] * len(live_tickets))
                 c.execute(
-                    f"DELETE FROM dispatches WHERE account_id=? AND state='filled' AND ticket IS NOT NULL AND ticket NOT IN ({placeholders})",
-                    tuple([a['id'], *live_tickets]),
+                    f"UPDATE dispatches SET state='closed', updated=?, closed_at=COALESCE(closed_at, ?) WHERE account_id=? AND state='filled' AND ticket IS NOT NULL AND ticket NOT IN ({placeholders})",
+                    tuple([now, now, a['id'], *live_tickets]),
                 )
             elif p.positions == 0:
-                c.execute("DELETE FROM dispatches WHERE account_id=? AND state='filled'", (a['id'],))
+                c.execute("UPDATE dispatches SET state='closed', updated=?, closed_at=COALESCE(closed_at, ?) WHERE account_id=? AND state='filled'", (now, now, a['id']))
 
         # Cache heartbeat in Redis with 60s TTL
         cache_heartbeat(a['id'], {
@@ -476,9 +490,11 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
         for d in ea_orders:
             d.pop('nonce', None)
             d['symbol'] = d.get('symbol') or 'XAUUSD'
-            if not d.get('volume'):
-                m_lot = _re.search(r'([0-9]+\.[0-9]+)\s*lot', str(d.get('reason') or ''), _re.IGNORECASE)
-                d['volume'] = float(m_lot.group(1)) if m_lot else 0.01
+            vol_val = float(d.get('volume') or 0.0)
+            if vol_val <= 0.0:
+                m_lot = _re.search(r'([0-9]+(?:\.[0-9]+)?)\s*lot', str(d.get('reason') or ''), _re.IGNORECASE)
+                vol_val = float(m_lot.group(1)) if m_lot else 0.01
+            d['volume'] = vol_val
             d['fill_price'] = float(d.get('fill_price') or d.get('price') or 0.0)
             d['source'] = 'EA_BRIDGE'
             all_orders.append(d)

@@ -381,3 +381,31 @@ def apply_migration_017(c, is_pg: bool):
         cols = [r[1] for r in c.execute("PRAGMA table_info(trading_accounts)").fetchall()]
         if "prop_stage" not in cols:
             c.execute("ALTER TABLE trading_accounts ADD COLUMN prop_stage TEXT NOT NULL DEFAULT 'CHALLENGE'")
+
+
+def apply_migration_018(c, is_pg: bool):
+    """Add volume, closed_at, and profit columns to dispatches table for soft-closing and accurate lot display."""
+    if is_pg:
+        c.execute("""
+            ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS volume DOUBLE PRECISION DEFAULT 0.01;
+            ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS closed_at DOUBLE PRECISION;
+            ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS profit DOUBLE PRECISION DEFAULT 0.0;
+        """)
+    else:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(dispatches)").fetchall()]
+        if "volume" not in cols:
+            try:
+                c.execute("ALTER TABLE dispatches ADD COLUMN volume REAL DEFAULT 0.01")
+            except Exception:
+                pass
+        if "closed_at" not in cols:
+            try:
+                c.execute("ALTER TABLE dispatches ADD COLUMN closed_at REAL")
+            except Exception:
+                pass
+        if "profit" not in cols:
+            try:
+                c.execute("ALTER TABLE dispatches ADD COLUMN profit REAL DEFAULT 0.0")
+            except Exception:
+                pass
+

@@ -121,9 +121,9 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
                 for er in ea_rows:
                     c_ea.execute(
                         """
-                        INSERT INTO dispatches(signal_id, account_id, state, created, updated)
-                        VALUES(?, ?, 'queued', ?, ?)
-                        ON CONFLICT(account_id, signal_id) DO NOTHING
+                        INSERT INTO dispatches(signal_id, account_id, state, volume, created, updated)
+                        VALUES(?, ?, 'queued', 0.01, ?, ?)
+                        ON CONFLICT(account_id, signal_id) DO UPDATE SET updated=excluded.updated
                         """,
                         (signal_id, er["id"], now_ts, now_ts),
                     )

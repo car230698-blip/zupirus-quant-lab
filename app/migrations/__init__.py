@@ -91,6 +91,11 @@ MIGRATIONS = [
         "version": 17,
         "name": "017_prop_stage_classification",
         "description": "Add prop_stage (CHALLENGE vs LIVE) to trading_accounts for Prop Firm Live risk caps"
+    },
+    {
+        "version": 18,
+        "name": "018_dispatches_volume_and_closed_at",
+        "description": "Add volume, closed_at, and profit columns to dispatches table for soft-closing and accurate lot display"
     }
 ]
 
@@ -106,7 +111,7 @@ from .evolution import (
 )
 from .seed_and_fixes import (
     apply_migration_013, apply_migration_014, apply_migration_015,
-    apply_migration_016, apply_migration_017,
+    apply_migration_016, apply_migration_017, apply_migration_018,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -132,6 +137,7 @@ def run_all_migrations(c, is_pg: bool):
         15: apply_migration_015,
         16: apply_migration_016,
         17: apply_migration_017,
+        18: apply_migration_018,
     }
 
     for m in MIGRATIONS:

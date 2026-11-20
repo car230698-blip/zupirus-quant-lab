@@ -181,11 +181,11 @@ void PollAndExecuteNextSignal()
    double spreadPrice = MathAbs(tick.ask - tick.bid);
    double equity      = AccountInfoDouble(ACCOUNT_EQUITY);
    double riskDollars = MathMax(1.0, equity * (riskPct / 100.0) * 0.95);
-   string nonce       = StringFormat("mt5_%d_%u_%d", dispatchId, GetTickCount(), MathRand());
+   string nonce       = StringFormat("mt5_%I64d_%u_%d", dispatchId, GetTickCount(), MathRand());
 
    // Bước 5a: Xin cấp quyền SEND_ONCE từ Risk Gate + Redis Lock (/api/ea/intent)
    string intentPayload = StringFormat(
-      "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"dispatch\":%d,\"nonce\":\"%s\",\"spread\":%.4f,\"risk_amount\":%.2f}",
+      "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"dispatch\":%I64d,\"nonce\":\"%s\",\"spread\":%.4f,\"risk_amount\":%.2f}",
       ExtLogin, ExtBrokerSrv, dispatchId, nonce, spreadPrice, riskDollars
    );
    string intentResp = "";
@@ -199,14 +199,34 @@ void PollAndExecuteNextSignal()
       return;
    }
 
-   // Tính khối lượng Lot
+   // Tính khối lượng Lot có nhận diện tài khoản Cent và Contract Size chuẩn
    double lot = InpFixedLot;
    if(lot <= 0.0)
    {
       double slDist = MathAbs(sigPrice - sigSl);
       if(slDist <= 0.0) slDist = 5.0;
-      // Với XAUUSD 1.00 lot = 100 oz -> di chuyển $1.00 = $100
-      lot = riskDollars / (slDist * 100.0);
+
+      // Nhận diện tài khoản Cent (USC, EUC) để chuẩn hóa rủi ro về USD, tránh vào lệnh gấp 100 lần
+      string accCurr = AccountInfoString(ACCOUNT_CURRENCY);
+      bool isCent = (accCurr == "USC" || accCurr == "EUC" || StringFind(accCurr, "cent") >= 0 || StringFind(accCurr, "Cent") >= 0);
+      double adjustedRiskDollars = riskDollars;
+      if(isCent)
+      {
+         adjustedRiskDollars = riskDollars / 100.0;
+      }
+
+      double contractSize = SymbolInfoDouble(sym, SYMBOL_TRADE_CONTRACT_SIZE);
+      if(contractSize <= 0) contractSize = 100.0;
+      double tickValue = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
+      double tickSize  = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
+      if(tickValue <= 0) tickValue = 1.0;
+      if(tickSize <= 0)  tickSize = SymbolInfoDouble(sym, SYMBOL_POINT);
+      if(tickSize <= 0)  tickSize = 0.01;
+
+      double riskPerLot = (slDist / tickSize) * tickValue;
+      if(riskPerLot <= 0) riskPerLot = slDist * contractSize;
+
+      lot = (riskPerLot > 0) ? (adjustedRiskDollars / riskPerLot) : 0.01;
    }
    double minLot  = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
    double maxLot  = SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX);
@@ -231,9 +251,9 @@ void PollAndExecuteNextSignal()
 
    bool ok = false;
    if(side == "BUY")
-      ok = ExtTrade.Buy(lot, sym, execPrice, realSl, realTp, StringFormat("ZUPIRUS #%d", dispatchId));
+      ok = ExtTrade.Buy(lot, sym, execPrice, realSl, realTp, StringFormat("ZUPIRUS #%I64d", dispatchId));
    else
-      ok = ExtTrade.Sell(lot, sym, execPrice, realSl, realTp, StringFormat("ZUPIRUS #%d", dispatchId));
+      ok = ExtTrade.Sell(lot, sym, execPrice, realSl, realTp, StringFormat("ZUPIRUS #%I64d", dispatchId));
 
    ulong orderTicket = ExtTrade.ResultOrder();
    ulong dealTicket  = ExtTrade.ResultDeal();
@@ -246,7 +266,7 @@ void PollAndExecuteNextSignal()
    {
       if(dealTicket == 0) dealTicket = orderTicket;
       reportPayload = StringFormat(
-         "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"dispatch\":%d,\"nonce\":\"%s\",\"state\":\"filled\",\"ticket\":\"%I64u\",\"deal\":\"%I64u\",\"reason\":\"MT5 Live Demo Executed %.2f lot %s\",\"price\":%.2f}",
+         "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"dispatch\":%I64d,\"nonce\":\"%s\",\"state\":\"filled\",\"ticket\":\"%I64u\",\"deal\":\"%I64u\",\"reason\":\"MT5 Live Demo Executed %.2f lot %s\",\"price\":%.2f}",
          ExtLogin, ExtBrokerSrv, dispatchId, nonce, orderTicket, dealTicket, lot, sym, fillPrice
       );
       PrintFormat("[ZUPIRUS EA] ĐÃ KHỚP LỆNH THÀNH CÔNG TRÊN MT5! %s %.2f lot %s @ %.2f (Ticket #%I64u, Deal #%I64u)",
@@ -256,10 +276,10 @@ void PollAndExecuteNextSignal()
    {
       string errDesc = ExtTrade.ResultRetcodeDescription();
       reportPayload = StringFormat(
-         "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"dispatch\":%d,\"nonce\":\"%s\",\"state\":\"rejected\",\"ticket\":\"\",\"deal\":\"\",\"reason\":\"MT5 Reject: %s\"}",
+         "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"dispatch\":%I64d,\"nonce\":\"%s\",\"state\":\"rejected\",\"ticket\":\"\",\"deal\":\"\",\"reason\":\"MT5 Reject: %s\"}",
          ExtLogin, ExtBrokerSrv, dispatchId, nonce, errDesc
       );
-      PrintFormat("[ZUPIRUS EA] Sàn MT5 từ chối lệnh #%d: %s (Retcode=%u)", dispatchId, errDesc, ExtTrade.ResultRetcode());
+      PrintFormat("[ZUPIRUS EA] Sàn MT5 từ chối lệnh #%I64d: %s (Retcode=%u)", dispatchId, errDesc, ExtTrade.ResultRetcode());
    }
 
    string repResp = "";
