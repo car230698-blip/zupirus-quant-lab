@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { fmtNum, fmtPnL, fmtTime } from '../utils/strategyDecision';
 import { translateOrderStatus, orderStates } from '../utils/stateMapping';
 import { computeOrderLedgerMetrics } from '../utils/quantMath';
-import { useLiveTopbarStream } from '../hooks/useQuantData';
 import { MetricCard, Panel, StatusBadge } from './ui/Primitives';
 import { IconActivity, IconClose, IconReceipt, IconSearch, IconShield, IconTrendingUp } from './Icons';
 
@@ -34,8 +33,18 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
   const [sideFilter, setSideFilter] = useState<'ALL' | 'BUY' | 'SELL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [localSelectedOrder, setLocalSelectedOrder] = useState<any | null>(null);
-  const { tick: liveTick } = useLiveTopbarStream();
-  const liveMidPrice = Number(liveTick?.mid || liveTick?.bid || 0);
+  const [liveMidPrice, setLiveMidPrice] = useState<number>(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onTick = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      const mid = Number(detail?.xauusd?.mid || detail?.xauusd?.bid || 0);
+      if (mid > 0) setLiveMidPrice(mid);
+    };
+    window.addEventListener('zupirus:topbar-tick', onTick);
+    return () => window.removeEventListener('zupirus:topbar-tick', onTick);
+  }, []);
 
   const selectedOrder = externalSelectedOrder !== undefined ? externalSelectedOrder : localSelectedOrder;
   const setSelectedOrder = externalSetSelectedOrder || setLocalSelectedOrder;

@@ -136,6 +136,9 @@ export function useLiveTopbarTelemetry() {
         const parsed = JSON.parse(ev.data) as LiveTopbarTelemetry;
         queryClient.setQueryData(['telemetry', 'topbar'], parsed);
         setSseConnected(true);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('zupirus:topbar-tick', { detail: parsed }));
+        }
       } catch {
         // ignore malformed frame
       }
