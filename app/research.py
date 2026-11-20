@@ -118,10 +118,25 @@ def discover_candidate_from_observations(
     # Pick (session, side) cluster with highest positive expectancy
     best_sess, best_side = max(session_side_wins.keys(), key=lambda k: sum(session_side_wins[k]))
     pnls = session_side_wins[(best_sess, best_side)]
+    if sum(pnls) <= 0:
+        return {
+            "status": "insufficient_data",
+            "name": "TabulaRasa-Alpha-NegativeExpectancy",
+            "sample_size": len(pnls),
+            "empirical_win_rate": round(sum(1 for p in pnls if p > 0) / max(len(pnls), 1), 2),
+            "message": "Cụm quan sát có kỳ vọng lợi nhuận âm (Expectancy <= 0). AI giữ trạng thái STAND_ASIDE, không tự đảo ngược lệnh.",
+            "rules": {
+                "preferred_session": best_sess,
+                "action": "STAND_ASIDE",
+                "min_slope": 0.20,
+                "sl_points": DEFAULT_SL_POINTS,
+                "tp_points": DEFAULT_TP_POINTS,
+            }
+        }
     preferred_session = best_sess
     win_rate = round(sum(1 for p in pnls if p > 0) / max(len(pnls), 1), 2)
     sample_size = len(pnls)
-    inferred_action = best_side if sum(pnls) >= 0 else ("SELL" if best_side == "BUY" else "BUY")
+    inferred_action = best_side
 
     candidate_id = f"cand_{uuid.uuid4().hex[:8]}"
     candidate_name = f"TabulaRasa-Alpha-{preferred_session}"
@@ -206,13 +221,15 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
         if t >= len(prices) - 1:
             continue
 
-        # Evaluate candidate rule condition (momentum slope over 10 intervals)
+        # Evaluate candidate rule condition (momentum slope over 10 intervals matching engine scaling)
         p_t10 = float(prices[t - 10]["close"]) if isinstance(prices[t - 10], dict) else float(prices[t - 10])
         p_next = float(prices[t + 1]["open"]) if isinstance(prices[t + 1], dict) and "open" in prices[t + 1] else (float(prices[t + 1]["close"]) if isinstance(prices[t + 1], dict) else float(prices[t + 1]))
         slope = (close_p - p_t10) / 10.0
-        if target_action in ("BUY", "BOTH") and slope >= min_slope:
+        price_scale = 0.001 if close_p < 10.0 else (0.1 if close_p < 300.0 else 1.0)
+        slope_threshold = min_slope * price_scale
+        if target_action in ("BUY", "BOTH") and slope >= slope_threshold:
             position = (p_next, 1)
-        elif target_action in ("SELL", "BOTH") and slope <= -min_slope:
+        elif target_action in ("SELL", "BOTH") and slope <= -slope_threshold:
             position = (p_next, -1)
 
     if position:

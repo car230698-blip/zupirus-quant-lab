@@ -158,40 +158,89 @@ async def handle_tradingview_webhook(
 
     # 6. Query active accounts entitled to receive this signal
     with tx() as c:
-        # Accounts must have active service subscription AND active cloud slot
+        # Accounts must have active service subscription AND active cloud slot (or admin bypass)
         query = """
             SELECT
                 a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
+                a.max_lot,
                 a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
                 a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
                 a.account_type, a.contract_size,
                 s.plan_tier, s.allow_alpha_strategies
             FROM trading_accounts a
-            JOIN subscriptions s ON s.user_id = a.user_id
+            LEFT JOIN subscriptions s ON s.user_id = a.user_id
             WHERE a.auto_trade = 1
               AND a.deployment_state = 'DEPLOYED'
               AND a.equity > 0
-              AND s.service_expires_at > ?
-              AND (a.cloud_expires_at IS NULL OR a.cloud_expires_at > ?)
+              AND (
+                  (s.service_expires_at IS NOT NULL AND s.service_expires_at > ?)
+                  OR (a.cloud_expires_at IS NOT NULL AND a.cloud_expires_at > ?)
+                  OR a.user_id IN (SELECT id FROM users WHERE role = 'admin')
+              )
         """
         rows = c.execute(query, (now_ts, now_ts)).fetchall()
 
     eligible_accounts = []
+    seen_acc_ids = set()
     import json
     for r in rows:
         d = dict(r)
+        if d["id"] in seen_acc_ids:
+            continue
+        seen_acc_ids.add(d["id"])
         # If strategy is ALPHA, verify user subscription permits ALPHA strategies
         if sanitized_signal.strategy_tier == "ALPHA" and not d.get("allow_alpha_strategies"):
             continue
         raw_cfg = d.get("risk_config")
+        rc = {}
         if raw_cfg:
             try:
-                cfg_obj = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
-                d["risk_percent"] = float(cfg_obj.get("risk_percent", 1.0))
-                d["max_lot"] = float(cfg_obj.get("max_lot", 5.0))
+                rc = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
             except Exception:
-                pass
+                rc = {}
+        d["risk_percent"] = float(rc.get("risk_percent", 1.0))
+        d_max = d.get("max_lot")
+        if d_max is not None and float(d_max) > 0:
+            d["max_lot"] = float(d_max)
+        else:
+            d["max_lot"] = float(rc.get("max_lot", 5.0) or 5.0)
         eligible_accounts.append(d)
+
+    # Also enqueue into Direct MT5 EA Bridge (dispatches) for any connected & enabled DEMO EA terminals
+    ea_queued = 0
+    try:
+        from app.routers.ea import _ensure_ea_tables
+        with tx() as c_ea:
+            _ensure_ea_tables(c_ea)
+            ea_rows = c_ea.execute(
+                """
+                SELECT a.id FROM accounts a
+                JOIN devices d ON d.account_id = a.id
+                WHERE a.enabled = 1 AND a.mode = 'DEMO'
+                """
+            ).fetchall()
+            if ea_rows:
+                act_u = sanitized_signal.action.upper()
+                c_ea.execute(
+                    """
+                    INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
+                    VALUES(?, 'DEMO', ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO NOTHING
+                    """,
+                    (sanitized_signal.id, act_u, float(sanitized_signal.entry_price), float(sanitized_signal.stop_loss or 0), float(sanitized_signal.take_profit or 0), now_ts, now_ts + 300),
+                )
+                for er in ea_rows:
+                    c_ea.execute(
+                        """
+                        INSERT INTO dispatches(signal_id, account_id, state, volume, created, updated)
+                        VALUES(?, ?, 'queued', 0.01, ?, ?)
+                        ON CONFLICT(account_id, signal_id) DO UPDATE SET updated=excluded.updated
+                        """,
+                        (sanitized_signal.id, er["id"], now_ts, now_ts),
+                    )
+                    ea_queued += 1
+    except Exception as ea_err:
+        logger.warning(f"EA Bridge dispatch enqueue skipped in webhook: {ea_err}")
 
     if not eligible_accounts:
         logger.info(f"Signal {sanitized_signal.id} approved, but no active eligible accounts currently online.")

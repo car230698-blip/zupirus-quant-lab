@@ -53,17 +53,23 @@ async def execute_fan_out_for_signal(
             "executions": [],
             "error": "INVALID_ENTRY_PRICE",
         }
-    sl = float(signal["sl"]) if signal.get("sl") else None
-    tp = float(signal["tp"]) if signal.get("tp") else None
+    raw_sl = signal.get("sl") if signal.get("sl") is not None else signal.get("stop_loss")
+    sl = float(raw_sl) if raw_sl is not None and float(raw_sl) > 0 else None
+    raw_tp = signal.get("tp") if signal.get("tp") is not None else signal.get("take_profit")
+    tp = float(raw_tp) if raw_tp is not None and float(raw_tp) > 0 else None
 
     # Calculate SL distance in broker points consistently via point_size_for_symbol
-    from app.services.symbol_precision import point_size_for_symbol
+    from app.services.symbol_precision import point_size_for_symbol, pip_size_for_symbol
     sym_u = str(symbol or "XAUUSD").upper()
-    if sl:
-        sl_dist = abs(entry_price - sl)
-        sl_points = sl_dist / point_size_for_symbol(sym_u)
-    else:
-        sl_points = 300.0  # Default $300 risk per 1.0 standard lot
+    if not sl:
+        # Mandatory Stop Loss enforcement: never fire naked orders to customer accounts
+        def_sl_pips = 35.0 if "XAU" in sym_u else 25.0
+        p_size = pip_size_for_symbol(sym_u)
+        sl = round(entry_price - (def_sl_pips * p_size) if action == "BUY" else entry_price + (def_sl_pips * p_size), 5)
+        logger.info(f"Signal {signal_id} missing SL: Auto-attached mandatory shield SL={sl}")
+
+    sl_dist = abs(entry_price - sl)
+    sl_points = max(1.0, sl_dist / point_size_for_symbol(sym_u))
 
     tasks = []
     account_metas = []
@@ -338,15 +344,19 @@ async def execute_fan_out_for_signal(
             "broker_symbol": broker_sym,
         })
 
-        # 5. Schedule concurrent execution task
+        # 5. Schedule concurrent execution task with normalized digits to prevent broker rejection
+        from app.services.symbol_precision import digits_for_symbol
+        dec_places = digits_for_symbol(broker_sym)
+        rounded_sl = round(sl, dec_places) if sl is not None else None
+        rounded_tp = round(tp, dec_places) if tp is not None else None
         tasks.append(
             metaapi_client.execute_order(
                 metaapi_account_id=meta_id,
                 symbol=broker_sym,
                 action=action,
                 volume=volume,
-                stop_loss=sl,
-                take_profit=tp,
+                stop_loss=rounded_sl,
+                take_profit=rounded_tp,
                 comment=f"ZP-{signal_id[:6]}"
             )
         )
@@ -428,8 +438,11 @@ async def execute_fan_out_for_signal(
                 try:
                     has_cloud = c.execute("SELECT 1 FROM metaapi_cloud_accounts WHERE id = ?", (acc_id_val,)).fetchone()
                     if not has_cloud:
-                        u_row = c.execute("SELECT id FROM users LIMIT 1").fetchone()
-                        fallback_uid = u_row[0] if u_row else "system"
+                        ta_u = c.execute("SELECT user_id FROM trading_accounts WHERE id = ?", (acc_id_val,)).fetchone()
+                        fallback_uid = (ta_u[0] if ta_u and ta_u[0] else None) or ex.get("user_id")
+                        if not fallback_uid:
+                            u_row = c.execute("SELECT id FROM users LIMIT 1").fetchone()
+                            fallback_uid = u_row[0] if u_row else "system"
                         c.execute(
                             """
                             INSERT INTO metaapi_cloud_accounts(

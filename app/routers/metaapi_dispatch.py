@@ -51,26 +51,38 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
         now_ts = time.time()
         rows = c.execute("""
             SELECT a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
+                   a.max_lot,
                    a.risk_multiplier as multiplier,
                    a.is_prop_firm_mode, a.prop_stage, a.account_type, a.contract_size,
                    a.tick_value, a.currency,
                    a.is_compounding, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct, a.risk_config
             FROM trading_accounts a
-            JOIN subscriptions s ON s.user_id = a.user_id
+            LEFT JOIN subscriptions s ON s.user_id = a.user_id
             WHERE a.auto_trade=1 AND a.deployment_state='DEPLOYED' AND a.metaapi_account_id IS NOT NULL
-              AND s.service_expires_at > ?
-              AND (a.cloud_expires_at IS NULL OR a.cloud_expires_at > ?)
+              AND (
+                  (s.service_expires_at IS NOT NULL AND s.service_expires_at > ?)
+                  OR (a.cloud_expires_at IS NOT NULL AND a.cloud_expires_at > ?)
+                  OR a.user_id IN (SELECT id FROM users WHERE role = 'admin')
+              )
         """, (now_ts, now_ts)).fetchall()
         accounts = []
+        seen_acc_ids = set()
         for r in rows:
             d = dict(r)
+            if d["id"] in seen_acc_ids:
+                continue
+            seen_acc_ids.add(d["id"])
             rc = {}
             try:
                 rc = json.loads(d.get("risk_config") or "{}") if isinstance(d.get("risk_config"), str) else (d.get("risk_config") or {})
             except Exception:
                 rc = {}
             d["risk_percent"] = float(rc.get("risk_percent", rc.get("risk", 1.0)) or 1.0)
-            d["max_lot"] = float(rc.get("max_lot", 5.0) or 5.0)
+            d_max = d.get("max_lot")
+            if d_max is not None and float(d_max) > 0:
+                d["max_lot"] = float(d_max)
+            else:
+                d["max_lot"] = float(rc.get("max_lot", 5.0) or 5.0)
             accounts.append(d)
         seen_meta_ids = {a.get("metaapi_account_id") for a in accounts if a.get("metaapi_account_id")}
 

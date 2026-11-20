@@ -93,6 +93,13 @@ def check_mandatory_sl(
             return False, f"REJECTED_INVALID_STOP_LOSS: BUY SL {signal.stop_loss} >= entry {current_price}", signal
         if signal.action == "SELL" and signal.stop_loss <= current_price:
             return False, f"REJECTED_INVALID_STOP_LOSS: SELL SL {signal.stop_loss} <= entry {current_price}", signal
+        if signal.take_profit is not None:
+            if signal.take_profit <= 0:
+                return False, f"REJECTED_INVALID_TAKE_PROFIT: Non-positive TP {signal.take_profit}", signal
+            if signal.action == "BUY" and signal.take_profit <= current_price:
+                return False, f"REJECTED_INVALID_TAKE_PROFIT: BUY TP {signal.take_profit} <= entry {current_price}", signal
+            if signal.action == "SELL" and signal.take_profit >= current_price:
+                return False, f"REJECTED_INVALID_TAKE_PROFIT: SELL TP {signal.take_profit} >= entry {current_price}", signal
         return True, None, signal
 
     if not AUTO_ATTACH_ATR_SL:
