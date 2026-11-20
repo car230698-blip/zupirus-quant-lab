@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient.ts';
 import { useOrderQuery } from './hooks/useOrderQuery.ts';
@@ -9,8 +9,11 @@ import { UserOrdersTab } from './components/UserOrdersTab.tsx';
 import { AdminCommandRadarTab } from './components/AdminCommandRadarTab.tsx';
 import { AdminAIEvolutionTab } from './components/AdminAIEvolutionTab.tsx';
 import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTab.tsx';
-import { LandingPage } from './components/LandingPage.tsx';
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
+
+const LandingPage = lazy(() =>
+  import('./components/LandingPage.tsx').then((m) => ({ default: m.LandingPage }))
+);
 
 type UserTabKey = 'overview' | 'accounts' | 'orders';
 type AdminTabKey = 'radar' | 'ai' | 'business';
@@ -147,6 +150,18 @@ const AppContent: React.FC = () => {
     portal === 'user' && userTab === 'orders' && currentUser ? `/api/dashboard?${userOrderParams}` : null,
     sessionKey
   );
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      if (portal === 'admin') {
+        document.title = 'ZUPIRUS — Trạm Quản Trị Chỉ Huy Định Lượng';
+      } else if (portal === 'user') {
+        document.title = 'ZUPIRUS — Cổng Giao Dịch Định Lượng XAU/USD';
+      } else {
+        document.title = 'ZUPIRUS — Bot Trade Vàng XAU/USD Cloud MT5 Chuẩn Quỹ';
+      }
+    }
+  }, [portal]);
 
   useEffect(() => {
     checkAuth();
@@ -300,9 +315,22 @@ const AppContent: React.FC = () => {
   // Render Landing Page for zupirus.com / landing mode
   if (portal === 'landing') {
     return (
-      <LandingPage
-        onEnterApp={() => navigateToPortal('user')}
-      />
+      <Suspense
+        fallback={
+          <div className="min-h-screen bg-[#03050a] flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-10 h-10 rounded-xl border border-amber-500/40 bg-amber-950/30 flex items-center justify-center text-amber-400 font-mono font-bold animate-pulse">
+                Z
+              </div>
+              <span className="font-mono text-xs text-amber-300">Đang khởi tạo không gian lượng tử…</span>
+            </div>
+          </div>
+        }
+      >
+        <LandingPage
+          onEnterApp={() => navigateToPortal('user')}
+        />
+      </Suspense>
     );
   }
 

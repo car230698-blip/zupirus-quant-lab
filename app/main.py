@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, ORJSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from .db import ROOT, check_db_health, check_timescale_metadata, init, is_postgres, tx
 from .redis_client import get_redis_client
@@ -61,6 +62,7 @@ app = FastAPI(
     lifespan=lifespan,
     default_response_class=ORJSONResponse,
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 ORIGINS = os.getenv(
     'ALLOWED_ORIGINS',
     'https://zupirus.com,https://app.zupirus.com,https://adm.zupirus.com,http://localhost:5173,http://localhost:3000',
@@ -95,7 +97,10 @@ async def perimeter(request: Request, call_next):
         "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     )
     response.headers['Referrer-Policy'] = 'no-referrer'
-    response.headers['Cache-Control'] = 'no-store'
+    if request.url.path.startswith('/assets/'):
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    elif 'Cache-Control' not in response.headers:
+        response.headers['Cache-Control'] = 'no-store'
     return response
 
 
