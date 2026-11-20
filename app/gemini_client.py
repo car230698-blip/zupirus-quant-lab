@@ -215,3 +215,35 @@ def call_gemini(
     logger.info(f"Gemini pool exhausted or offline, returning fallback. Last err: {last_error}")
     return None, None
 
+
+def ping_single_key(raw_cipher: str, timeout: float = 6.0) -> Dict[str, Any]:
+    """Tests an individual key directly against Gemini API to verify health, quota and latency."""
+    api_key = _decrypt_gemini_key(raw_cipher)
+    if not api_key:
+        return {"ok": False, "status": "invalid", "message": "Không thể giải mã key", "latency_ms": 0}
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": "Hi"}]}],
+        "generationConfig": {"maxOutputTokens": 5}
+    }
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    t0 = time.perf_counter()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp.read()
+            latency = round((time.perf_counter() - t0) * 1000, 1)
+            return {"ok": True, "status": "active", "message": "Hoạt động tốt", "latency_ms": latency}
+    except urllib.error.HTTPError as he:
+        latency = round((time.perf_counter() - t0) * 1000, 1)
+        if he.code == 429:
+            return {"ok": False, "status": "rate_limited", "message": "Đạt giới hạn Quota (429)", "latency_ms": latency}
+        elif he.code in (400, 403):
+            return {"ok": False, "status": "invalid", "message": f"Key không hợp lệ hoặc bị khóa ({he.code})", "latency_ms": latency}
+        return {"ok": False, "status": "error", "message": f"HTTP {he.code}: {he.reason}", "latency_ms": latency}
+    except Exception as e:
+        latency = round((time.perf_counter() - t0) * 1000, 1)
+        return {"ok": False, "status": "error", "message": str(e), "latency_ms": latency}
+
+

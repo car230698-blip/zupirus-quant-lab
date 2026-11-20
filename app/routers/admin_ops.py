@@ -308,6 +308,87 @@ def delete_gemini_key(kid: str, u=Depends(get_current_admin)):
         audit(c, u['id'], 'gemini_key_deleted', {'id': kid, 'masked': row[1]})
     return {'ok': True}
 
+@router.post('/api/admin/gemini/keys/ping-all')
+def ping_all_gemini_keys(u=Depends(get_current_admin)):
+    """Pings every Gemini API key in the pool individually to verify health, latency and quota."""
+    from app.gemini_client import ping_single_key
+    with tx() as c:
+        rows = c.execute("SELECT id, key_masked, key_cipher, is_active FROM gemini_keys ORDER BY created ASC").fetchall()
+    
+    results = []
+    active_count = 0
+    now = time.time()
+    for r in rows:
+        kid = r[0]
+        masked = r[1]
+        cipher = r[2]
+        is_active = bool(r[3])
+        if not is_active:
+            results.append({
+                "id": kid,
+                "key_masked": masked,
+                "is_active": False,
+                "status": "disabled",
+                "message": "Đang tạm tắt",
+                "latency_ms": 0,
+            })
+            continue
+
+        res = ping_single_key(cipher)
+        st = res.get("status", "error")
+        if res.get("ok"):
+            active_count += 1
+
+        with tx() as c:
+            c.execute(
+                "UPDATE gemini_keys SET status = ?, last_used = ? WHERE id = ?",
+                (st, now, kid)
+            )
+
+        results.append({
+            "id": kid,
+            "key_masked": masked,
+            "is_active": True,
+            "status": st,
+            "message": res.get("message", "N/A"),
+            "latency_ms": res.get("latency_ms", 0),
+            "ok": bool(res.get("ok")),
+        })
+
+    return {
+        "ok": True,
+        "total": len(rows),
+        "active_healthy": active_count,
+        "keys": results,
+        "message": f"Đã kiểm tra {len(rows)} Gemini API Key ({active_count} key hoạt động tốt).",
+    }
+
+
+@router.post('/api/admin/gemini/keys/{kid}/ping')
+def ping_single_gemini_key_endpoint(kid: str, u=Depends(get_current_admin)):
+    """Pings a specific Gemini key to verify its current live connectivity."""
+    from app.gemini_client import ping_single_key
+    with tx() as c:
+        row = c.execute("SELECT id, key_masked, key_cipher, is_active FROM gemini_keys WHERE id = ?", (kid,)).fetchone()
+    if not row:
+        fail(404, "Không tìm thấy API Key")
+
+    res = ping_single_key(row[2])
+    st = res.get("status", "error")
+    now = time.time()
+    with tx() as c:
+        c.execute("UPDATE gemini_keys SET status = ?, last_used = ? WHERE id = ?", (st, now, kid))
+
+    return {
+        "ok": bool(res.get("ok")),
+        "id": kid,
+        "key_masked": row[1],
+        "status": st,
+        "message": res.get("message"),
+        "latency_ms": res.get("latency_ms", 0),
+    }
+
+
 @router.post('/api/admin/gemini/test')
 def test_gemini(p: TestGeminiPrompt, u=Depends(get_current_admin)):
     from app.gemini_client import call_gemini
