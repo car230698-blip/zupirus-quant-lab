@@ -242,9 +242,9 @@ void PollAndExecuteNextSignal()
    double execPrice = (side == "BUY") ? tick.ask : tick.bid;
    // Điều chỉnh khoảng cách SL/TP theo giá khớp thực tế trên sàn Demo của bạn để không bị lỗi Invalid Stops
    double slOffset = MathAbs(sigPrice - sigSl);
-   double tpOffset = MathAbs(sigTp - sigPrice);
-   double realSl = (side == "BUY") ? NormalizeDouble(execPrice - slOffset, digits) : NormalizeDouble(execPrice + slOffset, digits);
-   double realTp = (side == "BUY") ? NormalizeDouble(execPrice + tpOffset, digits) : NormalizeDouble(execPrice - tpOffset, digits);
+   double tpOffset = (sigTp > 0.0) ? MathAbs(sigTp - sigPrice) : 0.0;
+   double realSl = (slOffset > 0.0) ? ((side == "BUY") ? NormalizeDouble(execPrice - slOffset, digits) : NormalizeDouble(execPrice + slOffset, digits)) : 0.0;
+   double realTp = (sigTp > 0.0 && tpOffset > 0.0) ? ((side == "BUY") ? NormalizeDouble(execPrice + tpOffset, digits) : NormalizeDouble(execPrice - tpOffset, digits)) : 0.0;
 
    ExtTrade.SetExpertMagicNumber(InpMagicNumber);
    ExtTrade.SetDeviationInPoints(50);
@@ -266,11 +266,11 @@ void PollAndExecuteNextSignal()
    {
       if(dealTicket == 0) dealTicket = orderTicket;
       reportPayload = StringFormat(
-         "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"dispatch\":%I64d,\"nonce\":\"%s\",\"state\":\"filled\",\"ticket\":\"%I64u\",\"deal\":\"%I64u\",\"reason\":\"MT5 Live Demo Executed %.2f lot %s\",\"price\":%.2f}",
-         ExtLogin, ExtBrokerSrv, dispatchId, nonce, orderTicket, dealTicket, lot, sym, fillPrice
+         "{\"login\":\"%s\",\"server\":\"%s\",\"mode\":\"DEMO\",\"dispatch\":%I64d,\"nonce\":\"%s\",\"state\":\"filled\",\"ticket\":\"%I64u\",\"deal\":\"%I64u\",\"reason\":\"MT5 Live Demo Executed %.2f lot %s\",\"price\":%s}",
+         ExtLogin, ExtBrokerSrv, dispatchId, nonce, orderTicket, dealTicket, lot, sym, DoubleToString(fillPrice, digits)
       );
-      PrintFormat("[ZUPIRUS EA] ĐÃ KHỚP LỆNH THÀNH CÔNG TRÊN MT5! %s %.2f lot %s @ %.2f (Ticket #%I64u, Deal #%I64u)",
-                  side, lot, sym, fillPrice, orderTicket, dealTicket);
+      PrintFormat("[ZUPIRUS EA] ĐÃ KHỚP LỆNH THÀNH CÔNG TRÊN MT5! %s %.2f lot %s @ %s (Ticket #%I64u, Deal #%I64u)",
+                  side, lot, sym, DoubleToString(fillPrice, digits), orderTicket, dealTicket);
    }
    else
    {

@@ -673,7 +673,7 @@ class PositionWatcher:
                                                 exit_reason="BROKER_PARTIAL_CLOSED" if is_still_open_partial else "BROKER_DEAL_CLOSED",
                                                 accumulate_pnl=True,
                                             )
-                                            setkv(c, f"deal_synced:{dl_id}", "1")
+                                setkv(c, f"deal_synced:{dl_id}", "1")
                 except Exception as ds_err:
                     logger.debug(f"Deal history sync note for {acc_id}: {ds_err}")
 
