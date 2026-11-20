@@ -245,12 +245,13 @@ def test_execute_skill(
 async def ingest_trading_document(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
-    category: Optional[str] = Form("PRICE_ACTION"),
+    category: Optional[str] = Form(None),
     _admin=Depends(get_current_admin),
 ):
     """
     Ingest a Forex / Trading PDF or Markdown/Text document, extract quantitative rules,
     pass through Gemini with Fail-Closed Stop-Loss requirements, and package into an Agent Skill.
+    Strategy category is 100% automatically classified by AI based on document content.
     """
     filename = (file.filename or "trading_doc.pdf").lower()
     if not (filename.endswith(".pdf") or filename.endswith(".txt") or filename.endswith(".md")):
@@ -292,6 +293,22 @@ async def ingest_trading_document(
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", clean_title.lower()).strip("_")
     skill_id = f"doc_{slug[:32]}"
 
+    # Heuristic category classifier for resilience
+    text_lower = (extracted_text[:15000] + " " + clean_title).lower()
+    auto_cat_detected = "Price Action & Candlestick"
+    if any(k in text_lower for k in ("smc", "ict", "order block", "orderblock", "liquidity", "fair value gap", "fvg", "choch", "bos", "inducement")):
+        auto_cat_detected = "Smart Money Concept (SMC / ICT)"
+    elif any(k in text_lower for k in ("breakout", "break out", "momentum", "donchian", "range break", "resistance break")):
+        auto_cat_detected = "Breakout & Momentum"
+    elif any(k in text_lower for k in ("atr", "volatility", "bollinger", "keltner", "scalp", "m1", "m5")):
+        auto_cat_detected = "Volatility Scalping (ATR)"
+    elif any(k in text_lower for k in ("risk", "drawdown", "prop firm", "ftmo", "the5ers", "lot size", "money management", "position sizing")):
+        auto_cat_detected = "Quản Trị Rủi Ro & Vốn Quỹ Prop Firm"
+    elif any(k in text_lower for k in ("ema", "moving average", "macd", "trend", "supertrend", "rsi")):
+        auto_cat_detected = "Trend Following (Theo Xu Hướng)"
+
+    final_cat = category.strip() if category and category.strip() else auto_cat_detected
+
     # Structure prompt for Gemini Knowledge Extraction
     truncated_sample = extracted_text[:12000] # First ~12k characters for extraction prompt
     sys_instruction = (
@@ -299,10 +316,14 @@ async def ingest_trading_document(
         "Nhiệm vụ của bạn là đọc tài liệu giao dịch được cung cấp và chuẩn hóa thành một KỸ NĂNG ĐỊNH LƯỢNG (Agent Skill) "
         "dành riêng cho cặp vàng XAU/USD và Forex.\n"
         "BẮT BUỘC TUÂN THỦ NGUYÊN TẮC FAIL-CLOSED CỦA ZUPIRUS:\n"
-        "1. MỌI chiến lược bắt buộc phải có STOP LOSS CỨNG (Hard SL tính theo ATR(14) hoặc Pips). Nếu tài liệu không nêu rõ SL, bạn phải tự bổ sung quy tắc SL an toàn (mặc định 1.5 * ATR(14) M15).\n"
-        "2. Xác định rõ khung thời gian (Timeframe), phiên giao dịch (Á/Âu/Mỹ), và điều kiện kích hoạt vào lệnh (Trigger Conditions).\n"
-        "3. Trả về định dạng JSON hợp lệ chứa các trường:\n"
+        "1. TỰ ĐỘNG PHÂN LOẠI CHIẾN LƯỢC (detected_category): Phân tích nội dung và tự động xác định trường phái chính xác nhất "
+        "(ví dụ: 'Smart Money Concept (SMC / ICT)', 'Price Action & Candlestick', 'Breakout & Momentum', 'Volatility Scalping (ATR)', "
+        "'Trend Following', 'Order Flow & Liquidity', hoặc 'Quản Trị Rủi Ro & Vốn Quỹ'). Người dùng không cần chọn thủ công.\n"
+        "2. MỌI chiến lược bắt buộc phải có STOP LOSS CỨNG (Hard SL tính theo ATR(14) hoặc Pips). Nếu tài liệu không nêu rõ SL, bạn phải tự bổ sung quy tắc SL an toàn (mặc định 1.5 * ATR(14) M15).\n"
+        "3. Xác định rõ khung thời gian (Timeframe), phiên giao dịch (Á/Âu/Mỹ), và điều kiện kích hoạt vào lệnh (Trigger Conditions).\n"
+        "4. Trả về định dạng JSON hợp lệ chứa các trường:\n"
         "   - skill_name: Tên kỹ năng ngắn gọn, chuyên nghiệp\n"
+        "   - detected_category: Trường phái chiến lược mà bạn tự động nhận diện từ tài liệu\n"
         "   - description: Tóm tắt 1 câu cốt lõi của chiến lược\n"
         "   - trigger_condition: Điều kiện kích hoạt rõ ràng\n"
         "   - stop_loss_rule: Quy tắc cắt lỗ bắt buộc\n"
@@ -312,9 +333,9 @@ async def ingest_trading_document(
     )
 
     prompt = (
-        f"Hãy phân tích tài liệu sau đây và bóc tách thành Kỹ Năng Định Lượng ZUPIRUS:\n"
-        f"Tiêu đề: {clean_title}\n"
-        f"Danh mục: {category}\n"
+        f"Hãy đọc và tự động phân loại, bóc tách tài liệu sau đây thành Kỹ Năng Định Lượng ZUPIRUS:\n"
+        f"Tên tài liệu: {clean_title}\n"
+        f"Gợi ý phân loại sơ bộ: {final_cat}\n"
         f"Nội dung trích xuất:\n{truncated_sample}\n\n"
         "Trả về ĐÚNG MỘ ĐỐI TƯỢNG JSON (không kèm markdown ```json bọc ngoài nếu có thể, hoặc chuẩn JSON)."
     )
@@ -340,19 +361,20 @@ async def ingest_trading_document(
         # Resilient fallback synthesis
         extracted_data = {
             "skill_name": f"{clean_title[:40]} Quant Strategy",
-            "description": f"Chiến lược định lượng bóc tách từ tài liệu '{clean_title}' với 4 lớp giáp bảo vệ vốn.",
-            "trigger_condition": f"Tín hiệu xác nhận breakout/retest theo danh mục {category} trên nến M15.",
+            "detected_category": final_cat,
+            "description": f"Chiến lược định lượng tự động phân loại '{final_cat}' bóc tách từ tài liệu '{clean_title}'.",
+            "trigger_condition": f"Tín hiệu xác nhận breakout/retest theo trường phái {final_cat} trên nến M15.",
             "stop_loss_rule": "Bắt buộc Stop-Loss cứng = 1.5 * ATR(14) khung M15, tối đa 35 pips.",
             "take_profit_rule": "R:R tối thiểu 1:2. Dời SL về hòa vốn (Auto BE) khi giá đạt +1R.",
             "rules_summary": [
-                f"Đấu nối danh mục {category} trích xuất từ {filename}.",
+                f"Tự động nhận diện trường phái: {final_cat}.",
                 "Khung thời gian tối ưu M15, phiên London & New York.",
                 "Cắt lỗ cứng theo ATR(14) M15 (Fail-Closed).",
                 "Khóa giao dịch khi chạm giới hạn rủi ro 4% quỹ.",
             ],
             "full_skill_md": (
                 f"# {clean_title} — Quant Skill Spec\n\n"
-                f"## 1. Tổng Quan\nChiến lược giao dịch bóc tách tự động từ tài liệu `{clean_title}`.\n\n"
+                f"## 1. Tổng Quan\nChiến lược giao dịch bóc tách tự động từ tài liệu `{clean_title}`, tự động xếp loại: `{final_cat}`.\n\n"
                 f"## 2. Quy Tắc Rủi Ro Bắt Buộc (Fail-Closed)\n"
                 f"- **Stop Loss**: 1.5 * ATR(14) M15 (Không bao giờ thả nổi không SL).\n"
                 f"- **Auto BE**: Kích hoạt khi lợi nhuận đạt 1R.\n"
@@ -363,9 +385,10 @@ async def ingest_trading_document(
             ),
         }
 
+    detected_category = extracted_data.get("detected_category") or final_cat
     skill_name = extracted_data.get("skill_name") or f"{clean_title[:35]} (Learned)"
-    skill_desc = extracted_data.get("description") or f"Chiến lược học từ {filename}"
-    trigger_cond = extracted_data.get("trigger_condition") or f"Tín hiệu kỹ thuật {category}"
+    skill_desc = extracted_data.get("description") or f"Chiến lược học từ {filename} [{detected_category}]"
+    trigger_cond = extracted_data.get("trigger_condition") or f"Tín hiệu kỹ thuật {detected_category}"
     full_md = extracted_data.get("full_skill_md") or f"# {skill_name}\n\n{skill_desc}"
 
     # Write SKILL.md to learned folder
@@ -394,14 +417,16 @@ async def ingest_trading_document(
         "skill_id": skill_id,
         "name": skill_name,
         "description": skill_desc,
-        "category": category,
+        "category": detected_category,
+        "detected_category": detected_category,
+        "auto_classified": True,
         "pages_processed": page_count,
         "text_length": len(extracted_text),
         "stop_loss_rule": extracted_data.get("stop_loss_rule"),
         "take_profit_rule": extracted_data.get("take_profit_rule"),
         "rules_summary": extracted_data.get("rules_summary", []),
         "file_saved": bool(saved_file),
-        "message": f"Đã bóc tách thành công kỹ năng '{skill_name}' từ tài liệu {filename} và nạp vào bộ não AI.",
+        "message": f"Đã tự động phân loại [{detected_category}] và bóc tách thành công kỹ năng '{skill_name}'.",
     }
 
 

@@ -550,37 +550,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
         </div>
 
         <form onSubmit={handleIngestPdf} className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div>
-              <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                TÊN CHIẾN LƯỢC / TÀI LIỆU (TÙY CHỌN)
-              </label>
-              <input
-                type="text"
-                value={pdfTitle}
-                onChange={(e) => setPdfTitle(e.target.value)}
-                placeholder="VD: Smart Money Concept Gold M15"
-                className="w-full rounded-xl border border-white/10 bg-[#040710] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                DANH MỤC CHIẾN LƯỢC
-              </label>
-              <select
-                value={pdfCategory}
-                onChange={(e) => setPdfCategory(e.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-[#040710] px-3 py-2 text-xs text-white focus:border-cyan-400 focus:outline-none"
-              >
-                <option value="PRICE_ACTION">Price Action (Hành động giá)</option>
-                <option value="SMC_ICT">Smart Money Concept (SMC / ICT)</option>
-                <option value="BREAKOUT">Breakout &amp; Momentum (Phá vỡ)</option>
-                <option value="VOLATILITY">Volatility Scalping (Biến động ATR)</option>
-                <option value="RISK_MGMT">Quản Trị Rủi Ro &amp; Vốn Chuẩn Quỹ</option>
-              </select>
-            </div>
-
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-[11px] font-mono text-slate-400 mb-1">
                 CHỌN FILE TÀI LIỆU (.PDF, .TXT, .MD)
@@ -597,23 +567,36 @@ export const AdminAIEvolutionTab: React.FC = () => {
                     }
                   }
                 }}
-                className="w-full text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-cyan-500/20 file:text-cyan-300 hover:file:bg-cyan-500/30 cursor-pointer"
+                className="w-full text-xs text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-cyan-500/20 file:text-cyan-300 hover:file:bg-cyan-500/30 cursor-pointer rounded-xl border border-white/10 bg-[#040710] p-1.5"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                TÊN CHIẾN LƯỢC (TỰ ĐỘNG ĐIỀN HOẶC TÙY CHỈNH)
+              </label>
+              <input
+                type="text"
+                value={pdfTitle}
+                onChange={(e) => setPdfTitle(e.target.value)}
+                placeholder="Tự động đặt theo tên file hoặc nội dung sách"
+                className="w-full rounded-xl border border-white/10 bg-[#040710] px-3 py-2.5 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
               />
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <div className="text-[11px] font-mono text-amber-300/80 flex items-center gap-1.5">
-              <span>🛡️ Quy chuẩn ZUPIRUS:</span>
-              <span>Bắt buộc Hard Stop-Loss • Không Martingale • Lọc phiên Á/Âu/Mỹ</span>
+            <div className="text-[11px] font-mono text-emerald-300/90 flex items-center gap-1.5">
+              <span>✨ AI Tự Động Phân Loại:</span>
+              <span className="text-slate-300">Hệ thống tự động quét nội dung nhận diện trường phái (SMC / Price Action / Breakout / ATR / Quản trị vốn) mà bạn không cần chọn thủ công.</span>
             </div>
 
             <button
               type="submit"
               disabled={isIngesting || !pdfFile}
-              className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 transition cursor-pointer shadow-lg shadow-cyan-500/20"
+              className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 transition cursor-pointer shadow-lg shadow-cyan-500/20 whitespace-nowrap"
             >
-              {isIngesting ? 'Đang Xử Lý & Huấn Luyện AI...' : '⚡ Bóc Tách Quy Tắc & Huấn Luyện AI'}
+              {isIngesting ? 'Đang Bóc Tách & Tự Động Phân Loại...' : '⚡ Bóc Tách & Huấn Luyện AI'}
             </button>
           </div>
         </form>
@@ -645,14 +628,19 @@ export const AdminAIEvolutionTab: React.FC = () => {
         {/* Result summary card */}
         {lastIngestedResult && (
           <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/20 p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-emerald-300 flex items-center gap-2">
                 <span>✓ Kỹ Năng Đã Biên Soạn Thành Công:</span>
                 <span className="text-white font-mono">{lastIngestedResult.name}</span>
               </span>
-              <span className="rounded bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 font-mono text-[10px] text-emerald-300">
-                ACTIVE
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-cyan-500/20 border border-cyan-400/40 px-2.5 py-0.5 font-mono text-[10.5px] font-bold text-cyan-300">
+                  🎯 Trường Phái: {lastIngestedResult.detected_category || lastIngestedResult.category || 'Tự Động'}
+                </span>
+                <span className="rounded bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 font-mono text-[10px] text-emerald-300">
+                  ACTIVE
+                </span>
+              </div>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
               {lastIngestedResult.description}
