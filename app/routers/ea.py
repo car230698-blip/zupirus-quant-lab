@@ -105,7 +105,10 @@ def download_ea_bridge():
     """Serve the ready-to-compile ZupirusDemoBridge.mq5 Expert Advisor for MetaTrader 5 Desktop."""
     from pathlib import Path
     from fastapi.responses import Response
-    mq5_path = Path(__file__).resolve().parents[2] / "public" / "ZupirusDemoBridge.mq5"
+    root = Path(__file__).resolve().parents[2]
+    mq5_path = root / "public" / "ZupirusDemoBridge.mq5"
+    if not mq5_path.exists():
+        mq5_path = root / "dist" / "ZupirusDemoBridge.mq5"
     content = mq5_path.read_text(encoding="utf-8") if mq5_path.exists() else "// ZupirusDemoBridge.mq5 not found"
     return Response(
         content=content,
@@ -169,7 +172,7 @@ def device(c, request: Request, p):
     return a
 
 class OpenPositionItem(Model):
-    ticket: str
+    ticket: Union[str, int]
     symbol: str = 'XAUUSD'
     side: Literal['BUY', 'SELL'] = 'BUY'
     volume: float = Field(gt=0, le=1000)

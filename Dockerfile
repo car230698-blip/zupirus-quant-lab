@@ -21,6 +21,7 @@ COPY requirements.lock .
 RUN uv pip install --system --no-cache -r requirements.lock uvloop && \
     useradd -u 10001 -m lab && mkdir /data && chown lab:lab /data
 COPY --from=frontend-builder --chown=lab:lab /build/dist dist
+COPY --chown=lab:lab public public
 COPY --chown=lab:lab app app
 COPY --chown=lab:lab cli cli
 COPY --chown=lab:lab data data
