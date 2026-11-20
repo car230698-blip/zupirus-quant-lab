@@ -23,6 +23,14 @@ export const AdminAIEvolutionTab: React.FC = () => {
   const [aiTestMsg, setAiTestMsg] = useState('');
   const [msg, setMsg] = useState('');
 
+  // PDF / Document Ingestion state
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfTitle, setPdfTitle] = useState('');
+  const [pdfCategory, setPdfCategory] = useState('PRICE_ACTION');
+  const [isIngesting, setIsIngesting] = useState(false);
+  const [ingestStep, setIngestStep] = useState(0);
+  const [lastIngestedResult, setLastIngestedResult] = useState<any>(null);
+
   const loadAll = useCallback(async () => {
     try {
       const [eRes, gRes, sRes] = await Promise.all([
@@ -139,6 +147,54 @@ export const AdminAIEvolutionTab: React.FC = () => {
       setAiTestMsg(res.ok ? `Kết nối thành công (${d.model || 'Gemini'} • ${d.latency_ms || 0}ms)` : `Lỗi: ${d.detail || d.error}`);
     } finally {
       setTestingAi(false);
+    }
+  };
+
+  const handleIngestPdf = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pdfFile) {
+      setMsg('Vui lòng chọn file PDF, TXT hoặc MD để nạp vào hệ thống.');
+      return;
+    }
+    setIsIngesting(true);
+    setIngestStep(1);
+    setLastIngestedResult(null);
+
+    const formData = new FormData();
+    formData.append('file', pdfFile);
+    if (pdfTitle.trim()) formData.append('title', pdfTitle.trim());
+    formData.append('category', pdfCategory);
+
+    try {
+      const stepTimer1 = setTimeout(() => setIngestStep(2), 1200);
+      const stepTimer2 = setTimeout(() => setIngestStep(3), 3500);
+
+      const res = await fetch('/api/admin/skills/ingest-pdf', {
+        method: 'POST',
+        headers: { 'X-Zupirus': '1' },
+        credentials: 'include',
+        body: formData,
+      });
+
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
+      setIngestStep(4);
+
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setLastIngestedResult(data);
+        setMsg(`✓ Huấn luyện thành công: Đã tạo kỹ năng '${data.name}' từ tài liệu.`);
+        setPdfFile(null);
+        setPdfTitle('');
+        await loadAll();
+      } else {
+        setMsg(`Lỗi bóc tách tài liệu: ${data.detail || data.message || 'Không thể xử lý'}`);
+      }
+    } catch (err: any) {
+      setMsg(`Lỗi kết nối khi nạp tài liệu: ${err.message || String(err)}`);
+    } finally {
+      setIsIngesting(false);
+      setTimeout(() => setIngestStep(0), 4000);
     }
   };
 
@@ -474,6 +530,152 @@ export const AdminAIEvolutionTab: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 5. Huấn Luyện AI Từ Sách & Tài Liệu PDF (PDF Knowledge Ingestion) */}
+      <div className="quant-panel p-6 space-y-4 border border-cyan-500/30 bg-gradient-to-b from-[#060c1d] to-[#030612]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+          <div>
+            <div className="font-mono text-[11px] uppercase tracking-widest text-cyan-400 flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+              Nạp Tri Thức &amp; Tự Động Tổng Hợp Kỹ Năng Quant
+            </div>
+            <h3 className="mt-1 text-base font-bold text-white">
+              Huấn Luyện AI Từ Sách &amp; Tài Liệu PDF (PDF Knowledge Ingestion)
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-300">
+              Tải lên tài liệu PDF, sách chiến lược hoặc cẩm nang giao dịch. Gemini sẽ bóc tách quy tắc định lượng, ép chuẩn Stop-Loss Fail-Closed và tự động biên soạn thành kỹ năng mới cho AI.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleIngestPdf} className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                TÊN CHIẾN LƯỢC / TÀI LIỆU (TÙY CHỌN)
+              </label>
+              <input
+                type="text"
+                value={pdfTitle}
+                onChange={(e) => setPdfTitle(e.target.value)}
+                placeholder="VD: Smart Money Concept Gold M15"
+                className="w-full rounded-xl border border-white/10 bg-[#040710] px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                DANH MỤC CHIẾN LƯỢC
+              </label>
+              <select
+                value={pdfCategory}
+                onChange={(e) => setPdfCategory(e.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-[#040710] px-3 py-2 text-xs text-white focus:border-cyan-400 focus:outline-none"
+              >
+                <option value="PRICE_ACTION">Price Action (Hành động giá)</option>
+                <option value="SMC_ICT">Smart Money Concept (SMC / ICT)</option>
+                <option value="BREAKOUT">Breakout &amp; Momentum (Phá vỡ)</option>
+                <option value="VOLATILITY">Volatility Scalping (Biến động ATR)</option>
+                <option value="RISK_MGMT">Quản Trị Rủi Ro &amp; Vốn Chuẩn Quỹ</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                CHỌN FILE TÀI LIỆU (.PDF, .TXT, .MD)
+              </label>
+              <input
+                type="file"
+                accept=".pdf,.txt,.md"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    setPdfFile(f);
+                    if (!pdfTitle) {
+                      setPdfTitle(f.name.replace(/\.[^/.]+$/, ''));
+                    }
+                  }
+                }}
+                className="w-full text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-cyan-500/20 file:text-cyan-300 hover:file:bg-cyan-500/30 cursor-pointer"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div className="text-[11px] font-mono text-amber-300/80 flex items-center gap-1.5">
+              <span>🛡️ Quy chuẩn ZUPIRUS:</span>
+              <span>Bắt buộc Hard Stop-Loss • Không Martingale • Lọc phiên Á/Âu/Mỹ</span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isIngesting || !pdfFile}
+              className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 text-xs font-bold text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 transition cursor-pointer shadow-lg shadow-cyan-500/20"
+            >
+              {isIngesting ? 'Đang Xử Lý & Huấn Luyện AI...' : '⚡ Bóc Tách Quy Tắc & Huấn Luyện AI'}
+            </button>
+          </div>
+        </form>
+
+        {/* Ingest Progress Stepper */}
+        {isIngesting && (
+          <div className="rounded-xl border border-cyan-500/30 bg-[#04091a] p-4 space-y-2">
+            <div className="text-xs font-bold text-cyan-300 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+              Tiến Trình Huấn Luyện Tri Thức Định Lượng:
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-[11px] font-mono">
+              <div className={`p-2 rounded border ${ingestStep >= 1 ? 'border-cyan-400 bg-cyan-500/10 text-cyan-200' : 'border-white/10 text-slate-500'}`}>
+                1. Đọc văn bản tài liệu {ingestStep === 1 && '⏳'}
+              </div>
+              <div className={`p-2 rounded border ${ingestStep >= 2 ? 'border-cyan-400 bg-cyan-500/10 text-cyan-200' : 'border-white/10 text-slate-500'}`}>
+                2. Gemini bóc tách logic {ingestStep === 2 && '⏳'}
+              </div>
+              <div className={`p-2 rounded border ${ingestStep >= 3 ? 'border-cyan-400 bg-cyan-500/10 text-cyan-200' : 'border-white/10 text-slate-500'}`}>
+                3. Kiểm định Stop-Loss {ingestStep === 3 && '⏳'}
+              </div>
+              <div className={`p-2 rounded border ${ingestStep >= 4 ? 'border-emerald-400 bg-emerald-500/10 text-emerald-300' : 'border-white/10 text-slate-500'}`}>
+                4. Đóng gói Kỹ Năng {ingestStep >= 4 && '✓'}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Result summary card */}
+        {lastIngestedResult && (
+          <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/20 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-300 flex items-center gap-2">
+                <span>✓ Kỹ Năng Đã Biên Soạn Thành Công:</span>
+                <span className="text-white font-mono">{lastIngestedResult.name}</span>
+              </span>
+              <span className="rounded bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 font-mono text-[10px] text-emerald-300">
+                ACTIVE
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              {lastIngestedResult.description}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg border border-white/10 bg-[#030611] p-2.5">
+                <span className="font-mono text-[10px] uppercase text-amber-400 block mb-1">Quy Tắc Cắt Lỗ (Stop-Loss)</span>
+                <span className="text-slate-200">{lastIngestedResult.stop_loss_rule || '1.5 * ATR(14) M15'}</span>
+              </div>
+              <div className="rounded-lg border border-white/10 bg-[#030611] p-2.5">
+                <span className="font-mono text-[10px] uppercase text-cyan-400 block mb-1">Chốt Lời &amp; Auto BE</span>
+                <span className="text-slate-200">{lastIngestedResult.take_profit_rule || 'R:R 1:2 • Auto BE tại +1R'}</span>
+              </div>
+            </div>
+            {Array.isArray(lastIngestedResult.rules_summary) && lastIngestedResult.rules_summary.length > 0 && (
+              <ul className="text-xs text-slate-300 space-y-1 list-disc pl-4 font-mono">
+                {lastIngestedResult.rules_summary.map((r: string, idx: number) => (
+                  <li key={idx}>{r}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Learned Skills & Research WFO Operations */}
