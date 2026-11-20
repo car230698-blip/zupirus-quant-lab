@@ -346,7 +346,7 @@ def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
             live_usd_sum = round(sum(pnls) - sum(sh_pips_list), 2)
             total_pnl = live_usd_sum if (len(pnls) > len(sh_pips_list)) else sh_pips_sum
             unit_lbl = "USD" if (len(pnls) > len(sh_pips_list) and not sh_pips_list) else ("pips (Shadow)" if len(sh_pips_list) == len(pnls) else f"USD (Live: {live_usd_sum:+.2f} USD, Shadow: {sh_pips_sum:+.1f} pips)")
-            if win_rate >= 0.60:
+            if win_rate >= 0.58 and total_pnl > 0:
                 rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}% (Mẫu: {len(pnls)} lệnh, Hiệu suất: {total_pnl:+.2f} {unit_lbl})."
                 store_memory(
                     c,
@@ -396,6 +396,58 @@ Khi có tín hiệu {side} được gửi đến trong phiên {sess}, AI Agent �
                     "samples": len(pnls),
                     "rule": rule_desc,
                     "skill_id": learned_skill_id,
+                })
+            elif win_rate <= 0.38 and total_pnl < 0:
+                # Self-learned Hazard Guard: Learn from repeated losses and block toxic clusters
+                rule_desc = f"Quy tắc cảnh báo rủi ro: Trong phiên {sess}, tín hiệu {side} có xác suất thua cao ({100 - win_rate*100:.0f}%, PnL âm: {total_pnl:+.2f} {unit_lbl}, Mẫu: {len(pnls)} lệnh). Khuyến nghị chặn chiều này để bảo toàn vốn."
+                store_memory(
+                    c,
+                    category=CATEGORY_SEMANTIC,
+                    title=f"Discovered Hazard: Avoid {sess} {side}",
+                    content=rule_desc,
+                    tags=["discovered_hazard", "avoid_rule", sess.lower(), side.lower(), "inductive"],
+                    metadata={"session": sess, "side": side, "win_rate": win_rate, "sample_size": len(pnls), "hazard": True}
+                )
+                sess_slug = re.sub(r"[^a-z0-9]+", "_", sess.lower()).strip("_")
+                side_slug = re.sub(r"[^a-z0-9]+", "_", side.lower()).strip("_")
+                learned_skill_id = f"learned_{sess_slug}_{side_slug}_avoid"
+                learned_name = f"Learned Hazard Guard: Avoid {sess} {side}"
+                learned_desc = f"Lá chắn tự học: Tránh vào lệnh {side} trong phiên {sess} do xác suất thua cao ({100 - win_rate*100:.0f}% thua qua {len(pnls)} lệnh thực tế)."
+                learned_trigger = f"Khi có tín hiệu {side} phát sinh trong phiên {sess}."
+                learned_md = f"""# Lá Chắn Rủi Ro Tự Học: {learned_name}
+
+## Nguồn Gốc & Thống Kê Thua Lỗ Thực Chiến
+Được đúc kết tự động qua bài học phản tư (Reflective Memory) của AI Agent từ {len(pnls)} lệnh thực tế nhằm ngăn ngừa lặp lại chuỗi thua.
+- Phiên giao dịch: {sess}
+- Hướng lệnh cần tránh: {side}
+- Tỷ lệ thua: {100 - win_rate*100:.0f}% (WinRate chỉ {win_rate*100:.0f}%)
+- Khoản lỗ tích lũy: {total_pnl:+.2f} {unit_lbl}
+
+## Hướng Dẫn Kích Hoạt
+Khi có tín hiệu {side} phát sinh trong phiên {sess}, bộ điều phối tự động kích hoạt lá chắn này để CHẶN lệnh, bảo vệ tài khoản khỏi rủi ro sụt giảm vốn lặp lại.
+"""
+                try:
+                    from app.skills.registry import register_learned_skill
+                    register_learned_skill(
+                        skill_id=learned_skill_id,
+                        name=learned_name,
+                        description=learned_desc,
+                        trigger_condition=learned_trigger,
+                        skill_md=learned_md,
+                        db_cursor=c,
+                        auto_approve=True,
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not register learned hazard guard {learned_skill_id}: {e}")
+
+                discovered_rules.append({
+                    "session": sess,
+                    "side": side,
+                    "win_rate": win_rate,
+                    "samples": len(pnls),
+                    "rule": rule_desc,
+                    "skill_id": learned_skill_id,
+                    "action": "AVOID",
                 })
 
     return discovered_rules

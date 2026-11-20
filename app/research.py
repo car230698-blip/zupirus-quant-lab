@@ -180,10 +180,29 @@ def discover_candidate_from_observations(
 
 def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, Any]) -> Tuple[float, List[float]]:
     """Evaluates inductive candidate rules on a window of price series."""
-    sl = float(candidate_rules.get("sl_points", DEFAULT_SL_POINTS))
-    tp = float(candidate_rules.get("tp_points", DEFAULT_TP_POINTS))
+    raw_sl = float(candidate_rules.get("sl_points", DEFAULT_SL_POINTS))
+    raw_tp = float(candidate_rules.get("tp_points", DEFAULT_TP_POINTS))
     target_action = candidate_rules.get("action", "BUY")
     min_slope = float(candidate_rules.get("min_slope", 0.20))
+
+    # Dynamic asset scaling to support Gold, FX, Indices, and Crypto
+    ref_price = 2650.0
+    if prices:
+        first_bar = prices[0]
+        ref_price = float(first_bar["close"]) if isinstance(first_bar, dict) else float(first_bar)
+
+    if ref_price < 10.0:
+        asset_scale = 0.001
+        spread_cost = 0.00015
+    elif ref_price < 300.0:
+        asset_scale = 0.1
+        spread_cost = 0.03
+    else:
+        asset_scale = 1.0
+        spread_cost = 0.37
+
+    sl = (raw_sl * asset_scale) if raw_sl >= 1.0 and asset_scale < 1.0 else raw_sl
+    tp = (raw_tp * asset_scale) if raw_tp >= 1.0 and asset_scale < 1.0 else raw_tp
 
     returns = []
     position = None
@@ -200,20 +219,20 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
             # Conservative dual-hit rule: check Stop Loss before Take Profit using high/low wicks (including last bar)
             if direction == 1:
                 if low_p - entry <= -sl:
-                    returns.append(-sl - 0.37)
+                    returns.append(-sl - spread_cost)
                     position = None
                     continue
                 if high_p - entry >= tp:
-                    returns.append(tp - 0.37)
+                    returns.append(tp - spread_cost)
                     position = None
                     continue
             else:
                 if entry - high_p <= -sl:
-                    returns.append(-sl - 0.37)
+                    returns.append(-sl - spread_cost)
                     position = None
                     continue
                 if entry - low_p >= tp:
-                    returns.append(tp - 0.37)
+                    returns.append(tp - spread_cost)
                     position = None
                     continue
             continue
@@ -235,7 +254,7 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
     if position:
         entry, direction = position
         last_c = float(prices[-1]["close"]) if isinstance(prices[-1], dict) else float(prices[-1])
-        returns.append((last_c - entry) * direction - 0.37)
+        returns.append((last_c - entry) * direction - spread_cost)
 
     return sum(returns), returns
 
@@ -260,17 +279,30 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         train = prices[start:start + 120]
         test = prices[start + 120:start + 180]
 
-        # Tune slope parameter on in-sample train
-        slopes = [0.15, 0.20, 0.30]
-        best_slope = max(slopes, key=lambda s: score_candidate_on_window(train, {**rules, "min_slope": s})[0])
+        # Tune slope and risk-reward ratio parameters on in-sample train
+        base_sl = float(rules.get("sl_points", DEFAULT_SL_POINTS))
+        param_grid = [
+            (0.15, 1.5),
+            (0.20, 2.0),
+            (0.25, 2.0),
+            (0.30, 2.5),
+        ]
+        best_slope, best_rr = max(
+            param_grid,
+            key=lambda p: score_candidate_on_window(
+                train,
+                {**rules, "min_slope": p[0], "tp_points": base_sl * p[1]}
+            )[0]
+        )
 
-        tuned_rules = {**rules, "min_slope": best_slope}
+        tuned_rules = {**rules, "min_slope": best_slope, "tp_points": round(base_sl * best_rr, 2)}
         pnl, rets = score_candidate_on_window(test, tuned_rules)
         all_returns.extend(rets)
         folds.append({
             'train': [start, start + 119],
             'test': [start + 120, start + 179],
             'tuned_slope': best_slope,
+            'tuned_rr': best_rr,
             'oos_net_price_units': round(pnl, 4),
             'trades': len(rets),
         })
@@ -286,9 +318,13 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
     base_price = float(prices[0]["close"]) if prices and isinstance(prices[0], dict) else (float(prices[0]) if prices and float(prices[0]) > 0 else 2650.0)
     max_dd_pct = round((dd / max(base_price, 1.0)) * 100.0, 2)
     if folds:
-        # Select deployed slope strictly from the latest in-sample training window (zero OOS peeking)
+        # Select deployed slope and RR strictly from the latest in-sample training window (zero OOS peeking)
         latest_fold = folds[-1]
-        rules = {**rules, "min_slope": latest_fold.get("tuned_slope", rules.get("min_slope", 0.20))}
+        rules = {
+            **rules,
+            "min_slope": latest_fold.get("tuned_slope", rules.get("min_slope", 0.20)),
+            "tp_points": round(base_sl * latest_fold.get("tuned_rr", 2.0), 2),
+        }
         # Evaluate the fixed final rule-set across all OOS test windows so reported metrics validate the exact saved rules
         fixed_returns: List[float] = []
         for start in range(0, len(prices) - 180 + 1, 60):

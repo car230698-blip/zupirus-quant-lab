@@ -18,17 +18,9 @@ def scan_market_regime(
     dt = datetime.fromtimestamp(now_ts, tz=timezone.utc)
     hour = dt.hour + (dt.minute / 60.0)
 
-    # 1. Determine session
-    if 0.0 <= hour < 8.0:
-        session = "Asian"
-    elif 8.0 <= hour < 13.0:
-        session = "London"
-    elif 13.0 <= hour < 16.5:
-        session = "London/NY Overlap"
-    elif 16.5 <= hour < 22.0:
-        session = "New York"
-    else:
-        session = "Rollover/Spread Risk"
+    # 1. Determine canonical session matching context snapshot
+    from app.services.signal_ingestion.context import get_trading_session
+    session = get_trading_session(now_ts)
 
     # 2. Query recent candles to compute ATR(14)
     atr = 3.50

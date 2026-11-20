@@ -270,12 +270,40 @@ def heartbeat(p: Heartbeat, request: Request):
             # Soft-close filled dispatches whose tickets are no longer open on MT5 (NEVER HARD DELETE)
             if live_tickets:
                 placeholders = ",".join(["?"] * len(live_tickets))
+                closing_rows = c.execute(
+                    f"SELECT id, signal_id, profit, fill_price, volume FROM dispatches WHERE account_id=? AND state='filled' AND ticket IS NOT NULL AND ticket NOT IN ({placeholders})",
+                    tuple([a['id'], *live_tickets]),
+                ).fetchall()
                 c.execute(
                     f"UPDATE dispatches SET state='closed', updated=?, closed_at=COALESCE(closed_at, ?) WHERE account_id=? AND state='filled' AND ticket IS NOT NULL AND ticket NOT IN ({placeholders})",
                     tuple([now, now, a['id'], *live_tickets]),
                 )
+                for cr in closing_rows:
+                    sig_id = cr['signal_id'] if hasattr(cr, 'keys') else cr[1]
+                    pnl_val = float((cr['profit'] if hasattr(cr, 'keys') else cr[2]) or 0.0)
+                    fill_p = float((cr['fill_price'] if hasattr(cr, 'keys') else cr[3]) or 0.0)
+                    if sig_id:
+                        try:
+                            from app.hindsight import reflect_on_signal_outcome
+                            reflect_on_signal_outcome(c, sig_id, pnl=pnl_val, exit_reason="MT5_DEAL_CLOSED", exit_price=fill_p)
+                        except Exception as ref_err:
+                            logger.debug(f"EA trade reflection error: {ref_err}")
             elif p.positions == 0:
+                closing_rows = c.execute(
+                    "SELECT id, signal_id, profit, fill_price, volume FROM dispatches WHERE account_id=? AND state='filled'",
+                    (a['id'],),
+                ).fetchall()
                 c.execute("UPDATE dispatches SET state='closed', updated=?, closed_at=COALESCE(closed_at, ?) WHERE account_id=? AND state='filled'", (now, now, a['id']))
+                for cr in closing_rows:
+                    sig_id = cr['signal_id'] if hasattr(cr, 'keys') else cr[1]
+                    pnl_val = float((cr['profit'] if hasattr(cr, 'keys') else cr[2]) or 0.0)
+                    fill_p = float((cr['fill_price'] if hasattr(cr, 'keys') else cr[3]) or 0.0)
+                    if sig_id:
+                        try:
+                            from app.hindsight import reflect_on_signal_outcome
+                            reflect_on_signal_outcome(c, sig_id, pnl=pnl_val, exit_reason="MT5_ALL_CLOSED", exit_price=fill_p)
+                        except Exception as ref_err:
+                            logger.debug(f"EA trade reflection error: {ref_err}")
 
         # Cache heartbeat in Redis with 60s TTL
         cache_heartbeat(a['id'], {
