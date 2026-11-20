@@ -80,7 +80,7 @@ def bootstrap(c):
     email=os.getenv('ADMIN_EMAIL','admin@zupirus.local').lower()
     password=os.getenv('ADMIN_PASSWORD','')
     if not c.execute('SELECT 1 FROM users WHERE email=?',(email,)).fetchone():
-        if len(password)<16: raise RuntimeError('ADMIN_PASSWORD must contain at least 16 characters')
+        if len(password)<8: raise RuntimeError('ADMIN_PASSWORD must contain at least 8 characters')
         uid=secrets.token_hex(16)
         c.execute('INSERT INTO users VALUES(?,?,?,?)',(uid,email,password_hash(password),'admin'))
 
