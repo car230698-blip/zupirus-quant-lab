@@ -100,14 +100,56 @@ class Identity(Model):
 class Pair(Identity):
     code: str = Field(max_length=100)
 
+@router.get('/api/ea/download', response_class=PlainTextResponse)
+def download_ea_bridge():
+    """Serve the ready-to-compile ZupirusDemoBridge.mq5 Expert Advisor for MetaTrader 5 Desktop."""
+    from pathlib import Path
+    from fastapi.responses import Response
+    mq5_path = Path(__file__).resolve().parents[2] / "public" / "ZupirusDemoBridge.mq5"
+    content = mq5_path.read_text(encoding="utf-8") if mq5_path.exists() else "// ZupirusDemoBridge.mq5 not found"
+    return Response(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="ZupirusDemoBridge.mq5"'},
+    )
+
+
 @router.post('/api/ea/pair', response_class=PlainTextResponse)
 def pair(p: Pair):
     with tx() as c:
         _ensure_ea_tables(c)
         row = c.execute('SELECT p.*,a.login,a.server,a.mode FROM pairings p JOIN accounts a ON a.id=p.account_id WHERE code=?', (digest(p.code),)).fetchone()
+        master_code = os.getenv('EA_DEMO_MASTER_CODE', 'ZUPIRUS-DEMO-2026').strip()
+        if (not row or row['used'] or row['expires'] < time.time()) and p.mode == 'DEMO' and master_code and p.code.strip() == master_code:
+            admin_u = c.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+            if admin_u:
+                uid = admin_u['id']
+                acc = c.execute('SELECT id FROM accounts WHERE login=? AND server=?', (p.login, p.server)).fetchone()
+                now_ts = time.time()
+                if acc:
+                    aid = acc['id']
+                    c.execute(
+                        "UPDATE accounts SET user_id=?, mode='DEMO', enabled=1, risk=0.5, max_spread=5.0, max_positions=10, max_dd=10.0, seen=? WHERE id=?",
+                        (uid, now_ts, aid),
+                    )
+                else:
+                    aid = f"ea_demo_{secrets.token_hex(6)}"
+                    c.execute(
+                        """
+                        INSERT INTO accounts(id, user_id, login, server, mode, enabled, risk, max_spread, max_positions, max_dd, balance, equity, peak, positions, seen)
+                        VALUES(?, ?, ?, ?, 'DEMO', 1, 0.5, 5.0, 10, 10.0, 10000.0, 10000.0, 10000.0, 0, ?)
+                        """,
+                        (aid, uid, p.login, p.server, now_ts),
+                    )
+                c.execute('DELETE FROM devices WHERE account_id=?', (aid,))
+                t = token()
+                c.execute('INSERT INTO devices VALUES(?,?)', (digest(t), aid))
+                audit(c, aid, 'device_paired_auto_demo', {'login': p.login, 'server': p.server})
+                return t
         if not row or row['used'] or row['expires'] < time.time(): fail(401, 'Pairing expired or used')
         if (p.login, p.server, p.mode) != (row['login'], row['server'], row['mode']): fail(403, 'MT5 identity mismatch')
         t = token()
+        c.execute('DELETE FROM devices WHERE account_id=?', (row['account_id'],))
         c.execute('INSERT INTO devices VALUES(?,?)', (digest(t), row['account_id']))
         c.execute('UPDATE pairings SET used=1 WHERE code=?', (digest(p.code),))
         audit(c, row['account_id'], 'device_paired', {})

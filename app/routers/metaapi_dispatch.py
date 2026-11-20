@@ -91,12 +91,57 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
 
         audit(c, u.get("email") if isinstance(u, dict) else getattr(u, "email", "admin"), "admin_dispatch_signal", f"Signal {signal_id} {p.action} {p.symbol} @ {p.entry_price} SL={p.sl} TP={p.tp}")
 
+    # 4. Also enqueue into Direct MT5 EA Bridge (dispatches) for any connected & enabled DEMO EA terminals
+    ea_queued = 0
+    try:
+        from app.routers.ea import _ensure_ea_tables
+        with tx() as c_ea:
+            _ensure_ea_tables(c_ea)
+            ea_rows = c_ea.execute(
+                """
+                SELECT a.id FROM accounts a
+                JOIN devices d ON d.account_id = a.id
+                WHERE a.enabled = 1 AND a.mode = 'DEMO'
+                """
+            ).fetchall()
+            if ea_rows:
+                tp_val = float(p.tp) if p.tp and float(p.tp) > 0 else (
+                    round(float(p.entry_price) + abs(float(p.entry_price) - float(p.sl)) * 2.0, 2)
+                    if act_upper == "BUY"
+                    else round(float(p.entry_price) - abs(float(p.entry_price) - float(p.sl)) * 2.0, 2)
+                )
+                c_ea.execute(
+                    """
+                    INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
+                    VALUES(?, 'DEMO', ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO NOTHING
+                    """,
+                    (signal_id, act_upper, float(p.entry_price), float(p.sl), tp_val, now_ts, now_ts + 300),
+                )
+                for er in ea_rows:
+                    c_ea.execute(
+                        """
+                        INSERT INTO dispatches(signal_id, account_id, state, created, updated)
+                        VALUES(?, ?, 'queued', ?, ?)
+                        ON CONFLICT(account_id, signal_id) DO NOTHING
+                        """,
+                        (signal_id, er["id"], now_ts, now_ts),
+                    )
+                    ea_queued += 1
+    except Exception as ea_err:
+        logger.warning(f"EA Bridge dispatch enqueue skipped: {ea_err}")
+
     if not accounts:
         return {
             "signal_id": signal_id,
-            "message": "Không có tài khoản Cloud MT5 nào đang hoạt động.",
-            "total_accounts": 0,
-            "executed": 0,
+            "message": (
+                f"Đã đẩy tín hiệu xuống {ea_queued} trạm MT5 EA Bridge."
+                if ea_queued > 0
+                else "Không có tài khoản Cloud MT5 nào đang hoạt động."
+            ),
+            "total_accounts": ea_queued,
+            "executed": ea_queued,
+            "ea_bridge_queued": ea_queued,
             "fanout_elapsed_ms": 0
         }
 
