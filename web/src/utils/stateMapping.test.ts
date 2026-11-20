@@ -11,6 +11,7 @@ import { formatApiError } from './formatError';
 test('translateOrderStatus maps known statuses and falls back safely', () => {
   assert.equal(translateOrderStatus('filled'), 'Đã khớp');
   assert.equal(translateOrderStatus('FILLED'), 'Đã khớp');
+  assert.equal(translateOrderStatus('closed'), 'Đã đóng');
   assert.equal(translateOrderStatus('rejected'), 'Bị từ chối');
   assert.equal(translateOrderStatus('queued'), 'Đang chờ');
   assert.ok(Array.isArray(orderStates) && orderStates.length > 0);

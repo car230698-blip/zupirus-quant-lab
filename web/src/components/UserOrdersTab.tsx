@@ -55,10 +55,10 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
     const fillPrice = Number(o.fill_price || o.filled_price || o.requested_price || o.price || 0);
     let vol = Number(o.volume ?? o.quantity ?? 0);
     if (!vol && o.reason) {
-      const m = String(o.reason).match(/([0-9]+\.[0-9]+)\s*lot/i);
+      const m = String(o.reason).match(/([0-9]+(?:\.[0-9]+)?)\s*lot/i);
       if (m) vol = Number(m[1]);
     }
-    if (!vol && orderState === 'filled') vol = 0.01;
+    if (!vol) vol = 0.01;
     const isExactMt5 = Boolean(o.mt5_exact_pnl);
     const refLive = isExactMt5
       ? Number(o.live_price || liveMidPrice || 0)
@@ -363,8 +363,14 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                         <span className="inline-flex items-center gap-1.5">
                           <span
                             className={`h-2 w-2 rounded-full ${
-                              String(orderState).toLowerCase() === 'filled'
+                              o._isLiveOpen
                                 ? 'bg-emerald-400 animate-pulse'
+                                : String(orderState).toLowerCase() === 'closed'
+                                ? 'bg-slate-400'
+                                : String(orderState).toLowerCase() === 'rejected'
+                                ? 'bg-rose-400'
+                                : String(orderState).toLowerCase() === 'filled'
+                                ? 'bg-emerald-400'
                                 : 'bg-amber-400'
                             }`}
                           />

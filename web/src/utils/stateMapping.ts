@@ -16,6 +16,8 @@ export function mapBackendState(state: string): BackendStateInfo {
       return { label: 'Đã khớp', badge: 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' };
     case 'completed':
       return { label: 'Hoàn tất', badge: 'bg-emerald-950 text-emerald-300 border border-emerald-700/50' };
+    case 'closed':
+      return { label: 'Đã đóng', badge: 'bg-slate-800 text-slate-300 border border-slate-700' };
     case 'cancelled':
       return { label: 'Đã hủy', badge: 'bg-slate-800 text-slate-300 border border-slate-700' };
     case 'expired':
@@ -56,4 +58,4 @@ export function translateRegime(regime: unknown): string {
   return regime ? String(regime) : 'Cân Bằng Định Lượng';
 }
 
-export const orderStates = ['queued', 'intent', 'unknown', 'filled', 'rejected', 'cancelled', 'expired'] as const;
+export const orderStates = ['queued', 'intent', 'unknown', 'filled', 'closed', 'rejected', 'cancelled', 'expired'] as const;
