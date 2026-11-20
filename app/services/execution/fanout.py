@@ -110,6 +110,14 @@ async def execute_fan_out_for_signal(
                         broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * pip_multiplier_for_symbol(canon_sym), 1)
             except Exception:
                 pass
+        if broker_spread <= 0:
+            try:
+                from app.routers.telemetry import get_live_xauusd_quote
+                lq = get_live_xauusd_quote()
+                if lq.get("spread_pips"):
+                    broker_spread = float(lq["spread_pips"])
+            except Exception:
+                pass
         if broker_spread <= 0 and metaapi_client and getattr(metaapi_client, "is_mock", False):
             broker_spread = 1.5
         if broker_spread <= 0:

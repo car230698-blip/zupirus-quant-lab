@@ -129,9 +129,22 @@ def pair(p: Pair):
             deleted_ts = getkv(c, f"ea_deleted:{p.login}")
             if deleted_ts and (time.time() - float(deleted_ts)) < 300:
                 fail(403, 'Account was deleted from Web Portal. Remove and re-attach EA after 5 minutes to re-pair.')
-            admin_u = c.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
-            if admin_u:
-                uid = admin_u['id']
+            # Multi-tenant attribution: if this MT5 login was registered by a customer in trading_accounts, attribute to that customer!
+            matched_user = c.execute(
+                "SELECT user_id FROM trading_accounts WHERE mt5_login = ? ORDER BY created_at DESC LIMIT 1",
+                (p.login,)
+            ).fetchone()
+            if not matched_user:
+                matched_user = c.execute(
+                    "SELECT user_id FROM accounts WHERE login = ? AND user_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+                    (p.login,)
+                ).fetchone()
+            uid = matched_user[0] if (matched_user and matched_user[0]) else None
+            if not uid:
+                admin_u = c.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+                if admin_u:
+                    uid = admin_u['id']
+            if uid:
                 acc = c.execute('SELECT id FROM accounts WHERE login=? AND server=?', (p.login, p.server)).fetchone()
                 now_ts = time.time()
                 if acc:
@@ -152,7 +165,7 @@ def pair(p: Pair):
                 c.execute('DELETE FROM devices WHERE account_id=?', (aid,))
                 t = token()
                 c.execute('INSERT INTO devices VALUES(?,?)', (digest(t), aid))
-                audit(c, aid, 'device_paired_auto_demo', {'login': p.login, 'server': p.server})
+                audit(c, aid, 'device_paired_auto_demo', {'login': p.login, 'server': p.server, 'user_id': uid})
                 return t
         if not row or row['used'] or row['expires'] < time.time(): fail(401, 'Pairing expired or used')
         if (p.login, p.server, p.mode) != (row['login'], row['server'], row['mode']): fail(403, 'MT5 identity mismatch')
@@ -282,9 +295,25 @@ def heartbeat(p: Heartbeat, request: Request):
 def next_dispatch(p: Identity, request: Request):
     with tx() as c:
         a = device(c, request, p)
+        now_ts = time.time()
+        # Intent Auto-Reaper: Expire abandoned intents older than 60s so they never deadlock the dispatch queue
+        c.execute(
+            "UPDATE dispatches SET state='expired', updated=? WHERE account_id=? AND state='intent' AND (? - updated) > 60",
+            (now_ts, a['id'], now_ts)
+        )
         d = c.execute(
-            "SELECT d.*,s.side,s.price,s.sl,s.tp,s.expires FROM dispatches d JOIN signals s ON s.id=d.signal_id WHERE d.account_id=? AND s.source='DEMO' AND (d.state IN ('intent','unknown') OR (d.state='queued' AND s.expires>?)) ORDER BY CASE WHEN d.state='queued' THEN 1 ELSE 0 END,d.id LIMIT 1",
-            (a['id'], time.time())
+            """
+            SELECT d.*, s.side, s.price, s.sl, s.tp, s.expires
+            FROM dispatches d
+            JOIN signals s ON s.id=d.signal_id
+            WHERE d.account_id=? AND s.source='DEMO'
+              AND (
+                (d.state='intent' AND (? - d.updated) <= 30)
+                OR (d.state='queued' AND s.expires > ?)
+              )
+            ORDER BY CASE WHEN d.state='intent' THEN 0 ELSE 1 END, d.id LIMIT 1
+            """,
+            (a['id'], now_ts, now_ts)
         ).fetchone()
         if not d: return 'NONE'
         if d['state'] == 'queued' and not a['enabled']: return 'NONE'
@@ -606,13 +635,15 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
                     exact_pnl = round(float(acc_obj.get('equity') or 0.0) - float(acc_obj.get('balance') or 0.0), 2)
                     d['pnl'] = exact_pnl
                     d['profit'] = exact_pnl
-                    price_delta = exact_pnl / (vol * 100.0) if vol > 0 else 0.0
+                    contract_sz = float((acc_obj or {}).get('contract_size') or 100.0)
+                    price_delta = exact_pnl / (vol * contract_sz) if vol > 0 else 0.0
                     implied_live = (fp + price_delta) if side_u == 'BUY' else (fp - price_delta)
                     d['live_price'] = round(implied_live, 3)
                     d['mt5_exact_pnl'] = True
                 elif live_mid > 0:
                     diff = (live_mid - fp) if side_u == 'BUY' else (fp - live_mid)
-                    d['pnl'] = round(diff * vol * 100.0, 2)
+                    contract_sz = float((acc_obj or {}).get('contract_size') or 100.0)
+                    d['pnl'] = round(diff * vol * contract_sz, 2)
                     d['profit'] = d['pnl']
                     d['live_price'] = live_mid
 
