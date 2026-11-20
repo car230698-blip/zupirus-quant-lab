@@ -793,13 +793,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="lg:col-span-6">
             <TiltCard className="rounded-2xl">
               <div className="quant-panel p-6 sm:p-8 space-y-5 border-amber-500/35">
-                <div className="relative h-64 sm:h-72 w-full overflow-hidden rounded-xl border border-amber-500/25 bg-[#030611]">
+                <div className="relative h-72 sm:h-80 lg:h-96 w-full overflow-hidden rounded-xl border border-amber-500/25 bg-[#030611]">
                   <ThreeHolographicMatrix
                     selectedLayerIdx={selectedGuardIdx}
                     onSelectLayer={setSelectedGuardIdx}
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#050914] via-transparent to-transparent pointer-events-none" />
-                  <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between font-mono text-xs pointer-events-none">
+                  <div className="absolute top-3 left-4 right-4 flex items-center justify-between font-mono text-xs pointer-events-none">
                     <span className="font-bold text-amber-300">LỚP ĐANG CHỌN: #{activeGuard.id}</span>
                     <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-emerald-300 font-bold">
                       FAIL-CLOSED ENFORCED

@@ -63,7 +63,8 @@ export const ThreeCanvasBackground: React.FC<ThreeCanvasBackgroundProps> = ({
     const secondaryColor = theme === 'gold' ? 0x06b6d4 : 0x10b981;
 
     const coreGroup = new THREE.Group();
-    coreGroup.position.set(24, 6, 0); // Positioned slightly to the right behind cockpit
+    const isMobileInitial = window.innerWidth < 1024;
+    coreGroup.position.set(isMobileInitial ? 0 : 24, isMobileInitial ? 8 : 6, isMobileInitial ? -10 : 0);
     scene.add(coreGroup);
 
     // Inner Icosahedron
@@ -167,6 +168,8 @@ export const ThreeCanvasBackground: React.FC<ThreeCanvasBackgroundProps> = ({
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      const isMobile = window.innerWidth < 1024;
+      coreGroup.position.set(isMobile ? 0 : 24, isMobile ? 8 : 6, isMobile ? -10 : 0);
     };
     window.addEventListener('resize', onWindowResize);
 

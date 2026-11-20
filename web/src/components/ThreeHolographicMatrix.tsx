@@ -171,6 +171,35 @@ export const ThreeHolographicMatrix: React.FC<ThreeHolographicMatrixProps> = ({
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
 
+    // Touch controls for mobile drag rotation
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        setIsRotating(true);
+        prevMouseX = e.touches[0].clientX;
+        prevMouseY = e.touches[0].clientY;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!isDragging || e.touches.length !== 1) return;
+      const deltaX = e.touches[0].clientX - prevMouseX;
+      const deltaY = e.touches[0].clientY - prevMouseY;
+      shieldGroup.rotation.y += deltaX * 0.008;
+      shieldGroup.rotation.x += deltaY * 0.006;
+      prevMouseX = e.touches[0].clientX;
+      prevMouseY = e.touches[0].clientY;
+    };
+
+    const onTouchEnd = () => {
+      isDragging = false;
+      setIsRotating(false);
+    };
+
+    dom.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+
     // 6. Raycaster to click on layers
     const raycaster = new THREE.Raycaster();
     const mouseVector = new THREE.Vector2();
@@ -242,6 +271,9 @@ export const ThreeHolographicMatrix: React.FC<ThreeHolographicMatrixProps> = ({
       dom.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      dom.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
       dom.removeEventListener('click', onClick);
       window.removeEventListener('resize', onResize);
       if (mount.contains(dom)) {
@@ -261,15 +293,15 @@ export const ThreeHolographicMatrix: React.FC<ThreeHolographicMatrixProps> = ({
   }
 
   return (
-    <div className={`relative h-[380px] sm:h-[460px] w-full select-none cursor-grab active:cursor-grabbing ${className}`}>
+    <div className={`relative h-full w-full select-none cursor-grab active:cursor-grabbing touch-none ${className}`}>
       <div ref={mountRef} className="h-full w-full" />
-      <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-[11px] font-mono text-slate-400 bg-[#030610]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 pointer-events-none">
+      <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-[10px] sm:text-[11px] font-mono text-slate-400 bg-[#030610]/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 pointer-events-none">
         <span className="flex items-center gap-1.5 text-amber-300">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          MÔ PHỎNG 3D 4 LỚP GIÁP
+          3D MATRIX
         </span>
-        <span className="text-slate-400">
-          {isRotating ? 'ĐANG XOAY 3D' : 'Kéo chuột để xoay 360° · Bấm vào đĩa để chọn tầng'}
+        <span className="text-slate-300 truncate">
+          {isRotating ? 'ĐANG XOAY 360°' : 'Kéo để xoay 360° · Chạm đĩa để chọn'}
         </span>
       </div>
     </div>

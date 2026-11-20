@@ -69,6 +69,13 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
 
   useEffect(() => {
     loadBilling();
+    const onBillingRefresh = () => loadBilling();
+    window.addEventListener('zupirus:admin-billing-refresh', onBillingRefresh);
+    const timer = setInterval(loadBilling, 15000);
+    return () => {
+      window.removeEventListener('zupirus:admin-billing-refresh', onBillingRefresh);
+      clearInterval(timer);
+    };
   }, [loadBilling]);
 
   const handleManualApproveOrder = async (orderId: string) => {
