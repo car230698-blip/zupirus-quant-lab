@@ -49,10 +49,26 @@ def risk(aid: str, p: Risk, u=Depends(get_current_user)):
         audit(c, u['id'], 'risk_changed', {'account': aid, **p.model_dump()})
     return {'ok': True}
 
+def _ensure_ea_tables(c):
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS pairings ("
+        "code TEXT PRIMARY KEY, "
+        "account_id TEXT REFERENCES accounts(id), "
+        "expires DOUBLE PRECISION NOT NULL, "
+        "used INTEGER NOT NULL DEFAULT 0)"
+    )
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS devices ("
+        "token TEXT PRIMARY KEY, "
+        "account_id TEXT UNIQUE REFERENCES accounts(id))"
+    )
+
+
 @router.post('/api/accounts/{aid}/pair')
 def pair_code(aid: str, u=Depends(get_current_user)):
     code = token()
     with tx() as c:
+        _ensure_ea_tables(c)
         a = owned(c, aid, u)
         if a['mode'] not in ('DEMO', 'REAL'): fail(400, 'Only DEMO or REAL accounts pair with MT5')
         if a['mode'] == 'REAL':
@@ -67,6 +83,7 @@ def pair_code(aid: str, u=Depends(get_current_user)):
 @router.post('/api/accounts/{aid}/revoke')
 def revoke(aid: str, u=Depends(get_current_user)):
     with tx() as c:
+        _ensure_ea_tables(c)
         owned(c, aid, u)
         c.execute('DELETE FROM devices WHERE account_id=?', (aid,))
         c.execute('DELETE FROM pairings WHERE account_id=?', (aid,))
@@ -86,6 +103,7 @@ class Pair(Identity):
 @router.post('/api/ea/pair', response_class=PlainTextResponse)
 def pair(p: Pair):
     with tx() as c:
+        _ensure_ea_tables(c)
         row = c.execute('SELECT p.*,a.login,a.server,a.mode FROM pairings p JOIN accounts a ON a.id=p.account_id WHERE code=?', (digest(p.code),)).fetchone()
         if not row or row['used'] or row['expires'] < time.time(): fail(401, 'Pairing expired or used')
         if (p.login, p.server, p.mode) != (row['login'], row['server'], row['mode']): fail(403, 'MT5 identity mismatch')

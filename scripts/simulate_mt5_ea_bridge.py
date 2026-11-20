@@ -45,7 +45,7 @@ def run_ea_bridge_simulation(base_url: str = "http://127.0.0.1:8080") -> None:
     for idx, u in enumerate(users, 1):
         uid = u["id"]
         email = u["email"]
-        login_num = "99887701" if "tuleba" in email else f"9988770{idx}"
+        login_num = f"9988770{idx}"
         server_name = "MetaQuotes-Demo"
 
         print("-" * 72)
@@ -54,15 +54,17 @@ def run_ea_bridge_simulation(base_url: str = "http://127.0.0.1:8080") -> None:
         # STEP 1: Create or reset DEMO account & generate 5-minute single-use Pairing Code
         pair_code = token()
         with tx() as c:
+            from app.routers.ea import _ensure_ea_tables
+            _ensure_ea_tables(c)
             existing = c.execute(
-                "SELECT id FROM accounts WHERE user_id=? AND login=? AND server=?",
-                (uid, login_num, server_name),
+                "SELECT id FROM accounts WHERE login=? AND server=?",
+                (login_num, server_name),
             ).fetchone()
             if existing:
                 aid = existing["id"]
                 c.execute(
-                    "UPDATE accounts SET mode='DEMO', enabled=1, risk=0.5, max_spread=2.0, max_positions=3, max_dd=5.0 WHERE id=?",
-                    (aid,),
+                    "UPDATE accounts SET user_id=?, mode='DEMO', enabled=1, risk=0.5, max_spread=2.0, max_positions=5, max_dd=5.0, positions=0 WHERE id=?",
+                    (uid, aid),
                 )
             else:
                 aid = f"ea_demo_{secrets.token_hex(6)}"
@@ -115,25 +117,22 @@ def run_ea_bridge_simulation(base_url: str = "http://127.0.0.1:8080") -> None:
             print("  [Step 3] POST /api/ea/heartbeat -> HTTP 200 (OK) | Synced Balance=$25,000.00, Equity=$25,145.50")
 
             # STEP 4: Queue a DEMO Signal & Dispatch for this account, then poll POST /api/ea/next
+            sig_id = f"sig_ea_{secrets.token_hex(6)}"
             with tx() as c:
-                cur_sig = c.execute(
+                c.execute(
                     """
-                    INSERT INTO signals(source, side, price, sl, tp, reason, created, expires)
-                    VALUES('DEMO', 'BUY', ?, ?, ?, 'EA Bridge Live Verification (XAUUSD M15 London/NY Momentum)', ?, ?)
-                    RETURNING id
+                    INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
+                    VALUES(?, 'DEMO', 'BUY', ?, ?, ?, ?, ?)
                     """,
-                    (live_mid, sl_price, tp_price, now_ts, now_ts + 300),
+                    (sig_id, live_mid, sl_price, tp_price, now_ts, now_ts + 300),
                 )
-                sig_id = cur_sig.fetchone()[0]
-                cur_disp = c.execute(
+                c.execute(
                     """
                     INSERT INTO dispatches(signal_id, account_id, state, created, updated)
                     VALUES(?, ?, 'queued', ?, ?)
-                    RETURNING id
                     """,
                     (sig_id, aid, now_ts, now_ts),
                 )
-                disp_id = cur_disp.fetchone()[0]
 
             r_next = client.post(
                 "/api/ea/next",
