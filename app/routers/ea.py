@@ -526,6 +526,10 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
             d['volume'] = vol_val
             d['fill_price'] = float(d.get('fill_price') or d.get('price') or 0.0)
             d['source'] = 'EA_BRIDGE'
+            pnl_val = float(d.get('profit') or 0.0)
+            d['pnl'] = pnl_val
+            d['profit'] = pnl_val
+            d['mt5_exact_pnl'] = True
             all_orders.append(d)
 
         is_pg = bool(getattr(c, "_is_pg", False))
@@ -580,6 +584,7 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
                     'status': rd.get('status') or 'FILLED',
                     'pnl': rd.get('profit'),
                     'profit': rd.get('profit'),
+                    'mt5_exact_pnl': True,
                     'latency_ms': rd.get('latency_ms'),
                     'source': 'CLOUD_MT5',
                     'created': rd.get('executed_at'),
