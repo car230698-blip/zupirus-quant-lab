@@ -61,6 +61,20 @@ def _row_to_account_response(row: dict) -> dict:
     mult_val = float(row.get("risk_multiplier") or row.get("multiplier") or rc.get("multiplier") or 1.0)
     dd_val = float(row.get("prop_daily_dd_limit_pct") or rc.get("prop_daily_dd_limit_pct") or 4.5)
 
+    bal_val = float(row.get("balance") or 0.0)
+    eq_val = float(row.get("equity") or 0.0)
+    pos_cnt = int(row.get("positions") or 0)
+    hb = None
+    try:
+        from app.redis_client import get_cached_heartbeat
+        hb = get_cached_heartbeat(row["id"])
+        if hb:
+            bal_val = float(hb.get("balance") or bal_val)
+            eq_val = float(hb.get("equity") or eq_val)
+            pos_cnt = int(hb.get("positions") or pos_cnt)
+    except Exception:
+        pass
+
     return {
         "id": row["id"],
         "user_id": row.get("user_id"),
@@ -97,8 +111,10 @@ def _row_to_account_response(row: dict) -> dict:
         "contract_size": float(row.get("contract_size") or 100.0),
         "tick_value": float(row.get("tick_value") or 1.0),
         "latency_ms": int(row.get("latency_ms") or 35),
-        "balance": float(row.get("balance") or 0.0),
-        "equity": float(row.get("equity") or 0.0),
+        "balance": bal_val,
+        "equity": eq_val,
+        "positions": pos_cnt,
+        "cached_heartbeat": hb,
         "last_sync": float(row.get("last_sync")) if row.get("last_sync") else None,
         "created_at": float(row.get("created_at") or now_ts),
     }

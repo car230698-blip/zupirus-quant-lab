@@ -116,6 +116,7 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     meta_id = acc.get("metaapi_account_id") or real_id
     eq = float(acc.get("equity") or 0.0)
     bal = float(acc.get("balance") or 0.0)
+    formatted_open_positions = []
     if not acc.get("_is_ea_bridge") and not client.is_mock:
         info = await client.get_account_information(meta_id)
         if isinstance(info, dict) and info.get("connected", True):
@@ -124,7 +125,41 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
             if new_eq > 0 or new_bal > 0:
                 eq = new_eq
                 bal = new_bal
+        try:
+            cur_open = await client.get_open_positions(meta_id) or []
+            for p in cur_open:
+                p_id_str = str(p.get("id") or "")
+                p_type = str(p.get("type") or "BUY").upper()
+                side = "BUY" if "BUY" in p_type else "SELL"
+                formatted_open_positions.append({
+                    "ticket": p_id_str,
+                    "symbol": str(p.get("symbol") or "XAUUSD").upper(),
+                    "side": side,
+                    "volume": float(p.get("volume") or 0.01),
+                    "open_price": float(p.get("openPrice") or 0.0),
+                    "sl": float(p.get("stopLoss") or 0.0),
+                    "tp": float(p.get("takeProfit") or 0.0),
+                    "current_price": float(p.get("currentPrice") or p.get("openPrice") or 0.0),
+                    "profit": float(p.get("profit") or p.get("unrealizedProfit") or 0.0),
+                })
+        except Exception:
+            pass
+
     now_ts = time.time()
+    try:
+        from app.redis_client import cache_heartbeat
+        cache_heartbeat(real_id, {
+            "login": str(acc.get("mt5_login") or acc.get("login") or ""),
+            "server": str(acc.get("broker_server") or acc.get("server") or ""),
+            "balance": bal,
+            "equity": eq,
+            "positions": len(formatted_open_positions),
+            "open_positions": formatted_open_positions,
+            "last_seen": now_ts,
+            "is_cloud_metaapi": not acc.get("_is_ea_bridge"),
+        }, ttl=60)
+    except Exception:
+        pass
 
     with tx() as c:
         if acc.get("_is_ea_bridge"):

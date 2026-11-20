@@ -12,6 +12,7 @@ import time
 from typing import Dict, Any, Optional
 from app.db import tx, audit, setkv, getkv
 from app.metaapi import MetaApiClient
+from app.redis_client import cache_heartbeat
 
 logger = logging.getLogger("zupirus.watcher")
 _WATCHER_CYCLE_LOCK = asyncio.Lock()
@@ -148,6 +149,101 @@ class PositionWatcher:
                 if current_balance <= 0 or (current_equity <= 0 and not is_prop):
                     logger.debug(f"PositionWatcher skipping {acc_id}: invalid/unavailable equity={current_equity}, balance={current_balance}")
                     continue
+
+                # Real-time synchronization: Update DB and Redis heartbeat so Cloud MT5 reflects live
+                now_watch_ts = time.time()
+                try:
+                    with tx() as c:
+                        c.execute(
+                            "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
+                            (current_equity, current_balance, now_watch_ts, acc_id)
+                        )
+                        c.execute(
+                            "INSERT INTO snapshots(account_id, ts, balance, equity) VALUES(?, ?, ?, ?)",
+                            (acc_id, now_watch_ts, current_balance, current_equity)
+                        )
+                except Exception as db_sync_err:
+                    logger.debug(f"PositionWatcher DB sync note for {acc_id}: {db_sync_err}")
+
+                cur_open = []
+                try:
+                    cur_open = await self.client.get_open_positions(meta_id) or []
+                except Exception as e:
+                    logger.debug(f"PositionWatcher get_open_positions note for {acc_id}: {e}")
+
+                formatted_open_positions = []
+                live_pos_ids = set()
+                for p in cur_open:
+                    p_id_str = str(p.get("id") or "")
+                    if p_id_str:
+                        live_pos_ids.add(p_id_str)
+                    p_type = str(p.get("type") or "BUY").upper()
+                    side = "BUY" if "BUY" in p_type else "SELL"
+                    vol = float(p.get("volume") or 0.01)
+                    op_price = float(p.get("openPrice") or 0.0)
+                    sl_val = float(p.get("stopLoss") or 0.0)
+                    tp_val = float(p.get("takeProfit") or 0.0)
+                    cur_price = float(p.get("currentPrice") or op_price)
+                    pnl_val = float(p.get("profit") or p.get("unrealizedProfit") or 0.0)
+                    sym_val = str(p.get("symbol") or "XAUUSD").upper()
+                    formatted_open_positions.append({
+                        "ticket": p_id_str,
+                        "symbol": sym_val,
+                        "side": side,
+                        "volume": vol,
+                        "open_price": op_price,
+                        "sl": sl_val,
+                        "tp": tp_val,
+                        "current_price": cur_price,
+                        "profit": pnl_val,
+                    })
+
+                try:
+                    cache_heartbeat(acc_id, {
+                        "login": str(acc.get("mt5_login") or acc.get("login") or ""),
+                        "server": str(acc.get("broker_server") or acc.get("server") or ""),
+                        "balance": current_balance,
+                        "equity": current_equity,
+                        "positions": len(formatted_open_positions),
+                        "open_positions": formatted_open_positions,
+                        "last_seen": now_watch_ts,
+                        "is_cloud_metaapi": True,
+                    }, ttl=60)
+                except Exception as hb_err:
+                    logger.debug(f"PositionWatcher cache_heartbeat note for {acc_id}: {hb_err}")
+
+                # Sync any manual/untracked MT5 orders into metaapi_trade_executions
+                if formatted_open_positions:
+                    try:
+                        with tx() as c:
+                            for op in formatted_open_positions:
+                                t_str = op["ticket"]
+                                if not t_str:
+                                    continue
+                                existing = c.execute(
+                                    "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR ticket = ?)",
+                                    (acc_id, t_str, t_str)
+                                ).fetchone()
+                                if not existing:
+                                    exec_id = f"exec_cloud_{t_str}"
+                                    sig_id = f"sig_cloud_{t_str}"
+                                    c.execute(
+                                        """
+                                        INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
+                                        VALUES(?, 'CLOUD_MT5', ?, ?, ?, ?, ?, ?)
+                                        ON CONFLICT(id) DO UPDATE SET side=excluded.side, price=excluded.price, sl=excluded.sl, tp=excluded.tp
+                                        """,
+                                        (sig_id, op["side"], op["open_price"], op["sl"], op["tp"], now_watch_ts, now_watch_ts + 86400),
+                                    )
+                                    c.execute(
+                                        """
+                                        INSERT INTO metaapi_trade_executions(id, signal_id, account_id, metaapi_account_id, symbol, action, volume, entry_price, sl, tp, position_id, order_id, status, latency_ms, error_message, executed_at, profit, ticket)
+                                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', 15, 'Cloud MT5 Real-time Synced', ?, ?, ?)
+                                        """,
+                                        (exec_id, sig_id, acc_id, meta_id, op["symbol"], op["side"], op["volume"], op["open_price"], op["sl"], op["tp"], t_str, t_str, now_watch_ts, op["profit"], t_str),
+                                    )
+                    except Exception as sync_op_err:
+                        logger.debug(f"PositionWatcher sync manual positions note for {acc_id}: {sync_op_err}")
 
                 with tx() as c:
                     already_locked = bool(getkv(c, f"drawdown_locked:{acc_id}") or getkv(c, get_drawdown_halt_key(acc_id, date_str)))

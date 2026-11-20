@@ -469,36 +469,110 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
             params.append(state)
 
         query += ' ORDER BY d.id DESC LIMIT 100'
-        orders = [dict(r) for r in c.execute(query, tuple(params))]
+        ea_orders = [dict(r) for r in c.execute(query, tuple(params))]
+        all_orders: List[Dict[str, Any]] = []
+
         import re as _re
-        from app.routers.telemetry import get_live_xauusd_quote
-        live_q = get_live_xauusd_quote()
-        live_mid = float(live_q.get('mid') or 0.0)
-        acc_by_id = {str(a.get('id')): a for a in accounts}
-        filled_per_acc: Dict[str, List[dict]] = {}
-        for d in orders:
+        for d in ea_orders:
             d.pop('nonce', None)
             d['symbol'] = d.get('symbol') or 'XAUUSD'
             if not d.get('volume'):
                 m_lot = _re.search(r'([0-9]+\.[0-9]+)\s*lot', str(d.get('reason') or ''), _re.IGNORECASE)
                 d['volume'] = float(m_lot.group(1)) if m_lot else 0.01
-            fp = float(d.get('fill_price') or d.get('price') or 0.0)
-            d['fill_price'] = fp
-            if d.get('state') == 'filled':
+            d['fill_price'] = float(d.get('fill_price') or d.get('price') or 0.0)
+            d['source'] = 'EA_BRIDGE'
+            all_orders.append(d)
+
+        is_pg = bool(getattr(c, "_is_pg", False))
+        if is_pg:
+            c.execute("SAVEPOINT sp_ea_cloud_exec")
+        try:
+            cloud_exec_rows = c.execute(
+                """
+                SELECT e.*, ta.mt5_login AS account_login, ta.broker_server AS account_server
+                FROM metaapi_trade_executions e
+                JOIN trading_accounts ta ON e.account_id = ta.id
+                WHERE ta.user_id = ?
+                ORDER BY e.executed_at DESC LIMIT 100
+                """,
+                (u['id'],)
+            ).fetchall()
+            if is_pg:
+                c.execute("RELEASE SAVEPOINT sp_ea_cloud_exec")
+            for r in cloud_exec_rows:
+                rd = dict(r)
+                raw_st = str(rd.get('status', '')).upper()
+                if raw_st in {'FILLED', 'OPEN'}:
+                    mapped_state = 'filled'
+                elif raw_st in {'CLOSED', 'COMPLETED'}:
+                    mapped_state = 'closed'
+                elif raw_st in {'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT'}:
+                    mapped_state = 'queued'
+                else:
+                    mapped_state = 'rejected'
+                if account_id and rd.get('account_id') != account_id:
+                    continue
+                if state and mapped_state != state:
+                    continue
+                vol_c = float(rd.get('volume') or 0.01)
+                fp_c = float(rd.get('entry_price') or 0.0)
+                all_orders.append({
+                    'id': rd.get('id'),
+                    'signal_id': rd.get('signal_id'),
+                    'account_id': rd.get('account_id'),
+                    'account_login': rd.get('account_login'),
+                    'account_server': rd.get('account_server'),
+                    'symbol': rd.get('symbol') or 'XAUUSD',
+                    'side': rd.get('action') or 'BUY',
+                    'volume': vol_c,
+                    'price': fp_c,
+                    'fill_price': fp_c,
+                    'sl': rd.get('sl') or rd.get('stop_loss'),
+                    'tp': rd.get('tp') or rd.get('take_profit'),
+                    'ticket': rd.get('ticket') or rd.get('position_id') or '',
+                    'deal': rd.get('order_id') or '',
+                    'state': mapped_state,
+                    'status': rd.get('status') or 'FILLED',
+                    'pnl': rd.get('profit'),
+                    'profit': rd.get('profit'),
+                    'latency_ms': rd.get('latency_ms'),
+                    'source': 'CLOUD_MT5',
+                    'created': rd.get('executed_at'),
+                    'created_at': rd.get('executed_at'),
+                    'closed_at': rd.get('closed_at'),
+                    'updated': rd.get('closed_at') or rd.get('executed_at'),
+                })
+        except Exception:
+            if is_pg:
+                try:
+                    c.execute("ROLLBACK TO SAVEPOINT sp_ea_cloud_exec")
+                except Exception:
+                    pass
+
+        from app.routers.telemetry import get_live_xauusd_quote
+        live_q = get_live_xauusd_quote()
+        live_mid = float(live_q.get('mid') or 0.0)
+        acc_by_id = {str(a.get('id')): a for a in accounts}
+        filled_per_acc: Dict[str, List[dict]] = {}
+        for d in all_orders:
+            if d.get('state') == 'filled' and not d.get('closed_at'):
                 filled_per_acc.setdefault(str(d.get('account_id')), []).append(d)
 
-        for d in orders:
+        for d in all_orders:
             fp = float(d.get('fill_price') or 0.0)
-            if d.get('state') == 'filled' and fp > 0 and d.get('pnl') is None:
-                acc_obj = acc_by_id.get(str(d.get('account_id')))
-                vol = float(d.get('volume') or 0.01)
-                side_u = str(d.get('side') or 'BUY').upper()
-                # Check if heartbeat has exact per-position profit or single-position account floating PnL
+            vol = float(d.get('volume') or 0.01)
+            side_u = str(d.get('side') or 'BUY').upper()
+            acc_obj = acc_by_id.get(str(d.get('account_id')))
+            is_open = d.get('state') == 'filled' and not d.get('closed_at')
+
+            if is_open and fp > 0:
+                # 1. Match from cached_heartbeat.open_positions
                 hb_positions = (acc_obj or {}).get('cached_heartbeat', {}).get('open_positions') if acc_obj else None
                 matched_hb_pos = None
                 if isinstance(hb_positions, list):
                     for hp in hb_positions:
-                        if str(hp.get('ticket')) == str(d.get('ticket')):
+                        t_match = str(hp.get('ticket') or '')
+                        if t_match and (t_match == str(d.get('ticket')) or t_match == str(d.get('position_id'))):
                             matched_hb_pos = hp
                             break
                 if matched_hb_pos is not None:
@@ -525,67 +599,12 @@ def dashboard(u=Depends(get_current_user), account_id: Optional[str] = None, sta
                     d['pnl'] = round(diff * vol * 100.0, 2)
                     d['profit'] = d['pnl']
                     d['live_price'] = live_mid
-        is_pg = bool(getattr(c, "_is_pg", False))
-        if is_pg:
-            c.execute("SAVEPOINT sp_ea_cloud_exec")
-        try:
-            cloud_exec_rows = c.execute(
-                """
-                SELECT e.*, ta.mt5_login AS account_login, ta.broker_server AS account_server
-                FROM metaapi_trade_executions e
-                JOIN trading_accounts ta ON e.account_id = ta.id
-                WHERE ta.user_id = ?
-                ORDER BY e.executed_at DESC LIMIT 100
-                """,
-                (u['id'],)
-            ).fetchall()
-            if is_pg:
-                c.execute("RELEASE SAVEPOINT sp_ea_cloud_exec")
-            for r in cloud_exec_rows:
-                rd = dict(r)
-                raw_st = str(rd.get('status', '')).upper()
-                if raw_st in {'FILLED', 'CLOSED', 'EXECUTED', 'COMPLETED', 'OPEN'}:
-                    mapped_state = 'filled'
-                elif raw_st in {'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT'}:
-                    mapped_state = 'queued'
-                else:
-                    mapped_state = 'rejected'
-                if account_id and rd.get('account_id') != account_id:
-                    continue
-                if state and mapped_state != state:
-                    continue
-                orders.append({
-                    'id': rd.get('id'),
-                    'signal_id': rd.get('signal_id'),
-                    'account_id': rd.get('account_id'),
-                    'account_login': rd.get('account_login'),
-                    'account_server': rd.get('account_server'),
-                    'symbol': rd.get('symbol') or 'XAUUSD',
-                    'side': rd.get('action') or 'BUY',
-                    'volume': rd.get('volume') or 0.01,
-                    'price': rd.get('entry_price') or 0.0,
-                    'fill_price': rd.get('entry_price') or 0.0,
-                    'sl': rd.get('sl') or rd.get('stop_loss'),
-                    'tp': rd.get('tp') or rd.get('take_profit'),
-                    'ticket': rd.get('ticket') or rd.get('position_id') or '',
-                    'deal': rd.get('order_id') or '',
-                    'state': mapped_state,
-                    'status': rd.get('status') or 'FILLED',
-                    'pnl': rd.get('profit'),
-                    'profit': rd.get('profit'),
-                    'latency_ms': rd.get('latency_ms'),
-                    'source': 'CLOUD_MT5',
-                    'created': rd.get('executed_at'),
-                    'created_at': rd.get('executed_at'),
-                    'closed_at': rd.get('closed_at'),
-                    'updated': rd.get('closed_at') or rd.get('executed_at'),
-                })
-        except Exception:
-            if is_pg:
-                try:
-                    c.execute("ROLLBACK TO SAVEPOINT sp_ea_cloud_exec")
-                except Exception:
-                    pass
+
+        orders = sorted(
+            all_orders,
+            key=lambda x: float(x.get('created') or x.get('created_at') or x.get('executed_at') or 0.0),
+            reverse=True,
+        )[:100]
 
         if account_id:
             raw_series = [
