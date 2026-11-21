@@ -599,15 +599,22 @@ input[type="range"] {
 
 /* Stage & Topbar */
 .quant-stage {
-  margin-left: 268px;
+  margin-left: 76px;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   transition: margin-left 180ms ease;
+  width: calc(100% - 76px);
+}
+
+.quant-stage.is-expanded {
+  margin-left: 260px;
+  width: calc(100% - 260px);
 }
 
 .quant-stage.is-collapsed {
-  margin-left: 78px;
+  margin-left: 76px;
+  width: calc(100% - 76px);
 }
 
 .quant-topbar {
@@ -826,7 +833,106 @@ input[type="range"] {
   animation: toast-slide-down 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* 2026 Bento Glassmorphism & Shimmer Keyframes */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(260%); }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 24s linear infinite;
+}
+
+@keyframes pulseRing {
+  0% { transform: scale(1); opacity: 0.8; }
+  75% { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+@keyframes flowDash {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes eqPulse {
+  0%, 100% { transform: scaleY(0.45); }
+  50% { transform: scaleY(1); }
+}
+
+.border-beam {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 35%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #12B5A6, #F5B700, transparent);
+  animation: shimmer 5.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.flow-anim {
+  stroke-dasharray: 6 6;
+  animation: flowDash 1s linear infinite;
+}
+
+.eq-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 20px;
+}
+.eq-bars span {
+  width: 3px;
+  border-radius: 2px;
+  background: #12B5A6;
+  animation: eqPulse 1.1s ease-in-out infinite;
+}
+.eq-bars span:nth-child(2) { animation-delay: 0.18s; height: 16px; }
+.eq-bars span:nth-child(3) { animation-delay: 0.34s; height: 20px; }
+.eq-bars span:nth-child(4) { animation-delay: 0.5s; height: 12px; }
+.eq-bars span:nth-child(5) { animation-delay: 0.66s; height: 17px; }
+
+/* Pulse Glow Rings */
+.pulse-wrap {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  display: inline-grid;
+  place-items: center;
+}
+.pulse-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #12B5A6;
+  animation: pulseRing 2.2s infinite;
+}
+.pulse-core {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #12B5A6;
+}
+
 @media (max-width: 1023px) {
+  html,
+  body,
+  #root,
+  .quant-app {
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+  }
   .quant-sidebar {
     position: fixed;
     inset: 0 auto 0 0;
@@ -847,6 +953,7 @@ input[type="range"] {
     margin-left: 0 !important;
     width: 100% !important;
     max-width: 100vw !important;
+    min-width: 0 !important;
     overflow-x: hidden !important;
   }
   .quant-auth {
@@ -859,7 +966,7 @@ input[type="range"] {
 
 @media (max-width: 768px) {
   .quant-content {
-    padding: 12px 10px 92px !important;
+    padding: 12px 12px 112px !important;
     width: 100% !important;
     max-width: 100vw !important;
     overflow-x: hidden !important;

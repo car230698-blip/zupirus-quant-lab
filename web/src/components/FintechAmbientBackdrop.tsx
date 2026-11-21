@@ -1,62 +1,60 @@
 import React from 'react';
 
 /**
- * ZUPIRUS Quant Lab — Institutional Fintech Ambient Backdrop
- * High-tech atmospheric lighting with rich depth:
- * - Multi-stage radial gradient background (Deep Quantum Dark #03050a to #0a1324)
- * - Animated Sovereign Gold & Cyan aurora illumination
- * - 40px hairline precision technical cyber-grid with radial vignette
- * - Intersection glow spots & ambient atmospheric depth
+ * ZUPIRUS Quant Lab — Institutional Fintech Ambient Backdrop (2026 Edition)
+ * High-tech atmospheric lighting with Bento Glass depth:
+ * - Deep quantum dark background (#060A13 to #0B1220)
+ * - Dot-Matrix micro-grid (24px, 1px dot with radial vignette falloff)
+ * - Teal (#12B5A6) & Sovereign Gold (#F5B700) diffuse aurora illumination
+ * - 0% WebGL / CPU friendly, respecting prefers-reduced-motion
  */
 export const FintechAmbientBackdrop: React.FC = () => {
   return (
     <div
       aria-hidden="true"
-      className="fixed inset-0 -z-10 pointer-events-none overflow-hidden select-none"
-      style={{
-        background: 'radial-gradient(ellipse 140% 90% at 50% -10%, #0c1830 0%, #071020 40%, #03060d 75%, #020408 100%)',
-      }}
+      className="fixed inset-0 -z-10 pointer-events-none overflow-hidden select-none bg-[#060A13]"
     >
-      {/* 1. Precision Cyber Grid with Subtle Vignette Falloff */}
+      {/* 1. Atmospheric Ambient Mesh Glows */}
+      <div
+        className="absolute inset-0 opacity-90"
+        style={{
+          background: `
+            radial-gradient(ellipse 55% 40% at 20% 0%, rgba(18, 181, 166, 0.15), transparent 65%),
+            radial-gradient(ellipse 45% 35% at 85% 12%, rgba(56, 189, 248, 0.08), transparent 65%),
+            radial-gradient(ellipse 40% 30% at 50% 95%, rgba(245, 183, 0, 0.06), transparent 65%)
+          `,
+        }}
+      />
+
+      {/* 2. Dot-Matrix Micro-Grid (24px, 1px dot with radial mask) */}
       <div
         className="absolute inset-0"
         style={{
-          backgroundImage: `
-            linear-gradient(to right, rgba(148, 163, 184, 0.065) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(148, 163, 184, 0.065) 1px, transparent 1px)
-          `,
-          backgroundSize: '40px 40px',
-          maskImage: 'radial-gradient(ellipse 90% 70% at 50% 25%, #000 40%, transparent 100%)',
-          WebkitMaskImage: 'radial-gradient(ellipse 90% 70% at 50% 25%, #000 40%, transparent 100%)',
+          backgroundImage: 'radial-gradient(rgba(148, 163, 184, 0.16) 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+          maskImage: 'radial-gradient(ellipse 85% 70% at 50% 20%, #000 30%, transparent 100%)',
+          WebkitMaskImage: 'radial-gradient(ellipse 85% 70% at 50% 20%, #000 30%, transparent 100%)',
         }}
       />
 
-      {/* 2. Sovereign Gold (XAU/USD) Dynamic Aurora Orb - Top Left */}
+      {/* 3. Sovereign Gold Dynamic Aurora - Top Center-Left */}
       <div
-        className="absolute -top-24 left-[15%] w-[680px] h-[520px] rounded-full blur-[140px] pointer-events-none animate-aurora"
+        className="absolute -top-32 left-[12%] w-[680px] h-[520px] rounded-full blur-[140px] pointer-events-none"
         style={{
-          background: 'radial-gradient(circle, rgba(245, 183, 0, 0.16) 0%, rgba(245, 158, 11, 0.08) 50%, transparent 75%)',
+          background: 'radial-gradient(circle, rgba(245, 183, 0, 0.12) 0%, rgba(245, 158, 11, 0.05) 50%, transparent 75%)',
         }}
       />
 
-      {/* 3. Cyan / Teal Direct Execution Orb - Right Cockpit */}
+      {/* 4. Teal / Cyan Direct Execution Aurora - Right Cockpit */}
       <div
-        className="absolute top-[8%] right-[8%] w-[620px] h-[580px] rounded-full blur-[140px] pointer-events-none"
+        className="absolute top-[5%] right-[6%] w-[640px] h-[580px] rounded-full blur-[140px] pointer-events-none"
         style={{
-          background: 'radial-gradient(circle, rgba(18, 181, 166, 0.15) 0%, rgba(6, 182, 212, 0.08) 50%, transparent 75%)',
-        }}
-      />
-
-      {/* 4. Deep Indigo / Quantum Space Center Illumination */}
-      <div
-        className="absolute top-[45%] left-[30%] w-[700px] h-[480px] rounded-full blur-[160px] pointer-events-none"
-        style={{
-          background: 'radial-gradient(circle, rgba(99, 102, 241, 0.07) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(18, 181, 166, 0.13) 0%, rgba(6, 182, 212, 0.06) 50%, transparent 75%)',
         }}
       />
 
       {/* 5. Subtle Top Edge Laser Illumination */}
-      <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-[#12B5A6]/40 to-transparent" />
+      <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-[#12B5A6]/40 via-[#F5B700]/30 to-transparent" />
     </div>
   );
 };

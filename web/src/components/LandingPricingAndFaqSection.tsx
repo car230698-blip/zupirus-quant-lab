@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { calculateSubscriptionPricing, type BillingCycle } from '../utils/quantMath';
+import { SpotlightBento } from './ui/SpotlightBento';
 
 export interface LandingPricingTier {
   id: string;
@@ -123,16 +124,17 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
             const pricing = calculateSubscriptionPricing(tier.baseUsd, tier.slots, billingCycle, usdVndRate);
             const isPopular = tier.popular;
             return (
-              <div
+              <SpotlightBento
                 key={tier.id}
-                className={`rounded-2xl border bg-[#10192B] p-7 flex flex-col justify-between h-full transition-colors ${
+                borderBeam={isPopular}
+                className={`p-7 flex flex-col justify-between h-full transition-all ${
                   isPopular
-                    ? 'border-[#12B5A6] relative'
-                    : 'border-slate-800/80 hover:border-slate-700'
+                    ? 'border-[#12B5A6]/80 relative shadow-[0_0_35px_rgba(18,181,166,0.18)]'
+                    : 'border-white/10 hover:border-white/20'
                 }`}
               >
                 {isPopular && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-[#12B5A6] bg-[#0B1220] px-3 py-0.5 font-mono text-[11px] font-bold text-[#12B5A6]">
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-[#12B5A6] bg-[#060A13] px-3.5 py-0.5 font-mono text-[11px] font-bold text-[#12B5A6] shadow-[0_0_12px_rgba(18,181,166,0.4)]">
                     Phổ Biến Nhất
                   </span>
                 )}
@@ -187,7 +189,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                     Kích Hoạt →
                   </button>
                 </div>
-              </div>
+              </SpotlightBento>
             );
           })}
         </div>

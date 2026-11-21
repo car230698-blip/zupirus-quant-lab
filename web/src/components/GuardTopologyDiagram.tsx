@@ -4,7 +4,7 @@ import { GUARD_LAYERS } from '../data/landingData';
 export interface GuardTopologyDiagramProps {
   selectedLayerIdx: number;
   onSelectLayer: (idx: number) => void;
-  scenario?: 'BUY' | 'SELL' | 'NO_SL';
+  scenario?: 'BUY' | 'SELL' | 'NO_SL' | 'PROP_OVER';
 }
 
 export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
@@ -13,19 +13,28 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
   scenario = 'BUY',
 }) => {
   const isNoSl = scenario === 'NO_SL';
+  const isPropOver = scenario === 'PROP_OVER';
+  const isBlocked = isNoSl || isPropOver;
+
+  const flowEndX = isNoSl ? 230 : isPropOver ? 460 : 540;
+  const flowColor = isNoSl ? '#F43F5E' : isPropOver ? '#F5B700' : '#12B5A6';
 
   return (
-    <div className="relative flex flex-col justify-between h-full w-full p-4 sm:p-6 bg-[#080E1A] rounded-xl border border-slate-800/80">
+    <div className="relative flex flex-col justify-between h-full w-full p-4 sm:p-6 bg-[#080E1A]/90 rounded-2xl border border-white/10 backdrop-blur-xl">
       {/* Top Status Bar */}
-      <div className="flex items-center justify-between pb-3 border-b border-slate-800/60 font-mono text-xs">
+      <div className="flex items-center justify-between pb-3 border-b border-white/[0.08] font-mono text-xs">
         <div className="flex items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${isNoSl ? 'bg-rose-500 animate-ping' : 'bg-[#12B5A6] animate-pulse'}`} />
+          <span className={`h-2 w-2 rounded-full ${isBlocked ? 'bg-rose-500 animate-ping' : 'bg-[#12B5A6] animate-pulse'}`} />
           <span className="text-slate-400">TRẠNG THÁI KIỂM TOÁN:</span>
-          <strong className={isNoSl ? 'text-rose-400' : 'text-[#12B5A6]'}>
-            {isNoSl ? 'BLOCKED · BẢO TOÀN 100% VỐN' : 'PASS · SẴN SÀNG PHÂN PHỐI'}
+          <strong className={isNoSl ? 'text-rose-400' : isPropOver ? 'text-amber-400' : 'text-[#12B5A6]'}>
+            {isNoSl
+              ? 'BLOCKED (L2) · THIẾU STOP-LOSS CỨNG'
+              : isPropOver
+              ? 'BLOCKED (L4) · VƯỢT TRẦN RỦI RO PROP 1.0%'
+              : 'PASS · SẴN SÀNG QUẠT LỆNH CLOUD MT5'}
           </strong>
         </div>
-        <span className="text-[11px] text-slate-500 tabular-nums">
+        <span className="text-[11px] text-[#12B5A6] font-bold tabular-nums">
           LATENCY: &lt; 0.8ms
         </span>
       </div>
@@ -49,15 +58,15 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
             strokeDasharray="4 4"
           />
 
-          {/* Active Flow Line */}
+          {/* Active Animated Flow Line */}
           <line
             x1="60"
             y1="120"
-            x2={isNoSl ? '220' : '540'}
+            x2={flowEndX}
             y2="120"
-            stroke={isNoSl ? '#F43F5E' : '#12B5A6'}
-            strokeWidth="2"
-            className="transition-all duration-300"
+            stroke={flowColor}
+            strokeWidth="2.5"
+            className="transition-all duration-300 flow-anim"
           />
 
           {/* 4 Inspection Nodes */}
@@ -65,8 +74,10 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
             const cx = 90 + idx * 140;
             const cy = 120;
             const isSelected = selectedLayerIdx === idx;
-            const isBlocked = isNoSl && idx === 1; // Layer 2 blocks missing SL
-            const isPassed = !isNoSl || idx < 1;
+            const nodeBlocked = (isNoSl && idx === 1) || (isPropOver && idx === 3);
+            const nodePassed = !isBlocked || (isNoSl && idx < 1) || (isPropOver && idx < 3);
+
+            const nodeColor = nodeBlocked ? '#F43F5E' : nodePassed ? '#12B5A6' : '#64748B';
 
             return (
               <g
@@ -80,11 +91,10 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
                     cx={cx}
                     cy={cy}
                     r="34"
-                    fill={isBlocked ? 'rgba(244, 63, 94, 0.12)' : 'rgba(18, 181, 166, 0.12)'}
-                    stroke={isBlocked ? '#F43F5E' : '#12B5A6'}
-                    strokeWidth="1"
+                    fill={nodeBlocked ? 'rgba(244, 63, 94, 0.14)' : 'rgba(18, 181, 166, 0.14)'}
+                    stroke={nodeBlocked ? '#F43F5E' : '#12B5A6'}
+                    strokeWidth="1.5"
                     strokeDasharray="3 3"
-                    className="animate-spin-slow"
                   />
                 )}
 
@@ -93,18 +103,8 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
                   cx={cx}
                   cy={cy}
                   r="24"
-                  fill="#0B1220"
-                  stroke={
-                    isSelected
-                      ? isBlocked
-                        ? '#F43F5E'
-                        : '#12B5A6'
-                      : isBlocked
-                      ? '#F43F5E'
-                      : isPassed
-                      ? 'rgba(18, 181, 166, 0.4)'
-                      : 'rgba(148, 163, 184, 0.2)'
-                  }
+                  fill="#060A13"
+                  stroke={isSelected ? (nodeBlocked ? '#F43F5E' : '#12B5A6') : 'rgba(255,255,255,0.12)'}
                   strokeWidth="2"
                 />
 
@@ -113,7 +113,7 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
                   cx={cx}
                   cy={cy}
                   r="8"
-                  fill={isBlocked ? '#F43F5E' : isPassed ? '#12B5A6' : '#64748B'}
+                  fill={nodeColor}
                 />
 
                 {/* Top Badge: Layer ID */}
@@ -144,10 +144,10 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
                   y={cy + 55}
                   textAnchor="middle"
                   className={`font-mono text-[9px] font-bold ${
-                    isBlocked ? 'fill-rose-400' : isPassed ? 'fill-emerald-400' : 'fill-slate-500'
+                    nodeBlocked ? 'fill-rose-400' : nodePassed ? 'fill-emerald-400' : 'fill-slate-500'
                   }`}
                 >
-                  {isBlocked ? 'BLOCKED' : isPassed ? 'PASS' : 'STANDBY'}
+                  {nodeBlocked ? 'BLOCKED' : nodePassed ? 'PASS' : 'STANDBY'}
                 </text>
               </g>
             );
@@ -156,7 +156,7 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
       </div>
 
       {/* Bottom Summary Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-800/60 font-mono text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08] font-mono text-xs">
         <div className="text-slate-400">
           Chốt kiểm toán:{' '}
           <span className="text-white font-bold">
@@ -165,7 +165,7 @@ export const GuardTopologyDiagram: React.FC<GuardTopologyDiagramProps> = ({
         </div>
         <div className="flex items-center gap-2 text-[11px]">
           <span className="text-slate-500">Quy tắc:</span>
-          <code className="text-[#F5B700] bg-[#10192B] px-2 py-0.5 rounded border border-slate-800">
+          <code className="text-[#F5B700] bg-[#10192B] px-2 py-0.5 rounded border border-white/10">
             {GUARD_LAYERS[selectedLayerIdx]?.rule}
           </code>
         </div>

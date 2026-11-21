@@ -6,6 +6,8 @@ import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { apiGet } from '../api/client.ts';
 import { formatAccountMoney } from '../utils/currencyFormat.ts';
+import { SpotlightBento } from './ui/SpotlightBento';
+import { RadialRiskGauge } from './ui/RadialRiskGauge';
 
 export interface UserOverviewTabProps {
   totalBalance?: number;
@@ -162,7 +164,6 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
     return SHIELD_LAYERS;
   }, [telemetryData]);
 
-  const ddProgressPct = Math.min((computedDailyDd / Math.max(maxDdLimitPct, 0.1)) * 100, 100);
   const ddDanger = computedDailyDd >= maxDdLimitPct * 0.8;
   const activeShield = dynamicShieldLayers[activeShieldIdx] || dynamicShieldLayers[0];
 
@@ -312,136 +313,236 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
         </div>
       )}
 
-      {/* Row 1: 4 Executive Quantum Portfolio HUD Cards with Sparklines */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="quant-card-interactive quant-hud-corner p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-[0.14em] text-amber-300">
-              01 // TỔNG VỐN & EQUITY
-            </span>
-            <span className="rounded bg-amber-500/15 border border-amber-400/35 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-300">
-              USD LIVE
-            </span>
-          </div>
-          <div className="mt-2.5 flex items-end justify-between gap-2">
-            <div className="font-mono text-2xl font-extrabold tracking-tight text-white tabular-nums">
-              ${fmtNum(totalBalance, 2)}
+      {/* BENTO GRID 12 CỘT: 8 CỘT CHART + 4 CỘT GAUGE RỦI RO */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-stretch">
+        {/* Left 8 Cols: Large Chart Workstation with USD Balance & PnL HUD */}
+        <div className="lg:col-span-8 min-w-0 w-full">
+          <SpotlightBento borderBeam className="p-4 sm:p-6 space-y-4 h-full flex flex-col justify-between">
+            {/* Top Bar: Balance, Equity, PnL & Mode Toggles */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
+              <div className="min-w-0 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-300 font-bold">
+                    01 // TỔNG VỐN &amp; BUỒNG LÁI ĐỊNH LƯỢNG
+                  </span>
+                  <span className="rounded bg-amber-500/15 border border-amber-400/35 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-amber-300">
+                    USD LIVE
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-baseline gap-3">
+                  <span className="font-mono text-2xl sm:text-3xl font-extrabold text-white tracking-tight tabular-nums">
+                    ${fmtNum(totalBalance, 2)}
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">
+                    Equity: <strong className="text-amber-300">${fmtNum(totalEquity, 2)}</strong>
+                  </span>
+                  <span
+                    className={`rounded-lg px-2 py-0.5 font-mono text-xs font-bold tabular-nums ${
+                      computedOpenPnl >= 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                    }`}
+                  >
+                    {fmtPnL(computedOpenPnl)} ({totalBalance > 0 ? `${computedOpenPnl >= 0 ? '+' : ''}${fmtNum((computedOpenPnl / totalBalance) * 100, 2)}%` : '0%'})
+                  </span>
+                  {totalPositions > 0 && (
+                    <span className="text-xs text-slate-400 font-mono">
+                      · {totalPositions} lệnh mở
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Toggles */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {(totalAccountsCount ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCertModalOpen(true)}
+                    className="rounded-xl border border-amber-400/45 bg-amber-500/15 px-3 py-1.5 font-mono text-xs font-bold text-amber-200 hover:bg-amber-500/25 transition whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    🏆 Pass Quỹ
+                  </button>
+                )}
+                <div className="flex rounded-xl border border-white/10 bg-[#040710] p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChartMode('candles');
+                      if (loadCandles) loadCandles(timeframe);
+                    }}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-mono font-bold transition whitespace-nowrap cursor-pointer ${
+                      chartMode === 'candles'
+                        ? 'bg-[#12B5A6] text-[#042422]'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Nến {symbol}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartMode('equity')}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-mono font-bold transition whitespace-nowrap cursor-pointer ${
+                      chartMode === 'equity'
+                        ? 'bg-[#12B5A6] text-[#042422]'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Đường Vốn
+                  </button>
+                </div>
+
+                {chartMode === 'candles' && setTimeframe && (
+                  <div className="flex rounded-xl border border-white/10 bg-[#040710] p-0.5">
+                    {(['M5', 'M15', 'H1'] as const).map((tf) => (
+                      <button
+                        key={tf}
+                        type="button"
+                        onClick={() => {
+                          setTimeframe(tf);
+                          if (loadCandles) loadCandles(tf);
+                        }}
+                        className={`rounded-lg px-2 py-1 font-mono text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                          timeframe === tf
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {tf}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {chartMode === 'equity' && (
+                  <div className="flex rounded-xl border border-white/10 bg-[#040710] p-0.5">
+                    {[7, 30, 90].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setChartDays(d)}
+                        className={`rounded-lg px-2 py-1 font-mono text-xs font-bold transition whitespace-nowrap tabular-nums cursor-pointer ${
+                          chartDays === d
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {d}D
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <svg viewBox="0 0 80 26" className="h-6 w-20 overflow-visible">
-              <polyline
-                fill="none"
-                stroke="#fbbf24"
-                strokeWidth="2"
-                points={
-                  series && series.length > 1
-                    ? series
-                        .slice(-10)
-                        .map((s: any, idx: number, arr: any[]) => {
-                          const x = (idx / (arr.length - 1)) * 80;
-                          const minEq = Math.min(...arr.map((p: any) => Number(p.equity || p.balance || 0)));
-                          const maxEq = Math.max(...arr.map((p: any) => Number(p.equity || p.balance || 0)));
-                          const range = Math.max(maxEq - minEq, 1);
-                          const val = Number(s.equity || s.balance || 0);
-                          const y = 22 - ((val - minEq) / range) * 18;
-                          return `${x.toFixed(1)},${y.toFixed(1)}`;
-                        })
-                        .join(' ')
-                    : '0,13 80,13'
+
+            {/* Chart Area */}
+            <div className="flex-1 min-h-[300px]">
+              {chartMode === 'candles' ? (
+                <CandlestickTelemetryChart
+                  candles={validCandlesForAtr}
+                  symbol={symbol}
+                  timeframe={timeframe}
+                  liveBid={liveBid}
+                  liveAtr14={liveAtr14}
+                  hoveredCandleIdx={hoveredCandleIdx}
+                  setHoveredCandleIdx={setHoveredCandleIdx}
+                  showEmaOverlay={showEmaOverlay}
+                  setShowEmaOverlay={setShowEmaOverlay}
+                  showBbChannel={showBbChannel}
+                  setShowBbChannel={setShowBbChannel}
+                />
+              ) : (
+                <EquityHistory days={chartDays} series={series} />
+              )}
+            </div>
+
+            {/* Bottom Execution Telemetry Micro-Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 font-mono text-xs tabular-nums border-t border-white/[0.08]">
+              <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
+                <div className="text-[10px] text-slate-400">CHẾ ĐỘ THỊ TRƯỜNG</div>
+                <div className="mt-0.5 font-bold text-amber-300">EXPANSION M15</div>
+              </div>
+              <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
+                <div className="text-[10px] text-slate-400">BIÊN ĐỘ ATR(14)</div>
+                <div className="mt-0.5 font-bold text-cyan-300">
+                  {liveAtr14 > 0 ? `${fmtNum(liveAtr14, 2)} USD` : 'Đo ATR(14)...'}
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
+                <div className="text-[10px] text-slate-400">AUTO BREAK-EVEN</div>
+                <div className="mt-0.5 font-bold text-emerald-400">ARMED @ +1.0R</div>
+              </div>
+              <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
+                <div className="text-[10px] text-slate-400">ĐỘ TRỄ KHỚP LỆNH</div>
+                <div className="mt-0.5 font-bold text-white">
+                  {liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)} ms G2` : '24.0 ms G2'}
+                </div>
+              </div>
+            </div>
+          </SpotlightBento>
+        </div>
+
+        {/* Right 4 Cols: 2 RadialRiskGauges (Daily DD + Prop Target / Latency) */}
+        <div className="lg:col-span-4 min-w-0 w-full flex flex-col justify-between gap-5">
+          {/* Mobile: 2-column grid side-by-side; Desktop: stacked 2 cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-5 h-full">
+            {/* Gauge 1: Khiên Sụt Giảm Ngày */}
+            <SpotlightBento className="p-5 flex-1 flex flex-col justify-between">
+              <RadialRiskGauge
+                title="Khiên Sụt Giảm Ngày"
+                value={computedDailyDd}
+                max={maxDdLimitPct}
+                tone={ddDanger ? 'rose' : 'teal'}
+                badgeLabel={ddDanger ? 'NGUY HIỂM' : 'AN TOÀN'}
+                badgeTone={ddDanger ? 'rose' : 'teal'}
+                subtitle={
+                  <div className="space-y-1 font-mono text-[11px] text-slate-300">
+                    <div>Trần bảo vệ: <strong className="text-amber-300">{fmtNum(maxDdLimitPct, 1)}%</strong></div>
+                    <div>Cơ chế: <strong className="text-emerald-300">Fail-Closed 100%</strong></div>
+                  </div>
                 }
               />
-            </svg>
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-white/[0.08] pt-2.5 text-xs text-slate-300">
-            <span>Equity khả dụng</span>
-            <strong className="font-mono text-amber-300 tabular-nums">${fmtNum(totalEquity, 2)}</strong>
-          </div>
-        </div>
+            </SpotlightBento>
 
-        <div className="quant-card-interactive quant-hud-corner p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-[0.14em] text-cyan-300">
-              02 // FLOATING PNL
-            </span>
-            <span className="font-mono text-[10px] font-bold text-emerald-400">
-              {totalPositions} VỊ THẾ MỞ
-            </span>
-          </div>
-          <div
-            className={`mt-2.5 font-mono text-2xl font-extrabold tracking-tight tabular-nums ${
-              computedOpenPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
-            }`}
-          >
-            {fmtPnL(computedOpenPnl)}
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-white/[0.08] pt-2.5 text-xs text-slate-300">
-            <span>Biến động phiên</span>
-            <strong className="font-mono text-white tabular-nums">
-              {totalBalance > 0
-                ? `${computedOpenPnl >= 0 ? '+' : ''}${fmtNum((computedOpenPnl / totalBalance) * 100, 2)}%`
-                : '0.00%'}
-            </strong>
-          </div>
-        </div>
-
-        <div className="quant-card-interactive quant-hud-corner p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-[0.14em] text-amber-300">
-              03 // PROP DAILY DD
-            </span>
-            <span className="font-mono text-[10px] font-bold text-emerald-400">SAFE ZONE</span>
-          </div>
-          <div
-            className={`mt-2.5 font-mono text-2xl font-extrabold tracking-tight tabular-nums ${
-              ddDanger ? 'text-rose-400' : 'text-amber-300'
-            }`}
-          >
-            {fmtNum(computedDailyDd, 2)}%
-          </div>
-          <div className="mt-3 space-y-1.5 border-t border-white/[0.08] pt-2.5">
-            <div className="flex items-center justify-between text-xs text-slate-300">
-              <span>Trần bảo vệ ngày</span>
-              <strong className="font-mono text-amber-200 tabular-nums">{fmtNum(maxDdLimitPct, 1)}%</strong>
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800/90">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  ddDanger
-                    ? 'bg-gradient-to-r from-amber-500 to-rose-500'
-                    : 'bg-gradient-to-r from-amber-400 to-emerald-400'
-                }`}
-                style={{ width: `${Math.max(ddProgressPct, 6)}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="quant-card-interactive quant-hud-corner p-5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-[0.14em] text-emerald-400">
-              04 // TRẠM CLOUD MT5
-            </span>
-            <span className="font-mono text-[10px] font-bold text-amber-300">
-              {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : 'LIVE'} LONDON G2
-            </span>
-          </div>
-          <div className="mt-2.5 flex items-baseline gap-2">
-            <span className="font-mono text-2xl font-extrabold tracking-tight text-white tabular-nums">
-              {computedActiveAccounts} / {computedTotalAccounts}
-            </span>
-            <span className="text-xs font-medium text-slate-400">trạm trực tuyến</span>
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-white/[0.08] pt-2.5 text-xs text-slate-300">
-            <span className="truncate">{runtimeModeLabel}</span>
-            <span className="inline-flex items-center gap-1.5 font-mono font-bold text-emerald-300 shrink-0">
-              <span className={`h-2 w-2 rounded-full ${isMt5Connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-              {isMt5Connected ? 'ĐÃ KẾT NỐI' : 'CHỜ ĐỒNG BỘ'}
-            </span>
+            {/* Gauge 2: Tiến Độ Mục Tiêu Quỹ Prop / Hạ Tầng G2 */}
+            <SpotlightBento className="p-5 flex-1 flex flex-col justify-between">
+              {hasPropAccount ? (
+                <RadialRiskGauge
+                  title="Mục Tiêu Pass Quỹ (8%)"
+                  value={Math.max(0, propPnlPct)}
+                  max={8.0}
+                  tone="gold"
+                  badgeLabel="PROP LIVE"
+                  badgeTone="gold"
+                  subtitle={
+                    <div className="space-y-1 font-mono text-[11px] text-slate-300">
+                      <div>Tiến độ: <strong className="text-emerald-300">+{fmtNum(Math.max(0, propPnlPct), 2)}%</strong> / 8.0%</div>
+                      <div>Tài khoản: <strong className="text-cyan-300">{propAccounts.length} Quỹ Live</strong></div>
+                    </div>
+                  }
+                />
+              ) : (
+                <RadialRiskGauge
+                  title="Hạ Tầng London G2"
+                  value={liveLatencyMs > 0 ? liveLatencyMs : 24}
+                  max={100}
+                  tone="teal"
+                  suffix="ms"
+                  badgeLabel="ONLINE"
+                  badgeTone="teal"
+                  subtitle={
+                    <div className="space-y-1 font-mono text-[11px] text-slate-300">
+                      <div>Kết nối: <strong className="text-emerald-300">Cloud MetaAPI</strong></div>
+                      <div>Độ trễ: <strong className="text-cyan-300">{liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)}ms` : '24ms'}</strong></div>
+                    </div>
+                  }
+                />
+              )}
+            </SpotlightBento>
           </div>
         </div>
       </div>
 
       {/* Row 2: Interactive 4-Layer Fail-Closed Capital Shield Matrix */}
-      <div className="quant-panel p-5 sm:p-6 space-y-4">
+      <SpotlightBento className="p-5 sm:p-6 space-y-4">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-start gap-3.5 sm:items-center">
             <div
@@ -522,253 +623,132 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             );
           })}
         </div>
-      </div>
+      </SpotlightBento>
 
-      {/* Row 3: Primary Quantitative Chart Workstation + Connected MT5 Terminals */}
-      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-12">
-        <div className="quant-panel p-4 sm:p-6 lg:col-span-8 space-y-4 min-w-0 w-full overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-300 font-bold truncate">
-                QUANTUM CHARTING & ORDERFLOW WORKSTATION
-              </div>
-              <h3 className="mt-0.5 text-sm sm:text-base font-bold text-white truncate">
-                {chartMode === 'candles'
-                  ? `Biểu Đồ Nến Định Lượng ${symbol} (${timeframe})`
-                  : `Đường Cong Tăng Trưởng Equity (${chartDays} Ngày)`}
-              </h3>
+      {/* Row 3: Connected Cloud MT5 Terminals (12 Columns) */}
+      <SpotlightBento className="p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-300 font-bold">
+              CLOUD MT5 NODES
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {(totalAccountsCount ?? 0) > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setCertModalOpen(true)}
-                  className="rounded-xl border border-amber-400/45 bg-amber-500/15 px-3 py-1.5 font-mono text-xs font-bold text-amber-200 hover:bg-amber-500/25 transition whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  🏆 Chứng Nhận Pass Quỹ
-                </button>
-              )}
-              <div className="flex rounded-xl border border-amber-500/25 bg-[#040710] p-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setChartMode('candles');
-                    if (loadCandles) loadCandles(timeframe);
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-mono font-bold transition whitespace-nowrap shrink-0 cursor-pointer ${
-                    chartMode === 'candles'
-                      ? 'bg-amber-500/25 text-amber-200 border border-amber-400/45'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Nến {symbol}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChartMode('equity')}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-mono font-bold transition whitespace-nowrap shrink-0 cursor-pointer ${
-                    chartMode === 'equity'
-                      ? 'bg-amber-500/25 text-amber-200 border border-amber-400/45'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Lịch Sử Equity
-                </button>
-              </div>
-
-              {chartMode === 'candles' && setTimeframe && (
-                <div className="flex rounded-xl border border-white/10 bg-[#040710] p-1">
-                  {(['M5', 'M15', 'H1'] as const).map((tf) => (
-                    <button
-                      key={tf}
-                      type="button"
-                      onClick={() => {
-                        setTimeframe(tf);
-                        if (loadCandles) loadCandles(tf);
-                      }}
-                      className={`rounded-lg px-2.5 py-1.5 font-mono text-xs font-bold transition whitespace-nowrap shrink-0 cursor-pointer ${
-                        timeframe === tf
-                          ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {tf}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {chartMode === 'equity' && (
-                <div className="flex rounded-xl border border-white/10 bg-[#040710] p-1">
-                  {[7, 30, 90].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setChartDays(d)}
-                      className={`rounded-lg px-2.5 py-1.5 font-mono text-xs font-bold transition whitespace-nowrap shrink-0 tabular-nums cursor-pointer ${
-                        chartDays === d
-                          ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {d}D
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <h3 className="mt-0.5 text-base font-bold text-white">Tài Khoản MT5 Đang Ghép Nối Với Trạm Đám Mây London G2</h3>
           </div>
-
-          {chartMode === 'candles' ? (
-            <CandlestickTelemetryChart
-              candles={validCandlesForAtr}
-              symbol={symbol}
-              timeframe={timeframe}
-              liveBid={liveBid}
-              liveAtr14={liveAtr14}
-              hoveredCandleIdx={hoveredCandleIdx}
-              setHoveredCandleIdx={setHoveredCandleIdx}
-              showEmaOverlay={showEmaOverlay}
-              setShowEmaOverlay={setShowEmaOverlay}
-              showBbChannel={showBbChannel}
-              setShowBbChannel={setShowBbChannel}
-            />
-          ) : (
-            <EquityHistory days={chartDays} series={series} />
+          {activeTabSetter && (
+            <button
+              type="button"
+              onClick={() => activeTabSetter('accounts')}
+              className="text-xs font-mono font-bold text-amber-300 hover:text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              Quản lý ({accounts.length}) →
+            </button>
           )}
-
-          {/* Bottom Execution Telemetry Micro-Strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 font-mono text-xs tabular-nums">
-            <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-3">
-              <div className="text-[10px] text-slate-400">CHẾ ĐỘ THỊ TRƯỜNG</div>
-              <div className="mt-0.5 font-bold text-amber-300">TREND EXPANSION</div>
-            </div>
-            <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-3">
-              <div className="text-[10px] text-slate-400">BIÊN ĐỘ ATR(14)</div>
-              <div className="mt-0.5 font-bold text-cyan-300">
-                {liveAtr14 > 0 ? `${fmtNum(liveAtr14, 2)} USD (${fmtNum(liveAtr14 * 10, 1)}p)` : 'Đang đo ATR(14)...'}
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-3">
-              <div className="text-[10px] text-slate-400">AUTO BREAK-EVEN</div>
-              <div className="mt-0.5 font-bold text-emerald-400">ARMED @ +1.0R</div>
-            </div>
-            <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-3">
-              <div className="text-[10px] text-slate-400">ĐỘ TRỄ KHỚP LỆNH</div>
-              <div className="mt-0.5 font-bold text-white">
-                {liveLatencyMs > 0 ? `~${fmtNum(liveLatencyMs, 1)} ms G2` : 'G2 READY'}
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Right 4 Columns: Connected Cloud MT5 Nodes */}
-        <div className="quant-panel flex flex-col justify-between p-5 sm:p-6 lg:col-span-4">
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-300 font-bold">
-                  CLOUD MT5 NODES
-                </div>
-                <h3 className="mt-0.5 text-base font-bold text-white">Tài Khoản MT5 Đang Ghép Nối</h3>
-              </div>
-              {activeTabSetter && (
-                <button
-                  type="button"
-                  onClick={() => activeTabSetter('accounts')}
-                  className="text-xs font-mono font-bold text-amber-300 hover:text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
+        {accounts.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-amber-500/25 bg-[#040710]/60 p-6 text-center">
+            <p className="text-sm font-semibold text-slate-200">Chưa có tài khoản MT5 nào được kết nối</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Kết nối tài khoản MetaTrader 5 để bắt đầu nhận tín hiệu định lượng XAU/USD tự động.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {accounts.map((acc: any) => {
+              const isActive = acc.is_active !== false && acc.copy_enabled !== false && Number(acc.auto_trade ?? 1) !== 0;
+              const accBal = Number(acc.balance ?? 0);
+              const accEq = Number(acc.equity ?? accBal);
+              const accDd =
+                acc.daily_dd_pct !== undefined
+                  ? Number(acc.daily_dd_pct)
+                  : accBal > 0 && accEq < accBal
+                  ? Math.max(0, ((accBal - accEq) / accBal) * 100)
+                  : 0.0;
+              const accMaxDd = Number(acc.max_daily_dd_pct ?? acc.prop_daily_dd_limit_pct ?? 4.0);
+              const accId = acc.account_id || acc.login || acc.id;
+              const isProp = String(acc.account_type || '').toUpperCase().includes('PROP') ||
+                String(acc.server || '').toUpperCase().includes('FTMO') ||
+                Boolean(acc.prop_firm_profile);
+              const isCent = String(acc.account_type || '').toUpperCase().includes('CENT') ||
+                String(acc.server || '').toUpperCase().includes('CENT');
+
+              return (
+                <div
+                  key={accId}
+                  className="rounded-xl border border-white/10 bg-[#040710]/90 p-4 transition hover:border-amber-400/45 space-y-3"
                 >
-                  Quản lý ({accounts.length}) →
-                </button>
-              )}
-            </div>
-
-            {accounts.length === 0 ? (
-              <div className="mt-4 rounded-xl border border-dashed border-amber-500/25 bg-[#040710]/60 p-6 text-center">
-                <p className="text-sm font-semibold text-slate-200">Chưa có tài khoản MT5 nào được kết nối</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Kết nối tài khoản MetaTrader 5 để bắt đầu nhận tín hiệu định lượng XAU/USD tự động.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-4 space-y-3">
-                {accounts.slice(0, 4).map((acc: any) => {
-                  const isActive = acc.is_active !== false && acc.copy_enabled !== false && Number(acc.auto_trade ?? 1) !== 0;
-                  const accBal = Number(acc.balance ?? 0);
-                  const accEq = Number(acc.equity ?? accBal);
-                  const accDd =
-                    acc.daily_dd_pct !== undefined
-                      ? Number(acc.daily_dd_pct)
-                      : accBal > 0 && accEq < accBal
-                      ? Math.max(0, ((accBal - accEq) / accBal) * 100)
-                      : 0.0;
-                  const accMaxDd = Number(acc.max_daily_dd_pct ?? acc.prop_daily_dd_limit_pct ?? 4.0);
-                  const accId = acc.account_id || acc.login || acc.id;
-                  return (
-                    <div
-                      key={accId}
-                      className="rounded-xl border border-amber-500/20 bg-[#040710]/90 p-3.5 transition hover:border-amber-400/45"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`h-2 w-2 shrink-0 rounded-full ${
-                                isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-                              }`}
-                            />
-                            <span className="truncate font-bold text-sm text-white">
-                              {acc.account_name || acc.login || accId}
-                            </span>
-                          </div>
-                          <div className="mt-1 font-mono text-[11px] text-slate-400 truncate">
-                            #{accId} · {acc.broker_server || acc.server || 'MT5 Cloud'} · x
-                            {fmtNum(acc.lot_multiplier || acc.risk_multiplier || 1, 2)}
-                          </div>
-                        </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
                         <span
-                          className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold shrink-0 border ${
-                            isActive
-                              ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
-                              : 'bg-slate-800/80 border-slate-600/50 text-slate-400'
+                          className={`h-2 w-2 shrink-0 rounded-full ${
+                            isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
                           }`}
-                        >
-                          {isActive ? 'ONLINE' : 'PAUSED'}
+                        />
+                        <span className="truncate font-bold text-sm text-white">
+                          {acc.account_name || acc.login || accId}
                         </span>
+                        {isProp ? (
+                          <span className="rounded bg-amber-500/20 border border-amber-400/35 px-1.5 py-0.5 font-mono text-[9px] font-bold text-amber-300">
+                            PROP LIVE
+                          </span>
+                        ) : isCent ? (
+                          <span className="rounded bg-cyan-500/20 border border-cyan-400/35 px-1.5 py-0.5 font-mono text-[9px] font-bold text-cyan-300">
+                            CENT USC
+                          </span>
+                        ) : (
+                          <span className="rounded bg-slate-800 border border-slate-700 px-1.5 py-0.5 font-mono text-[9px] text-slate-300">
+                            STANDARD
+                          </span>
+                        )}
                       </div>
-
-                      <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-2.5 font-mono text-xs tabular-nums">
-                        <div>
-                          <div className="text-[10px] text-slate-500">BALANCE</div>
-                          <div className="font-bold text-white">{formatAccountMoney(acc.balance, acc)}</div>
-                        </div>
-                        <div>
-                          <div className="text-[10px] text-slate-500">EQUITY</div>
-                          <div className="font-bold text-amber-300">{formatAccountMoney(acc.equity, acc)}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-[10px] text-slate-500">DAILY DD</div>
-                          <div className={`font-bold ${accDd >= accMaxDd * 0.8 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                            {fmtNum(accDd, 2)}%
-                          </div>
-                        </div>
+                      <div className="mt-1 font-mono text-[11px] text-slate-400 truncate">
+                        #{accId} · {acc.broker_server || acc.server || 'MT5 Cloud'} · x{fmtNum(acc.lot_multiplier || acc.risk_multiplier || 1, 2)}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                    <span
+                      className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold shrink-0 border ${
+                        isActive
+                          ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
+                          : 'bg-slate-800/80 border-slate-600/50 text-slate-400'
+                      }`}
+                    >
+                      {isActive ? 'ONLINE' : 'PAUSED'}
+                    </span>
+                  </div>
 
-          <div className="mt-4 border-t border-white/[0.08] pt-3.5 flex items-center justify-between text-xs font-mono text-slate-400">
-            <span>Cầu nối MetaAPI London G2</span>
-            <span className="text-amber-300 font-bold">
-              {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : 'LIVE'} · ZERO-VPS
-            </span>
+                  <div className="grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-2.5 font-mono text-xs tabular-nums">
+                    <div>
+                      <div className="text-[10px] text-slate-500">BALANCE</div>
+                      <div className="font-bold text-white">{formatAccountMoney(acc.balance, acc)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500">EQUITY</div>
+                      <div className="font-bold text-amber-300">{formatAccountMoney(acc.equity, acc)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] text-slate-500">DAILY DD</div>
+                      <div className={`font-bold ${accDd >= accMaxDd * 0.8 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {fmtNum(accDd, 2)}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        )}
+
+        <div className="border-t border-white/[0.08] pt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-slate-400">
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${isMt5Connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+            <span>{runtimeModeLabel} · {computedActiveAccounts}/{computedTotalAccounts} Online</span>
+          </div>
+          <span className="text-amber-300 font-bold">
+            {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : '24ms'} G2 · {isMt5Connected ? 'ĐÃ ĐỒNG BỘ' : 'CHỜ ĐỒNG BỘ'}
+          </span>
         </div>
-      </div>
+      </SpotlightBento>
       <PropCertificateModal
         open={certModalOpen}
         onClose={() => setCertModalOpen(false)}

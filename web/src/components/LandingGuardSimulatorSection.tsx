@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { GUARD_LAYERS } from '../data/landingData';
 import { GuardTopologyDiagram } from './GuardTopologyDiagram';
+import { SpotlightBento } from './ui/SpotlightBento';
+import { ShieldCheck, AlertTriangle, XCircle, CheckCircle2 } from 'lucide-react';
 
 export interface LandingGuardSimulatorSectionProps {
   selectedGuardIdx: number;
@@ -11,7 +13,7 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
   selectedGuardIdx,
   setSelectedGuardIdx,
 }) => {
-  const [scenario, setScenario] = useState<'BUY' | 'SELL' | 'NO_SL'>('BUY');
+  const [scenario, setScenario] = useState<'BUY' | 'NO_SL' | 'PROP_OVER'>('BUY');
   const activeGuard = GUARD_LAYERS[selectedGuardIdx] || GUARD_LAYERS[0];
 
   return (
@@ -22,8 +24,9 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
       {/* Left Column: 4-Layer Guard Explanation & 3 Scenario Testing Buttons */}
       <div className="space-y-5 lg:col-span-6">
         <div>
-          <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-[#12B5A6]">
-            4-LAYER FAIL-CLOSED CAPITAL PROTECTION
+          <div className="inline-flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-[0.2em] text-[#12B5A6]">
+            <ShieldCheck className="w-4 h-4 text-[#12B5A6]" strokeWidth={2} />
+            <span>4-LAYER FAIL-CLOSED CAPITAL PROTECTION</span>
           </div>
           <h2 className="mt-1 font-display text-2xl sm:text-3xl font-bold text-white tracking-tight">
             Kiến Trúc 4 Lớp Giáp Bảo Vệ Vốn Bắt Buộc
@@ -34,7 +37,7 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
         </div>
 
         {/* 3 Scenario Testing Buttons */}
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
             Kịch Bản Thử Nghiệm Phản Ứng Giáp:
           </span>
@@ -45,13 +48,14 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
                 setScenario('BUY');
                 setSelectedGuardIdx(0);
               }}
-              className={`rounded-xl border py-2 px-2.5 text-xs font-bold transition font-mono ${
+              className={`rounded-xl border py-2.5 px-3 text-xs font-bold transition font-mono flex items-center justify-center gap-1.5 cursor-pointer ${
                 scenario === 'BUY'
-                  ? 'border-[#12B5A6] bg-[#12B5A6]/15 text-[#12B5A6]'
-                  : 'border-slate-800 bg-[#080E1A] text-slate-400 hover:text-white'
+                  ? 'border-[#12B5A6] bg-[#12B5A6]/20 text-[#12B5A6] shadow-[0_0_15px_rgba(18,181,166,0.25)]'
+                  : 'border-white/10 bg-white/[0.04] text-slate-400 hover:text-white'
               }`}
             >
-              ✓ Tín hiệu chuẩn
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Tín hiệu chuẩn</span>
             </button>
             <button
               type="button"
@@ -59,27 +63,29 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
                 setScenario('NO_SL');
                 setSelectedGuardIdx(1);
               }}
-              className={`rounded-xl border py-2 px-2.5 text-xs font-bold transition font-mono ${
+              className={`rounded-xl border py-2.5 px-3 text-xs font-bold transition font-mono flex items-center justify-center gap-1.5 cursor-pointer ${
                 scenario === 'NO_SL'
-                  ? 'border-rose-500 bg-rose-500/15 text-rose-300'
-                  : 'border-slate-800 bg-[#080E1A] text-slate-400 hover:text-white'
+                  ? 'border-rose-500 bg-rose-500/20 text-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.25)]'
+                  : 'border-white/10 bg-white/[0.04] text-slate-400 hover:text-white'
               }`}
             >
-              ⛔ Thiếu Stop-Loss
+              <XCircle className="w-3.5 h-3.5" />
+              <span>Thiếu SL</span>
             </button>
             <button
               type="button"
               onClick={() => {
-                setScenario('SELL');
+                setScenario('PROP_OVER');
                 setSelectedGuardIdx(3);
               }}
-              className={`rounded-xl border py-2 px-2.5 text-xs font-bold transition font-mono ${
-                scenario === 'SELL' && selectedGuardIdx === 3
-                  ? 'border-amber-400 bg-amber-500/15 text-amber-300'
-                  : 'border-slate-800 bg-[#080E1A] text-slate-400 hover:text-white'
+              className={`rounded-xl border py-2.5 px-3 text-xs font-bold transition font-mono flex items-center justify-center gap-1.5 cursor-pointer ${
+                scenario === 'PROP_OVER'
+                  ? 'border-amber-400 bg-amber-500/20 text-amber-300 shadow-[0_0_15px_rgba(245,183,0,0.25)]'
+                  : 'border-white/10 bg-white/[0.04] text-slate-400 hover:text-white'
               }`}
             >
-              ⚠ Vượt trần Prop 1%
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>Vượt trần 1%</span>
             </button>
           </div>
         </div>
@@ -95,8 +101,8 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
                 onClick={() => setSelectedGuardIdx(idx)}
                 className={`w-full rounded-xl border p-3.5 text-left transition cursor-pointer ${
                   active
-                    ? 'border-[#12B5A6]/60 bg-[#12B5A6]/10 text-white'
-                    : 'border-slate-800/80 bg-[#10192B]/80 hover:border-slate-700 text-slate-300'
+                    ? 'border-[#12B5A6]/60 bg-[#12B5A6]/15 text-white shadow-[0_0_20px_rgba(18,181,166,0.15)]'
+                    : 'border-white/10 bg-white/[0.03] hover:border-white/20 text-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between font-mono text-xs">
@@ -112,9 +118,9 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
         </div>
       </div>
 
-      {/* Right Column: Flat SVG Topology Diagram */}
+      {/* Right Column: Flat SVG Topology Diagram in Spotlight Bento */}
       <div className="lg:col-span-6">
-        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B]/90 p-6 space-y-4 shadow-xl">
+        <SpotlightBento borderBeam className="p-6 space-y-4">
           <div className="h-72 sm:h-80 w-full">
             <GuardTopologyDiagram
               selectedLayerIdx={selectedGuardIdx}
@@ -123,7 +129,7 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
             />
           </div>
 
-          <div className="space-y-2 pt-2 border-t border-slate-800/70">
+          <div className="space-y-2 pt-2 border-t border-white/[0.08]">
             <div className="flex items-center justify-between font-mono text-xs">
               <span className="text-[#12B5A6] font-bold uppercase">{activeGuard.code}</span>
               <span className="text-slate-400">CHỐT CHẶN: LỚP #{activeGuard.id}</span>
@@ -131,7 +137,7 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
             <h3 className="text-base font-bold text-white">{activeGuard.title}</h3>
             <p className="text-xs leading-relaxed text-slate-300">{activeGuard.desc}</p>
           </div>
-        </div>
+        </SpotlightBento>
       </div>
     </section>
   );

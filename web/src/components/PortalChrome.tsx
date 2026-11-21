@@ -4,37 +4,40 @@ import { useLiveTopbarTelemetry, useRealtimePortalStream } from '../hooks/useQua
 import { api, apiPost } from '../api/client.ts';
 import { NotificationBellMenu } from './NotificationBellMenu.tsx';
 import {
-  IconBell,
+  LayoutDashboard,
+  Server,
+  ReceiptText,
+  Radio,
+  BrainCircuit,
+  Users,
+  Bell,
+  User,
+  Zap,
+  X as IconClose,
+  Menu as IconMenu,
+} from 'lucide-react';
+import {
   IconBolt,
-  IconBrain,
   IconChevronLeft,
   IconChevronRight,
-  IconClose,
-  IconDashboard,
-  IconMenu,
-  IconRadar,
-  IconReceipt,
-  IconServer,
-  IconUser,
-  IconUsers,
 } from './Icons';
 
 function renderNavIcon(key: string): ReactNode {
   switch (key) {
     case 'overview':
-      return <IconDashboard className="w-4 h-4" />;
+      return <LayoutDashboard className="w-4 h-4" strokeWidth={1.75} />;
     case 'accounts':
-      return <IconServer className="w-4 h-4" />;
+      return <Server className="w-4 h-4" strokeWidth={1.75} />;
     case 'orders':
-      return <IconReceipt className="w-4 h-4" />;
+      return <ReceiptText className="w-4 h-4" strokeWidth={1.75} />;
     case 'radar':
-      return <IconRadar className="w-4 h-4" />;
+      return <Radio className="w-4 h-4" strokeWidth={1.75} />;
     case 'ai':
-      return <IconBrain className="w-4 h-4" />;
+      return <BrainCircuit className="w-4 h-4" strokeWidth={1.75} />;
     case 'business':
-      return <IconUsers className="w-4 h-4" />;
+      return <Users className="w-4 h-4" strokeWidth={1.75} />;
     default:
-      return <IconBolt className="w-4 h-4" />;
+      return <Zap className="w-4 h-4" strokeWidth={1.75} />;
   }
 }
 
@@ -364,7 +367,11 @@ export function PortalShell({
               </div>
             </>
           ) : (
-            <div className="flex flex-col items-center gap-2 w-full">
+            <div className="flex flex-col items-center gap-3 w-full pb-1">
+              <div className="flex flex-col items-center gap-1 group relative cursor-pointer" title="Live SSE Feed: London G2 · 24ms">
+                <span className="pulse-wrap"><span className="pulse-core" /></span>
+                <span className="text-[8px] font-mono text-[#12B5A6] font-bold">LIVE</span>
+              </div>
               <button
                 type="button"
                 onClick={() => setCmdOpen(true)}
@@ -586,25 +593,25 @@ export function PortalShell({
         </main>
       </div>
 
-      {/* Mobile WebApp Bottom Navigation Dock (Fixed at bottom on phones/tablets) */}
+      {/* Mobile WebApp Floating Liquid-Glass Bottom Dock (Fixed at bottom on phones/tablets) */}
       <nav
         aria-label="Điều hướng WebApp di động"
-        className="fixed bottom-0 inset-x-0 z-40 flex lg:hidden items-center justify-around border-t border-white/[0.08] bg-[#070d18]/95 px-1 py-1.5 backdrop-blur-2xl shadow-[0_-10px_30px_rgba(0,0,0,0.85)] pb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-full"
+        className="fixed bottom-3 inset-x-3 z-40 flex lg:hidden items-center justify-around rounded-2xl bg-[#0D1526]/90 backdrop-blur-2xl border border-white/15 px-2 py-2 shadow-[0_18px_40px_-10px_rgba(0,0,0,0.85)] pb-[max(0.5rem,env(safe-area-inset-bottom))]"
       >
         {navigation[portal].map(([key]) => {
           const active = page === key;
           const shortLabel =
             key === 'overview'
-              ? 'Tổng quan'
+              ? 'Tổng Quan'
               : key === 'accounts'
-              ? 'Tài khoản'
+              ? 'Tài Khoản'
               : key === 'orders'
-              ? 'Sổ lệnh'
+              ? 'Lệnh'
               : key === 'radar'
               ? 'Radar'
               : key === 'ai'
               ? 'AI Lab'
-              : 'Khách hàng';
+              : 'Khách Hàng';
           return (
             <button
               key={key}
@@ -615,11 +622,11 @@ export function PortalShell({
                 onNavigate(key);
               }}
               aria-current={active ? 'page' : undefined}
-              className={`flex flex-1 min-w-0 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
+              className={`flex flex-1 min-w-0 min-h-[44px] flex-col items-center justify-center py-1 rounded-xl transition cursor-pointer ${
                 active
                   ? portal === 'admin'
-                    ? 'text-cyan-300 font-bold'
-                    : 'text-amber-400 font-bold'
+                    ? 'text-cyan-300 font-bold bg-cyan-500/10'
+                    : 'text-[#12B5A6] font-bold bg-[#12B5A6]/10'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -630,12 +637,12 @@ export function PortalShell({
                     className={`absolute -bottom-1 left-1/2 h-1 w-3.5 -translate-x-1/2 rounded-full ${
                       portal === 'admin'
                         ? 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]'
-                        : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
+                        : 'bg-[#12B5A6] shadow-[0_0_8px_rgba(18,181,166,0.8)]'
                     }`}
                   />
                 )}
               </div>
-              <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[62px]">
+              <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[64px]">
                 {shortLabel}
               </span>
             </button>
@@ -649,19 +656,19 @@ export function PortalShell({
             setMobileProfileOpen(false);
             setNotifDropdownOpen((v) => !v);
           }}
-          className={`flex flex-1 min-w-0 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
-            notifDropdownOpen ? 'text-amber-300 font-bold' : 'text-slate-400 hover:text-slate-200'
+          className={`flex flex-1 min-w-0 min-h-[44px] flex-col items-center justify-center py-1 rounded-xl transition cursor-pointer ${
+            notifDropdownOpen ? 'text-amber-300 font-bold bg-amber-500/10' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <div className="relative">
-            <IconBell className="w-4 h-4" />
+            <Bell className="w-4 h-4" strokeWidth={1.75} />
             {unreadNotifCount > 0 && (
               <span className="absolute -top-1.5 -right-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-rose-500 px-0.5 text-[8.5px] font-bold text-white">
                 {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
               </span>
             )}
           </div>
-          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[62px]">Thông báo</span>
+          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[64px]">Thông Báo</span>
         </button>
 
         {/* Profile / Account Drawer Tab */}
@@ -671,12 +678,12 @@ export function PortalShell({
             setNotifDropdownOpen(false);
             setMobileProfileOpen(true);
           }}
-          className={`flex flex-1 min-w-0 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
-            mobileProfileOpen ? 'text-cyan-300 font-bold' : 'text-slate-400 hover:text-slate-200'
+          className={`flex flex-1 min-w-0 min-h-[44px] flex-col items-center justify-center py-1 rounded-xl transition cursor-pointer ${
+            mobileProfileOpen ? 'text-[#F5B700] font-bold bg-[#F5B700]/10' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <IconUser className="w-4 h-4" />
-          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[62px]">Cá nhân</span>
+          <User className="w-4 h-4" strokeWidth={1.75} />
+          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[64px]">Cá Nhân</span>
         </button>
       </nav>
 
