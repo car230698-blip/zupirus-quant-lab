@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 interface ThreeCanvasBackgroundProps {
@@ -12,18 +12,34 @@ export const ThreeCanvasBackground: React.FC<ThreeCanvasBackgroundProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pulseRef = useRef(pulseTrigger);
+  const [useFallback, setUseFallback] = useState(false);
 
   useEffect(() => {
     pulseRef.current = pulseTrigger;
   }, [pulseTrigger]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Detect reduced motion, mobile screen (< 768px), or low power (<= 2 cores)
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isMobile = window.innerWidth < 768;
+    const isLowPower =
+      typeof navigator !== 'undefined' &&
+      navigator.hardwareConcurrency !== undefined &&
+      navigator.hardwareConcurrency <= 2;
+
+    if (prefersReducedMotion || isMobile || isLowPower) {
+      setUseFallback(true);
+      return;
+    }
+
     const container = containerRef.current;
     if (!container) return;
 
     // 1. Scene, Camera, Renderer
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x02040a, 0.0018);
+    scene.fog = new THREE.FogExp2(0x0b1220, 0.0018);
 
     const camera = new THREE.PerspectiveCamera(
       60,
@@ -37,7 +53,8 @@ export const ThreeCanvasBackground: React.FC<ThreeCanvasBackgroundProps> = ({
     try {
       renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance' });
     } catch {
-      return; // WebGL not available
+      setUseFallback(true);
+      return;
     }
 
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -242,6 +259,20 @@ export const ThreeCanvasBackground: React.FC<ThreeCanvasBackgroundProps> = ({
       gridHelper.geometry.dispose();
     };
   }, [theme]);
+
+  if (useFallback) {
+    return (
+      <div
+        className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-[#0B1220] opacity-80"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle at 50% 20%, rgba(245, 183, 0, 0.05) 0%, transparent 60%), linear-gradient(rgba(18, 181, 166, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(18, 181, 166, 0.03) 1px, transparent 1px)',
+          backgroundSize: '100% 100%, 48px 48px, 48px 48px',
+        }}
+        aria-hidden="true"
+      />
+    );
+  }
 
   return (
     <div

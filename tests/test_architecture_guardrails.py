@@ -218,4 +218,19 @@ def test_guardrail_env_example_completeness():
         assert key in env_example, f".env.example is missing required configuration key: {key}"
 
 
+def test_guardrail_landing_page_modularity_and_seo():
+    """Verify landing page is clean, modular (< 450 lines) and SEO metadata points to proper JPG OG image."""
+    landing_tsx = (ROOT / "web" / "src" / "components" / "LandingPage.tsx").read_text(encoding="utf-8")
+    lines = landing_tsx.splitlines()
+    assert len(lines) <= 450, f"LandingPage.tsx should be under 450 lines for modularity, got {len(lines)}"
+    assert "import { ThreeHolographicMatrix }" not in landing_tsx, "ThreeHolographicMatrix must not be synchronously imported in LandingPage"
+
+    index_html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'content="#0B1220"' in index_html, "Theme color must be #0B1220 (Midnight Navy)"
+    assert 'property="og:image" content="https://zupirus.com/og-zupirus.jpg"' in index_html
+    assert 'name="twitter:image" content="https://zupirus.com/og-zupirus.jpg"' in index_html
+    assert (ROOT / "web" / "public" / "og-zupirus.jpg").exists(), "web/public/og-zupirus.jpg must exist"
+
+
+
 

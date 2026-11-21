@@ -43,17 +43,54 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
     };
   }, []);
 
-  if (!data || data.summary.total_trades === 0) return null;
+  if (!data || !data.summary || (data.summary.total_trades ?? 0) === 0) {
+    return (
+      <section id="track-record" className="quant-panel p-6 sm:p-8 space-y-4 border-[#12B5A6]/25 bg-[#0B1220]/80">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-[#12B5A6]">
+              <span className="h-2 w-2 rounded-full bg-[#12B5A6] animate-pulse" />
+              VERIFIED LIVE TRACK RECORD · ẨN DANH 100%
+            </span>
+            <h2 className="mt-1 font-display text-xl sm:text-2xl font-extrabold text-white">
+              Hiệu Suất Thực Tế Đã Kiểm Chứng (XAU/USD)
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onEnterPortal}
+            className="quant-btn-primary px-4 py-2 text-xs whitespace-nowrap shrink-0"
+          >
+            Kết Nối Tài Khoản Ngay →
+          </button>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-[#070D18]/90 p-5 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="font-mono text-sm font-bold text-[#F5B700]">
+              Hệ thống đang tích lũy dữ liệu thực chiến đã xác minh
+            </div>
+            <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
+              Mọi lệnh giao dịch đóng từ các tài khoản kết nối Cloud MT5 (Quỹ Prop &amp; Live cá nhân) sẽ được tổng hợp, kiểm toán độc lập và hiển thị minh bạch 100% tại bảng ghi chép này sau khi hoàn tất chu kỳ lệnh đầu tiên.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 font-mono text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg shrink-0">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            MetaApi Cloud Verified
+          </div>
+        </div>
+      </section>
+    );
+  }
 
-  const { summary, equity_curve, recent_trades } = data;
-  const vals = equity_curve.map((p) => p.cum_pnl);
+  const { summary, equity_curve = [], recent_trades = [] } = data;
+  const vals = (equity_curve || []).map((p) => Number(p?.cum_pnl ?? 0));
   const minV = Math.min(...vals, 0);
   const maxV = Math.max(...vals, 1);
   const span = maxV - minV || 1;
-  const polyPoints = equity_curve
+  const polyPoints = (equity_curve || [])
     .map((p, idx) => {
       const x = 16 + (idx / Math.max(equity_curve.length - 1, 1)) * 568;
-      const y = 148 - ((p.cum_pnl - minV) / span) * 126;
+      const y = 148 - ((Number(p?.cum_pnl ?? 0) - minV) / span) * 126;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(' ');
@@ -84,32 +121,32 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
         <div className="rounded-xl border border-emerald-500/25 bg-[#040814] p-3.5">
           <div className="text-[10px] text-slate-400">LỢI NHUẬN RÒNG</div>
           <div className="mt-1 text-lg font-extrabold text-emerald-400">
-            +${summary.net_pnl_usd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            +${Number(summary.net_pnl_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#040814] p-3.5">
           <div className="text-[10px] text-slate-400">TỶ LỆ THẮNG (WR)</div>
-          <div className="mt-1 text-lg font-extrabold text-white">{summary.win_rate_pct}%</div>
+          <div className="mt-1 text-lg font-extrabold text-white">{Number(summary.win_rate_pct ?? 0).toFixed(1)}%</div>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#040814] p-3.5">
           <div className="text-[10px] text-slate-400">PROFIT FACTOR</div>
-          <div className="mt-1 text-lg font-extrabold text-amber-300">{summary.profit_factor.toFixed(2)}</div>
+          <div className="mt-1 text-lg font-extrabold text-amber-300">{Number(summary.profit_factor ?? 0).toFixed(2)}</div>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#040814] p-3.5">
           <div className="text-[10px] text-slate-400">TỔNG LỆNH ĐÓNG</div>
           <div className="mt-1 text-lg font-extrabold text-cyan-300">
-            {summary.total_trades}{' '}
-            <span className="text-xs font-normal text-slate-400">({summary.wins}W/{summary.losses}L)</span>
+            {summary.total_trades ?? 0}{' '}
+            <span className="text-xs font-normal text-slate-400">({summary.wins ?? 0}W/{summary.losses ?? 0}L)</span>
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#040814] p-3.5">
           <div className="text-[10px] text-slate-400">MAX DRAWDOWN</div>
-          <div className="mt-1 text-lg font-extrabold text-emerald-300">{summary.max_dd_pct}%</div>
+          <div className="mt-1 text-lg font-extrabold text-emerald-300">{Number(summary.max_dd_pct ?? 0).toFixed(1)}%</div>
         </div>
         <div className="rounded-xl border border-amber-500/25 bg-[#040814] p-3.5">
           <div className="text-[10px] text-slate-400">VỐN QUỸ LIVE</div>
           <div className="mt-1 text-lg font-extrabold text-amber-300">
-            ${Math.round(summary.total_live_equity_usd).toLocaleString('en-US')}
+            ${Math.round(Number(summary.total_live_equity_usd ?? 0)).toLocaleString('en-US')}
           </div>
         </div>
       </div>
@@ -119,7 +156,7 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
         <div className="lg:col-span-6 rounded-xl border border-white/10 bg-[#040710]/90 p-4 space-y-2">
           <div className="flex items-center justify-between font-mono text-xs">
             <span className="text-slate-300 font-bold">Đường Cong Lợi Nhuận Tích Lũy (USD)</span>
-            <span className="text-emerald-400 font-bold">+{summary.roi_pct}% ROI</span>
+            <span className="text-emerald-400 font-bold">+{Number(summary.roi_pct ?? 0).toFixed(1)}% ROI</span>
           </div>
           <svg viewBox="0 0 600 165" className="w-full h-44 select-none">
             <defs>
@@ -140,25 +177,25 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
         <div className="lg:col-span-6 rounded-xl border border-white/10 bg-[#040710]/90 p-4 space-y-2">
           <div className="font-mono text-xs font-bold text-slate-300">Lệnh XAU/USD Xác Thực Gần Nhất</div>
           <div className="max-h-44 overflow-y-auto space-y-1.5 font-mono text-xs tabular-nums">
-            {recent_trades.slice(0, 8).map((t, i) => {
-              const win = t.profit >= 0;
+            {(recent_trades || []).slice(0, 8).map((t, i) => {
+              const win = (t?.profit ?? 0) >= 0;
               return (
                 <div
-                  key={`${t.closed_at}-${i}`}
+                  key={`${t?.closed_at ?? i}-${i}`}
                   className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-[#071022] px-3 py-1.5"
                 >
                   <div className="flex items-center gap-2">
-                    <span className={t.action === 'BUY' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                      {t.action}
+                    <span className={t?.action === 'BUY' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                      {t?.action || 'TRADE'}
                     </span>
-                    <span className="text-white">{t.symbol}</span>
-                    <span className="text-slate-400">{t.volume.toFixed(2)} lot</span>
+                    <span className="text-white">{t?.symbol || 'XAUUSD'}</span>
+                    <span className="text-slate-400">{Number(t?.volume ?? 0).toFixed(2)} lot</span>
                     <span className="hidden sm:inline rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] text-amber-300">
-                      {t.tier}
+                      {t?.tier || 'LIVE'}
                     </span>
                   </div>
                   <span className={win ? 'font-bold text-emerald-400' : 'font-bold text-rose-400'}>
-                    {win ? '+' : '-'}${Math.abs(t.profit).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    {win ? '+' : '-'}${Math.abs(Number(t?.profit ?? 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               );

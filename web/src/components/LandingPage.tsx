@@ -1,15 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { calculateQuantLotSizing, type AccountKind, type BillingCycle } from '../utils/quantMath';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { LandingQrPreviewModal } from './LandingQrPreviewModal';
 import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
 import { PublicTrackRecordSection } from './PublicTrackRecordSection';
-import { IconBan, IconBolt, IconClose } from './Icons';
 import { LandingLotCalculator } from './LandingLotCalculator';
-import { GUARD_LAYERS, PRICING_TIERS } from '../data/landingData';
-import { ThreeCanvasBackground } from './ThreeCanvasBackground';
-import { ThreeHolographicMatrix } from './ThreeHolographicMatrix';
+import { PRICING_TIERS } from '../data/landingData';
+import { LandingHeader } from './LandingHeader';
+import { LandingComparisonSection } from './LandingComparisonSection';
+import { LandingPipelineSimulationSection } from './LandingPipelineSimulationSection';
+import { LandingGuardSimulatorSection } from './LandingGuardSimulatorSection';
 import { TiltCard } from './TiltCard';
+
+const ThreeCanvasBackground = lazy(() =>
+  import('./ThreeCanvasBackground').then((m) => ({ default: m.ThreeCanvasBackground }))
+);
 
 export interface LandingPageProps {
   onEnterPortal?: () => void;
@@ -82,7 +87,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   });
 
   const askPrice = spotPrice > 0 ? Math.round((spotPrice + (spreadPips || 1.8) * 0.1) * 100) / 100 : 0;
-  const activeGuard = GUARD_LAYERS[selectedGuardIdx] || GUARD_LAYERS[0];
 
   const orderBookBids = spotPrice > 0 ? [
     { price: (spotPrice - 0.05).toFixed(2), size: '4.80 Lots', depth: 88 },
@@ -106,7 +110,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div className="min-h-screen bg-[#03050a] text-slate-100 quant-cyber-grid selection:bg-amber-500/30 selection:text-amber-200">
       {/* Interactive 3D WebGL Quantum Space Background */}
-      <ThreeCanvasBackground theme={quantTheme} pulseTrigger={pulseTrigger} />
+      <Suspense fallback={null}>
+        <ThreeCanvasBackground theme={quantTheme} pulseTrigger={pulseTrigger} />
+      </Suspense>
 
       {/* Ambient Sovereign Gold & Cyan Illumination */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden z-0">
@@ -114,118 +120,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="absolute top-1/3 right-1/5 h-[440px] w-[440px] rounded-full bg-cyan-500/10 blur-[140px]" />
       </div>
 
-      {/* Zone 1-3 Strict Top Bar Contract */}
-      <header className="sticky top-0 z-40 border-b border-amber-500/20 bg-[#03050a]/90 backdrop-blur-2xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6 lg:px-8">
-          {/* Zone 1: Brand Identity */}
-          <a href="#top" className="flex items-center gap-3 text-decoration-none group shrink-0">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 via-amber-500 to-cyan-400 p-[1.5px] shadow-[0_0_24px_rgba(245,158,11,0.35)]">
-              <div className="flex h-full w-full items-center justify-center rounded-[10.5px] bg-[#040711] font-mono text-lg font-extrabold text-amber-300">
-                Z
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-display text-lg font-extrabold tracking-tight text-white">
-                  ZUPIRUS
-                </span>
-                <span className="rounded bg-amber-500/20 border border-amber-400/40 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-300">
-                  QUANT OS v4.0
-                </span>
-              </div>
-              <span className="block font-mono text-[10px] tracking-widest text-amber-300/80 uppercase">
-                Sovereign XAU/USD Cloud Engine
-              </span>
-            </div>
-          </a>
-
-          {/* Zone 2: Primary Section Navigation */}
-          <nav aria-label="Điều hướng trang chủ" className="hidden lg:flex items-center justify-center gap-4 xl:gap-6 text-[13px] font-medium text-slate-300 min-w-0">
-            <a href="#safety-shield" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
-              4 Lớp Giáp
-            </a>
-            <a href="#track-record" className="hover:text-emerald-300 transition-colors whitespace-nowrap shrink-0">
-              Hiệu Suất
-            </a>
-            <a href="#pricing" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
-              Bảng Giá
-            </a>
-            <a href="/cong-cu/tinh-lot-size-xauusd" className="hover:text-amber-300 transition-colors whitespace-nowrap shrink-0">
-              Tính Lot
-            </a>
-            <a href="/huong-dan" className="hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0">
-              Hướng Dẫn
-            </a>
-            <a
-              href="https://www.youtube.com/@ZupirusTradingAcademy"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-rose-300 hover:text-rose-200 transition-colors whitespace-nowrap shrink-0"
-            >
-              YouTube ↗
-            </a>
-            <a
-              href="https://discord.gg/yxCx3dVe34"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-indigo-300 hover:text-indigo-200 transition-colors whitespace-nowrap shrink-0"
-            >
-              Discord ↗
-            </a>
-          </nav>
-
-          {/* Zone 3: Single Primary Action */}
-          <button
-            type="button"
-            onClick={onEnterPortal}
-            className="quant-btn-primary px-5 py-2.5 text-xs sm:text-sm whitespace-nowrap shrink-0"
-          >
-            Mở Cổng Giao Dịch →
-          </button>
-        </div>
-      </header>
-
-      {/* Interactive Multi-Portal Launchpad & Live Telemetry Bar */}
-      <div className="relative z-10 mx-auto max-w-7xl px-4 pt-5 sm:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-gradient-to-r from-[#091022]/95 via-[#0b152c]/95 to-[#091022]/95 px-4 py-3 font-mono text-xs shadow-[0_12px_36px_rgba(0,0,0,0.6)]">
-          <div className="flex flex-wrap items-center gap-3 text-slate-300 tabular-nums">
-            <span className="inline-flex items-center gap-2 rounded-lg bg-amber-500/15 border border-amber-400/35 px-2.5 py-1 font-bold text-amber-300">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              XAU/USD SPOT: {spotPrice > 0 ? `$${spotPrice.toFixed(2)} / $${askPrice.toFixed(2)}` : 'Đang kết nối...'}
-            </span>
-            <span className="hidden sm:inline text-emerald-400 font-semibold">
-              London G2 Bridge: 24ms
-            </span>
-            <span aria-hidden="true" className="hidden md:inline text-slate-600">·</span>
-            <span className="hidden md:inline text-slate-300">
-              Tỷ giá SePay: <strong className="text-amber-300">{usdVndRate.toLocaleString('vi-VN')}₫/USD</strong>
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-[#040711] p-1 text-[10px]">
-              <button
-                type="button"
-                onClick={() => setQuantTheme('gold')}
-                className={`rounded-lg px-2.5 py-1 font-bold transition cursor-pointer ${
-                  quantTheme === 'gold' ? 'bg-amber-400 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                SOVEREIGN GOLD
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuantTheme('cyber')}
-                className={`rounded-lg px-2.5 py-1 font-bold transition cursor-pointer ${
-                  quantTheme === 'cyber' ? 'bg-cyan-400 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                CYBER MATRIX
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Zone 1-3 Strict Top Bar Contract & Telemetry */}
+      <LandingHeader
+        onEnterPortal={onEnterPortal}
+        spotPrice={spotPrice}
+        askPrice={askPrice}
+        usdVndRate={usdVndRate}
+        quantTheme={quantTheme}
+        setQuantTheme={setQuantTheme}
+      />
 
       {/* Main Content Container */}
       <main id="top" className="relative z-10 mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-8 space-y-24">
@@ -467,361 +370,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* SECTION 2: 4-PILLAR QUANTUM ADVANTAGE BENTO */}
-        <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            {
-              tag: '01 // ZERO-VPS CLOUD BRIDGE',
-              metric: '24 ms Latency',
-              title: 'Đấu Nối Trực Tiếp MetaApi G2',
-              desc: 'Không cần thuê máy chủ Windows VPS hay cài đặt Expert Advisor (EA). Kết nối trực tiếp qua mã đăng nhập MT5.',
-              accent: 'text-amber-300',
-            },
-            {
-              tag: '02 // FAIL-CLOSED RISK ENGINE',
-              metric: '100% Có SL Cứng',
-              title: '4 Lớp Giáp Bảo Vệ Vốn',
-              desc: 'Từ chối mọi tín hiệu thiếu mức dừng lỗ. Tuyệt đối không bình quân giá âm (Martingale) hay gồng lỗ qua tin.',
-              accent: 'text-emerald-400',
-            },
-            {
-              tag: '03 // MULTI-BROKER NORMALIZER',
-              metric: 'Standard · Cent · Prop',
-              title: 'Chuẩn Hóa Hậu Tố & Lot',
-              desc: 'Tự động ánh xạ mã vàng (XAUUSDm, XAUUSD.pro, GOLD) và tính toán khối lượng Lot độc lập theo từng tài khoản.',
-              accent: 'text-cyan-300',
-            },
-            {
-              tag: '04 // INSTANT SEPAY VIETQR',
-              metric: '3 Giây Kích Hoạt',
-              title: 'Thanh Toán Tự Động 24/7',
-              desc: 'Chốt tỷ giá USD/VND thời gian thực và nâng cấp hạn mức khe cắm Cloud MT5 ngay lập tức khi quét mã VietQR.',
-              accent: 'text-amber-300',
-            },
-          ].map((card) => (
-            <div key={card.tag} className="quant-card-interactive quant-hud-corner p-6 flex flex-col justify-between">
-              <div>
-                <div className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                  {card.tag}
-                </div>
-                <div className={`mt-2.5 font-mono text-2xl font-extrabold tabular-nums ${card.accent}`}>
-                  {card.metric}
-                </div>
-                <h2 className="mt-1.5 text-base font-bold text-white">{card.title}</h2>
-                <p className="mt-2 text-xs leading-relaxed text-slate-300/90">{card.desc}</p>
-              </div>
-            </div>
-          ))}
-        </section>
-
-        {/* SECTION 2B: SO SÁNH & QUY TRÌNH 3 BƯỚC */}
-        <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-          <div className="quant-panel p-6 sm:p-8 lg:col-span-7 space-y-5">
-            <div>
-              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-amber-300">
-                SO SÁNH THỰC TẾ
-              </span>
-              <h2 className="mt-1 text-2xl font-extrabold text-white">Vì Sao Trader Chọn ZUPIRUS Thay Vì Copy Bot Thường?</h2>
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
-              <div className="rounded-xl border border-rose-500/25 bg-rose-950/20 p-4 space-y-2.5">
-                <div className="inline-flex items-center gap-1.5 font-mono font-bold text-rose-300 uppercase"><IconClose className="w-4 h-4" />Tự Trade / Bot VPS Thường</div>
-                <ul className="space-y-2 text-slate-300">
-                  <li>• Phải thuê VPS $8-$15/tháng, hay treo EA mất kết nối.</li>
-                  <li>• Gồng lỗ hoặc quên đặt Stop Loss khi thị trường giật mạnh.</li>
-                  <li>• Dính quét 2 đầu khi ra tin NFP, CPI, FOMC.</li>
-                  <li>• Dễ vi phạm luật Daily Drawdown 5% khi thi quỹ Prop Firm.</li>
-                </ul>
-              </div>
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 space-y-2.5">
-                <div className="font-mono font-bold text-emerald-300 uppercase">✓ ZUPIRUS Cloud Quant</div>
-                <ul className="space-y-2 text-slate-200">
-                  <li>• Chạy Cloud London G2 24/7 — không cần cài đặt hay treo máy.</li>
-                  <li>• 100% lệnh có SL cứng, tự dời Hòa Vốn (+1R) &amp; chốt 50% TP1.</li>
-                  <li>• Tự động phong tỏa trước/sau tin đỏ USD ±15 phút.</li>
-                  <li>• Tự chia Lot theo Cent/Standard/Quỹ &amp; ngắt mạch DD ngày 4–5%.</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div className="quant-panel p-6 sm:p-8 lg:col-span-5 space-y-4">
-            <div>
-              <span className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-300">
-                BẮT ĐẦU TRONG 2 PHÚT
-              </span>
-              <h2 className="mt-1 text-2xl font-extrabold text-white">Quy Trình 3 Bước Đơn Giản</h2>
-            </div>
-            <div className="space-y-3 text-xs">
-              {[
-                { step: '01', title: 'Đăng Ký & Xác Thực OTP (30s)', desc: 'Tạo tài khoản bảo mật qua email, không giữ tiền nạp của bạn.' },
-                { step: '02', title: 'Chọn Gói & Quét VietQR SePay', desc: 'Tài khoản Cloud kích hoạt tự động sau 3 giây chuyển khoản.' },
-                { step: '03', title: 'Nhập MT5 — Hệ Thống Tự Chạy', desc: 'Hệ thống tự chia Lot & đặt cắt lỗ ngày an toàn cho tài khoản của bạn.' },
-              ].map((s) => (
-                <div key={s.step} className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#040710]/70 p-3.5">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 font-mono text-xs font-extrabold text-amber-300">
-                    {s.step}
-                  </span>
-                  <div>
-                    <div className="font-bold text-white">{s.title}</div>
-                    <div className="mt-0.5 text-slate-400 leading-relaxed">{s.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+        {/* SECTION 2 & 2B: SO SÁNH & QUY TRÌNH 3 BƯỚC */}
+        <LandingComparisonSection />
 
         {/* SECTION 3: INTERACTIVE 4-STAGE QUANTUM FAN-OUT SIMULATOR */}
-        <section id="pipeline" className="quant-panel p-6 sm:p-10 space-y-8">
-          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-            <div>
-              <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-amber-300">
-                QUANTUM EXECUTION PIPELINE SIMULATOR
-              </div>
-              <h2 className="mt-1.5 font-display text-2xl sm:text-3xl font-extrabold text-white">
-                Mô Phỏng Luồng Quạt Lệnh Đa Sàn (Multi-Broker Fan-Out)
-              </h2>
-              <p className="mt-1 max-w-2xl text-sm text-slate-300">
-                Kiểm nghiệm trực tiếp cách ZUPIRUS xử lý một tín hiệu XAU/USD từ lúc tiếp nhận đến khi khớp lệnh đồng thời trên nhiều tài khoản.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => triggerSimulation('BUY')}
-                disabled={simRunning}
-                className={`px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap shrink-0 cursor-pointer ${
-                  simSide === 'BUY'
-                    ? 'quant-btn-primary'
-                    : 'quant-btn-secondary'
-                }`}
-              >
-                <IconBolt className="w-3.5 h-3.5" />
-                Bắn Thử BUY XAU/USD
-              </button>
-              <button
-                type="button"
-                onClick={() => triggerSimulation('SELL')}
-                disabled={simRunning}
-                className={`px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap shrink-0 cursor-pointer ${
-                  simSide === 'SELL'
-                    ? 'quant-btn-primary'
-                    : 'quant-btn-secondary'
-                }`}
-              >
-                <IconBolt className="w-3.5 h-3.5" />
-                Bắn Thử SELL XAU/USD
-              </button>
-              <button
-                type="button"
-                onClick={() => triggerSimulation('NO_SL')}
-                disabled={simRunning}
-                className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl border transition whitespace-nowrap shrink-0 cursor-pointer ${
-                  simSide === 'NO_SL'
-                    ? 'border-rose-400 bg-rose-500/25 text-rose-200'
-                    : 'border-rose-500/30 bg-rose-950/20 text-rose-300 hover:bg-rose-500/20'
-                }`}
-              >
-                <IconBan className="w-3.5 h-3.5" />
-                Thử Kịch Bản Thiếu SL (Fail-Closed)
-              </button>
-            </div>
-          </div>
-
-          {/* 4 Pipeline Stages */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            {[
-              {
-                step: 1,
-                code: 'STAGE 01 // INGEST',
-                title: 'Thu Thập & Chuẩn Hóa',
-                detail:
-                  simSide === 'NO_SL'
-                    ? 'Nhận tín hiệu: BUY GOLD NOW (Không có SL)'
-                    : `Chuẩn hóa: ${simSide} XAUUSD @ $${spotPrice.toFixed(2)}`,
-                latency: '1.2 ms',
-              },
-              {
-                step: 2,
-                code: 'STAGE 02 // TABULA RASA AI',
-                title: 'Chấm Điểm Bối Cảnh M15',
-                detail: 'Kiểm tra ATR(14)=4.50, Phiên London-NY Overlap, Trust Score 91.4/100',
-                latency: '4.6 ms',
-              },
-              {
-                step: 3,
-                code: 'STAGE 03 // 4-LAYER SHIELD',
-                title: 'Kiểm Toán 4 Lớp Giáp Vốn',
-                detail:
-                  simSide === 'NO_SL'
-                    ? 'CHẶN TẠI LỚP #02: Tín hiệu thiếu Hard Stop-Loss!'
-                    : 'PASS: Redis Lock OK · Hard SL OK · News Shield CLEAR · Spread 1.8p',
-                latency: '0.8 ms',
-              },
-              {
-                step: 4,
-                code: 'STAGE 04 // CLOUD FAN-OUT',
-                title: 'Quạt Lệnh Đa Tài Khoản MT5',
-                detail:
-                  simSide === 'NO_SL'
-                    ? '0 lệnh được gửi đi — Bảo toàn 100% vốn tài khoản.'
-                    : 'Khớp lệnh đồng thời trên Exness, FTMO Prop và ICMarkets.',
-                latency: simSide === 'NO_SL' ? 'HALTED' : '24.0 ms',
-              },
-            ].map((st) => {
-              const isReached = simStep >= st.step;
-              const isBlockedStage = simSide === 'NO_SL' && st.step >= 3;
-              return (
-                <div
-                  key={st.step}
-                  className={`rounded-2xl border p-5 transition-all ${
-                    isBlockedStage
-                      ? 'border-rose-500/45 bg-rose-950/20'
-                      : isReached
-                      ? 'border-amber-400/45 bg-[#091224] shadow-[0_0_25px_rgba(245,158,11,0.12)]'
-                      : 'border-white/10 bg-[#050914]/60 opacity-60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between font-mono text-[10px]">
-                    <span className={isBlockedStage ? 'text-rose-300 font-bold' : 'text-amber-300 font-bold'}>
-                      {st.code}
-                    </span>
-                    <span className="text-emerald-400 tabular-nums">{st.latency}</span>
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-white">{st.title}</div>
-                  <p className="mt-1.5 font-mono text-xs leading-relaxed text-slate-300">{st.detail}</p>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Multi-Broker Fan-Out Receipts */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 font-mono text-xs">
-            {[
-              {
-                broker: 'Exness-MT5Real (#880192)',
-                type: 'STANDARD',
-                symbol: 'XAUUSDm',
-                lots: '0.25 Lot',
-                latency: '22 ms',
-              },
-              {
-                broker: 'FTMO-Server (#509182)',
-                type: 'PROP FIRM $100K',
-                symbol: 'XAUUSD',
-                lots: '0.50 Lot',
-                latency: '25 ms',
-              },
-              {
-                broker: 'ICMarketsSC-MT5 (#309411)',
-                type: 'CENT ACCOUNT',
-                symbol: 'XAUUSD.a',
-                lots: '2.50 Cent Lot',
-                latency: '24 ms',
-              },
-            ].map((node) => (
-              <div
-                key={node.broker}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-[#040710]/90 p-4 tabular-nums"
-              >
-                <div>
-                  <div className="text-[10px] text-amber-300 font-bold">{node.type}</div>
-                  <div className="mt-0.5 font-bold text-white">{node.broker}</div>
-                  <div className="mt-1 text-slate-400">
-                    Symbol: <strong className="text-cyan-300">{node.symbol}</strong> · Khối lượng:{' '}
-                    <strong className="text-white">{node.lots}</strong>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span
-                    className={`inline-block rounded-lg px-2.5 py-1 text-[11px] font-bold ${
-                      simSide === 'NO_SL'
-                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                    }`}
-                  >
-                    {simSide === 'NO_SL' ? 'PROTECTED' : `FILLED · ${node.latency}`}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        <LandingPipelineSimulationSection
+          spotPrice={spotPrice}
+          simSide={simSide}
+          simStep={simStep}
+          simRunning={simRunning}
+          triggerSimulation={triggerSimulation}
+        />
 
         {/* SECTION 4: INTERACTIVE 4-LAYER FAIL-CLOSED SAFETY SHIELD */}
-        <section id="safety-shield" className="grid grid-cols-1 gap-8 lg:grid-cols-12 items-center">
-          <div className="space-y-4 lg:col-span-6">
-            <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-amber-300">
-              4-LAYER FAIL-CLOSED CAPITAL PROTECTION
-            </div>
-            <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-white">
-              Kiến Trúc 4 Lớp Giáp Bảo Vệ Vốn Bắt Buộc
-            </h2>
-            <p className="text-sm text-slate-300 leading-relaxed">
-              Nhấn vào từng lớp giáp bên dưới để xem quy tắc kiểm toán nguyên tử được thực thi trước khi bất kỳ lệnh nào chạm tới tài khoản MT5.
-            </p>
-
-            <div className="space-y-2.5 pt-2">
-              {GUARD_LAYERS.map((g, idx) => {
-                const active = idx === selectedGuardIdx;
-                return (
-                  <button
-                    key={g.id}
-                    type="button"
-                    onClick={() => setSelectedGuardIdx(idx)}
-                    className={`w-full rounded-2xl border p-4 text-left transition cursor-pointer ${
-                      active
-                        ? 'border-amber-400/60 bg-amber-500/15 shadow-[0_0_28px_rgba(245,158,11,0.16)]'
-                        : 'border-white/10 bg-[#060b18]/85 hover:border-amber-500/30'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between font-mono text-xs">
-                      <span className="font-bold text-amber-300">
-                        LỚP {g.id} // {g.code}
-                      </span>
-                      <span className="text-emerald-400 font-bold tabular-nums">{g.metric}</span>
-                    </div>
-                    <div className="mt-1 text-sm font-bold text-white">{g.title}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="lg:col-span-6">
-            <TiltCard className="rounded-2xl">
-              <div className="quant-panel p-6 sm:p-8 space-y-5 border-amber-500/35">
-                <div className="relative h-72 sm:h-80 lg:h-96 w-full overflow-hidden rounded-xl border border-amber-500/25 bg-[#030611]">
-                  <ThreeHolographicMatrix
-                    selectedLayerIdx={selectedGuardIdx}
-                    onSelectLayer={setSelectedGuardIdx}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#050914] via-transparent to-transparent pointer-events-none" />
-                  <div className="absolute top-3 left-4 right-4 flex items-center justify-between font-mono text-xs pointer-events-none">
-                    <span className="font-bold text-amber-300">LỚP ĐANG CHỌN: #{activeGuard.id}</span>
-                    <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-emerald-300 font-bold">
-                      FAIL-CLOSED ENFORCED
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="font-mono text-xs text-cyan-300 uppercase tracking-wider">
-                    {activeGuard.code}
-                  </div>
-                  <h3 className="text-xl font-bold text-white">{activeGuard.title}</h3>
-                  <p className="text-sm leading-relaxed text-slate-300">{activeGuard.desc}</p>
-                  <div className="rounded-xl border border-amber-500/30 bg-[#03060e] p-3.5 font-mono text-xs text-amber-200">
-                    <span className="text-slate-500 block text-[10px] mb-1">QUY TẮC THỰC THI NGUYÊN TỬ:</span>
-                    <code>{activeGuard.rule}</code>
-                  </div>
-                </div>
-              </div>
-            </TiltCard>
-          </div>
-        </section>
+        <LandingGuardSimulatorSection
+          selectedGuardIdx={selectedGuardIdx}
+          setSelectedGuardIdx={setSelectedGuardIdx}
+        />
 
         <LandingLotCalculator
           calcAccountKind={calcAccountKind}

@@ -23,6 +23,21 @@ export const ThreeHolographicMatrix: React.FC<ThreeHolographicMatrixProps> = ({
   }, [selectedLayerIdx]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Detect reduced motion, mobile screen (< 768px), or low power (<= 2 cores)
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isMobile = window.innerWidth < 768;
+    const isLowPower =
+      typeof navigator !== 'undefined' &&
+      navigator.hardwareConcurrency !== undefined &&
+      navigator.hardwareConcurrency <= 2;
+
+    if (prefersReducedMotion || isMobile || isLowPower) {
+      setWebGlAvailable(false);
+      return;
+    }
+
     const mount = mountRef.current;
     if (!mount) return;
 
@@ -289,7 +304,50 @@ export const ThreeHolographicMatrix: React.FC<ThreeHolographicMatrixProps> = ({
   }, []);
 
   if (!webGlAvailable) {
-    return null;
+    const layerNames = [
+      { id: 1, title: 'Idempotency Key Gate', code: 'UUIDv4 SHA-256', color: '#12B5A6' },
+      { id: 2, title: 'Mandatory SL ATR(14)', code: 'NO SL = REJECT', color: '#F5B700' },
+      { id: 3, title: 'News Shield Blackout', code: 'USD ±15 MINS', color: '#EF4444' },
+      { id: 4, title: 'Slippage Guard', code: 'MAX 3.0 PIPS', color: '#10B981' },
+    ];
+    return (
+      <div className={`relative h-full w-full p-4 flex flex-col justify-center gap-2.5 bg-[#0B1220]/90 rounded-xl border border-[#12B5A6]/20 ${className}`}>
+        <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 border-b border-white/10 pb-2">
+          <span className="flex items-center gap-1.5 text-[#F5B700] font-bold">
+            <span className="h-2 w-2 rounded-full bg-[#12B5A6] animate-pulse" />
+            2.5D SHIELD MATRIX
+          </span>
+          <span className="text-slate-400 text-[10px]">Chạm để chọn lớp giáp</span>
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          {layerNames.map((l, i) => {
+            const isSel = i === selectedLayerIdx;
+            return (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => onSelectLayer?.(i)}
+                className={`flex items-center justify-between p-2.5 rounded-lg border text-left transition-all ${
+                  isSel
+                    ? 'border-[#F5B700] bg-[#F5B700]/15 shadow-sm text-white'
+                    : 'border-white/5 bg-[#070D18] hover:border-[#12B5A6]/30 text-slate-300'
+                }`}
+              >
+                <div className="flex items-center gap-2 font-mono text-xs">
+                  <span
+                    className="h-2 w-2 rounded-full shrink-0"
+                    style={{ backgroundColor: l.color }}
+                  />
+                  <span className="font-bold">LỚP #{l.id}</span>
+                  <span className="truncate">{l.title}</span>
+                </div>
+                <span className="font-mono text-[10px] text-slate-400 shrink-0">{l.code}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (
