@@ -9,9 +9,9 @@
   color-scheme: dark;
   font-synthesis: none;
 
-  /* Typography (Strict 2-Font System: Inter + JetBrains Mono) */
-  --font-display: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Typography (Be Vietnam Pro Brand Font + Inter + JetBrains Mono) */
+  --font-display: "Be Vietnam Pro", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: "Be Vietnam Pro", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Semantic Color Tokens (MASTER.md Financial Dashboard) */
