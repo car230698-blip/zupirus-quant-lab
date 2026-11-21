@@ -1,21 +1,20 @@
 import json
 import urllib.request
-from app.db import tx
+from app.db import getkv
 
-with tx() as c:
-    row = c.execute("SELECT value FROM kv_store WHERE key = 'gemini_api_key_pool'").fetchone()
-    keys = []
-    if row and row[0]:
-        try:
-            data = json.loads(row[0])
-            if isinstance(data, list):
-                keys = [k["key"] if isinstance(k, dict) else str(k) for k in data]
-            elif isinstance(data, dict):
-                keys = list(data.values())
-            else:
-                keys = [str(data)]
-        except Exception:
-            keys = [k.strip() for k in row[0].split(',') if k.strip()]
+data_val = getkv('gemini_api_key_pool')
+keys = []
+if data_val:
+    try:
+        data = json.loads(data_val)
+        if isinstance(data, list):
+            keys = [k["key"] if isinstance(k, dict) else str(k) for k in data]
+        elif isinstance(data, dict):
+            keys = list(data.values())
+        else:
+            keys = [str(data)]
+    except Exception:
+        keys = [k.strip() for k in data_val.split(',') if k.strip()]
 
 print(f"Total keys in pool: {len(keys)}")
 for i, k in enumerate(keys):
@@ -24,6 +23,7 @@ for i, k in enumerate(keys):
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Zupirus-HealthCheck"})
         with urllib.request.urlopen(req, timeout=5) as resp:
-            print(f"Key {i+1} [{masked}]: HOAT DONG TOT (HTTP {resp.status})")
+            print(f"Key {i+1} [{masked}]: HOẠT ĐỘNG TỐT (HTTP {resp.status})")
     except Exception as e:
-        print(f"Key {i+1} [{masked}]: LOI/KHONG HOAT DONG -> {e}")
+        print(f"Key {i+1} [{masked}]: LỖI/KHÔNG HOẠT ĐỘNG -> {e}")
+
