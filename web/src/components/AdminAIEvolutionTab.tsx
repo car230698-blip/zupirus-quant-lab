@@ -37,49 +37,57 @@ export const AdminAIEvolutionTab: React.FC = () => {
     <div className="space-y-6">
       <ToastNotification message={msg || null} type="info" onClose={() => setMsg('')} />
 
-      {/* TOP HEADER & SECTION SWITCHER */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
-        <div className="flex flex-wrap items-center gap-2">
+      {/* TOP HEADER & UNDERLINE SUB-TABS */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-1">
+        <div className="flex items-center gap-8">
           <button
             type="button"
             onClick={() => setActiveSection('overview')}
-            className={`px-4 py-2.5 rounded-xl font-mono text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
               activeSection === 'overview'
-                ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-400 text-cyan-200 shadow-lg shadow-cyan-500/20'
-                : 'bg-[#040816] border border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                ? 'text-white'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span>🎯</span>
-            <span>GIÁM SÁT TỰ HỌC &amp; DUYỆT CHIẾN LƯỢC</span>
-            <span className="rounded-full bg-cyan-500/20 px-2 py-0.5 text-[10px] text-cyan-300">
-              {evo?.wfo_candidates?.length || 0} Chờ duyệt
-            </span>
+            <span>Tổng Quan &amp; Duyệt Chiến Lược</span>
+            {(evo?.wfo_candidates?.length || 0) > 0 && (
+              <span className="ml-2 rounded-full bg-[#12B5A6]/20 px-2 py-0.5 font-mono text-[10px] text-[#12B5A6]">
+                {evo.wfo_candidates.length} chờ duyệt
+              </span>
+            )}
+            {activeSection === 'overview' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#12B5A6]" />
+            )}
           </button>
 
           <button
             type="button"
             onClick={() => setActiveSection('knowledge')}
-            className={`px-4 py-2.5 rounded-xl font-mono text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+            className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
               activeSection === 'knowledge'
-                ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400 text-amber-200 shadow-lg shadow-amber-500/20'
-                : 'bg-[#040816] border border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                ? 'text-white'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span>📚</span>
-            <span>NẠP TRI THỨC &amp; GEMINI KEY POOL</span>
-            <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] text-amber-300">
-              {ingestedList.length} Tài liệu
-            </span>
+            <span>Kho Tri Thức &amp; API Keys</span>
+            {ingestedList.length > 0 && (
+              <span className="ml-2 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-400">
+                {ingestedList.length} tài liệu
+              </span>
+            )}
+            {activeSection === 'knowledge' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#12B5A6]" />
+            )}
           </button>
         </div>
 
         <button
           type="button"
           onClick={loadAll}
-          className="rounded-xl border border-white/10 bg-[#040814] px-3.5 py-2 text-xs text-slate-300 hover:bg-white/10 cursor-pointer font-mono flex items-center gap-1.5"
+          className="rounded-xl border border-slate-800 bg-[#080E1A] px-3.5 py-1.5 text-xs text-slate-300 hover:text-white cursor-pointer font-mono flex items-center gap-1.5 transition"
         >
-          <span>↻</span>
-          <span>Làm Mới</span>
+          <span>↺</span>
+          <span>Làm mới</span>
         </button>
       </div>
 

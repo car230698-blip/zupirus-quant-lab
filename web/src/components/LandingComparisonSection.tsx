@@ -1,116 +1,166 @@
 import React from 'react';
-import { IconClose } from './Icons';
+import { IconClose, IconBolt, IconShield, IconSpark, IconReceipt } from './Icons';
 
 export const LandingComparisonSection: React.FC = () => {
   return (
-    <>
-      {/* SECTION 2: ARCHITECTURAL HARD PILLARS */}
-      <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="space-y-16">
+      {/* SECTION 2A: 4 CORE VALUE COLUMNS */}
+      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {[
           {
-            tag: '01 // CLOUD G2 LOW-LATENCY',
-            metric: '24ms LD4 Direct',
+            icon: <IconBolt className="w-5 h-5 text-[#12B5A6]" />,
+            metric: '24ms LD4',
             title: 'Hạ Tầng Cloud MT5',
-            desc: 'Không cần thuê máy chủ Windows VPS hay cài đặt Expert Advisor (EA). Kết nối trực tiếp qua mã đăng nhập MT5.',
-            accent: 'text-amber-300',
+            desc: 'Không cần thuê máy chủ Windows VPS hay cài đặt EA. Kết nối trực tiếp qua tài khoản MT5 của bạn.',
           },
           {
-            tag: '02 // FAIL-CLOSED RISK ENGINE',
-            metric: '100% Có SL Cứng',
+            icon: <IconShield className="w-5 h-5 text-[#12B5A6]" />,
+            metric: '100% SL Cứng',
             title: '4 Lớp Giáp Bảo Vệ Vốn',
-            desc: 'Từ chối mọi tín hiệu thiếu mức dừng lỗ. Tuyệt đối không bình quân giá âm (Martingale) hay gồng lỗ qua tin.',
-            accent: 'text-emerald-400',
+            desc: 'Từ chối mọi tín hiệu thiếu mức dừng lỗ. Tuyệt đối không Martingale hay gồng lỗ qua tin đỏ.',
           },
           {
-            tag: '03 // MULTI-BROKER NORMALIZER',
-            metric: 'Standard · Cent · Prop',
-            title: 'Chuẩn Hóa Hậu Tố & Lot',
-            desc: 'Tự động ánh xạ mã vàng (XAUUSDm, XAUUSD.pro, GOLD) và tính toán khối lượng Lot độc lập theo từng tài khoản.',
-            accent: 'text-cyan-300',
+            icon: <IconSpark className="w-5 h-5 text-[#12B5A6]" />,
+            metric: 'Chuẩn Hóa Lot',
+            title: 'Hỗ Trợ Mọi Loại Tài Khoản',
+            desc: 'Tự động tính quy mô hợp đồng cho Standard, Cent USC và khóa trần rủi ro 1% với Quỹ Prop Live.',
           },
           {
-            tag: '04 // INSTANT SEPAY VIETQR',
-            metric: '3 Giây Kích Hoạt',
-            title: 'Thanh Toán Tự Động 24/7',
-            desc: 'Chốt tỷ giá USD/VND thời gian thực và nâng cấp hạn mức khe cắm Cloud MT5 ngay lập tức khi quét mã VietQR.',
-            accent: 'text-amber-300',
+            icon: <IconReceipt className="w-5 h-5 text-[#12B5A6]" />,
+            metric: '3 Giây VietQR',
+            title: 'Kích Hoạt Tự Động 24/7',
+            desc: 'Chốt tỷ giá USD/VND thời gian thực và nâng hạn mức Cloud MT5 ngay lập tức khi quét mã SePay.',
           },
-        ].map((card) => (
-          <div key={card.tag} className="quant-card-interactive quant-hud-corner p-6 flex flex-col justify-between">
+        ].map((card, idx) => (
+          <div
+            key={idx}
+            className="rounded-2xl border border-slate-800/70 bg-[#10192B] p-6 hover:border-slate-700 transition-colors flex flex-col justify-between space-y-4"
+          >
             <div>
-              <div className="font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                {card.tag}
+              <div className="flex items-center justify-between">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-800 bg-[#080E1A]">
+                  {card.icon}
+                </div>
+                <span className="font-mono text-xl font-bold text-slate-100 tabular-nums">
+                  {card.metric}
+                </span>
               </div>
-              <div className={`mt-2.5 font-mono text-2xl font-extrabold tabular-nums ${card.accent}`}>
-                {card.metric}
-              </div>
-              <h2 className="mt-1.5 text-base font-bold text-white">{card.title}</h2>
-              <p className="mt-2 text-xs leading-relaxed text-slate-300/90">{card.desc}</p>
+              <h3 className="mt-4 text-base font-bold text-white">{card.title}</h3>
+              <p className="mt-2 text-xs leading-relaxed text-[#94A3B8]">{card.desc}</p>
             </div>
           </div>
         ))}
       </section>
 
-      {/* SECTION 2B: SO SÁNH & QUY TRÌNH 3 BƯỚC */}
+      {/* SECTION 2B: SO SÁNH 2 CỘT & QUY TRÌNH 3 BƯỚC */}
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="quant-panel p-6 sm:p-8 lg:col-span-7 space-y-5">
+        {/* Left (7 Cols): 2-Column Comparison */}
+        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-6 sm:p-8 lg:col-span-7 space-y-6">
           <div>
-            <span className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-amber-300">
+            <span className="font-mono text-xs font-semibold uppercase tracking-wider text-[#12B5A6]">
               SO SÁNH THỰC TẾ
             </span>
-            <h2 className="mt-1 text-2xl font-extrabold text-white">Vì Sao Trader Chọn ZUPIRUS Thay Vì Copy Bot Thường?</h2>
+            <h2 className="mt-1 text-2xl font-bold text-white">
+              Vì Sao Trader Chọn ZUPIRUS Thay Vì Copy Bot Thường?
+            </h2>
           </div>
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
-            <div className="rounded-xl border border-rose-500/25 bg-rose-950/20 p-4 space-y-2.5">
-              <div className="inline-flex items-center gap-1.5 font-mono font-bold text-rose-300 uppercase">
+            <div className="rounded-xl border border-slate-800/80 bg-[#080E1A] p-5 space-y-3">
+              <div className="inline-flex items-center gap-1.5 font-mono font-bold text-rose-400 uppercase">
                 <IconClose className="w-4 h-4" />
                 Tự Trade / Bot VPS Thường
               </div>
-              <ul className="space-y-2 text-slate-300">
-                <li>• Phải thuê VPS $8-$15/tháng, hay treo EA mất kết nối.</li>
-                <li>• Gồng lỗ hoặc quên đặt Stop Loss khi thị trường giật mạnh.</li>
-                <li>• Dính quét 2 đầu khi ra tin NFP, CPI, FOMC.</li>
-                <li>• Dễ vi phạm luật Daily Drawdown 5% khi thi quỹ Prop Firm.</li>
+              <ul className="space-y-2.5 text-slate-400">
+                <li className="flex items-start gap-2">
+                  <span className="text-rose-500 font-bold shrink-0">✕</span>
+                  <span>Tốn $8-$15/tháng tiền VPS, phần mềm EA dễ đứt mạng.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-rose-500 font-bold shrink-0">✕</span>
+                  <span>Dễ gồng lỗ hoặc quên đặt Stop Loss khi thị trường biến động.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-rose-500 font-bold shrink-0">✕</span>
+                  <span>Dính trượt giá quét 2 đầu khi tin tức NFP, CPI công bố.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-rose-500 font-bold shrink-0">✕</span>
+                  <span>Vi phạm luật sụt giảm ngày (Daily DD 5%) khi thi quỹ Prop.</span>
+                </li>
               </ul>
             </div>
-            <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 space-y-2.5">
-              <div className="font-mono font-bold text-emerald-300 uppercase">✓ ZUPIRUS Cloud Quant</div>
-              <ul className="space-y-2 text-slate-200">
-                <li>• Chạy Cloud London G2 24/7 — không cần cài đặt hay treo máy.</li>
-                <li>• SL cứng bắt buộc mọi lệnh, trần rủi ro 1,0% mỗi ý tưởng cho Prop Firm Live.</li>
-                <li>• Tự động quy đổi contract size tài khoản Cent/USC, tự dời BE (+1R) &amp; chốt TP1.</li>
-                <li>• News Shield phong tỏa tin đỏ USD ±15 phút &amp; tự ngắt khi chuỗi 4 tín hiệu AI thua liên tiếp.</li>
+
+            <div className="rounded-xl border border-[#12B5A6]/40 bg-[#080E1A] p-5 space-y-3">
+              <div className="inline-flex items-center gap-1.5 font-mono font-bold text-[#12B5A6] uppercase">
+                <span>✓</span>
+                ZUPIRUS Cloud Quant
+              </div>
+              <ul className="space-y-2.5 text-slate-300">
+                <li className="flex items-start gap-2">
+                  <span className="text-[#12B5A6] font-bold shrink-0">✓</span>
+                  <span>Vận hành Cloud London G2 24/7 — zero cài đặt, zero VPS.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#12B5A6] font-bold shrink-0">✓</span>
+                  <span>Bắt buộc SL cứng trên sàn, khóa trần rủi ro 1,0% với Prop Live.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#12B5A6] font-bold shrink-0">✓</span>
+                  <span>Tự động dời hòa vốn (+1R) và bảo toàn vị thế khi có lãi.</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[#12B5A6] font-bold shrink-0">✓</span>
+                  <span>News Shield phong tỏa tin đỏ USD ±15p &amp; tự ngắt khi chuỗi lỗ.</span>
+                </li>
               </ul>
             </div>
           </div>
         </div>
 
-        <div className="quant-panel p-6 sm:p-8 lg:col-span-5 space-y-4">
+        {/* Right (5 Cols): 3-Step Process */}
+        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-6 sm:p-8 lg:col-span-5 space-y-6">
           <div>
-            <span className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-300">
+            <span className="font-mono text-xs font-semibold uppercase tracking-wider text-[#F5B700]">
               BẮT ĐẦU TRONG 2 PHÚT
             </span>
-            <h2 className="mt-1 text-2xl font-extrabold text-white">Quy Trình 3 Bước Đơn Giản</h2>
+            <h2 className="mt-1 text-2xl font-bold text-white">Quy Trình 3 Bước Đơn Giản</h2>
           </div>
-          <div className="space-y-3 text-xs">
+
+          <div className="space-y-3.5 text-xs">
             {[
-              { step: '01', title: 'Đăng Ký & Xác Thực OTP (30s)', desc: 'Tạo tài khoản bảo mật qua email, không giữ tiền nạp của bạn.' },
-              { step: '02', title: 'Chọn Gói & Quét VietQR SePay', desc: 'Tài khoản Cloud kích hoạt tự động sau 3 giây chuyển khoản.' },
-              { step: '03', title: 'Nhập MT5 — Hệ Thống Tự Chạy', desc: 'Hệ thống tự chia Lot & đặt cắt lỗ ngày an toàn cho tài khoản của bạn.' },
+              {
+                step: '01',
+                title: 'Đăng Ký & Xác Thực OTP (30s)',
+                desc: 'Tạo tài khoản bảo mật qua email, tiền nằm 100% tại sàn MT5 của bạn.',
+              },
+              {
+                step: '02',
+                title: 'Chọn Gói & Quét VietQR SePay',
+                desc: 'Hệ thống tự động kích hoạt hạn mức Cloud MT5 chỉ sau 3 giây thanh toán.',
+              },
+              {
+                step: '03',
+                title: 'Kết Nối MT5 — Hệ Thống Tự Chạy',
+                desc: 'Hệ thống tự chia Lot và đặt cắt lỗ ngày an toàn theo kỷ luật quỹ định lượng.',
+              },
             ].map((s) => (
-              <div key={s.step} className="flex items-start gap-3 rounded-xl border border-white/10 bg-[#040710]/70 p-3.5">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 font-mono text-xs font-extrabold text-amber-300">
+              <div
+                key={s.step}
+                className="flex items-start gap-3.5 rounded-xl border border-slate-800/70 bg-[#080E1A] p-4"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#12B5A6]/15 font-mono text-xs font-bold text-[#12B5A6]">
                   {s.step}
                 </span>
                 <div>
                   <div className="font-bold text-white">{s.title}</div>
-                  <div className="mt-0.5 text-slate-400 leading-relaxed">{s.desc}</div>
+                  <div className="mt-1 text-slate-400 leading-relaxed">{s.desc}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
       </section>
-    </>
+    </div>
   );
 };

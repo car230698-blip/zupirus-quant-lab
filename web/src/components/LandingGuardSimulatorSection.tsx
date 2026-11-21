@@ -1,10 +1,6 @@
-import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import React, { useState } from 'react';
 import { GUARD_LAYERS } from '../data/landingData';
-import { TiltCard } from './TiltCard';
-
-const ThreeHolographicMatrix = lazy(() =>
-  import('./ThreeHolographicMatrix').then((m) => ({ default: m.ThreeHolographicMatrix }))
-);
+import { GuardTopologyDiagram } from './GuardTopologyDiagram';
 
 export interface LandingGuardSimulatorSectionProps {
   selectedGuardIdx: number;
@@ -15,49 +11,81 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
   selectedGuardIdx,
   setSelectedGuardIdx,
 }) => {
-  const sectionRef = useRef<HTMLElement>(null);
-  const [inView, setInView] = useState(false);
-
-  useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') {
-      setInView(true);
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setInView(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: '200px' }
-    );
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current);
-    }
-    return () => observer.disconnect();
-  }, []);
-
+  const [scenario, setScenario] = useState<'BUY' | 'SELL' | 'NO_SL'>('BUY');
   const activeGuard = GUARD_LAYERS[selectedGuardIdx] || GUARD_LAYERS[0];
 
   return (
     <section
-      ref={sectionRef}
       id="safety-shield"
       className="grid grid-cols-1 gap-8 lg:grid-cols-12 items-center"
     >
-      <div className="space-y-4 lg:col-span-6">
-        <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-amber-300">
-          4-LAYER FAIL-CLOSED CAPITAL PROTECTION
+      {/* Left Column: 4-Layer Guard Explanation & 3 Scenario Testing Buttons */}
+      <div className="space-y-5 lg:col-span-6">
+        <div>
+          <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-[#12B5A6]">
+            4-LAYER FAIL-CLOSED CAPITAL PROTECTION
+          </div>
+          <h2 className="mt-1 font-display text-2xl sm:text-3xl font-bold text-white tracking-tight">
+            Kiến Trúc 4 Lớp Giáp Bảo Vệ Vốn Bắt Buộc
+          </h2>
+          <p className="mt-2 text-sm text-slate-300 leading-relaxed">
+            Quy tắc kiểm toán nguyên tử được thực thi tự động trên Cloud trước khi bất kỳ lệnh nào chạm tới tài khoản MT5.
+          </p>
         </div>
-        <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-white">
-          Kiến Trúc 4 Lớp Giáp Bảo Vệ Vốn Bắt Buộc
-        </h2>
-        <p className="text-sm text-slate-300 leading-relaxed">
-          Nhấn vào từng lớp giáp bên dưới để xem quy tắc kiểm toán nguyên tử được thực thi trước khi bất kỳ lệnh nào chạm tới tài khoản MT5.
-        </p>
 
-        <div className="space-y-2.5 pt-2">
+        {/* 3 Scenario Testing Buttons */}
+        <div className="space-y-1.5">
+          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+            Kịch Bản Thử Nghiệm Phản Ứng Giáp:
+          </span>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setScenario('BUY');
+                setSelectedGuardIdx(0);
+              }}
+              className={`rounded-xl border py-2 px-2.5 text-xs font-bold transition font-mono ${
+                scenario === 'BUY'
+                  ? 'border-[#12B5A6] bg-[#12B5A6]/15 text-[#12B5A6]'
+                  : 'border-slate-800 bg-[#080E1A] text-slate-400 hover:text-white'
+              }`}
+            >
+              ✓ Tín hiệu chuẩn
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setScenario('NO_SL');
+                setSelectedGuardIdx(1);
+              }}
+              className={`rounded-xl border py-2 px-2.5 text-xs font-bold transition font-mono ${
+                scenario === 'NO_SL'
+                  ? 'border-rose-500 bg-rose-500/15 text-rose-300'
+                  : 'border-slate-800 bg-[#080E1A] text-slate-400 hover:text-white'
+              }`}
+            >
+              ⛔ Thiếu Stop-Loss
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setScenario('SELL');
+                setSelectedGuardIdx(3);
+              }}
+              className={`rounded-xl border py-2 px-2.5 text-xs font-bold transition font-mono ${
+                scenario === 'SELL' && selectedGuardIdx === 3
+                  ? 'border-amber-400 bg-amber-500/15 text-amber-300'
+                  : 'border-slate-800 bg-[#080E1A] text-slate-400 hover:text-white'
+              }`}
+            >
+              ⚠ Vượt trần Prop 1%
+            </button>
+          </div>
+        </div>
+
+        {/* 4 Guard Layers Selector */}
+        <div className="space-y-2 pt-1">
           {GUARD_LAYERS.map((g, idx) => {
             const active = idx === selectedGuardIdx;
             return (
@@ -65,67 +93,45 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
                 key={g.id}
                 type="button"
                 onClick={() => setSelectedGuardIdx(idx)}
-                className={`w-full rounded-2xl border p-4 text-left transition cursor-pointer ${
+                className={`w-full rounded-xl border p-3.5 text-left transition cursor-pointer ${
                   active
-                    ? 'border-amber-400/60 bg-amber-500/15 shadow-[0_0_28px_rgba(245,158,11,0.16)]'
-                    : 'border-white/10 bg-[#060b18]/85 hover:border-amber-500/30'
+                    ? 'border-[#12B5A6]/60 bg-[#12B5A6]/10 text-white'
+                    : 'border-slate-800/80 bg-[#10192B]/80 hover:border-slate-700 text-slate-300'
                 }`}
               >
                 <div className="flex items-center justify-between font-mono text-xs">
-                  <span className="font-bold text-amber-300">
+                  <span className={`font-bold ${active ? 'text-[#12B5A6]' : 'text-slate-400'}`}>
                     LỚP {g.id} // {g.code}
                   </span>
-                  <span className="text-emerald-400 font-bold tabular-nums">{g.metric}</span>
+                  <span className="text-[#12B5A6] font-bold tabular-nums">{g.metric}</span>
                 </div>
-                <div className="mt-1 text-sm font-bold text-white">{g.title}</div>
+                <div className="mt-1 text-sm font-semibold text-white">{g.title}</div>
               </button>
             );
           })}
         </div>
       </div>
 
+      {/* Right Column: Flat SVG Topology Diagram */}
       <div className="lg:col-span-6">
-        <TiltCard className="rounded-2xl">
-          <div className="quant-panel p-6 sm:p-8 space-y-5 border-amber-500/35">
-            <div className="relative h-72 sm:h-80 lg:h-96 w-full overflow-hidden rounded-xl border border-amber-500/25 bg-[#030611]">
-              {inView ? (
-                <Suspense
-                  fallback={
-                    <div className="h-full w-full flex items-center justify-center font-mono text-xs text-amber-300 bg-[#0B1220]">
-                      <span className="animate-pulse">Đang nạp ma trận 3D bảo vệ...</span>
-                    </div>
-                  }
-                >
-                  <ThreeHolographicMatrix
-                    selectedLayerIdx={selectedGuardIdx}
-                    onSelectLayer={setSelectedGuardIdx}
-                  />
-                </Suspense>
-              ) : (
-                <div className="h-full w-full bg-[#0B1220]" />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#050914] via-transparent to-transparent pointer-events-none" />
-              <div className="absolute top-3 left-4 right-4 flex items-center justify-between font-mono text-xs pointer-events-none">
-                <span className="font-bold text-amber-300">LỚP ĐANG CHỌN: #{activeGuard.id}</span>
-                <span className="rounded bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-emerald-300 font-bold">
-                  FAIL-CLOSED ENFORCED
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="font-mono text-xs text-cyan-300 uppercase tracking-wider">
-                {activeGuard.code}
-              </div>
-              <h3 className="text-xl font-bold text-white">{activeGuard.title}</h3>
-              <p className="text-sm leading-relaxed text-slate-300">{activeGuard.desc}</p>
-              <div className="rounded-xl border border-amber-500/30 bg-[#03060e] p-3.5 font-mono text-xs text-amber-200">
-                <span className="text-slate-500 block text-[10px] mb-1">QUY TẮC THỰC THI NGUYÊN TỬ:</span>
-                <code>{activeGuard.rule}</code>
-              </div>
-            </div>
+        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B]/90 p-6 space-y-4 shadow-xl">
+          <div className="h-72 sm:h-80 w-full">
+            <GuardTopologyDiagram
+              selectedLayerIdx={selectedGuardIdx}
+              onSelectLayer={setSelectedGuardIdx}
+              scenario={scenario}
+            />
           </div>
-        </TiltCard>
+
+          <div className="space-y-2 pt-2 border-t border-slate-800/70">
+            <div className="flex items-center justify-between font-mono text-xs">
+              <span className="text-[#12B5A6] font-bold uppercase">{activeGuard.code}</span>
+              <span className="text-slate-400">CHỐT CHẶN: LỚP #{activeGuard.id}</span>
+            </div>
+            <h3 className="text-base font-bold text-white">{activeGuard.title}</h3>
+            <p className="text-xs leading-relaxed text-slate-300">{activeGuard.desc}</p>
+          </div>
+        </div>
       </div>
     </section>
   );

@@ -15,7 +15,9 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   const [summary, setSummary] = useState<any>({ orders: { paid_revenue_vnd: 0 } });
   const [orders, setOrders] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'customers' | 'settings'>('orders');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'EXCEPTIONS' | 'PAID'>('ALL');
+  const [searchUserQuery, setSearchUserQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
 
@@ -91,9 +93,6 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   };
 
   const handleAccountAction = async (accId: string, action: 'toggle' | 'delete', currentlyActive?: boolean) => {
-    if (action === 'delete' && !window.confirm('Xác nhận xóa tài khoản MT5 vi phạm này khỏi hệ thống?')) {
-      return;
-    }
     setBusyId(accId);
     try {
       const url =
@@ -121,290 +120,436 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
     return true;
   });
 
+  const paidOrdersCount = orders.filter((o: any) => String(o.status || '').toUpperCase() === 'PAID').length;
+  const pendingOrdersCount = orders.filter((o: any) => String(o.status || '').toUpperCase() !== 'PAID').length;
+  const totalRevenueVnd = Number(summary.orders?.paid_revenue_vnd ?? summary.total_revenue_vnd ?? 0);
+
+  const searchedAccounts = accounts.filter((a: any) => {
+    if (!searchUserQuery.trim()) return true;
+    const q = searchUserQuery.toLowerCase();
+    const login = String(a.mt5_login || a.login || '').toLowerCase();
+    const srv = String(a.broker_server || a.server || '').toLowerCase();
+    return login.includes(q) || srv.includes(q);
+  });
+
+  const searchedUsers = users.filter((u: any) => {
+    if (!searchUserQuery.trim()) return true;
+    const q = searchUserQuery.toLowerCase();
+    return String(u.email || '').toLowerCase().includes(q) || String(u.role || '').toLowerCase().includes(q);
+  });
+
   return (
     <div className="space-y-6">
       <ToastNotification message={msg || null} type="info" onClose={() => setMsg('')} />
 
-      {/* 1. SePay & FX Configuration */}
-      <AdminBillingSettingsTab />
-
-      {/* 2. Revenue & Orders (Manual intervention ONLY for exceptions/underpaid) */}
-      <div className="quant-panel p-6 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
-          <div>
-            <div className="font-mono text-[11px] uppercase tracking-widest text-emerald-400">
-              Đối Soát Tự Động SePay
-            </div>
-            <h3 className="mt-1 text-base font-bold text-white">
-              Doanh Thu &amp; Đơn Hàng (Chỉ Duyệt Bù Khi Có Ngoại Lệ)
-            </h3>
+      {/* TOP 4-KPI REVENUE STRIP */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 font-mono">
+        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider">Doanh Thu Đã Thu</div>
+          <div className="mt-1 text-2xl font-bold text-[#12B5A6] tabular-nums">
+            {totalRevenueVnd.toLocaleString('vi-VN')} đ
           </div>
-          <div className="flex items-center gap-4 text-xs">
-            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2">
-              <span className="text-slate-400">Tổng doanh thu: </span>
-              <span className="font-mono font-extrabold text-emerald-300">
-                {Number(summary.orders?.paid_revenue_vnd ?? summary.total_revenue_vnd ?? 0).toLocaleString('vi-VN')} đ
-              </span>
-            </div>
-            <div className="flex gap-1.5">
-              {(['ALL', 'EXCEPTIONS', 'PAID'] as const).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setStatusFilter(f)}
-                  className={`rounded-lg px-3 py-1.5 text-[11px] font-bold cursor-pointer ${
-                    statusFilter === f
-                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/40'
-                      : 'bg-slate-800/70 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {f === 'ALL' ? 'Tất cả' : f === 'EXCEPTIONS' ? 'Đơn lỗi / Chờ' : 'Đã thanh toán'}
-                </button>
-              ))}
-            </div>
-          </div>
+          <div className="mt-1 text-[11px] text-slate-500">Đối soát tự động SePay</div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-white/10 text-[11px] uppercase text-slate-400">
-                <th className="py-2.5 pr-4">Mã Đơn</th>
-                <th className="py-2.5 pr-4">Khách Hàng</th>
-                <th className="py-2.5 pr-4">Gói</th>
-                <th className="py-2.5 pr-4">Số Tiền</th>
-                <th className="py-2.5 pr-4">Trạng Thái</th>
-                <th className="py-2.5 text-right">Ngoại Lệ</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {filteredOrders.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-6 text-center text-slate-400">
-                    Không có đơn hàng nào trong bộ lọc này.
-                  </td>
-                </tr>
-              ) : (
-                filteredOrders.slice(0, 30).map((o: any) => {
-                  const st = String(o.status || '').toUpperCase();
-                  const isException = st === 'UNDERPAID' || st === 'PENDING' || st === 'FAILED';
-                  return (
-                    <tr key={o.id} className="hover:bg-white/[0.02]">
-                      <td className="py-2.5 pr-4 font-mono text-cyan-300">{o.id}</td>
-                      <td className="py-2.5 pr-4 text-slate-300">{o.user_email || o.user_id}</td>
-                      <td className="py-2.5 pr-4 font-bold uppercase text-white">{o.plan_tier}</td>
-                      <td className="py-2.5 pr-4 font-mono text-emerald-300">
-                        {Number(o.amount_vnd || 0).toLocaleString('vi-VN')} đ
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <span
-                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                            st === 'PAID'
-                              ? 'bg-emerald-500/20 text-emerald-300'
-                              : 'bg-amber-500/20 text-amber-300'
-                          }`}
-                        >
-                          {st}
-                        </span>
-                      </td>
-                      <td className="py-2.5 text-right">
-                        {isException ? (
-                          <button
-                            type="button"
-                            disabled={busyId === o.id}
-                            onClick={() => handleManualApproveOrder(o.id)}
-                            className="rounded-lg bg-amber-500/20 border border-amber-400/40 px-3 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500/30 cursor-pointer"
-                          >
-                            {busyId === o.id ? 'Đang duyệt...' : 'Duyệt bù thủ công'}
-                          </button>
-                        ) : (
-                          <span className="text-[11px] text-slate-500">Tự động xong</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider">Đơn Đã Kích Hoạt</div>
+          <div className="mt-1 text-2xl font-bold text-white tabular-nums">
+            {paidOrdersCount}
+          </div>
+          <div className="mt-1 text-[11px] text-[#12B5A6]">Kích hoạt thành công</div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider">Đơn Chờ / Ngoại Lệ</div>
+          <div className="mt-1 text-2xl font-bold text-[#F5B700] tabular-nums">
+            {pendingOrdersCount}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">Chờ quét mã hoặc cần duyệt</div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider">Tài Khoản MT5 Đang Chạy</div>
+          <div className="mt-1 text-2xl font-bold text-white tabular-nums">
+            {accounts.length}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">Đấu nối Cloud London G2</div>
         </div>
       </div>
 
-      {/* 3. Active Customer MT5 Accounts (Suspend / Delete only for violations) */}
-      <div className="quant-panel p-6 space-y-4">
-        <div>
-          <div className="font-mono text-[11px] uppercase tracking-widest text-cyan-400">
-            Danh Sách Khách Hàng Đang Chạy ({accounts.length})
-          </div>
-          <h3 className="mt-1 text-base font-bold text-white">
-            Giám Sát Tài Khoản Khách Hàng (Tự Động Deploy &amp; Bảo Vệ)
-          </h3>
-        </div>
+      {/* UNDERLINE SUB-TABS NAVIGATION */}
+      <div className="border-b border-slate-800 flex items-center gap-8">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('orders')}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
+            activeSubTab === 'orders'
+              ? 'text-white'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>Đơn Hàng SePay</span>
+          {pendingOrdersCount > 0 && (
+            <span className="ml-2 rounded-full bg-[#F5B700]/20 px-2 py-0.5 font-mono text-[10px] text-[#F5B700]">
+              {pendingOrdersCount}
+            </span>
+          )}
+          {activeSubTab === 'orders' && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#12B5A6]" />
+          )}
+        </button>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-white/10 text-[11px] uppercase text-slate-400">
-                <th className="py-2.5 pr-4">MT5 Login / Server</th>
-                <th className="py-2.5 pr-4">Loại</th>
-                <th className="py-2.5 pr-4">Balance / Equity</th>
-                <th className="py-2.5 pr-4">Trạng Thái Cloud</th>
-                <th className="py-2.5 text-right">Xử Lý Vi Phạm</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {accounts.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-slate-400">
-                    Chưa có tài khoản MT5 khách hàng nào kết nối.
-                  </td>
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('customers')}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
+            activeSubTab === 'customers'
+              ? 'text-white'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>Khách Hàng &amp; Tài Khoản MT5</span>
+          <span className="ml-2 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-400">
+            {accounts.length}
+          </span>
+          {activeSubTab === 'customers' && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#12B5A6]" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('settings')}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
+            activeSubTab === 'settings'
+              ? 'text-white'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>Cấu Hình VietQR &amp; Tỷ Giá</span>
+          {activeSubTab === 'settings' && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#12B5A6]" />
+          )}
+        </button>
+      </div>
+
+      {/* SUBTAB 1: ORDERS */}
+      {activeSubTab === 'orders' && (
+        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div>
+              <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6]">
+                ĐỐI SOÁT TỰ ĐỘNG SEPAY
+              </div>
+              <h3 className="mt-0.5 text-base font-bold text-white">
+                Danh Sách Đơn Hàng Gói Dịch Vụ
+              </h3>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1.5">
+                {(['ALL', 'EXCEPTIONS', 'PAID'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setStatusFilter(f)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium cursor-pointer transition ${
+                      statusFilter === f
+                        ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/40 font-bold'
+                        : 'bg-[#080E1A] text-slate-400 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    {f === 'ALL' ? 'Tất cả' : f === 'EXCEPTIONS' ? 'Chờ / Ngoại lệ' : 'Đã thanh toán'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-[11px] uppercase text-slate-400 font-mono">
+                  <th className="py-2.5 pr-4">Mã Đơn</th>
+                  <th className="py-2.5 pr-4">Khách Hàng</th>
+                  <th className="py-2.5 pr-4">Gói Thuê Bao</th>
+                  <th className="py-2.5 pr-4 text-right">Số Tiền (VND)</th>
+                  <th className="py-2.5 pr-4 text-center">Trạng Thái</th>
+                  <th className="py-2.5 text-right">Thao Tác</th>
                 </tr>
-              ) : (
-                accounts.map((a: any) => {
-                  const autoTrade = Number(a.auto_trade ?? 0) === 1;
-                  return (
-                    <tr key={a.id} className="hover:bg-white/[0.02]">
-                      <td className="py-2.5 pr-4">
-                        <div className="font-mono font-bold text-white">{a.mt5_login || a.login}</div>
-                        <div className="text-[11px] text-slate-400">{a.broker_server || a.server}</div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono">
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-400 font-sans">
+                      Không có đơn hàng nào trong bộ lọc này.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredOrders.slice(0, 50).map((o: any) => {
+                    const st = String(o.status || '').toUpperCase();
+                    const isException = st === 'UNDERPAID' || st === 'PENDING' || st === 'FAILED';
+                    return (
+                      <tr key={o.id} className="hover:bg-slate-800/20">
+                        <td className="py-2.5 pr-4 text-[#12B5A6] font-bold">{o.id}</td>
+                        <td className="py-2.5 pr-4 text-slate-300 font-sans">{o.user_email || o.user_id}</td>
+                        <td className="py-2.5 pr-4 font-bold uppercase text-white">{o.plan_tier}</td>
+                        <td className="py-2.5 pr-4 text-right text-emerald-400 font-bold tabular-nums">
+                          {Number(o.amount_vnd || 0).toLocaleString('vi-VN')} đ
+                        </td>
+                        <td className="py-2.5 pr-4 text-center">
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                              st === 'PAID'
+                                ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/30'
+                                : 'bg-[#F5B700]/15 text-[#F5B700] border border-[#F5B700]/30'
+                            }`}
+                          >
+                            {st}
+                          </span>
+                        </td>
+                        <td className="py-2.5 text-right font-sans">
+                          {isException ? (
+                            <button
+                              type="button"
+                              disabled={busyId === o.id}
+                              onClick={() => handleManualApproveOrder(o.id)}
+                              className="rounded-lg bg-[#F5B700]/15 border border-[#F5B700]/40 px-3 py-1 text-xs font-bold text-[#F5B700] hover:bg-[#F5B700]/25 cursor-pointer"
+                            >
+                              {busyId === o.id ? 'Đang duyệt...' : 'Duyệt bù thủ công'}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-500">Tự động xong ✓</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 2: CUSTOMERS & MT5 ACCOUNTS */}
+      {activeSubTab === 'customers' && (
+        <div className="space-y-6">
+          {/* Search bar */}
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              value={searchUserQuery}
+              onChange={(e) => setSearchUserQuery(e.target.value)}
+              placeholder="Tìm kiếm nhanh theo email, mã MT5 login, máy chủ..."
+              className="w-full max-w-md rounded-xl border border-slate-800 bg-[#10192B] px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:border-[#12B5A6] focus:outline-none"
+            />
+          </div>
+
+          {/* Customer MT5 Accounts */}
+          <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6]">
+                  TÀI KHOẢN CLOUD MT5
+                </div>
+                <h3 className="mt-0.5 text-base font-bold text-white">
+                  Danh Sách Tài Khoản Đang Đấu Nối ({searchedAccounts.length})
+                </h3>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[11px] uppercase text-slate-400 font-mono">
+                    <th className="py-2.5 pr-4">MT5 Login / Server</th>
+                    <th className="py-2.5 pr-4">Loại Tài Khoản</th>
+                    <th className="py-2.5 pr-4">Balance / Equity</th>
+                    <th className="py-2.5 pr-4">Trạng Thái Cloud</th>
+                    <th className="py-2.5 text-right">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-mono">
+                  {searchedAccounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-400 font-sans">
+                        Không tìm thấy tài khoản MT5 nào.
                       </td>
-                      <td className="py-2.5 pr-4 font-mono text-cyan-300">{a.account_type || 'STANDARD'}</td>
-                      <td className="py-2.5 pr-4 font-mono text-slate-200">
-                        ${Number(a.balance || 0).toLocaleString()} / ${Number(a.equity || 0).toLocaleString()}
-                      </td>
+                    </tr>
+                  ) : (
+                    searchedAccounts.map((a: any) => {
+                      const autoTrade = Number(a.auto_trade ?? 0) === 1;
+                      const isCent = String(a.account_type || '').toUpperCase() === 'CENT' || String(a.currency || '').toUpperCase() === 'USC';
+                      const isProp = Boolean(a.is_prop_firm_mode);
+                      return (
+                        <tr key={a.id} className="hover:bg-slate-800/20">
+                          <td className="py-2.5 pr-4">
+                            <div className="font-bold text-white">{a.mt5_login || a.login}</div>
+                            <div className="text-[11px] text-slate-400 font-sans">{a.broker_server || a.server}</div>
+                          </td>
+                          <td className="py-2.5 pr-4">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-slate-200">{a.account_type || 'STANDARD'}</span>
+                              {isCent && (
+                                <span className="rounded bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 text-[9px] font-bold text-[#F5B700]">
+                                  USC
+                                </span>
+                              )}
+                              {isProp && (
+                                <span className="rounded bg-[#12B5A6]/15 border border-[#12B5A6]/30 px-1.5 py-0.2 text-[9px] font-bold text-[#12B5A6]">
+                                  PROP LIVE
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-2.5 pr-4 text-slate-200 tabular-nums">
+                            ${Number(a.balance || 0).toLocaleString()} / ${Number(a.equity || 0).toLocaleString()}
+                          </td>
+                          <td className="py-2.5 pr-4">
+                            <span
+                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                                a.deployment_state === 'DEPLOYED' && autoTrade
+                                  ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/30'
+                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+                              }`}
+                            >
+                              {a.deployment_state || 'UNKNOWN'} {autoTrade ? '• AUTO' : '• PAUSED'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 text-right space-x-2 font-sans">
+                            <button
+                              type="button"
+                              disabled={busyId === a.id}
+                              onClick={() => handleAccountAction(a.id, 'toggle', autoTrade)}
+                              className="rounded-lg border border-slate-700 hover:border-slate-500 bg-[#080E1A] px-2.5 py-1 text-xs font-medium text-slate-300 hover:text-white cursor-pointer"
+                            >
+                              {autoTrade ? 'Tạm ngắt' : 'Bật lại'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busyId === a.id}
+                              onClick={() => handleAccountAction(a.id, 'delete')}
+                              className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-bold text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                            >
+                              Xóa
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* User Account Registry */}
+          <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <div className="font-mono text-xs uppercase tracking-wider text-[#F5B700]">
+                  QUẢN TRỊ TÀI KHOẢN NGƯỜI DÙNG
+                </div>
+                <h3 className="mt-0.5 text-base font-bold text-white">
+                  Danh Sách Người Dùng Hệ Thống ({searchedUsers.length})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateEmail('');
+                  setCreatePassword(generateRandomPassword());
+                  setCreateRole('customer');
+                  setCreateError('');
+                  setShowCreateModal(true);
+                }}
+                className="rounded-xl bg-[#12B5A6] px-3.5 py-2 text-xs font-bold text-[#042F2E] hover:bg-[#14C9B8] cursor-pointer"
+              >
+                + Tạo Người Dùng Mới
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[11px] uppercase text-slate-400 font-mono">
+                    <th className="py-2.5 pr-4">Email</th>
+                    <th className="py-2.5 pr-4">Phân Quyền</th>
+                    <th className="py-2.5 text-right">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-mono">
+                  {searchedUsers.map((usr: any) => (
+                    <tr key={usr.id} className="hover:bg-slate-800/20">
+                      <td className="py-2.5 pr-4 text-slate-200 font-sans">{usr.email}</td>
                       <td className="py-2.5 pr-4">
-                        <span
-                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                            a.deployment_state === 'DEPLOYED' && autoTrade
-                              ? 'bg-emerald-500/20 text-emerald-300'
-                              : 'bg-slate-700 text-slate-300'
-                          }`}
-                        >
-                          {a.deployment_state || 'UNKNOWN'} {autoTrade ? '• AUTO' : '• PAUSED'}
+                        <span className="rounded-md border border-slate-700 bg-[#080E1A] px-2 py-0.5 text-[10px] uppercase font-bold text-slate-300">
+                          {usr.role}
                         </span>
                       </td>
-                      <td className="py-2.5 text-right space-x-2">
+                      <td className="py-2.5 text-right space-x-2 font-sans">
                         <button
                           type="button"
-                          disabled={busyId === a.id}
-                          onClick={() => handleAccountAction(a.id, 'toggle', autoTrade)}
-                          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500/20 cursor-pointer"
+                          onClick={() => {
+                            setResetTarget({ id: usr.id, email: usr.email });
+                            setNewPasswordInput('');
+                            setShowResetPw(true);
+                            setResetError('');
+                          }}
+                          className="rounded-lg border border-slate-700 bg-[#080E1A] px-2.5 py-1 text-xs text-slate-300 hover:text-white cursor-pointer"
                         >
-                          {autoTrade ? 'Tạm khóa' : 'Mở lại'}
+                          Đặt lại MK
                         </button>
                         <button
                           type="button"
-                          disabled={busyId === a.id}
-                          onClick={() => handleAccountAction(a.id, 'delete')}
-                          className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                          disabled={busyId === usr.id}
+                          onClick={async () => {
+                            const nextRole = usr.role === 'admin' ? 'customer' : 'admin';
+                            setBusyId(usr.id);
+                            try {
+                              await api.put(`/api/admin/users/${encodeURIComponent(usr.id)}/role`, { role: nextRole });
+                              setMsg(`Đã đổi quyền ${usr.email} -> ${nextRole}.`);
+                              await loadBilling();
+                            } catch (err: any) {
+                              setMsg(`Không thể đổi quyền: ${err.message || ''}`);
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                          className="rounded-lg border border-[#12B5A6]/40 bg-[#12B5A6]/10 px-2.5 py-1 text-xs font-bold text-[#12B5A6] hover:bg-[#12B5A6]/20 cursor-pointer"
+                        >
+                          Đổi quyền
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget({ id: usr.id, email: usr.email })}
+                          className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-bold text-rose-300 hover:bg-rose-500/20 cursor-pointer"
                         >
                           Xóa
                         </button>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* 4. User Compliance & Role Management */}
-      <div className="quant-panel p-6 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">
-              Quản Trị Người Dùng ({users.length})
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <h3 className="mt-1 text-base font-bold text-white">
-              Danh Sách Tài Khoản Hệ Thống (Phân Quyền &amp; Xử Lý Vi Phạm)
-            </h3>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setCreateEmail('');
-              setCreatePassword(generateRandomPassword());
-              setCreateRole('customer');
-              setCreateError('');
-              setShowCreateModal(true);
-            }}
-            className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
-          >
-            + Tạo Người Dùng
-          </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-white/10 text-[11px] uppercase text-slate-400">
-                <th className="py-2 pr-4">Email</th>
-                <th className="py-2 pr-4">Quyền</th>
-                <th className="py-2 text-right">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {users.map((usr: any) => (
-                <tr key={usr.id} className="hover:bg-white/[0.02]">
-                  <td className="py-2 pr-4 text-slate-200">{usr.email}</td>
-                  <td className="py-2 pr-4 font-mono text-cyan-300 uppercase">{usr.role}</td>
-                  <td className="py-2 text-right space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setResetTarget({ id: usr.id, email: usr.email });
-                        setNewPasswordInput('');
-                        setShowResetPw(true);
-                        setResetError('');
-                      }}
-                      className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-300 hover:bg-amber-500/20 cursor-pointer"
-                    >
-                      Đặt lại MK
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyId === usr.id}
-                      onClick={async () => {
-                        const nextRole = usr.role === 'admin' ? 'customer' : 'admin';
-                        setBusyId(usr.id);
-                        try {
-                          await api.put(`/api/admin/users/${encodeURIComponent(usr.id)}/role`, { role: nextRole });
-                          setMsg(`Đã đổi quyền ${usr.email} -> ${nextRole}.`);
-                          await loadBilling();
-                        } catch (err: any) {
-                          setMsg(`Không thể đổi quyền: ${err.message || ''}`);
-                        } finally {
-                          setBusyId(null);
-                        }
-                      }}
-                      className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-bold text-cyan-300 hover:bg-cyan-500/20 cursor-pointer"
-                    >
-                      Đổi quyền
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget({ id: usr.id, email: usr.email })}
-                      className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-300 hover:bg-rose-500/20 cursor-pointer"
-                    >
-                      Xóa
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
+
+      {/* SUBTAB 3: VIETQR & FX SETTINGS */}
+      {activeSubTab === 'settings' && (
+        <AdminBillingSettingsTab />
+      )}
 
       {/* Modal Đặt Lại Mật Khẩu Người Dùng */}
       {resetTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-[#070d1c] p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#10192B] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <div className="font-mono text-[10px] uppercase tracking-widest text-amber-400">
-                  Bảo Mật Tài Khoản
+                <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6]">
+                  BẢO MẬT TÀI KHOẢN
                 </div>
                 <h4 className="text-base font-bold text-white">Đặt Lại Mật Khẩu Người Dùng</h4>
               </div>
@@ -417,9 +562,9 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               </button>
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-slate-900/70 px-3.5 py-2.5 text-xs">
+            <div className="rounded-xl border border-slate-800 bg-[#080E1A] px-3.5 py-2.5 text-xs">
               <span className="text-slate-400">Tài khoản: </span>
-              <span className="font-mono font-bold text-amber-300">{resetTarget.email}</span>
+              <span className="font-mono font-bold text-white">{resetTarget.email}</span>
             </div>
 
             <div className="space-y-2">
@@ -434,7 +579,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                     setShowResetPw(true);
                     setResetError('');
                   }}
-                  className="text-[11px] font-bold text-cyan-300 hover:text-cyan-200 cursor-pointer"
+                  className="text-xs font-bold text-[#12B5A6] hover:underline cursor-pointer"
                 >
                   🎲 Tạo mật khẩu ngẫu nhiên
                 </button>
@@ -449,12 +594,12 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   }}
                   placeholder="Nhập mật khẩu mới (>= 8 ký tự)..."
                   autoFocus
-                  className="w-full rounded-xl border border-white/15 bg-[#030711] px-3.5 py-2.5 pr-16 font-mono text-sm text-white focus:border-amber-400 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-800 bg-[#080E1A] px-3.5 py-2.5 pr-16 font-mono text-sm text-white focus:border-[#12B5A6] focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setShowResetPw((v) => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 hover:text-white cursor-pointer"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400 hover:text-white cursor-pointer"
                 >
                   {showResetPw ? 'Ẩn' : 'Hiện'}
                 </button>
@@ -470,7 +615,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               <button
                 type="button"
                 onClick={() => setResetTarget(null)}
-                className="rounded-xl border border-white/10 bg-slate-800 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white cursor-pointer"
+                className="rounded-xl border border-slate-800 bg-[#080E1A] px-4 py-2 text-xs font-medium text-slate-300 hover:text-white cursor-pointer"
               >
                 Hủy
               </button>
@@ -496,7 +641,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                     setResetSaving(false);
                   }
                 }}
-                className="rounded-xl bg-amber-400 px-4 py-2 text-xs font-extrabold text-slate-950 hover:bg-amber-300 cursor-pointer disabled:opacity-50"
+                className="rounded-xl bg-[#12B5A6] px-4 py-2 text-xs font-bold text-[#042F2E] hover:bg-[#14C9B8] cursor-pointer disabled:opacity-50"
               >
                 {resetSaving ? 'Đang lưu...' : 'Lưu Mật Khẩu Mới'}
               </button>
@@ -508,8 +653,8 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
       {/* Modal Tạo Người Dùng Mới */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-emerald-500/40 bg-[#070d1c] p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#10192B] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h4 className="text-base font-bold text-white">Tạo Người Dùng Mới</h4>
               <button
                 type="button"
@@ -529,7 +674,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   onChange={(e) => setCreateEmail(e.target.value)}
                   placeholder="user@zupirus.com"
                   autoFocus
-                  className="w-full rounded-xl border border-white/15 bg-[#030711] px-3.5 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-800 bg-[#080E1A] px-3.5 py-2 text-sm text-white focus:border-[#12B5A6] focus:outline-none"
                 />
               </div>
               <div>
@@ -538,7 +683,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   <button
                     type="button"
                     onClick={() => setCreatePassword(generateRandomPassword())}
-                    className="text-[11px] font-bold text-cyan-300 hover:text-cyan-200 cursor-pointer"
+                    className="text-xs font-bold text-[#12B5A6] hover:underline cursor-pointer"
                   >
                     🎲 Ngẫu nhiên
                   </button>
@@ -547,7 +692,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   type="text"
                   value={createPassword}
                   onChange={(e) => setCreatePassword(e.target.value)}
-                  className="w-full rounded-xl border border-white/15 bg-[#030711] px-3.5 py-2 font-mono text-sm text-white focus:border-emerald-400 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-800 bg-[#080E1A] px-3.5 py-2 font-mono text-sm text-white focus:border-[#12B5A6] focus:outline-none"
                 />
               </div>
               <div>
@@ -555,7 +700,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                 <select
                   value={createRole}
                   onChange={(e) => setCreateRole(e.target.value as 'customer' | 'admin')}
-                  className="w-full rounded-xl border border-white/15 bg-[#030711] px-3.5 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-800 bg-[#080E1A] px-3.5 py-2 text-sm text-white focus:border-[#12B5A6] focus:outline-none"
                 >
                   <option value="customer">Khách hàng (customer)</option>
                   <option value="admin">Quản trị viên (admin)</option>
@@ -572,7 +717,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="rounded-xl border border-white/10 bg-slate-800 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white cursor-pointer"
+                className="rounded-xl border border-slate-800 bg-[#080E1A] px-4 py-2 text-xs font-medium text-slate-300 hover:text-white cursor-pointer"
               >
                 Hủy
               </button>
@@ -605,7 +750,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                     setCreateSaving(false);
                   }
                 }}
-                className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-extrabold text-slate-950 hover:bg-emerald-300 cursor-pointer disabled:opacity-50"
+                className="rounded-xl bg-[#12B5A6] px-4 py-2 text-xs font-bold text-[#042F2E] hover:bg-[#14C9B8] cursor-pointer disabled:opacity-50"
               >
                 {createSaving ? 'Đang tạo...' : 'Tạo Tài Khoản'}
               </button>
@@ -617,17 +762,17 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
       {/* Modal Xác Nhận Xóa Người Dùng */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-rose-500/40 bg-[#070d1c] p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md rounded-2xl border border-rose-500/40 bg-[#10192B] p-6 shadow-2xl space-y-4">
             <h4 className="text-base font-bold text-white">Xác nhận xóa người dùng</h4>
             <p className="text-xs text-slate-300 leading-relaxed">
               Bạn có chắc chắn muốn xóa vĩnh viễn tài khoản{' '}
-              <strong className="text-rose-300 font-mono">{deleteTarget.email}</strong> cùng toàn bộ dữ liệu liên quan?
+              <strong className="text-rose-400 font-mono">{deleteTarget.email}</strong> cùng toàn bộ dữ liệu liên quan?
             </p>
             <div className="flex items-center justify-end gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setDeleteTarget(null)}
-                className="rounded-xl border border-white/10 bg-slate-800 px-4 py-2 text-xs font-bold text-slate-300 hover:text-white cursor-pointer"
+                className="rounded-xl border border-slate-800 bg-[#080E1A] px-4 py-2 text-xs font-medium text-slate-300 hover:text-white cursor-pointer"
               >
                 Hủy
               </button>
@@ -648,7 +793,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                     setDeleteSaving(false);
                   }
                 }}
-                className="rounded-xl bg-rose-500 px-4 py-2 text-xs font-extrabold text-white hover:bg-rose-400 cursor-pointer disabled:opacity-50"
+                className="rounded-xl bg-rose-500 px-4 py-2 text-xs font-bold text-white hover:bg-rose-400 cursor-pointer disabled:opacity-50"
               >
                 {deleteSaving ? 'Đang xóa...' : 'Xác Nhận Xóa'}
               </button>
