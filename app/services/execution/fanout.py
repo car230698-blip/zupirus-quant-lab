@@ -4,7 +4,7 @@ import uuid
 import asyncio
 import logging
 from typing import Dict, Any, List
-from app.metaapi import MetaApiClient
+from app.domains.execution.metaapi_client import MetaApiClient
 
 logger = logging.getLogger("zupirus.metaapi")
 

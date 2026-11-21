@@ -1,31 +1,23 @@
-import json
-import urllib.request
-from app.db import tx, getkv
+import time
+from app.db import tx
+from app.gemini_client import ping_single_key
+from app.security import decrypt_secret
 
 with tx() as c:
-    data_val = getkv(c, 'gemini_api_key_pool')
+    rows = c.execute("SELECT id, key_masked, key_cipher, is_active FROM gemini_keys ORDER BY created ASC").fetchall()
 
-keys = []
-if data_val:
+print(f"Tổng số Gemini API Key trong bảng 'gemini_keys': {len(rows)}")
+for r in rows:
+    kid = r[0]
+    masked = r[1]
+    cipher = r[2]
+    is_active = bool(r[3])
     try:
-        data = json.loads(data_val)
-        if isinstance(data, list):
-            keys = [k["key"] if isinstance(k, dict) else str(k) for k in data]
-        elif isinstance(data, dict):
-            keys = list(data.values())
-        else:
-            keys = [str(data)]
-    except Exception:
-        keys = [k.strip() for k in data_val.split(',') if k.strip()]
-
-print(f"Total keys in pool: {len(keys)}")
-for i, k in enumerate(keys):
-    masked = k[:6] + "..." + k[-4:] if len(k) > 10 else k
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={k}"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Zupirus-HealthCheck"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            print(f"Key {i+1} [{masked}]: HOẠT ĐỘNG TỐT (HTTP {resp.status})")
+        raw_key = decrypt_secret(cipher)
+        ping_res = ping_single_key(raw_key)
+        status = ping_res.get("status")
+        latency = ping_res.get("latency_ms", 0)
+        err = ping_res.get("error", "")
+        print(f"Key [{masked}] (Active={is_active}): STATUS = {status} ({latency}ms) {err}")
     except Exception as e:
-        print(f"Key {i+1} [{masked}]: LỖI/KHÔNG HOẠT ĐỘNG -> {e}")
-
+        print(f"Key [{masked}] (Active={is_active}): LOI -> {e}")

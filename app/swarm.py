@@ -7,10 +7,10 @@ Coordinates 3 specialized autonomous agents:
 import time
 import logging
 from typing import Dict, Any
-from .db import tx
-from .portfolio import run_monte_carlo_simulation
-from .hindsight import store_memory, CATEGORY_REFLECTIVE
-from .gemini_client import call_gemini
+from app.db import tx
+from app.portfolio import run_monte_carlo_simulation
+from app.hindsight import store_memory, CATEGORY_REFLECTIVE
+from app.domains.ai.gemini_client import call_gemini
 
 logger = logging.getLogger("zupirus.swarm")
 
