@@ -129,17 +129,36 @@ def call_gemini(
     """Calls Google Gemini API with multi-key AND multi-model failover across the configured pool.
     Returns (response_text, used_key_id)."""
     keys = active_keys or []
-    if not keys and c:
-        keys = get_active_keys(c)
-        if not keys:
-            # Fallback to any enabled key even if previously rate-limited
+    if not keys:
+        if c:
+            keys = get_active_keys(c)
+            if not keys:
+                try:
+                    rows = c.execute(
+                        "SELECT id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created FROM gemini_keys WHERE is_active = 1 ORDER BY calls_count ASC"
+                    ).fetchall()
+                    keys = [dict(r) if hasattr(r, 'keys') else {
+                        "id": r[0], "key_hash": r[1], "key_masked": r[2], "key_cipher": r[3],
+                        "is_active": r[4], "calls_count": r[5], "last_used": r[6], "status": r[7], "created": r[8]
+                    } for r in rows]
+                except Exception:
+                    pass
+        else:
             try:
-                rows = c.execute(
-                    "SELECT id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created FROM gemini_keys WHERE is_active = 1 ORDER BY calls_count ASC"
-                ).fetchall()
-                keys = [dict(r) for r in rows]
-            except Exception:
-                pass
+                from app.core.db import tx
+                with tx() as db_c:
+                    keys = get_active_keys(db_c)
+                    if not keys:
+                        rows = db_c.execute(
+                            "SELECT id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created FROM gemini_keys WHERE is_active = 1 ORDER BY calls_count ASC"
+                        ).fetchall()
+                        keys = [dict(r) if hasattr(r, 'keys') else {
+                            "id": r[0], "key_hash": r[1], "key_masked": r[2], "key_cipher": r[3],
+                            "is_active": r[4], "calls_count": r[5], "last_used": r[6], "status": r[7], "created": r[8]
+                        } for r in rows]
+            except Exception as e:
+                logger.debug(f"Auto-fetch DB keys note: {e}")
+
     if not keys:
         keys = [{"id": f"k_{i}", "key_cipher": k} for i, k in enumerate(DEFAULT_GEMINI_KEYS)]
 
