@@ -1,8 +1,11 @@
 import os
 import sys
 import time
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+repo_root = str(Path(__file__).resolve().parents[2])
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
 
 from app.db import tx, getkv
 
