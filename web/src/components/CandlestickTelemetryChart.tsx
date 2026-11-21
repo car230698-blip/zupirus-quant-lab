@@ -69,34 +69,34 @@ export const CandlestickTelemetryChart: React.FC<CandlestickTelemetryChartProps>
   });
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-amber-500/25 bg-[#040710]/95 p-3.5">
-      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] pb-2.5 text-xs font-mono">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex items-center gap-1.5 font-bold text-amber-300">
+    <div className="relative overflow-hidden rounded-xl border border-amber-500/25 bg-[#040710]/95 p-3 sm:p-3.5 w-full max-w-full">
+      <div className="mb-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-2.5 text-xs font-mono">
+        <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar py-0.5">
+          <span className="inline-flex items-center gap-1.5 font-bold text-amber-300 shrink-0">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
             {symbol} · {timeframe}
           </span>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-400 tabular-nums">
+          <span className="text-slate-600 shrink-0">·</span>
+          <span className="text-slate-400 tabular-nums shrink-0">
             O: <strong className="text-slate-200">{fmtNum(inspectedCandle.open, 2)}</strong>
           </span>
-          <span className="text-slate-400 tabular-nums">
+          <span className="text-slate-400 tabular-nums shrink-0">
             H: <strong className="text-emerald-300">{fmtNum(inspectedCandle.high, 2)}</strong>
           </span>
-          <span className="text-slate-400 tabular-nums">
+          <span className="text-slate-400 tabular-nums shrink-0">
             L: <strong className="text-rose-300">{fmtNum(inspectedCandle.low, 2)}</strong>
           </span>
-          <span className="text-slate-400 tabular-nums">
+          <span className="text-slate-400 tabular-nums shrink-0">
             C: <strong className="text-amber-300">{fmtNum(inspectedCandle.close, 2)}</strong>
           </span>
-          <span className="text-slate-400 tabular-nums hidden sm:inline">
+          <span className="text-slate-400 tabular-nums hidden sm:inline shrink-0">
             Biên độ:{' '}
             <strong className="text-cyan-300">
               {fmtNum((Number(inspectedCandle.high) - Number(inspectedCandle.low)) * 10, 1)} pips
             </strong>
           </span>
         </div>
-        <div className="flex items-center gap-2 tabular-nums">
+        <div className="flex items-center gap-2 tabular-nums shrink-0 self-end sm:self-auto">
           <button
             type="button"
             onClick={() => setShowEmaOverlay((v) => !v)}

@@ -437,7 +437,7 @@ export function PortalShell({
         </div>
 
         {/* Mobile WebApp Header (Compact native-like header for mobile) */}
-        <header className="flex lg:hidden items-center justify-between border-b border-white/[0.08] bg-[#070c18]/95 px-3.5 py-2.5 backdrop-blur-md sticky top-0 z-30">
+        <header className="flex lg:hidden items-center justify-between border-b border-white/[0.08] bg-[#070c18]/95 px-3.5 py-2.5 backdrop-blur-md sticky top-0 z-30 w-full max-w-full">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#12B5A6] font-mono text-sm font-extrabold text-[#042F2E]">
               Z
@@ -652,7 +652,7 @@ export function PortalShell({
       {/* Mobile WebApp Bottom Navigation Dock (Fixed at bottom on phones/tablets) */}
       <nav
         aria-label="Điều hướng WebApp di động"
-        className="fixed bottom-0 inset-x-0 z-40 flex lg:hidden items-center justify-around border-t border-white/[0.08] bg-[#070d18]/95 px-1 py-1.5 backdrop-blur-2xl shadow-[0_-10px_30px_rgba(0,0,0,0.85)] pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+        className="fixed bottom-0 inset-x-0 z-40 flex lg:hidden items-center justify-around border-t border-white/[0.08] bg-[#070d18]/95 px-1 py-1.5 backdrop-blur-2xl shadow-[0_-10px_30px_rgba(0,0,0,0.85)] pb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-full"
       >
         {navigation[portal].map(([key]) => {
           const active = page === key;
@@ -678,7 +678,7 @@ export function PortalShell({
                 onNavigate(key);
               }}
               aria-current={active ? 'page' : undefined}
-              className={`flex flex-1 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
+              className={`flex flex-1 min-w-0 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
                 active
                   ? portal === 'admin'
                     ? 'text-cyan-300 font-bold'
@@ -698,7 +698,7 @@ export function PortalShell({
                   />
                 )}
               </div>
-              <span className="mt-1 font-mono text-[10px] tracking-tight truncate max-w-[68px]">
+              <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[62px]">
                 {shortLabel}
               </span>
             </button>
@@ -712,7 +712,7 @@ export function PortalShell({
             setMobileProfileOpen(false);
             setNotifDropdownOpen((v) => !v);
           }}
-          className={`flex flex-1 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
+          className={`flex flex-1 min-w-0 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
             notifDropdownOpen ? 'text-amber-300 font-bold' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -724,7 +724,7 @@ export function PortalShell({
               </span>
             )}
           </div>
-          <span className="mt-1 font-mono text-[10px] tracking-tight">Thông báo</span>
+          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[62px]">Thông báo</span>
         </button>
 
         {/* Profile / Account Drawer Tab */}
@@ -734,12 +734,12 @@ export function PortalShell({
             setNotifDropdownOpen(false);
             setMobileProfileOpen(true);
           }}
-          className={`flex flex-1 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
+          className={`flex flex-1 min-w-0 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
             mobileProfileOpen ? 'text-cyan-300 font-bold' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <IconUser className="w-4 h-4" />
-          <span className="mt-1 font-mono text-[10px] tracking-tight">Cá nhân</span>
+          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[62px]">Cá nhân</span>
         </button>
       </nav>
 

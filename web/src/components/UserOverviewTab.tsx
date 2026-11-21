@@ -406,7 +406,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-white/[0.08] font-mono text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 pt-2 border-t border-white/[0.08] font-mono text-xs">
           {dynamicShieldLayers.map((layer: any, idx: number) => {
             const isSelected = activeShieldIdx === idx;
             return (
@@ -414,20 +414,22 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 key={layer.id}
                 type="button"
                 onClick={() => setActiveShieldIdx(idx)}
-                className={`rounded-xl border p-3.5 text-left transition flex items-center justify-between cursor-pointer ${
+                className={`rounded-xl border p-3 sm:p-3.5 text-left transition flex items-center justify-between gap-2 min-w-0 w-full cursor-pointer ${
                   isSelected
                     ? 'border-amber-400/55 bg-amber-500/15 shadow-[0_0_20px_rgba(245,158,11,0.14)]'
                     : 'border-white/[0.08] bg-[#040710]/85 hover:border-amber-500/30'
                 }`}
               >
-                <div>
-                  <div className="text-[10px] text-amber-300 font-bold">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] text-amber-300 font-bold truncate">
                     {layer.id}. {layer.code}
                   </div>
-                  <div className="text-white font-bold mt-0.5">{layer.title}</div>
+                  <div className="text-white font-bold mt-0.5 text-xs truncate" title={layer.title}>
+                    {layer.title}
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-emerald-400 font-bold block">{layer.status}</span>
+                <div className="text-right shrink-0">
+                  <span className="text-emerald-400 font-bold block text-xs">{layer.status}</span>
                   <span className="text-[10px] text-slate-400 tabular-nums">{layer.latency}</span>
                 </div>
               </button>
@@ -437,14 +439,14 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
       </div>
 
       {/* Row 3: Primary Quantitative Chart Workstation + Connected MT5 Terminals */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="quant-panel p-5 sm:p-6 lg:col-span-8 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-300 font-bold">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-12">
+        <div className="quant-panel p-4 sm:p-6 lg:col-span-8 space-y-4 min-w-0 w-full overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-300 font-bold truncate">
                 QUANTUM CHARTING & ORDERFLOW WORKSTATION
               </div>
-              <h3 className="mt-0.5 text-base font-bold text-white">
+              <h3 className="mt-0.5 text-sm sm:text-base font-bold text-white truncate">
                 {chartMode === 'candles'
                   ? `Biểu Đồ Nến Định Lượng ${symbol} (${timeframe})`
                   : `Đường Cong Tăng Trưởng Equity (${chartDays} Ngày)`}
