@@ -61,8 +61,9 @@ def test_metaapi_account_lifecycle_and_api_endpoints(client):
     assert login.status_code == 200, login.text
 
     # 3. Try to add Cloud MT5 account before disclaimer -> Must fail 403
+    acc_login = str(secrets.randbelow(899999) + 100000)
     acc_payload = {
-        "login": "998877",
+        "login": acc_login,
         "password": "TradersPassword123",
         "server": "Exness-MT5Real1",
         "account_name": "Main Gold Fund",
@@ -93,7 +94,7 @@ def test_metaapi_account_lifecycle_and_api_endpoints(client):
     assert r_list.status_code == 200
     accs = r_list.json()["accounts"]
     assert len(accs) == 1
-    assert accs[0]["login"] == "998877"
+    assert accs[0]["login"] == acc_login
     assert "encrypted_password" not in accs[0]
 
     # 7. Toggle auto-trade
