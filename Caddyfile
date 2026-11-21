@@ -3,14 +3,15 @@
 }
 (shared) {
     encode zstd gzip
-    request_body {
+    @not_ingest_pdf not path /api/admin/skills/ingest-pdf*
+    request_body @not_ingest_pdf {
         max_size 3MB
     }
     header Strict-Transport-Security "max-age=31536000; includeSubDomains"
     reverse_proxy api:8000
 }
 zupirus.com {
-    @admin path /api/admin/* /api/billing/admin/* /api/v1/billing/admin/* /api/v1/telemetry/admin-radar* /api/v1/telemetry/ai-evolution /api/chat/admin-agent*
+    @admin path /api/admin/* /api/billing/admin/* /api/v1/billing/admin/* /api/v1/telemetry/admin-radar* /api/v1/telemetry/ai-evolution /api/chat/admin-agent* /api/v1/stream/admin*
     respond @admin "Use adm.zupirus.com" 403
     import shared
 }
@@ -18,10 +19,14 @@ www.zupirus.com {
     redir https://zupirus.com{uri}
 }
 app.zupirus.com {
-    @admin path /api/admin/* /api/billing/admin/* /api/v1/billing/admin/* /api/v1/telemetry/admin-radar* /api/v1/telemetry/ai-evolution /api/chat/admin-agent*
+    @admin path /api/admin/* /api/billing/admin/* /api/v1/billing/admin/* /api/v1/telemetry/admin-radar* /api/v1/telemetry/ai-evolution /api/chat/admin-agent* /api/v1/stream/admin*
     respond @admin "Use adm.zupirus.com" 403
     import shared
 }
 adm.zupirus.com {
+    @ingest_pdf path /api/admin/skills/ingest-pdf*
+    request_body @ingest_pdf {
+        max_size 36MB
+    }
     import shared
 }

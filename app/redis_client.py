@@ -222,7 +222,16 @@ def get_redis_client():
                 _redis_instance = client
                 return _redis_instance
             except Exception as e:
+                app_env = os.getenv("APP_ENV", "development").strip().lower()
+                if app_env == "production":
+                    logger.critical("Failed to connect to Redis server in production (%s). Fail-closed safety activated.", e)
+                    raise RuntimeError(f"Production Redis connection failed (fail-closed): {e}")
                 logger.warning("Could not connect to Redis (%s). Falling back to resilient in-memory mock.", e)
+
+        app_env = os.getenv("APP_ENV", "development").strip().lower()
+        if app_env == "production":
+            logger.critical("REDIS_URL not configured or Redis unavailable in production. Fail-closed safety activated.")
+            raise RuntimeError("Production Redis connection failed: REDIS_URL not configured or unreachable")
 
         if _redis_instance is None:
             _redis_instance = InMemoryRedisMock()

@@ -114,37 +114,56 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-4 pt-1 font-mono text-xs text-slate-300 tabular-nums">
-                      <span>
-                        Balance: <strong className="text-white">${fmtNum(acc.balance, 2)}</strong>
-                      </span>
-                      <span className="text-slate-600">·</span>
-                      <span>
-                        Equity: <strong className="text-cyan-300">${fmtNum(acc.equity, 2)}</strong>
-                      </span>
-                      <span className="text-slate-600">·</span>
-                      <span>
-                        Hệ số Lot:{' '}
-                        <strong className="text-emerald-300">
-                          x{fmtNum(acc.lot_multiplier || acc.risk_multiplier || 1, 2)}
-                        </strong>
-                      </span>
-                      <span className="text-slate-600">·</span>
-                      <span>
-                        Daily DD:{' '}
-                        <strong className="text-amber-300">
-                          {fmtNum(
-                            acc.daily_dd_pct ??
-                              (Number(acc.balance) > 0 && Number(acc.equity) < Number(acc.balance)
-                                ? ((Number(acc.balance) - Number(acc.equity)) / Number(acc.balance)) * 100
-                                : 0),
-                            2
-                          )}
-                          %
-                        </strong>{' '}
-                        / {fmtNum(acc.prop_daily_dd_limit_pct || acc.max_daily_dd_pct || acc.max_daily_drawdown_pct || 4, 1)}%
-                      </span>
-                    </div>
+                    {(() => {
+                      const isCent =
+                        (acc.account_type || '').toUpperCase() === 'CENT' ||
+                        (acc.currency || '').toUpperCase() === 'USC' ||
+                        (acc.currency || '').toUpperCase() === 'EUC' ||
+                        (acc.broker_server || '').toUpperCase().includes('CENT');
+                      return (
+                        <div className="flex flex-wrap items-center gap-4 pt-1 font-mono text-xs text-slate-300 tabular-nums">
+                          <span>
+                            Balance:{' '}
+                            <strong className="text-white">
+                              {isCent
+                                ? `${fmtNum(acc.balance, 0)} USC (≈ $${fmtNum(acc.balance / 100, 2)})`
+                                : `$${fmtNum(acc.balance, 2)}`}
+                            </strong>
+                          </span>
+                          <span className="text-slate-600">·</span>
+                          <span>
+                            Equity:{' '}
+                            <strong className="text-cyan-300">
+                              {isCent
+                                ? `${fmtNum(acc.equity, 0)} USC (≈ $${fmtNum(acc.equity / 100, 2)})`
+                                : `$${fmtNum(acc.equity, 2)}`}
+                            </strong>
+                          </span>
+                          <span className="text-slate-600">·</span>
+                          <span>
+                            Hệ số Lot:{' '}
+                            <strong className="text-emerald-300">
+                              x{fmtNum(acc.lot_multiplier || acc.risk_multiplier || 1, 2)}
+                            </strong>
+                          </span>
+                          <span className="text-slate-600">·</span>
+                          <span>
+                            Daily DD:{' '}
+                            <strong className="text-amber-300">
+                              {fmtNum(
+                                acc.daily_dd_pct ??
+                                  (Number(acc.balance) > 0 && Number(acc.equity) < Number(acc.balance)
+                                    ? ((Number(acc.balance) - Number(acc.equity)) / Number(acc.balance)) * 100
+                                    : 0),
+                                2
+                              )}
+                              %
+                            </strong>{' '}
+                            / {fmtNum(acc.prop_daily_dd_limit_pct || acc.max_daily_dd_pct || acc.max_daily_drawdown_pct || 4, 1)}%
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 shrink-0">

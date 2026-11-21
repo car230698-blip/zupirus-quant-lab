@@ -3,18 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <script src="/fetch-guard.js"></script>
-    <script>
-      // Auto-recover from stale chunks when a new release is deployed
-      window.addEventListener('vite:preloadError', function () {
-        window.location.reload();
-      });
-      window.addEventListener('error', function (e) {
-        if (e && e.target && e.target.tagName === 'SCRIPT' && !sessionStorage.getItem('__zupirus_reloaded__')) {
-          sessionStorage.setItem('__zupirus_reloaded__', Date.now().toString());
-          window.location.reload();
-        }
-      }, true);
-    </script>
+    <script defer src="/chunk-recovery.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

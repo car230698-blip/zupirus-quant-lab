@@ -5,6 +5,7 @@ import re
 import time
 import json
 import sqlite3
+import threading
 import logging
 from contextlib import contextmanager
 from pathlib import Path
@@ -48,30 +49,36 @@ def _configure_pg_conn(conn):
         pass
 
 
+_pg_pool = None
+_pg_pool_lock = threading.Lock()
+
+
 def get_pg_pool():
-    """Lazily initialize and return the PostgreSQL connection pool."""
+    """Lazily initialize and return the PostgreSQL connection pool with thread-safe double-checked locking."""
     global _pg_pool
     if _pg_pool is None and is_postgres():
-        try:
-            from psycopg_pool import ConnectionPool
-            # Clean connection string for psycopg
-            conn_str = DATABASE_URL
-            if conn_str.startswith("postgres://"):
-                conn_str = "postgresql://" + conn_str[11:]
-            _pg_pool = ConnectionPool(
-                conn_str,
-                min_size=2,
-                max_size=20,
-                timeout=3.0,
-                open=True,
-                configure=_configure_pg_conn,
-                kwargs={"connect_timeout": 3}
-            )
-            logger.info("Connected to PostgreSQL/TimescaleDB connection pool")
-        except Exception as e:
-            logger.error("Failed to initialize PostgreSQL pool (%s). System in fail-closed state.", e)
-            _pg_pool = None
-            raise DatabaseUnavailableError(f"PostgreSQL connection failed: {e}")
+        with _pg_pool_lock:
+            if _pg_pool is None and is_postgres():
+                try:
+                    from psycopg_pool import ConnectionPool
+                    # Clean connection string for psycopg
+                    conn_str = DATABASE_URL
+                    if conn_str.startswith("postgres://"):
+                        conn_str = "postgresql://" + conn_str[11:]
+                    _pg_pool = ConnectionPool(
+                        conn_str,
+                        min_size=2,
+                        max_size=20,
+                        timeout=3.0,
+                        open=True,
+                        configure=_configure_pg_conn,
+                        kwargs={"connect_timeout": 3}
+                    )
+                    logger.info("Connected to PostgreSQL/TimescaleDB connection pool")
+                except Exception as e:
+                    logger.error("Failed to initialize PostgreSQL pool (%s). System in fail-closed state.", e)
+                    _pg_pool = None
+                    raise DatabaseUnavailableError(f"PostgreSQL connection failed: {e}")
     return _pg_pool
 
 

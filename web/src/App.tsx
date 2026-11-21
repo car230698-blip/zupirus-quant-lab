@@ -179,12 +179,6 @@ const AppContent: React.FC = () => {
       loadDashboard();
       if (portal === 'user' && userTab === 'overview') loadCandles(timeframe);
       if (portal === 'admin' && currentUser.role === 'admin') loadAdminMonitor();
-      const timer = setInterval(() => {
-        loadDashboard();
-        if (portal === 'user' && userTab === 'overview') loadCandles(timeframe);
-        if (portal === 'admin' && currentUser.role === 'admin') loadAdminMonitor();
-      }, 5000);
-      return () => clearInterval(timer);
     }
   }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe, portal, userTab]);
 

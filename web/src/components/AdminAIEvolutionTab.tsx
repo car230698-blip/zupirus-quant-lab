@@ -41,7 +41,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfTitle, setPdfTitle] = useState('');
-  const [pdfCategory, setPdfCategory] = useState('AUTO');
+  const [pdfCategory] = useState('AUTO');
   const [isIngesting, setIsIngesting] = useState(false);
   const [ingestStep, setIngestStep] = useState(0);
   const [lastIngestedResult, setLastIngestedResult] = useState<any>(null);
@@ -887,9 +887,6 @@ export const AdminAIEvolutionTab: React.FC = () => {
                 <tbody className="divide-y divide-white/5">
                   {geminiPool.map((k: any) => {
                     const pingInfo = keyPingResults[k.id];
-                    const isOk = pingInfo?.ok || k.status === 'active';
-                    const isRateLimited = pingInfo?.status === 'rate_limited' || k.status === 'rate_limited';
-                    const isInvalid = pingInfo?.status === 'invalid' || k.status === 'invalid';
 
                     return (
                       <tr key={k.id} className="hover:bg-white/[0.02] transition">

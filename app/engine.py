@@ -129,8 +129,10 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                         "version": STRATEGY_VERSION,
                         "reason": f"AUTO_ROLLBACK_TRIGGERED: Chiến lược [{cand_name}] tạm ngắt sau {losses_in_a_row} tín hiệu AI thua liên tiếp.",
                     }
+            else:
+                logger.warning("auto_rollback_check_skipped: active_cur is None")
         except Exception:
-            pass
+            logger.exception("auto_rollback_check_failed")
 
         # Evaluate active self-learned skills from Agent Skill Registry (advisory / session-specific filter)
         blocked_sides = set()

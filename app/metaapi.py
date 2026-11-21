@@ -478,31 +478,24 @@ def calculate_lot_size(
     max_lot: float = 1.0,
     multiplier: float = 1.0
 ) -> float:
+    """Legacy wrapper for risk-adjusted lot sizing.
+    Delegates to calculate_normalized_lot_size for full asset and contract-size awareness.
     """
-    Dynamic Risk-Adjusted Lot Sizing for XAUUSD.
-    Formula:
-    Risk Amount ($) = Equity * (risk_percent / 100)
-    For XAUUSD: 1 Lot = 100 oz.
-    1 point = 0.01 USD / oz. 100 points = $1.00 per oz.
-    0.01 Lot on 100 points move = $1.00 risk.
-    Lot = (Risk Amount / (SL_points * 0.01 * 100)) = Risk Amount / SL_points
-    """
-    if equity <= 0 or sl_points <= 0:
-        return 0.0
-
-    risk_pct = max(0.1, min(risk_percent, 10.0))
-    risk_dollars = equity * (risk_pct / 100.0)
-
-    # Minimum SL points for gold sanity check (e.g. 200 points = $2.00)
-    effective_sl = max(sl_points, 150.0)
-
-    # 1 standard lot (1.0) risking 100 points = $100.00
-    # => 1 lot loses $1 per point.
-    calculated_lot = (risk_dollars / effective_sl) * multiplier
-
-    # Clamp lot size between 0.01 and max_lot
-    lot = max(0.01, min(calculated_lot, max_lot))
-    return round(lot, 2)
+    import warnings
+    warnings.warn(
+        "calculate_lot_size is deprecated, use calculate_normalized_lot_size from app.services.account_classifier instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    from app.services.account_classifier import calculate_normalized_lot_size
+    return calculate_normalized_lot_size(
+        equity=equity,
+        risk_pct=risk_percent,
+        sl_distance_points=sl_points,
+        risk_multiplier=multiplier,
+        max_lot=max_lot,
+        symbol=symbol,
+    )
 
 
 from app.services.execution.fanout import execute_fan_out_for_signal  # noqa: E402,F401

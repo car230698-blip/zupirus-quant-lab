@@ -74,8 +74,8 @@ export function useCloudAccounts(userKey?: string | null) {
       if (!res.ok) throw new Error('Không thể tải danh sách tài khoản MT5');
       return res.json();
     },
-    staleTime: 3000,
-    refetchInterval: 5000,
+    staleTime: 10_000,
+    refetchInterval: () => (typeof document !== 'undefined' && document.visibilityState === 'visible' ? 15000 : false),
   });
 }
 
