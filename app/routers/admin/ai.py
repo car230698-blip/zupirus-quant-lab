@@ -29,6 +29,7 @@ logger = logging.getLogger("zupirus.admin_ai")
 router = APIRouter(prefix="/api/admin/ai", tags=["Admin AI Agent Configuration"])
 
 AVAILABLE_MODELS = [
+    {"id": "gemini-4-hydrogen", "name": "Google Gemini 4 Hydrogen (Thế hệ mới 2026)", "provider": "gemini", "desc": "Model thế hệ 4 mới nhất của Google, tự động failover sang Gemini 3 Flash khi quá tải"},
     {"id": "gemini-3-flash-preview", "name": "Google Gemini 3 Flash Preview (Khuyên dùng)", "provider": "gemini", "desc": "Tốc độ cao, ổn định nhất cho Pool Gemini hiện tại"},
     {"id": "gemini-3.1-flash-lite", "name": "Google Gemini 3.1 Flash Lite (Siêu nhanh)", "provider": "gemini", "desc": "Độ trễ cực thấp, phù hợp phân tích M15 thời gian thực"},
     {"id": "gemini-flash-latest", "name": "Google Gemini Flash Latest", "provider": "gemini", "desc": "Tự động trỏ tới phiên bản Gemini Flash mới nhất của Google"},
@@ -44,7 +45,7 @@ class AISettingsUpdate(BaseModel):
     api_key: Optional[str] = Field(default=None, description="OpenAI/OpenRouter API Key")
     base_url: Optional[str] = Field(default="https://api.openai.com/v1")
     model: str = Field(default="gpt-4o-mini")
-    gemini_model: Optional[str] = Field(default="gemini-2.0-flash")
+    gemini_model: Optional[str] = Field(default="gemini-4-hydrogen")
 
 
 class TestAIRequest(BaseModel):

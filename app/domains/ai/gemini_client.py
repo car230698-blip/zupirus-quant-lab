@@ -105,7 +105,10 @@ def update_key_usage(c, key_id: str, success: bool, error_msg: Optional[str] = N
         logger.debug(f"Update key usage note: {e}")
 
 
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-4-hydrogen").strip()
+
 GEMINI_FALLBACK_MODELS = [
+    "gemini-4-hydrogen",
     "gemini-3-flash-preview",
     "gemini-3.1-flash-lite",
     "gemini-flash-latest",
@@ -140,9 +143,9 @@ def call_gemini(
     if not keys:
         keys = [{"id": f"k_{i}", "key_cipher": k} for i, k in enumerate(DEFAULT_GEMINI_KEYS)]
 
-    req_model = (model or "gemini-3-flash-preview").strip()
-    if req_model in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"):
-        req_model = "gemini-3-flash-preview"
+    req_model = (model or DEFAULT_GEMINI_MODEL).strip()
+    if req_model in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"):
+        req_model = DEFAULT_GEMINI_MODEL
 
     model_candidates = [req_model] + [m for m in GEMINI_FALLBACK_MODELS if m != req_model]
 
@@ -222,28 +225,41 @@ def ping_single_key(raw_cipher: str, timeout: float = 6.0) -> Dict[str, Any]:
     if not api_key:
         return {"ok": False, "status": "invalid", "message": "Không thể giải mã key", "latency_ms": 0}
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": "Hi"}]}],
         "generationConfig": {"maxOutputTokens": 5}
     }
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-    t0 = time.perf_counter()
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp.read()
+    headers = {"Content-Type": "application/json"}
+
+    # Probe models: priority gemini-4-hydrogen, fallback to gemini-3-flash-preview
+    probe_models = ["gemini-4-hydrogen", "gemini-3-flash-preview"]
+    last_err_msg = ""
+    for target_model in probe_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={api_key}"
+        req = urllib.request.Request(url, data=body, headers=headers)
+        t0 = time.perf_counter()
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                resp.read()
+                latency = round((time.perf_counter() - t0) * 1000, 1)
+                note = f"Hoạt động tốt ({target_model})"
+                return {"ok": True, "status": "active", "message": note, "latency_ms": latency}
+        except urllib.error.HTTPError as he:
             latency = round((time.perf_counter() - t0) * 1000, 1)
-            return {"ok": True, "status": "active", "message": "Hoạt động tốt", "latency_ms": latency}
-    except urllib.error.HTTPError as he:
-        latency = round((time.perf_counter() - t0) * 1000, 1)
-        if he.code == 429:
-            return {"ok": False, "status": "rate_limited", "message": "Đạt giới hạn Quota (429)", "latency_ms": latency}
-        elif he.code in (400, 403):
-            return {"ok": False, "status": "invalid", "message": f"Key không hợp lệ hoặc bị khóa ({he.code})", "latency_ms": latency}
-        return {"ok": False, "status": "error", "message": f"HTTP {he.code}: {he.reason}", "latency_ms": latency}
-    except Exception as e:
-        latency = round((time.perf_counter() - t0) * 1000, 1)
-        return {"ok": False, "status": "error", "message": str(e), "latency_ms": latency}
+            if he.code == 429:
+                return {"ok": False, "status": "rate_limited", "message": "Đạt giới hạn Quota (429)", "latency_ms": latency}
+            elif he.code in (400, 403):
+                return {"ok": False, "status": "invalid", "message": f"Key không hợp lệ hoặc bị khóa ({he.code})", "latency_ms": latency}
+            elif he.code == 503:
+                last_err_msg = f"{target_model} quá tải (503)"
+                continue  # Try next fallback model
+            last_err_msg = f"HTTP {he.code}: {he.reason}"
+        except Exception as e:
+            latency = round((time.perf_counter() - t0) * 1000, 1)
+            last_err_msg = str(e)
+            continue
+
+    return {"ok": False, "status": "error", "message": last_err_msg or "Lỗi kết nối", "latency_ms": 0}
 
 
