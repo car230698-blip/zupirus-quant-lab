@@ -70,6 +70,21 @@ ORIGINS = os.getenv(
 
 @app.middleware('http')
 async def perimeter(request: Request, call_next):
+    # Defense-in-depth: enforce domain isolation even when behind external reverse proxies (NPM/ALB/Caddy)
+    host = (request.headers.get('host') or '').split(':')[0].lower()
+    if host in ('app.zupirus.com', 'zupirus.com', 'www.zupirus.com'):
+        admin_blocked_prefixes = (
+            '/api/admin',
+            '/api/billing/admin',
+            '/api/v1/billing/admin',
+            '/api/v1/telemetry/admin-radar',
+            '/api/v1/telemetry/ai-evolution',
+            '/api/chat/admin-agent',
+            '/api/v1/stream/admin',
+        )
+        if any(request.url.path.startswith(p) for p in admin_blocked_prefixes):
+            return JSONResponse({'detail': 'Use adm.zupirus.com'}, 403)
+
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
         max_body_size = 35_000_000 if request.url.path == '/api/admin/skills/ingest-pdf' else 3_000_000
         raw_len = request.headers.get('content-length')

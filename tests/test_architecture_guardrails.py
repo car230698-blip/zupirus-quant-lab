@@ -142,3 +142,19 @@ def test_guardrail_admin_ui_uses_central_api_client():
 
     assert not fetch_violations, f"Found raw fetch() calls in Admin components: {fetch_violations}"
 
+
+def test_guardrail_defense_in_depth_domain_isolation():
+    """Verify perimeter middleware blocks admin endpoints on client app domains with 403."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    resp = client.get("/api/admin/monitor", headers={"host": "app.zupirus.com"})
+    assert resp.status_code == 403
+    assert "adm.zupirus.com" in resp.text
+
+    resp_stream = client.get("/api/v1/stream/admin", headers={"host": "app.zupirus.com"})
+    assert resp_stream.status_code == 403
+    assert "adm.zupirus.com" in resp_stream.text
+
+
