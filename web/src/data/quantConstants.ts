@@ -40,3 +40,75 @@ export const SHIELD_LAYERS = [
     detail: 'Ngắt kết nối bảo toàn vốn tự động khi mức sụt giảm ngày chạm ngưỡng cài đặt của quỹ Prop.',
   },
 ];
+
+export type PlanTier = 'starter' | 'growth' | 'alpha';
+
+export interface PlanConfig {
+  id: PlanTier;
+  code: string;
+  name: string;
+  baseUsd: number;
+  slots: number;
+  badge: string;
+  popular?: boolean;
+  features: string[];
+}
+
+export const QUANT_PLANS: Record<PlanTier, PlanConfig> = {
+  starter: {
+    id: 'starter',
+    code: 'GÓI 01 // TRẢI NGHIỆM & CENT',
+    name: 'Khởi Đầu / Cent',
+    baseUsd: 25,
+    slots: 1,
+    badge: 'Trọn Gói 1 TK Cloud',
+    features: [
+      'Đã bao gồm sẵn 01 Tài khoản Cloud MT5 London G2 (tiết kiệm $10 VPS)',
+      'Tự động nhận diện Cent / Standard và chia Lot an toàn theo số dư',
+      'Kích hoạt 3 Lớp Giáp: Tự gắn SL theo ATR, Chặn tin đỏ ±15 phút',
+      'Tự động cắt lỗ bảo vệ ngày (Max Daily DD 5.0%)',
+    ],
+  },
+  growth: {
+    id: 'growth',
+    code: 'GÓI 02 // TĂNG TRƯỞNG VỐN (GROWTH)',
+    name: 'Growth & Lãi Kép',
+    baseUsd: 39,
+    slots: 3,
+    badge: 'Tối đa 3 TK Cloud',
+    popular: true,
+    features: [
+      'Đã bao gồm sẵn 01 Tài khoản Cloud (mở rộng tối đa 3 TK, thêm chỉ +$10/TK)',
+      'Tự động Dời Hòa Vốn (+1R) & Chốt lời 50% TP1 khóa lợi nhuận',
+      'Tự động Lãi Kép (Auto-Compounding) tăng Lot theo tăng trưởng vốn',
+      'Tín hiệu chọn lọc qua AI lọc nhiễu + Cắt lỗ ngày tự động 5.0%',
+    ],
+  },
+  alpha: {
+    id: 'alpha',
+    code: 'GÓI 03 // QUỸ PROP FIRM (ALPHA)',
+    name: 'Alpha Prop Firm',
+    baseUsd: 59,
+    slots: 5,
+    badge: 'Tối đa 5 TK Cloud',
+    features: [
+      'Đã bao gồm sẵn 01 Tài khoản Cloud (mở rộng tối đa 5 TK, thêm chỉ +$10/TK)',
+      'Ngắt mạch cứng Daily Drawdown 4.0% (an toàn dưới luật 5% FTMO/FundedNext)',
+      'Tự động đóng toàn bộ lệnh trước cuối tuần (Thứ 6 lúc 21:00 UTC)',
+      'Mở khóa AI Swarm tự chủ & Kiểm toán chuyên sâu MAE / MFE',
+    ],
+  },
+};
+
+export const PRICING_TIERS_LIST: PlanConfig[] = [
+  QUANT_PLANS.starter,
+  QUANT_PLANS.growth,
+  QUANT_PLANS.alpha,
+];
+
+export function normalizePlanTier(rawTier: string | null | undefined): PlanTier {
+  const t = String(rawTier || 'starter').trim().toLowerCase();
+  if (t === 'pro' || t === 'growth') return 'growth';
+  if (t === 'institutional' || t === 'alpha') return 'alpha';
+  return 'starter';
+}

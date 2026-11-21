@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import type { PortalType } from '../App.tsx';
 import { useLiveTopbarTelemetry, useRealtimePortalStream } from '../hooks/useQuantData.ts';
+import { apiPost } from '../api/client.ts';
 import {
   IconBolt,
   IconBrain,
@@ -608,22 +609,12 @@ export function PortalShell({
                 setPwdBusy(true);
                 setPwdMsg(null);
                 try {
-                  const res = await fetch('/api/auth/change-password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                    credentials: 'include',
-                    body: JSON.stringify({ current_password: curPwd, new_password: newPwd }),
-                  });
-                  const d = await res.json().catch(() => ({}));
-                  if (res.ok) {
-                    setPwdMsg('✓ Đã đổi mật khẩu thành công.');
-                    setCurPwd('');
-                    setNewPwd('');
-                  } else {
-                    setPwdMsg(`Lỗi: ${d.detail || res.status}`);
-                  }
+                  await apiPost('/api/auth/change-password', { current_password: curPwd, new_password: newPwd });
+                  setPwdMsg('✓ Đã đổi mật khẩu thành công.');
+                  setCurPwd('');
+                  setNewPwd('');
                 } catch (err: any) {
-                  setPwdMsg(`Lỗi mạng: ${err.message}`);
+                  setPwdMsg(`Lỗi: ${err.message || String(err)}`);
                 } finally {
                   setPwdBusy(false);
                 }

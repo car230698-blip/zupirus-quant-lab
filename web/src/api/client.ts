@@ -13,10 +13,24 @@ export class ApiError extends Error {
   data: any;
 
   constructor(message: string, status: number, data?: any) {
-    super(message);
+    let normalizedMsg = message;
+    if (status === 401 && (!message || message.includes('HTTP 401'))) {
+      normalizedMsg = 'Phiên làm việc hết hạn hoặc chưa đăng nhập. Vui lòng đăng nhập lại.';
+    } else if (status === 403 && (!message || message.includes('HTTP 403'))) {
+      normalizedMsg = 'Bạn không có quyền truy cập tính năng quản trị này.';
+    }
+    super(normalizedMsg);
     this.name = 'ApiError';
     this.status = status;
     this.data = data;
+  }
+
+  get isUnauthorized(): boolean {
+    return this.status === 401;
+  }
+
+  get isForbidden(): boolean {
+    return this.status === 403;
   }
 }
 
@@ -107,3 +121,9 @@ export const api = {
   delete: <T = any>(url: string, options?: ApiRequestOptions) =>
     apiRequest<T>(url, { ...options, method: 'DELETE' }),
 };
+
+export const apiGet = api.get;
+export const apiPost = api.post;
+export const apiPut = api.put;
+export const apiPatch = api.patch;
+export const apiDelete = api.delete;

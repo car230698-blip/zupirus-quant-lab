@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiGet, apiPost } from '../api/client.ts';
 
 interface ReferralInfo {
   referral_code: string;
@@ -29,13 +30,11 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    fetch('/api/v1/referral/me', { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
+    apiGet<ReferralInfo>('/api/v1/referral/me')
       .then((d) => d && setRefInfo(d))
       .catch(() => {});
 
-    fetch('/api/v1/billing/my-orders', { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
+    apiGet<{ orders: BillingOrderItem[] }>('/api/v1/billing/my-orders')
       .then((d) => d?.orders && setOrders(d.orders))
       .catch(() => {});
   }, []);
@@ -45,23 +44,13 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
     if (!applyCode.trim()) return;
     setRefMsg(null);
     try {
-      const res = await fetch('/api/v1/referral/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: JSON.stringify({ code: applyCode.trim() }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setRefMsg(`Lỗi: ${d.detail || res.status}`);
-        return;
-      }
-      setRefMsg(d.message || 'Áp dụng mã giới thiệu thành công!');
+      const d = await apiPost<{ message?: string }>('/api/v1/referral/apply', { code: applyCode.trim() });
+      setRefMsg(d?.message || 'Áp dụng mã giới thiệu thành công!');
       setApplyCode('');
-      const refreshed = await fetch('/api/v1/referral/me', { credentials: 'include' }).then((r) => r.json()).catch(() => null);
+      const refreshed = await apiGet<ReferralInfo>('/api/v1/referral/me').catch(() => null);
       if (refreshed) setRefInfo(refreshed);
     } catch (err: any) {
-      setRefMsg(`Lỗi mạng: ${err.message}`);
+      setRefMsg(`Lỗi: ${err.message || String(err)}`);
     }
   };
 

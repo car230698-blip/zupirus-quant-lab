@@ -10,6 +10,7 @@ import { AdminCommandRadarTab } from './components/AdminCommandRadarTab.tsx';
 import { AdminAIEvolutionTab } from './components/AdminAIEvolutionTab.tsx';
 import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTab.tsx';
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
+import { normalizeCentToUsd } from './utils/currencyFormat.ts';
 
 const LandingPage = lazy(() =>
   import('./components/LandingPage.tsx').then((m) => ({ default: m.LandingPage }))
@@ -276,14 +277,8 @@ const AppContent: React.FC = () => {
 
   // Calculations for User Dashboard (normalize Cent USC/EUC accounts by /100 when summing USD totals)
   const accounts = dashboard.accounts || [];
-  const toUsdVal = (val: number, a: any) => {
-    const isCent =
-      String(a?.account_type || '').toUpperCase() === 'CENT' ||
-      ['USC', 'EUC'].includes(String(a?.currency || '').toUpperCase());
-    return isCent ? val / 100.0 : val;
-  };
-  const totalBalance = accounts.reduce((acc: number, a: any) => acc + toUsdVal(Number(a.balance || 0), a), 0);
-  const totalEquity = accounts.reduce((acc: number, a: any) => acc + toUsdVal(Number(a.equity || 0), a), 0);
+  const totalBalance = accounts.reduce((acc: number, a: any) => acc + normalizeCentToUsd(Number(a.balance || 0), a), 0);
+  const totalEquity = accounts.reduce((acc: number, a: any) => acc + normalizeCentToUsd(Number(a.equity || 0), a), 0);
   const totalPositions = accounts.reduce((acc: number, a: any) => acc + (a.positions || 0), 0);
   const totalPnl = totalEquity - totalBalance;
 

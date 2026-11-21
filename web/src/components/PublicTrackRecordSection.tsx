@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { apiGet } from '../api/client.ts';
 
 interface TrackRecordPayload {
   verified: boolean;
@@ -32,8 +33,7 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
 
   useEffect(() => {
     let active = true;
-    fetch('/api/v1/public/track-record')
-      .then((r) => (r.ok ? r.json() : null))
+    apiGet<TrackRecordPayload>('/api/v1/public/track-record')
       .then((d) => {
         if (active && d?.summary) setData(d);
       })

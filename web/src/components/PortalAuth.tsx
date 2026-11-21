@@ -2,6 +2,7 @@ import { useState, useEffect, type FormEvent } from 'react';
 import type { PortalType } from '../App.tsx';
 import { Brand, type Portal } from './PortalChrome.tsx';
 import authTerminalImg from '../assets/images/auth_terminal_sculpture_1794792847915.jpg';
+import { apiPost } from '../api/client.ts';
 
 export function PortalAuth({
   portal,
@@ -51,18 +52,13 @@ export function PortalAuth({
     setOtpNotice(null);
     try {
       const endpoint = forgotMode ? '/api/auth/forgot-password' : '/api/auth/send-otp';
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ email: emailInput }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.ok) {
+      const data = await apiPost<any>(endpoint, { email: emailInput });
+      if (data?.ok) {
         setOtpSent(true);
         setOtpCountdown(60);
         setOtpNotice('✓ Mã xác thực OTP 6 chữ số đã được gửi tới hộp thư email của bạn.');
       } else {
-        setOtpNotice(data.detail || data.message || 'Không thể gửi mã OTP. Vui lòng thử lại.');
+        setOtpNotice(data?.detail || data?.message || 'Không thể gửi mã OTP. Vui lòng thử lại.');
       }
     } catch (err: any) {
       setOtpNotice(`Lỗi kết nối: ${err.message || String(err)}`);
@@ -85,22 +81,13 @@ export function PortalAuth({
       setResetBusy(true);
       setOtpNotice(null);
       try {
-        const res = await fetch('/api/auth/reset-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-          body: JSON.stringify({ email, otp_code: resetOtp, new_password: password }),
-        });
-        const d = await res.json().catch(() => ({}));
-        if (res.ok) {
-          setForgotMode(false);
-          setResetOtp('');
-          setPasswordInput('');
-          setOtpSent(false);
-          setOtpCountdown(0);
-          setOtpNotice('✓ Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.');
-        } else {
-          setOtpNotice(d.detail || d.message || 'Không thể đặt lại mật khẩu.');
-        }
+        await apiPost('/api/auth/reset-password', { email, otp_code: resetOtp, new_password: password });
+        setForgotMode(false);
+        setResetOtp('');
+        setPasswordInput('');
+        setOtpSent(false);
+        setOtpCountdown(0);
+        setOtpNotice('✓ Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.');
       } catch (err: any) {
         setOtpNotice(`Lỗi kết nối: ${err.message || String(err)}`);
       } finally {

@@ -4,6 +4,7 @@ import { CandlestickTelemetryChart } from './CandlestickTelemetryChart';
 import { PropCertificateModal } from './PropCertificateModal';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
+import { apiGet } from '../api/client.ts';
 
 export interface UserOverviewTabProps {
   totalBalance?: number;
@@ -74,8 +75,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const [subInfo, setSubInfo] = useState<any>(null);
 
   React.useEffect(() => {
-    fetch('/api/v1/billing/subscription', { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
+    apiGet('/api/v1/billing/subscription')
       .then((d) => {
         if (d) setSubInfo(d);
       })

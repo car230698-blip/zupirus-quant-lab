@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useCloudAccounts } from '../hooks/useQuantData';
 import { fmtNum } from '../utils/strategyDecision';
-import { formatApiError } from '../utils/formatError.ts';
 import { AccountModals } from './AccountModals';
 import { ConnectedAccountsListSection } from './ConnectedAccountsListSection';
 import { UserReferralAndInvoicesSection } from './UserReferralAndInvoicesSection';
 import { IconShield } from './Icons';
-import { POPULAR_BROKERS } from '../data/quantConstants';
+import { POPULAR_BROKERS, normalizePlanTier } from '../data/quantConstants';
+import { apiGet, apiPost, apiPatch, apiDelete } from '../api/client.ts';
 
 export interface UserAccountsTabProps {
   accounts?: any[];
@@ -82,9 +82,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const fetchFxRate = async () => {
     setFxLoading(true);
     try {
-      const res = await fetch('/api/v1/billing/exchange-rate', { credentials: 'include' });
-      if (res.ok) {
-        const d = await res.json();
+      const d = await apiGet<any>('/api/v1/billing/exchange-rate');
+      if (d) {
         setFxRateData({
           usd_vnd_rate: Number(d.usd_vnd_rate || d.rate || 25500),
           source: d.source || 'LIVE',
@@ -100,11 +99,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const refreshFxRate = async () => {
     setFxLoading(true);
     try {
-      const res = await fetch('/api/v1/billing/exchange-rate', {
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const d = await res.json();
+      const d = await apiGet<any>('/api/v1/billing/exchange-rate');
+      if (d) {
         setFxRateData({
           usd_vnd_rate: Number(d.usd_vnd_rate || d.rate || 25500),
           source: d.source || 'LIVE',
@@ -119,9 +115,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 
   const fetchCloudSub = async () => {
     try {
-      const res = await fetch('/api/v1/billing/subscription', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await apiGet<any>('/api/v1/billing/subscription');
+      if (data) {
         setCloudSub(data);
         if (data?.plan_tier) {
           const upper = String(data.plan_tier).trim().toUpperCase();
@@ -152,9 +147,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     setPollingPaid(true);
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/v1/billing/orders/${checkoutOrder.id}`, { credentials: 'include' });
-        if (res.ok) {
-          const data = await res.json();
+        const data = await apiGet<any>(`/api/v1/billing/orders/${checkoutOrder.id}`);
+        if (data) {
           setCheckoutOrder(data);
           if (data.status === 'PAID') {
             setPollingPaid(false);
@@ -177,26 +171,19 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     setCloudBusy(true);
     setCloudMsg('');
     try {
-      const rawTier = String(subTier || 'starter').toLowerCase();
-      const normalizedTier = rawTier === 'pro' ? 'growth' : rawTier === 'institutional' ? 'alpha' : rawTier;
-      const res = await fetch('/api/v1/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: JSON.stringify({
-          plan_tier: normalizedTier,
-          billing_cycle: subBillingCycle,
-          cloud_slots: effectiveSlots,
-          cloud_accounts_count: effectiveSlots,
-        }),
+      const normalizedTier = normalizePlanTier(subTier);
+      const data = await apiPost<any>('/api/v1/billing/checkout', {
+        plan_tier: normalizedTier,
+        billing_cycle: subBillingCycle,
+        cloud_slots: effectiveSlots,
+        cloud_accounts_count: effectiveSlots,
       });
-      const data = await res.json().catch(() => ({}));
-      const orderData = data.order || (data.id ? data : null);
-      if (res.ok && orderData) {
+      const orderData = data?.order || (data?.id ? data : null);
+      if (orderData) {
         setCheckoutOrder(orderData);
         setCheckoutModalOpen(true);
       } else {
-        setCloudMsg(`Lỗi khởi tạo đơn thanh toán: ${formatApiError(data, res.status)}`);
+        setCloudMsg(`Lỗi khởi tạo đơn thanh toán: Không nhận được dữ liệu đơn hàng.`);
       }
     } catch (e: any) {
       setCloudMsg(`Lỗi kết nối: ${e.message}`);
@@ -228,49 +215,39 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       const mult = Number(cloudForm.lot_multiplier) || 1.0;
       const dd = Number(cloudForm.max_daily_dd_pct) || 4.0;
-      const res = await fetch('/api/v1/accounts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: JSON.stringify({
-          login: cloudForm.mt5_login,
-          mt5_login: cloudForm.mt5_login,
-          password: cloudForm.mt5_password,
-          mt5_password: cloudForm.mt5_password,
-          server: cloudForm.mt5_server,
-          mt5_server: cloudForm.mt5_server,
-          account_id: cloudForm.mt5_login,
-          account_name: cloudForm.account_name || `Cloud MT5 #${cloudForm.mt5_login}`,
-          connection_type: 'CLOUD_METAAPI',
-          risk_multiplier: mult,
-          lot_multiplier: mult,
-          is_prop_firm_mode: cloudForm.is_prop_firm_mode,
-          prop_stage: cloudForm.is_prop_firm_mode ? cloudForm.prop_stage : 'CHALLENGE',
-          prop_daily_dd_limit_pct: dd,
-          max_daily_dd_pct: dd,
-          disclaimer_accepted: true,
-        }),
+      await apiPost('/api/v1/accounts', {
+        login: cloudForm.mt5_login,
+        mt5_login: cloudForm.mt5_login,
+        password: cloudForm.mt5_password,
+        mt5_password: cloudForm.mt5_password,
+        server: cloudForm.mt5_server,
+        mt5_server: cloudForm.mt5_server,
+        account_id: cloudForm.mt5_login,
+        account_name: cloudForm.account_name || `Cloud MT5 #${cloudForm.mt5_login}`,
+        connection_type: 'CLOUD_METAAPI',
+        risk_multiplier: mult,
+        lot_multiplier: mult,
+        is_prop_firm_mode: cloudForm.is_prop_firm_mode,
+        prop_stage: cloudForm.is_prop_firm_mode ? cloudForm.prop_stage : 'CHALLENGE',
+        prop_daily_dd_limit_pct: dd,
+        max_daily_dd_pct: dd,
+        disclaimer_accepted: true,
       });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setCloudMsg('Đã kết nối và đồng bộ tài khoản Cloud MT5 thành công!');
-        setCloudForm({
-          account_name: '',
-          mt5_login: '',
-          mt5_password: '',
-          mt5_server: '',
-          lot_multiplier: '1.0',
-          max_daily_dd_pct: '4.0',
-          is_prop_firm_mode: false,
-          prop_stage: 'CHALLENGE',
-        });
-        refetchAccounts();
-        fetchCloudSub();
-      } else {
-        setCloudMsg(`Lỗi: ${formatApiError(data, res.status)}`);
-      }
+      setCloudMsg('Đã kết nối và đồng bộ tài khoản Cloud MT5 thành công!');
+      setCloudForm({
+        account_name: '',
+        mt5_login: '',
+        mt5_password: '',
+        mt5_server: '',
+        lot_multiplier: '1.0',
+        max_daily_dd_pct: '4.0',
+        is_prop_firm_mode: false,
+        prop_stage: 'CHALLENGE',
+      });
+      refetchAccounts();
+      fetchCloudSub();
     } catch (e: any) {
-      setCloudMsg(`Lỗi mạng: ${e.message}`);
+      setCloudMsg(`Lỗi: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -279,18 +256,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const handleSyncAccount = async (accountId: string) => {
     setCloudBusy(true);
     try {
-      const res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/sync`, {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      const d = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setCloudMsg(`Đã đồng bộ số dư mới nhất từ sàn cho tài khoản #${accountId}.`);
-        refetchAccounts();
-      } else {
-        setCloudMsg(`Lỗi đồng bộ số dư: ${formatApiError(d, res.status)}`);
-      }
+      await apiPost(`/api/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
+      setCloudMsg(`Đã đồng bộ số dư mới nhất từ sàn cho tài khoản #${accountId}.`);
+      refetchAccounts();
     } catch (e: any) {
       setCloudMsg(`Lỗi kết nối đồng bộ: ${e.message}`);
     } finally {
@@ -301,22 +269,13 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const handleCloudDeployToggle = async (accountId: string, action: 'deploy' | 'undeploy') => {
     setCloudBusy(true);
     try {
-      const res = await fetch(`/api/v1/accounts/cloud/${encodeURIComponent(accountId)}/${action}`, {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      if (res.ok) {
-        setCloudMsg(
-          action === 'deploy'
-            ? `Đã kích hoạt trạm Cloud cho tài khoản #${accountId}`
-            : `Đã tạm ngưng trạm Cloud cho tài khoản #${accountId}`
-        );
-        refetchAccounts();
-      } else {
-        const d = await res.json().catch(() => ({}));
-        setCloudMsg(`Lỗi thao tác Cloud (${action}): ${formatApiError(d, res.status)}`);
-      }
+      await apiPost(`/api/v1/accounts/cloud/${encodeURIComponent(accountId)}/${action}`, {});
+      setCloudMsg(
+        action === 'deploy'
+          ? `Đã kích hoạt trạm Cloud cho tài khoản #${accountId}`
+          : `Đã tạm ngưng trạm Cloud cho tài khoản #${accountId}`
+      );
+      refetchAccounts();
     } catch (e: any) {
       setCloudMsg(`Lỗi kết nối Cloud: ${e.message}`);
     } finally {
@@ -328,17 +287,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     if (cloudBusy) return;
     setCloudBusy(true);
     try {
-      const res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}/toggle`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: JSON.stringify({ is_active: !currentActive }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        setCloudMsg(`Lỗi bật/tắt tự động giao dịch: ${formatApiError(d, res.status)}`);
-        return;
-      }
+      await apiPost(`/api/v1/accounts/${encodeURIComponent(accountId)}/toggle`, { is_active: !currentActive });
       refetchAccounts();
     } catch (e: any) {
       setCloudMsg(`Lỗi kết nối: ${e.message}`);
@@ -350,21 +299,12 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const handleDeleteAccount = async (accountId: string) => {
     setCloudBusy(true);
     try {
-      const res = await fetch(`/api/v1/accounts/${encodeURIComponent(accountId)}`, {
-        method: 'DELETE',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      if (res.ok) {
-        setCloudMsg(`Đã xoá tài khoản #${accountId} thành công.`);
-        refetchAccounts();
-        fetchCloudSub();
-      } else {
-        const d = await res.json().catch(() => ({}));
-        setCloudMsg(`Lỗi xoá tài khoản: ${formatApiError(d, res.status)}`);
-      }
+      await apiDelete(`/api/v1/accounts/${encodeURIComponent(accountId)}`);
+      setCloudMsg(`Đã xoá tài khoản #${accountId} thành công.`);
+      refetchAccounts();
+      fetchCloudSub();
     } catch (e: any) {
-      setCloudMsg(`Lỗi kết nối: ${e.message}`);
+      setCloudMsg(`Lỗi xoá tài khoản: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -394,30 +334,20 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       const mult = Number(editConfigForm.lot_multiplier) || 1.0;
       const dd = Number(editConfigForm.max_daily_dd_pct) || 4.0;
-      const res = await fetch(`/api/v1/accounts/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: JSON.stringify({
-          risk_multiplier: mult,
-          lot_multiplier: mult,
-          prop_daily_dd_limit_pct: dd,
-          max_daily_dd_pct: dd,
-          max_lot: Number(editConfigForm.max_lot) || 5.0,
-          daily_profit_target_usd: Number(editConfigForm.daily_profit_target_usd) || 0,
-          symbol_mapping_custom: editConfigForm.symbol_mapping_custom.trim(),
-          is_prop_firm_mode: editConfigForm.is_prop_firm_mode,
-          prop_stage: editConfigForm.is_prop_firm_mode ? editConfigForm.prop_stage : 'CHALLENGE',
-        }),
+      await apiPatch(`/api/v1/accounts/${encodeURIComponent(id)}`, {
+        risk_multiplier: mult,
+        lot_multiplier: mult,
+        prop_daily_dd_limit_pct: dd,
+        max_daily_dd_pct: dd,
+        max_lot: Number(editConfigForm.max_lot) || 5.0,
+        daily_profit_target_usd: Number(editConfigForm.daily_profit_target_usd) || 0,
+        symbol_mapping_custom: editConfigForm.symbol_mapping_custom.trim(),
+        is_prop_firm_mode: editConfigForm.is_prop_firm_mode,
+        prop_stage: editConfigForm.is_prop_firm_mode ? editConfigForm.prop_stage : 'CHALLENGE',
       });
-      if (res.ok) {
-        setExpandedConfigId(null);
-        setCloudMsg(`Đã lưu cấu hình quản trị rủi ro cho tài khoản #${id}`);
-        refetchAccounts();
-      } else {
-        const d = await res.json().catch(() => ({}));
-        setCloudMsg(`Lỗi lưu cấu hình: ${formatApiError(d, res.status)}`);
-      }
+      setExpandedConfigId(null);
+      setCloudMsg(`Đã lưu cấu hình quản trị rủi ro cho tài khoản #${id}`);
+      refetchAccounts();
     } catch (e: any) {
       setCloudMsg(`Lỗi kết nối: ${e.message}`);
     } finally {

@@ -9,7 +9,7 @@ from app.routers.deps import Model, fail, get_current_admin
 logger = logging.getLogger("zupirus.api")
 router = APIRouter()
 
-@router.get('/api/admin/orders')
+@router.get('/api/admin/orders', tags=["admin-core"])
 def admin_orders(
     u=Depends(get_current_admin),
     account_id: Optional[str] = None,
@@ -118,7 +118,7 @@ def admin_orders(
         paged = rows[offset:offset + limit]
         return {'total': total, 'orders': paged, 'limit': limit, 'offset': offset}
 
-@router.get('/api/admin/monitor')
+@router.get('/api/admin/monitor', tags=["admin-core"])
 def monitor(u=Depends(get_current_admin)):
     with tx() as c:
         accs = []
@@ -165,7 +165,7 @@ def monitor(u=Depends(get_current_admin)):
 class Safety(Model):
     halted: bool
     reason: Optional[str] = None
-@router.post('/api/admin/safety')
+@router.post('/api/admin/safety', tags=["admin-core"])
 def safety(p: Safety, u=Depends(get_current_admin)):
     with tx() as c:
         setkv(c, 'halted', int(p.halted))
@@ -179,7 +179,7 @@ def safety(p: Safety, u=Depends(get_current_admin)):
         audit(c, u['id'], 'kill_switch_toggled', p.model_dump())
     return {'halted': p.halted, 'note': 'Existing broker positions retain SL/TP; outstanding intents remain reconcilable.'}
 
-@router.post('/api/admin/research')
+@router.post('/api/admin/research', tags=["admin-override"])
 def start_research(u=Depends(get_current_admin)):
     jid = secrets.token_hex(16)
     with tx() as c:
@@ -188,7 +188,7 @@ def start_research(u=Depends(get_current_admin)):
     return {'id': jid}
 
 class Decision(Model): approved: bool
-@router.post('/api/admin/research/{jid}/decision')
+@router.post('/api/admin/research/{jid}/decision', tags=["admin-core"])
 def decision(jid: str, p: Decision, u=Depends(get_current_admin)):
     with tx() as c:
         row = c.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
@@ -203,7 +203,7 @@ class News(Model):
     impact: Literal['high', 'medium', 'low'] = 'high'
     ts: float = Field(gt=0)
 
-@router.post('/api/admin/news')
+@router.post('/api/admin/news', tags=["admin-override"])
 def add_news(p: News, u=Depends(get_current_admin)):
     with tx() as c:
         nid = secrets.token_hex(12)
@@ -211,7 +211,7 @@ def add_news(p: News, u=Depends(get_current_admin)):
         audit(c, u['id'], 'calendar_added', {'id': nid, **p.model_dump()})
     return {'ok': True, 'id': nid}
 
-@router.put('/api/admin/news/{nid}')
+@router.put('/api/admin/news/{nid}', tags=["admin-override"])
 def update_news(nid: str, p: News, u=Depends(get_current_admin)):
     with tx() as c:
         row = c.execute('SELECT * FROM news WHERE id=?', (nid,)).fetchone()
@@ -220,7 +220,7 @@ def update_news(nid: str, p: News, u=Depends(get_current_admin)):
         audit(c, u['id'], 'calendar_updated', {'id': nid, **p.model_dump()})
     return {'ok': True}
 
-@router.delete('/api/admin/news/{nid}')
+@router.delete('/api/admin/news/{nid}', tags=["admin-override"])
 def delete_news(nid: str, u=Depends(get_current_admin)):
     with tx() as c:
         row = c.execute('SELECT * FROM news WHERE id=?', (nid,)).fetchone()
@@ -229,7 +229,7 @@ def delete_news(nid: str, u=Depends(get_current_admin)):
         audit(c, u['id'], 'calendar_deleted', {'id': nid, 'title': row['title'], 'ts': row['ts']})
     return {'ok': True}
 
-@router.post('/api/admin/news/sync')
+@router.post('/api/admin/news/sync', tags=["admin-override"])
 def sync_news(u=Depends(get_current_admin)):
     """Automatically synchronizes high impact economic events from financial calendar feeds."""
     from app.calendar_sync import sync_economic_calendar
@@ -245,7 +245,7 @@ class AddGeminiKey(Model):
 class TestGeminiPrompt(Model):
     prompt: str = Field(min_length=1, max_length=1000)
 
-@router.get('/api/admin/gemini/keys')
+@router.get('/api/admin/gemini/keys', tags=["admin-core"])
 def list_gemini_keys(u=Depends(get_current_admin)):
     from app.gemini_client import seed_default_keys
     with tx() as c:
@@ -268,7 +268,7 @@ def list_gemini_keys(u=Depends(get_current_admin)):
             })
     return {'keys': keys_list, 'total': len(keys_list)}
 
-@router.post('/api/admin/gemini/keys')
+@router.post('/api/admin/gemini/keys', tags=["admin-core"])
 def add_gemini_key(p: AddGeminiKey, u=Depends(get_current_admin)):
     from app.gemini_client import hash_key, mask_key
     from app.security import encrypt_secret
@@ -287,7 +287,7 @@ def add_gemini_key(p: AddGeminiKey, u=Depends(get_current_admin)):
         audit(c, u['id'], 'gemini_key_added', {'id': kid, 'masked': k_masked})
     return {'ok': True, 'id': kid, 'masked': k_masked}
 
-@router.put('/api/admin/gemini/keys/{kid}/toggle')
+@router.put('/api/admin/gemini/keys/{kid}/toggle', tags=["admin-core"])
 def toggle_gemini_key(kid: str, u=Depends(get_current_admin)):
     with tx() as c:
         row = c.execute('SELECT id, is_active, key_masked FROM gemini_keys WHERE id=?', (kid,)).fetchone()
@@ -298,7 +298,7 @@ def toggle_gemini_key(kid: str, u=Depends(get_current_admin)):
         audit(c, u['id'], 'gemini_key_toggled', {'id': kid, 'masked': row[2], 'is_active': bool(next_active)})
     return {'ok': True, 'is_active': bool(next_active)}
 
-@router.delete('/api/admin/gemini/keys/{kid}')
+@router.delete('/api/admin/gemini/keys/{kid}', tags=["admin-core"])
 def delete_gemini_key(kid: str, u=Depends(get_current_admin)):
     with tx() as c:
         row = c.execute('SELECT id, key_masked FROM gemini_keys WHERE id=?', (kid,)).fetchone()
@@ -308,7 +308,7 @@ def delete_gemini_key(kid: str, u=Depends(get_current_admin)):
         audit(c, u['id'], 'gemini_key_deleted', {'id': kid, 'masked': row[1]})
     return {'ok': True}
 
-@router.post('/api/admin/gemini/keys/ping-all')
+@router.post('/api/admin/gemini/keys/ping-all', tags=["admin-override"])
 def ping_all_gemini_keys(u=Depends(get_current_admin)):
     """Pings every Gemini API key in the pool individually to verify health, latency and quota."""
     from app.gemini_client import ping_single_key
@@ -364,7 +364,7 @@ def ping_all_gemini_keys(u=Depends(get_current_admin)):
     }
 
 
-@router.post('/api/admin/gemini/keys/{kid}/ping')
+@router.post('/api/admin/gemini/keys/{kid}/ping', tags=["admin-override"])
 def ping_single_gemini_key_endpoint(kid: str, u=Depends(get_current_admin)):
     """Pings a specific Gemini key to verify its current live connectivity."""
     from app.gemini_client import ping_single_key
@@ -389,7 +389,7 @@ def ping_single_gemini_key_endpoint(kid: str, u=Depends(get_current_admin)):
     }
 
 
-@router.post('/api/admin/gemini/test')
+@router.post('/api/admin/gemini/test', tags=["admin-override"])
 def test_gemini(p: TestGeminiPrompt, u=Depends(get_current_admin)):
     from app.gemini_client import call_gemini
     t0 = time.perf_counter()
@@ -415,14 +415,14 @@ class CreateMemory(Model):
     tags: Optional[str] = None
     entity_id: Optional[str] = None
 
-@router.get('/api/admin/memory')
+@router.get('/api/admin/memory', tags=["admin-override"])
 def get_hindsight_memories(category: Optional[str] = None, q: Optional[str] = None, limit: int = 50, u=Depends(get_current_admin)):
     from app.hindsight import recall_memories
     with tx() as c:
         items = recall_memories(c, query=q, category=category, limit=min(limit, 100))
     return {'memories': items, 'total': len(items)}
 
-@router.post('/api/admin/memory')
+@router.post('/api/admin/memory', tags=["admin-override"])
 def add_hindsight_memory(p: CreateMemory, u=Depends(get_current_admin)):
     from app.hindsight import store_memory
     tag_list = [t.strip() for t in (p.tags or "").split(",") if t.strip()]
@@ -438,26 +438,26 @@ def add_hindsight_memory(p: CreateMemory, u=Depends(get_current_admin)):
         audit(c, u['id'], 'memory_stored', {'id': mid, 'category': p.category, 'title': p.title})
     return {'ok': True, 'id': mid}
 
-@router.delete('/api/admin/memory/{mid}')
+@router.delete('/api/admin/memory/{mid}', tags=["admin-override"])
 def delete_hindsight_memory(mid: str, u=Depends(get_current_admin)):
     with tx() as c:
         c.execute('DELETE FROM hindsight_memories WHERE id=?', (mid,))
         audit(c, u['id'], 'memory_deleted', {'id': mid})
     return {'ok': True}
 
-@router.get('/api/admin/tracing')
+@router.get('/api/admin/tracing', tags=["admin-core"])
 def tracing_telemetry(u=Depends(get_current_admin)):
     """Return LangSmith tracing summary and recent trace events."""
     return get_trace_summary()
 
-@router.get('/api/admin/swarm/status')
+@router.get('/api/admin/swarm/status', tags=["admin-core"])
 def swarm_status(u=Depends(get_current_admin)):
     """Returns real-time status of the 3 Autonomous Agents (Sentinel, Alpha, Risk Guardian)
     and their shared communication stream."""
     from app.swarm import get_swarm_status
     return get_swarm_status()
 
-@router.post('/api/admin/swarm/cycle')
+@router.post('/api/admin/swarm/cycle', tags=["admin-override"])
 def swarm_trigger_cycle(u=Depends(get_current_admin)):
     """Triggers an autonomous coordination sweep across all 3 agents."""
     from app.swarm import trigger_swarm_cycle
@@ -466,7 +466,7 @@ def swarm_trigger_cycle(u=Depends(get_current_admin)):
 class MailerTestPayload(BaseModel):
     to: str = Field(min_length=5, max_length=120)
 
-@router.get('/api/admin/mailer/status')
+@router.get('/api/admin/mailer/status', tags=["admin-core"])
 def mailer_status(u=Depends(get_current_admin)):
     """Returns Resend connection status, sender identity, and verified domain."""
     from app.mailer import get_resend_api_key, get_email_from
@@ -479,7 +479,7 @@ def mailer_status(u=Depends(get_current_admin)):
         'provider': 'Resend (Tokyo ap-northeast-1)',
     }
 
-@router.post('/api/admin/mailer/test')
+@router.post('/api/admin/mailer/test', tags=["admin-override"])
 def mailer_test_send(p: MailerTestPayload, u=Depends(get_current_admin)):
     """Sends a verified test email to the requested recipient."""
     from datetime import datetime, timezone

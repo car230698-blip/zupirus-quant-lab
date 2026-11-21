@@ -98,3 +98,47 @@ def test_guardrail_ingest_pdf_uses_domain_swarm():
     content = skills_py.read_text(encoding="utf-8")
     assert "app.domains.ai.ingest_swarm" in content, "skills.py must import from app.domains.ai.ingest_swarm"
     assert "execute_4agent_ingest_pipeline" in content, "skills.py must call execute_4agent_ingest_pipeline"
+
+
+def test_guardrail_no_duplicate_or_double_prefix_admin_routes():
+    """Verify admin routes have no duplicate (path, method) or double prefixing like /api/admin/billing/api/admin/."""
+    from app.main import app
+
+    double_prefix_violations = []
+    seen_routes = set()
+    duplicate_routes = []
+
+    for route in app.routes:
+        path = getattr(route, "path", None)
+        methods = getattr(route, "methods", None) or []
+        if not path:
+            continue
+        if "/api/admin/billing/api/admin/" in path:
+            double_prefix_violations.append(path)
+        for m in methods:
+            if m.upper() in ("HEAD", "OPTIONS"):
+                continue
+            key = (path, m.upper())
+            if key in seen_routes:
+                duplicate_routes.append(f"{m.upper()} {path}")
+            seen_routes.add(key)
+
+    assert not double_prefix_violations, f"Found double prefix in routes:\n" + "\n".join(double_prefix_violations)
+    assert not duplicate_routes, f"Found duplicate admin routes:\n" + "\n".join(duplicate_routes)
+
+
+def test_guardrail_admin_ui_uses_central_api_client():
+    """Verify that all Admin*.tsx components use the central web/src/api/client instead of raw fetch()."""
+    components_dir = ROOT / "web" / "src" / "components"
+    admin_files = list(components_dir.glob("Admin*.tsx"))
+    assert len(admin_files) >= 3, "Must check at least 3 Admin components"
+
+    fetch_violations = {}
+    for af in admin_files:
+        content = af.read_text(encoding="utf-8")
+        matches = re.findall(r"\bfetch\(", content)
+        if matches:
+            fetch_violations[af.name] = len(matches)
+
+    assert not fetch_violations, f"Found raw fetch() calls in Admin components: {fetch_violations}"
+

@@ -1,9 +1,22 @@
 # Production override for VPS deployment behind Nginx Proxy Manager
 services:
+  timescaledb:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}", "ping"]
+    ports:
+      - "127.0.0.1:6379:6379"
+
   api:
     environment:
       APP_ENV: "production"
       COOKIE_SECURE: "true"
+      ENABLE_LEGACY_EA_BRIDGE: "false"
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
       ALLOWED_ORIGINS: "http://localhost:8080,https://zupirus.com,https://www.zupirus.com,https://app.zupirus.com,https://adm.zupirus.com"
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
@@ -21,12 +34,15 @@ services:
   execution:
     environment:
       APP_ENV: "production"
+      ENABLE_LEGACY_EA_BRIDGE: "false"
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
 
   research:
     environment:
       APP_ENV: "production"
+      ENABLE_LEGACY_EA_BRIDGE: "false"
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
 
 networks:
   npm_default:
     external: true
-
