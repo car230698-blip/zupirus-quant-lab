@@ -9,7 +9,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path("/app") if Path("/app/app").exists() else (Path(__file__).resolve().parents[2] if "__file__" in globals() and Path(__file__).exists() else Path("."))
 sys.path.insert(0, str(ROOT))
 
 from app.db import tx
