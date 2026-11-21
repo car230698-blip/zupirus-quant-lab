@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { api } from '../api/client';
 import { ToastNotification } from './ToastNotification.tsx';
 
 interface EvolutionStage {
@@ -50,27 +51,24 @@ export const AdminAIEvolutionTab: React.FC = () => {
 
   const loadAll = useCallback(async () => {
     try {
-      const [eRes, gRes, sRes, iRes] = await Promise.all([
-        fetch('/api/v1/telemetry/ai-evolution', { credentials: 'include' }),
-        fetch('/api/admin/gemini/keys', { credentials: 'include' }),
-        fetch('/api/admin/ai/settings', { credentials: 'include' }),
-        fetch('/api/admin/skills/ingested', { credentials: 'include' }),
+      const [eData, gData, sData, iData] = await Promise.all([
+        api.get('/api/v1/telemetry/ai-evolution').catch(() => null),
+        api.get('/api/admin/gemini/keys').catch(() => null),
+        api.get('/api/admin/ai/settings').catch(() => null),
+        api.get('/api/admin/skills/ingested').catch(() => null),
       ]);
-      if (eRes.ok) setEvo(await eRes.json());
-      if (gRes.ok) {
-        const gd = await gRes.json();
-        setGeminiPool(gd.keys || []);
+      if (eData) setEvo(eData);
+      if (gData) {
+        setGeminiPool(gData.keys || []);
       }
-      if (sRes.ok) {
-        const sd = await sRes.json();
+      if (sData) {
         setAiSettings((prev: any) => {
           if (prev._hydrated) return prev;
-          return { ...prev, ...(sd.settings || sd), api_key: '', _hydrated: true };
+          return { ...prev, ...(sData.settings || sData), api_key: '', _hydrated: true };
         });
       }
-      if (iRes.ok) {
-        const idata = await iRes.json();
-        setIngestedList(idata.skills || idata.ingested_skills || []);
+      if (iData) {
+        setIngestedList(iData.skills || iData.ingested_skills || []);
       }
     } catch {
       // keep existing state
@@ -85,16 +83,12 @@ export const AdminAIEvolutionTab: React.FC = () => {
 
   const handleToggleAutoPromote = async () => {
     const nextVal = !Boolean(evo.stage?.auto_promote);
-    const res = await fetch('/api/admin/sources/auto-promote', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      credentials: 'include',
-      body: JSON.stringify({ enabled: nextVal }),
-    });
-    if (res.ok) {
-      const j = await res.json();
+    try {
+      const j = await api.post('/api/admin/sources/auto-promote', { enabled: nextVal });
       setMsg(j.message || 'Đã cập nhật chế độ tự tiến hóa.');
       await loadAll();
+    } catch (err: any) {
+      setMsg(`Lỗi: ${err.message || ''}`);
     }
   };
 
@@ -106,13 +100,12 @@ export const AdminAIEvolutionTab: React.FC = () => {
     if (keys.length === 0) return;
     let addedCount = 0;
     for (const k of keys) {
-      const res = await fetch('/api/admin/gemini/keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: JSON.stringify({ key: k }),
-      });
-      if (res.ok) addedCount++;
+      try {
+        await api.post('/api/admin/gemini/keys', { key: k });
+        addedCount++;
+      } catch {
+        // ignore duplicate
+      }
     }
     if (addedCount > 0) {
       setNewKeysText('');
@@ -124,35 +117,30 @@ export const AdminAIEvolutionTab: React.FC = () => {
   };
 
   const handleToggleGeminiKey = async (kid: string) => {
-    const res = await fetch(`/api/admin/gemini/keys/${encodeURIComponent(kid)}/toggle`, {
-      method: 'PUT',
-      headers: { 'X-Zupirus': '1' },
-      credentials: 'include',
-    });
-    if (res.ok) await loadAll();
+    try {
+      await api.put(`/api/admin/gemini/keys/${encodeURIComponent(kid)}/toggle`);
+      await loadAll();
+    } catch {
+      // ignore
+    }
   };
 
   const handleDeleteGeminiKey = async (kid: string) => {
     if (!window.confirm('Bạn có chắc muốn xóa API Key này khỏi hệ thống?')) return;
-    const res = await fetch(`/api/admin/gemini/keys/${encodeURIComponent(kid)}`, {
-      method: 'DELETE',
-      headers: { 'X-Zupirus': '1' },
-      credentials: 'include',
-    });
-    if (res.ok) await loadAll();
+    try {
+      await api.delete(`/api/admin/gemini/keys/${encodeURIComponent(kid)}`);
+      await loadAll();
+    } catch {
+      // ignore
+    }
   };
 
   const handlePingAllKeys = async () => {
     setPingingKeys(true);
     setMsg('Đang gửi tín hiệu kiểm tra trực tiếp (Ping Live) tới toàn bộ API Key trong Pool...');
     try {
-      const res = await fetch('/api/admin/gemini/keys/ping-all', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      const d = await res.json();
-      if (res.ok && d.ok) {
+      const d = await api.post('/api/admin/gemini/keys/ping-all');
+      if (d && d.ok) {
         const mapping: Record<string, any> = {};
         for (const k of d.keys || []) {
           mapping[k.id] = k;
@@ -161,7 +149,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
         setMsg(`✓ ${d.message}`);
         await loadAll();
       } else {
-        setMsg(`Lỗi kiểm tra key: ${d.detail || res.status}`);
+        setMsg(`Lỗi kiểm tra key: ${d?.detail || ''}`);
       }
     } catch (e: any) {
       setMsg(`Lỗi kết nối kiểm tra: ${e.message}`);
@@ -172,19 +160,14 @@ export const AdminAIEvolutionTab: React.FC = () => {
 
   const handlePingSingleKey = async (kid: string) => {
     try {
-      const res = await fetch(`/api/admin/gemini/keys/${encodeURIComponent(kid)}/ping`, {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      const d = await res.json();
-      if (res.ok && d.ok) {
+      const d = await api.post(`/api/admin/gemini/keys/${encodeURIComponent(kid)}/ping`);
+      if (d && d.ok) {
         setKeyPingResults((prev) => ({ ...prev, [kid]: d }));
         setMsg(`✓ Key ${d.key_masked}: ${d.status} (${d.latency_ms}ms)`);
         await loadAll();
       } else {
         setKeyPingResults((prev) => ({ ...prev, [kid]: { ...d, ok: false } }));
-        setMsg(`Lỗi key ${kid}: ${d.message || d.detail}`);
+        setMsg(`Lỗi key ${kid}: ${d?.message || d?.detail}`);
       }
     } catch (e: any) {
       setMsg(`Lỗi mạng: ${e.message}`);
@@ -192,15 +175,12 @@ export const AdminAIEvolutionTab: React.FC = () => {
   };
 
   const handleSaveAiSettings = async () => {
-    const res = await fetch('/api/admin/ai/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      credentials: 'include',
-      body: JSON.stringify(aiSettings),
-    });
-    if (res.ok) {
+    try {
+      await api.post('/api/admin/ai/settings', aiSettings);
       setMsg('Đã lưu cấu hình Provider AI nâng cao.');
       await loadAll();
+    } catch (err: any) {
+      setMsg(`Lỗi: ${err.message || ''}`);
     }
   };
 
@@ -208,14 +188,10 @@ export const AdminAIEvolutionTab: React.FC = () => {
     setTestingAi(true);
     setAiTestMsg('');
     try {
-      const res = await fetch('/api/admin/ai/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: JSON.stringify({ prompt: 'Kiểm tra kết nối AI Swarm ZUPIRUS.' }),
-      });
-      const d = await res.json();
-      setAiTestMsg(res.ok ? `Kết nối thành công (${d.model || 'Gemini'} • ${d.latency_ms || 0}ms)` : `Lỗi: ${d.detail || d.error}`);
+      const d = await api.post('/api/admin/ai/test', { prompt: 'Kiểm tra kết nối AI Swarm ZUPIRUS.' });
+      setAiTestMsg(`Kết nối thành công (${d.model || 'Gemini'} • ${d.latency_ms || 0}ms)`);
+    } catch (err: any) {
+      setAiTestMsg(`Lỗi: ${err.message || ''}`);
     } finally {
       setTestingAi(false);
     }
@@ -240,19 +216,13 @@ export const AdminAIEvolutionTab: React.FC = () => {
       const stepTimer1 = setTimeout(() => setIngestStep(2), 1200);
       const stepTimer2 = setTimeout(() => setIngestStep(3), 3500);
 
-      const res = await fetch('/api/admin/skills/ingest-pdf', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: formData,
-      });
+      const data = await api.post('/api/admin/skills/ingest-pdf', formData);
 
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
       setIngestStep(4);
 
-      const data = await res.json();
-      if (res.ok && data.ok) {
+      if (data && data.ok) {
         setLastIngestedResult(data);
         setMsg(`✓ Huấn luyện thành công: Đã bóc tách '${data.name}' [${data.detected_category || data.category}].`);
         setPdfFile(null);
@@ -260,7 +230,7 @@ export const AdminAIEvolutionTab: React.FC = () => {
         if (fileInputRef.current) fileInputRef.current.value = '';
         await loadAll();
       } else {
-        setMsg(`Lỗi bóc tách tài liệu: ${data.detail || data.message || 'Không thể xử lý'}`);
+        setMsg(`Lỗi bóc tách tài liệu: ${data?.detail || data?.message || 'Không thể xử lý'}`);
       }
     } catch (err: any) {
       setMsg(`Lỗi kết nối khi nạp tài liệu: ${err.message || String(err)}`);
@@ -273,20 +243,11 @@ export const AdminAIEvolutionTab: React.FC = () => {
   const handleDeleteIngested = async (skillId: string) => {
     if (!window.confirm(`Bạn có chắc muốn xóa tài liệu / kỹ năng '${skillId}' khỏi hệ thống?`)) return;
     try {
-      const res = await fetch(`/api/admin/skills/ingested/${encodeURIComponent(skillId)}`, {
-        method: 'DELETE',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      if (res.ok) {
-        setMsg(`Đã xóa tài liệu '${skillId}' khỏi bộ não AI.`);
-        await loadAll();
-      } else {
-        const d = await res.json().catch(() => ({}));
-        setMsg(`Lỗi khi xóa: ${d.detail || res.status}`);
-      }
+      await api.delete(`/api/admin/skills/ingested/${encodeURIComponent(skillId)}`);
+      setMsg(`Đã xóa tài liệu '${skillId}' khỏi bộ não AI.`);
+      await loadAll();
     } catch (e: any) {
-      setMsg(`Lỗi mạng: ${e.message}`);
+      setMsg(`Lỗi khi xóa: ${e.message}`);
     }
   };
 
@@ -294,17 +255,12 @@ export const AdminAIEvolutionTab: React.FC = () => {
     if (!window.confirm('Tái phân loại toàn bộ tài liệu đã nạp theo chuẩn phân biệt: Kiến Thức Thị Trường & Vĩ Mô vs Phương Pháp Kỹ Thuật?')) return;
     try {
       setMsg('Đang tái phân tích và chuẩn hóa danh mục tài liệu...');
-      const res = await fetch('/api/admin/skills/reclassify-all', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      const d = await res.json();
-      if (res.ok && d.ok) {
+      const d = await api.post('/api/admin/skills/reclassify-all');
+      if (d && d.ok) {
         setMsg(`✓ Đã tái phân loại thành công ${d.reclassified_count} tài liệu sang đúng nhóm Vĩ Mô & Kiến Thức Thị Trường.`);
         await loadAll();
       } else {
-        setMsg(`Lỗi tái phân loại: ${d.detail || res.status}`);
+        setMsg(`Lỗi tái phân loại: ${d?.detail || ''}`);
       }
     } catch (e: any) {
       setMsg(`Lỗi mạng: ${e.message}`);
@@ -783,13 +739,10 @@ export const AdminAIEvolutionTab: React.FC = () => {
                             type="button"
                             onClick={async () => {
                               try {
-                                const r = await fetch(`/api/admin/skills/${encodeURIComponent(item.skill_id)}`, {
-                                  method: 'PATCH',
-                                  headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                                  credentials: 'include',
-                                  body: JSON.stringify({ enabled: !Boolean(item.enabled) }),
+                                await api.patch(`/api/admin/skills/${encodeURIComponent(item.skill_id)}`, {
+                                  enabled: !Boolean(item.enabled),
                                 });
-                                if (r.ok) await loadAll();
+                                await loadAll();
                               } catch (e: any) {
                                 setMsg(`Lỗi đổi trạng thái: ${e.message}`);
                               }
@@ -1196,16 +1149,11 @@ export const AdminAIEvolutionTab: React.FC = () => {
                   type="button"
                   onClick={async () => {
                     try {
-                      const r = await fetch('/api/admin/research', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                        credentials: 'include',
-                      });
-                      const d = await r.json().catch(() => ({}));
-                      setMsg(r.ok ? 'Đã kích hoạt chạy kiểm định WFO Research.' : `Lỗi WFO: ${d.detail || r.status}`);
+                      await api.post('/api/admin/research');
+                      setMsg('Đã kích hoạt chạy kiểm định WFO Research.');
                       await loadAll();
                     } catch (e: any) {
-                      setMsg(`Lỗi mạng: ${e.message}`);
+                      setMsg(`Lỗi WFO: ${e.message}`);
                     }
                   }}
                   className="rounded-xl border border-cyan-500/40 bg-cyan-500/15 px-3 py-1.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/25 cursor-pointer font-mono"
@@ -1216,15 +1164,10 @@ export const AdminAIEvolutionTab: React.FC = () => {
                   type="button"
                   onClick={async () => {
                     try {
-                      const r = await fetch('/api/admin/news/sync', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                        credentials: 'include',
-                      });
-                      const d = await r.json().catch(() => ({}));
-                      setMsg(r.ok ? `Đã đồng bộ News Shield (${d.added ?? d.synced ?? d.count ?? 'OK'}).` : `Lỗi News Sync: ${d.detail || r.status}`);
+                      const d = await api.post('/api/admin/news/sync');
+                      setMsg(`Đã đồng bộ News Shield (${d?.added ?? d?.synced ?? d?.count ?? 'OK'}).`);
                     } catch (e: any) {
-                      setMsg(`Lỗi mạng: ${e.message}`);
+                      setMsg(`Lỗi News Sync: ${e.message}`);
                     }
                   }}
                   className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25 cursor-pointer font-mono"

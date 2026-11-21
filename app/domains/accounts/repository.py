@@ -52,3 +52,43 @@ def update_account_balances(account_id: str, balance: float, equity: float) -> N
             """,
             (balance, equity, time.time(), account_id),
         )
+
+
+def update_deployment_state(account_id: str, state: str, user_id: Optional[int] = None) -> None:
+    """Update deployment state across trading_accounts and metaapi_cloud_accounts."""
+    with tx() as c:
+        if user_id is not None:
+            c.execute(
+                "UPDATE trading_accounts SET deployment_state = ? WHERE id = ? AND user_id = ?",
+                (state, account_id, user_id),
+            )
+            try:
+                c.execute(
+                    "UPDATE metaapi_cloud_accounts SET metaapi_state = ? WHERE id = ? AND user_id = ?",
+                    (state, account_id, user_id),
+                )
+            except Exception:
+                pass
+        else:
+            c.execute(
+                "UPDATE trading_accounts SET deployment_state = ? WHERE id = ?",
+                (state, account_id),
+            )
+
+
+def delete_trading_account(account_id: str, user_id: Optional[int] = None) -> bool:
+    """Delete an account from trading_accounts and metaapi_cloud_accounts."""
+    with tx() as c:
+        if user_id is not None:
+            c.execute("DELETE FROM trading_accounts WHERE id = ? AND user_id = ?", (account_id, user_id))
+            try:
+                c.execute("DELETE FROM metaapi_cloud_accounts WHERE id = ? AND user_id = ?", (account_id, user_id))
+            except Exception:
+                pass
+        else:
+            c.execute("DELETE FROM trading_accounts WHERE id = ?", (account_id,))
+            try:
+                c.execute("DELETE FROM metaapi_cloud_accounts WHERE id = ?", (account_id,))
+            except Exception:
+                pass
+    return True

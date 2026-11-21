@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { api } from '../api/client';
 import { ToastNotification } from './ToastNotification.tsx';
 import { Panel, SkeletonBlock, StatusBadge } from './ui/Primitives';
 import { IconAlert, IconBolt, IconCheck, IconClose, IconRadar } from './Icons';
@@ -28,9 +29,9 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
 
   const loadRadar = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/telemetry/admin-radar', { credentials: 'include' });
-      if (res.ok) {
-        setRadar(await res.json());
+      const data = await api.get('/api/v1/telemetry/admin-radar');
+      if (data) {
+        setRadar(data);
       }
     } catch {
       // keep previous snapshot
@@ -72,12 +73,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     if (alert.action_type === 'retry_deploy') {
       setBusyId(alert.id);
       try {
-        const res = await fetch('/api/v1/telemetry/admin-radar/retry-pending', {
-          method: 'POST',
-          headers: { 'X-Zupirus': '1' },
-          credentials: 'include',
-        });
-        const j = await res.json();
+        const j = await api.post('/api/v1/telemetry/admin-radar/retry-pending');
         setMsg(j.message || 'Đã thử lại kích hoạt MT5.');
         await loadRadar();
       } finally {
@@ -89,16 +85,11 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   const handleRunDryRun = async () => {
     setDryRunLoading(true);
     try {
-      const res = await fetch('/api/v1/telemetry/admin-radar/dry-run', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const d = await res.json();
-        setDryRunResult(d);
-        setMsg(d.ok ? 'Dry-Run Test thông suốt (không vào tiền thật).' : 'Dry-Run Test phát hiện điểm cần kiểm tra.');
-      }
+      const d = await api.post('/api/v1/telemetry/admin-radar/dry-run');
+      setDryRunResult(d);
+      setMsg(d.ok ? 'Dry-Run Test thông suốt (không vào tiền thật).' : 'Dry-Run Test phát hiện điểm cần kiểm tra.');
+    } catch (err: any) {
+      setMsg(err.message || 'Lỗi kiểm thử Dry-Run.');
     } finally {
       setDryRunLoading(false);
     }

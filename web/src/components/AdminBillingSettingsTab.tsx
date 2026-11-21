@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { formatApiError } from '../utils/formatError.ts';
+import { api } from '../api/client';
 
 export const AdminBillingSettingsTab: React.FC = () => {
   const [settings, setSettings] = useState({
@@ -21,9 +21,8 @@ export const AdminBillingSettingsTab: React.FC = () => {
   const fetchSettings = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/billing/settings', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await api.get('/api/admin/billing/settings');
+      if (data) {
         setSettings(data);
       }
     } catch {
@@ -53,22 +52,12 @@ export const AdminBillingSettingsTab: React.FC = () => {
       if (webhookSecretInput.trim()) {
         payload.sepay_webhook_secret = webhookSecretInput.trim();
       }
-      const res = await fetch('/api/admin/billing/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        setMsg('Đã lưu cấu hình thanh toán SePay & tỷ giá USD/VND thành công.');
-        setWebhookSecretInput('');
-        if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
-      } else {
-        setMsg(`Lỗi: ${formatApiError(data, res.status)}`);
-      }
+      const data = await api.put('/api/admin/billing/settings', payload);
+      setMsg('Đã lưu cấu hình thanh toán SePay & tỷ giá USD/VND thành công.');
+      setWebhookSecretInput('');
+      if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
     } catch (e: any) {
-      setMsg(`Lỗi mạng: ${e.message}`);
+      setMsg(`Lỗi: ${e.message || 'Lỗi lưu cấu hình'}`);
     } finally {
       setLoading(false);
     }
@@ -78,23 +67,18 @@ export const AdminBillingSettingsTab: React.FC = () => {
     setLoading(true);
     setMsg('Đang xoá bộ nhớ đệm Redis và cập nhật tỷ giá USD/VND mới nhất...');
     try {
-      const res = await fetch('/api/admin/billing/flush-fx-cache', {
-        method: 'POST',
-        headers: { 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        const liveRate = Number(data.new_rate ?? data.usd_vnd_rate ?? 0);
-        setSettings((prev) => ({
-          ...prev,
-          current_live_rate: liveRate || prev.current_live_rate,
-          current_rate_source: data.source || prev.current_rate_source,
-        }));
-        setMsg(
-          `Đã cập nhật tỷ giá trực tiếp: 1 USD = ${(liveRate || settings.current_live_rate).toLocaleString('vi-VN')} VND (${data.source})`
-        );
-      }
+      const data = await api.post('/api/admin/billing/flush-fx-cache');
+      const liveRate = Number(data.new_rate ?? data.usd_vnd_rate ?? 0);
+      setSettings((prev) => ({
+        ...prev,
+        current_live_rate: liveRate || prev.current_live_rate,
+        current_rate_source: data.source || prev.current_rate_source,
+      }));
+      setMsg(
+        `Đã cập nhật tỷ giá trực tiếp: 1 USD = ${(liveRate || settings.current_live_rate).toLocaleString('vi-VN')} VND (${data.source})`
+      );
+    } catch (e: any) {
+      setMsg(`Lỗi: ${e.message || 'Lỗi cập nhật tỷ giá'}`);
     } finally {
       setLoading(false);
     }

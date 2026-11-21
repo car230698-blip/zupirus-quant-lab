@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { api } from '../api/client';
 import { AdminBillingSettingsTab } from './AdminBillingSettingsTab.tsx';
 import { ToastNotification } from './ToastNotification.tsx';
 
@@ -48,19 +49,17 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
 
   const loadBilling = useCallback(async () => {
     try {
-      const [sRes, oRes, uRes] = await Promise.all([
-        fetch('/api/admin/billing/summary', { credentials: 'include' }),
-        fetch('/api/admin/billing/orders', { credentials: 'include' }),
-        fetch('/api/admin/users', { credentials: 'include' }),
+      const [sData, oData, uData] = await Promise.all([
+        api.get('/api/admin/billing/summary').catch(() => null),
+        api.get('/api/admin/billing/orders').catch(() => null),
+        api.get('/api/admin/users').catch(() => null),
       ]);
-      if (sRes.ok) setSummary(await sRes.json());
-      if (oRes.ok) {
-        const d = await oRes.json();
-        setOrders(d.orders || d || []);
+      if (sData) setSummary(sData);
+      if (oData) {
+        setOrders(oData.orders || oData || []);
       }
-      if (uRes.ok) {
-        const ud = await uRes.json();
-        setUsers(ud.users || ud || []);
+      if (uData) {
+        setUsers(uData.users || uData || []);
       }
     } catch {
       // ignore transient error
@@ -81,17 +80,11 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   const handleManualApproveOrder = async (orderId: string) => {
     setBusyId(orderId);
     try {
-      const res = await fetch(`/api/admin/billing/orders/${encodeURIComponent(orderId)}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-      });
-      if (res.ok) {
-        setMsg(`Đã duyệt bù đơn hàng ${orderId} và kích hoạt gói cước.`);
-        await loadBilling();
-      } else {
-        setMsg('Không thể duyệt bù đơn hàng.');
-      }
+      await api.post(`/api/admin/billing/orders/${encodeURIComponent(orderId)}/approve`);
+      setMsg(`Đã duyệt bù đơn hàng ${orderId} và kích hoạt gói cước.`);
+      await loadBilling();
+    } catch (err: any) {
+      setMsg(`Không thể duyệt bù đơn hàng: ${err.message || ''}`);
     } finally {
       setBusyId(null);
     }
@@ -107,18 +100,15 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
         action === 'delete'
           ? `/api/v1/accounts/${encodeURIComponent(accId)}`
           : `/api/v1/accounts/${encodeURIComponent(accId)}/toggle`;
-      const res = await fetch(url, {
-        method: action === 'delete' ? 'DELETE' : 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        credentials: 'include',
-        body: action === 'toggle' ? JSON.stringify({ is_active: !currentlyActive }) : undefined,
-      });
-      if (res.ok) {
-        setMsg(action === 'delete' ? 'Đã xóa tài khoản vi phạm.' : 'Đã cập nhật trạng thái nhận lệnh của tài khoản.');
-        refetchAll();
+      if (action === 'delete') {
+        await api.delete(url);
       } else {
-        setMsg(action === 'delete' ? 'Lỗi: Không thể xóa tài khoản.' : 'Lỗi: Không thể cập nhật trạng thái tài khoản.');
+        await api.post(url, { is_active: !currentlyActive });
       }
+      setMsg(action === 'delete' ? 'Đã xóa tài khoản vi phạm.' : 'Đã cập nhật trạng thái nhận lệnh của tài khoản.');
+      refetchAll();
+    } catch (err: any) {
+      setMsg(action === 'delete' ? `Lỗi: ${err.message || 'Không thể xóa tài khoản.'}` : `Lỗi: ${err.message || 'Không thể cập nhật trạng thái tài khoản.'}`);
     } finally {
       setBusyId(null);
     }
@@ -379,19 +369,11 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                         const nextRole = usr.role === 'admin' ? 'customer' : 'admin';
                         setBusyId(usr.id);
                         try {
-                          const r = await fetch(`/api/admin/users/${encodeURIComponent(usr.id)}/role`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                            credentials: 'include',
-                            body: JSON.stringify({ role: nextRole }),
-                          });
-                          const d = await r.json().catch(() => ({}));
-                          if (r.ok) {
-                            setMsg(`Đã đổi quyền ${usr.email} -> ${nextRole}.`);
-                            await loadBilling();
-                          } else {
-                            setMsg(`Không thể đổi quyền: ${typeof d.detail === 'string' ? d.detail : r.status}`);
-                          }
+                          await api.put(`/api/admin/users/${encodeURIComponent(usr.id)}/role`, { role: nextRole });
+                          setMsg(`Đã đổi quyền ${usr.email} -> ${nextRole}.`);
+                          await loadBilling();
+                        } catch (err: any) {
+                          setMsg(`Không thể đổi quyền: ${err.message || ''}`);
                         } finally {
                           setBusyId(null);
                         }
@@ -504,28 +486,12 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   setResetSaving(true);
                   setResetError('');
                   try {
-                    const r = await fetch(`/api/admin/users/${encodeURIComponent(resetTarget.id)}/password`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                      credentials: 'include',
-                      body: JSON.stringify({ password: clean }),
-                    });
-                    const d = await r.json().catch(() => ({}));
-                    if (r.ok) {
-                      setMsg(`Đã đặt lại mật khẩu cho ${resetTarget.email} thành công.`);
-                      setResetTarget(null);
-                      await loadBilling();
-                    } else {
-                      const errText =
-                        typeof d.detail === 'string'
-                          ? d.detail
-                          : Array.isArray(d.detail) && d.detail[0]?.msg
-                            ? d.detail[0].msg
-                            : `Lỗi máy chủ (${r.status})`;
-                      setResetError(errText);
-                    }
-                  } catch {
-                    setResetError('Lỗi kết nối máy chủ. Vui lòng thử lại.');
+                    await api.put(`/api/admin/users/${encodeURIComponent(resetTarget.id)}/password`, { password: clean });
+                    setMsg(`Đã đặt lại mật khẩu cho ${resetTarget.email} thành công.`);
+                    setResetTarget(null);
+                    await loadBilling();
+                  } catch (err: any) {
+                    setResetError(err.message || 'Lỗi đặt lại mật khẩu');
                   } finally {
                     setResetSaving(false);
                   }
@@ -625,24 +591,16 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   setCreateSaving(true);
                   setCreateError('');
                   try {
-                    const r = await fetch('/api/admin/users', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-                      credentials: 'include',
-                      body: JSON.stringify({
-                        email: createEmail.trim(),
-                        password: createPassword.trim(),
-                        role: createRole,
-                      }),
+                    await api.post('/api/admin/users', {
+                      email: createEmail.trim(),
+                      password: createPassword.trim(),
+                      role: createRole,
                     });
-                    const d = await r.json().catch(() => ({}));
-                    if (r.ok) {
-                      setMsg(`Đã tạo tài khoản ${createEmail.trim()} (${createRole}).`);
-                      setShowCreateModal(false);
-                      await loadBilling();
-                    } else {
-                      setCreateError(typeof d.detail === 'string' ? d.detail : `Lỗi (${r.status})`);
-                    }
+                    setMsg(`Đã tạo tài khoản ${createEmail.trim()} (${createRole}).`);
+                    setShowCreateModal(false);
+                    await loadBilling();
+                  } catch (err: any) {
+                    setCreateError(err.message || 'Lỗi tạo tài khoản');
                   } finally {
                     setCreateSaving(false);
                   }
@@ -679,20 +637,13 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                 onClick={async () => {
                   setDeleteSaving(true);
                   try {
-                    const r = await fetch(`/api/admin/users/${encodeURIComponent(deleteTarget.id)}`, {
-                      method: 'DELETE',
-                      headers: { 'X-Zupirus': '1' },
-                      credentials: 'include',
-                    });
-                    const d = await r.json().catch(() => ({}));
-                    if (r.ok) {
-                      setMsg(`Đã xóa người dùng ${deleteTarget.email}.`);
-                      setDeleteTarget(null);
-                      await loadBilling();
-                    } else {
-                      setMsg(`Không thể xóa: ${typeof d.detail === 'string' ? d.detail : r.status}`);
-                      setDeleteTarget(null);
-                    }
+                    await api.delete(`/api/admin/users/${encodeURIComponent(deleteTarget.id)}`);
+                    setMsg(`Đã xóa người dùng ${deleteTarget.email}.`);
+                    setDeleteTarget(null);
+                    await loadBilling();
+                  } catch (err: any) {
+                    setMsg(`Không thể xóa: ${err.message || ''}`);
+                    setDeleteTarget(null);
                   } finally {
                     setDeleteSaving(false);
                   }

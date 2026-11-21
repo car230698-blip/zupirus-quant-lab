@@ -15,6 +15,7 @@ from app.schemas.accounts import (
 from app.metaapi import MetaApiClient
 from app.security import encrypt_secret
 from app.services.billing_service import get_user_subscription
+from app.domains.accounts.lifecycle import set_account_cloud_state, toggle_account_trading
 
 logger = logging.getLogger("zupirus.accounts")
 router = APIRouter(tags=["accounts"])
@@ -684,16 +685,12 @@ async def cloud_deploy_action(account_id: str, action: str, u: dict = Depends(ge
             logger.error(f"MetaApi cloud {act} failed for account {real_id} (meta_id={meta_id})")
             fail(502, f"Thao tác {act.upper()} trên MetaApi Cloud thất bại. Trạng thái hiện tại được giữ nguyên.")
 
-    with tx() as c:
-        if acc.get("_is_ea_bridge"):
+    if acc.get("_is_ea_bridge"):
+        with tx() as c:
             new_en = 1 if act == "deploy" else 0
             c.execute("UPDATE accounts SET enabled=? WHERE id=? AND user_id=?", (new_en, real_id, owner_id))
-        else:
-            c.execute("UPDATE trading_accounts SET deployment_state=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
-            try:
-                c.execute("UPDATE metaapi_cloud_accounts SET metaapi_state=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
-            except Exception:
-                pass
+    else:
+        set_account_cloud_state(real_id, owner_id, new_state)
 
     return {
         "id": real_id,

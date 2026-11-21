@@ -57,8 +57,15 @@ def test_guardrail_strict_csp_no_inline_scripts():
 
 
 def test_guardrail_lot_calculation_standardization():
-    """Verify direct signal execution calls normalized lot size."""
-    fanout_py = ROOT / "app" / "services" / "execution" / "fanout.py"
-    if fanout_py.exists():
-        content = fanout_py.read_text(encoding="utf-8")
-        assert "calculate_normalized_lot_size" in content, "Fanout must use calculate_normalized_lot_size"
+    """Verify direct signal execution calls normalized lot size in domain."""
+    fanout_py = ROOT / "app" / "domains" / "execution" / "fanout.py"
+    assert fanout_py.exists(), "Domain fanout.py must exist"
+    content = fanout_py.read_text(encoding="utf-8")
+    assert "calculate_normalized_lot_size" in content, "Fanout must use calculate_normalized_lot_size"
+
+
+def test_guardrail_no_duplicate_admin_payments_router():
+    """Verify admin_payments_router is not mounted as a duplicate in app/main.py."""
+    main_py = ROOT / "app" / "main.py"
+    content = main_py.read_text(encoding="utf-8")
+    assert "admin_payments_router" not in content, "admin_payments_router must not be included (admin_billing_router is canonical)"

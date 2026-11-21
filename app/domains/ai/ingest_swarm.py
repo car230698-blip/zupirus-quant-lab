@@ -153,8 +153,18 @@ def agent4_package_skill(
     classification: Dict[str, Any],
     safeguards: Dict[str, Any],
     page_count: int,
+    text_length: int = 0,
 ) -> Dict[str, Any]:
     """Agent 4: Package synthesized knowledge unit into production-ready registry payload."""
+    full_skill_md = (
+        f"# {title} — ZUPIRUS Market Intelligence Spec\n\n"
+        f"## 1. Bản Chất Tri Thức\n- **Loại tài liệu**: `{classification.get('doc_type')}`\n- **Trường phái**: `{classification.get('category')}`\n- **Tài liệu nguồn**: `{title}`\n\n"
+        f"## 2. Ý Nghĩa Đối Với Hệ Thống AI\n{safeguards.get('description', '')}\n\n"
+        f"## 3. Quy Tắc Ứng Dụng & Quản Trị Rủi Ro\n"
+        f"- **Kích hoạt**: {safeguards.get('trigger_condition', '')}\n"
+        f"- **Bảo vệ vốn**: {safeguards.get('stop_loss_rule', '')}\n"
+        f"- **Quản trị vị thế**: {safeguards.get('take_profit_rule', '')}\n"
+    )
     return {
         "id": skill_id,
         "name": title,
@@ -167,6 +177,8 @@ def agent4_package_skill(
         "take_profit_rule": safeguards.get("take_profit_rule", ""),
         "rules": safeguards.get("rules", []),
         "pages_analyzed": page_count,
+        "text_length": text_length,
+        "full_skill_md": full_skill_md,
         "status": "ACTIVE",
     }
 
@@ -175,6 +187,7 @@ def execute_4agent_ingest_pipeline(
     filename: str,
     content_bytes: bytes,
     title: Optional[str] = None,
+    category: Optional[str] = None,
 ) -> Dict[str, Any]:
     """End-to-End Orchestrator for the 4-Agent Ingestion Pipeline."""
     clean_title = (title or filename or "Forex Quant Strategy").replace(".pdf", "").replace(".txt", "").replace(".md", "").strip()
@@ -188,9 +201,13 @@ def execute_4agent_ingest_pipeline(
 
     # Step 2: Agent 2 - Regime Classification
     classification = agent2_classify_regime(clean_title, extracted_text)
+    if category and category.strip():
+        classification["category"] = category.strip()
 
     # Step 3: Agent 3 - Safeguards & Stop-Loss Synthesis
     safeguards = agent3_synthesize_safeguards(classification, clean_title)
 
     # Step 4: Agent 4 - Package Skill / Knowledge Unit
-    return agent4_package_skill(skill_id, clean_title, classification, safeguards, page_count)
+    return agent4_package_skill(
+        skill_id, clean_title, classification, safeguards, page_count, text_length=len(extracted_text)
+    )

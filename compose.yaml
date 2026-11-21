@@ -91,7 +91,7 @@ services:
 
   execution:
     <<: *app
-    command: [python, -m, app.engine]
+    command: [python, -m, app.domains.execution.engine]
     depends_on:
       api: { condition: service_healthy }
       timescaledb: { condition: service_healthy }
@@ -109,14 +109,14 @@ services:
       DISCORD_WEBHOOK_ALERTS: ${DISCORD_WEBHOOK_ALERTS:-}
       DISCORD_WEBHOOK_BILLING: ${DISCORD_WEBHOOK_BILLING:-}
     healthcheck:
-      test: [CMD, python, scripts/worker_health.py, execution_heartbeat]
+      test: [CMD, python, scripts/ops/worker_health.py, execution_heartbeat]
       interval: 15s
       timeout: 5s
       retries: 3
 
   research:
     <<: *app
-    command: [python, -m, app.research]
+    command: [python, -m, app.domains.ai.research_graph]
     depends_on:
       api: { condition: service_healthy }
       timescaledb: { condition: service_healthy }
@@ -143,7 +143,7 @@ services:
       DISCORD_WEBHOOK_ALERTS: ${DISCORD_WEBHOOK_ALERTS:-}
       DISCORD_WEBHOOK_BILLING: ${DISCORD_WEBHOOK_BILLING:-}
     healthcheck:
-      test: [CMD, python, scripts/worker_health.py, research_heartbeat]
+      test: [CMD, python, scripts/ops/worker_health.py, research_heartbeat]
       interval: 15s
       timeout: 5s
       retries: 4

@@ -131,8 +131,26 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                     }
             else:
                 logger.warning("auto_rollback_check_skipped: active_cur is None")
+                if os.getenv("APP_ENV", "").lower() == "production":
+                    return {
+                        "side": None,
+                        "strategy": cand_name,
+                        "timeframe": timeframe,
+                        "parameters": rules,
+                        "version": STRATEGY_VERSION,
+                        "reason": f"AUTO_ROLLBACK_DB_UNAVAILABLE: Database cursor unavailable for rollback guard check on [{cand_name}] in production.",
+                    }
         except Exception:
             logger.exception("auto_rollback_check_failed")
+            if os.getenv("APP_ENV", "").lower() == "production":
+                return {
+                    "side": None,
+                    "strategy": cand_name,
+                    "timeframe": timeframe,
+                    "parameters": rules,
+                    "version": STRATEGY_VERSION,
+                    "reason": f"AUTO_ROLLBACK_DB_UNAVAILABLE: Exception encountered during rollback guard check on [{cand_name}] in production.",
+                }
 
         # Evaluate active self-learned skills from Agent Skill Registry (advisory / session-specific filter)
         blocked_sides = set()
