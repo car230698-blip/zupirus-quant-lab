@@ -7,27 +7,31 @@ export const LandingComparisonSection: React.FC = () => {
   const pillars = [
     {
       icon: <Server className="w-5 h-5 text-[#12B5A6]" strokeWidth={1.75} />,
-      metric: '24ms LD4',
-      title: 'Hạ Tầng Cloud MT5',
-      desc: 'Không cần thuê máy chủ Windows VPS hay cài đặt EA. Kết nối trực tiếp qua tài khoản MT5 của bạn.',
+      metric: '0 VPS',
+      isTeal: true,
+      title: 'Kết nối Cloud trực tiếp',
+      desc: 'Đồng bộ thẳng tài khoản MT5 qua đám mây với mật khẩu mã hóa AES-256. Tiền nằm 100% tại sàn của bạn.',
     },
     {
       icon: <ShieldCheck className="w-5 h-5 text-[#12B5A6]" strokeWidth={1.75} />,
-      metric: '100% SL Cứng',
-      title: '4 Lớp Giáp Bảo Vệ Vốn',
-      desc: 'Từ chối mọi tín hiệu thiếu mức dừng lỗ. Tuyệt đối không Martingale hay gồng lỗ qua tin đỏ.',
+      metric: '100% SL',
+      isTeal: false,
+      title: 'Từ chối lệnh thiếu dừng lỗ',
+      desc: 'Mọi tín hiệu không có Stop-Loss cứng hoặc vượt biên độ ATR đều bị hủy ngay tại cổng kiểm soát.',
     },
     {
       icon: <Scale className="w-5 h-5 text-[#12B5A6]" strokeWidth={1.75} />,
-      metric: 'Chuẩn Hóa Lot',
-      title: 'Hỗ Trợ Mọi Loại Tài Khoản',
-      desc: 'Tự động tính quy mô hợp đồng cho Standard, Cent USC và khóa trần rủi ro 1% với Quỹ Prop Live.',
+      metric: '1.0%',
+      isTeal: false,
+      title: 'Chuẩn kỷ luật Prop Live',
+      desc: 'Cộng dồn rủi ro mọi lệnh mở cùng ý tưởng ở mức tối đa 1% và tổng danh mục không vượt quá 2%.',
     },
     {
       icon: <Zap className="w-5 h-5 text-[#12B5A6]" strokeWidth={1.75} />,
-      metric: '3 Giây VietQR',
-      title: 'Kích Hoạt Tự Động 24/7',
-      desc: 'Chốt tỷ giá USD/VND thời gian thực và nâng hạn mức Cloud MT5 ngay lập tức khi quét mã SePay.',
+      metric: '3 Giây',
+      isTeal: false,
+      title: 'Kích hoạt SePay VietQR',
+      desc: 'Tự động đối khớp giao dịch 24/7, nâng cấp gói và mở khóa khe cắm tài khoản MT5 tức thì.',
     },
   ];
 
@@ -42,13 +46,13 @@ export const LandingComparisonSection: React.FC = () => {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, amount: 0.2 }}
             transition={{ duration: 0.45, delay: idx * 0.1 }}
-            className="group relative border-t-2 border-[#12B5A6]/40 pt-5 pb-2 transition-all"
+            className="group relative border-t border-white/15 hover:border-[#12B5A6] pt-5 pb-2 transition-all duration-300"
           >
             <div className="flex items-center justify-between">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
                 {card.icon}
               </div>
-              <span className="font-mono text-xl font-bold text-slate-100 tabular-nums">
+              <span className={`font-mono text-2xl font-bold tabular-nums ${card.isTeal ? 'text-[#12B5A6]' : 'text-white'}`}>
                 {card.metric}
               </span>
             </div>

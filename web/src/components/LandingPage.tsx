@@ -86,24 +86,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Badge: Cloud MT5 · Zero EA · Zero VPS with pulse ring */}
           <div className="inline-flex items-center gap-2.5 rounded-full border border-[#12B5A6]/30 bg-[#12B5A6]/10 px-4 py-1.5 text-xs font-mono font-medium text-emerald-300 backdrop-blur-md">
             <span className="pulse-wrap"><span className="pulse-core" /></span>
-            <span>Cloud MT5 · Zero EA · Zero VPS · Chuẩn Quỹ FTMO</span>
+            <span>Cloud MT5 · Zero EA · Zero VPS</span>
           </div>
 
-          {/* Large H1 with subtle gradient */}
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.08]">
-            Trạm Thực Thi Định Lượng Vàng{' '}
-            <span className="bg-gradient-to-r from-amber-200 via-amber-400 to-[#12B5A6] bg-clip-text text-transparent">
-              (XAU/USD)
-            </span>{' '}
-            Trên Đám Mây
+          {/* Large H1 with subtle silver/white gradient matching prototype */}
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.12]">
+            Giao dịch định lượng Vàng &amp; Forex{' '}
+            <span className="bg-gradient-to-r from-amber-200 via-white to-[#12B5A6] bg-clip-text text-transparent">
+              chuẩn kỷ luật quỹ.
+            </span>
           </h1>
 
           {/* 2-line concise description */}
           <p className="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Loại bỏ hoàn toàn sự cố treo máy VPS và rủi ro đứt kết nối EA. ZUPIRUS kết nối máy chủ London G2 trực tiếp tới tài khoản MT5 với 4 lớp giáp Fail-Closed bảo vệ vốn.
+            Kết nối trực tiếp tài khoản MT5 của bạn lên hạ tầng đám mây ZUPIRUS. Mọi lệnh đều đi qua 4 lớp bảo vệ Fail-Closed, tự quy đổi tài khoản Cent và khóa chặt trần rủi ro 1% cho quỹ Prop Live.
           </p>
 
-          {/* 2 CTA Buttons */}
+          {/* 2 Clean CTA Buttons */}
           <div className="flex flex-wrap items-center justify-center gap-3.5 pt-2">
             <button
               type="button"
@@ -111,30 +110,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#12B5A6] to-[#0D9488] px-7 py-3.5 text-sm font-extrabold text-[#032220] hover:shadow-[0_10px_30px_-8px_rgba(18,181,166,0.7)] hover:scale-[1.02] transition-all cursor-pointer whitespace-nowrap"
             >
               <Sparkles className="w-4 h-4" strokeWidth={2} />
-              <span>Mở Cổng Giao Dịch</span>
+              <span>Bắt đầu ngay</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" strokeWidth={2.2} />
             </button>
 
             <button
               type="button"
               onClick={() => {
-                const el = document.getElementById('pipeline');
+                const el = document.getElementById('guards') || document.getElementById('pipeline');
                 if (el) el.scrollIntoView({ behavior: 'smooth' });
               }}
               className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3.5 font-mono text-xs font-bold text-slate-200 hover:border-amber-400/50 hover:bg-amber-500/10 transition-colors cursor-pointer whitespace-nowrap backdrop-blur-md"
             >
-              <span>⚡ Xem 4 Lớp Giáp Bảo Vệ</span>
+              <span>⚡ Thử mô phỏng 4 lớp giáp</span>
             </button>
-
-            <a
-              href="https://discord.gg/yxCx3dVe34"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl border border-[#5865F2]/40 bg-[#5865F2]/15 px-4 py-3.5 font-mono text-xs font-bold text-[#8EA1FF] hover:bg-[#5865F2]/25 transition whitespace-nowrap"
-            >
-              <span>Cộng Đồng Discord</span>
-              <span>↗</span>
-            </a>
           </div>
 
           {/* Hero Product Terminal Showcase (3D tilt that flattens on scroll) */}

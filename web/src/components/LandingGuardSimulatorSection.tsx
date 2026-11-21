@@ -18,9 +18,10 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
 
   return (
     <section
-      id="safety-shield"
-      className="grid grid-cols-1 gap-8 lg:grid-cols-12 items-center"
+      id="guards"
+      className="relative grid grid-cols-1 gap-8 lg:grid-cols-12 items-center"
     >
+      <div id="pipeline" className="absolute -top-24 left-0 pointer-events-none" />
       {/* Left Column: 4-Layer Guard Explanation & 3 Scenario Testing Buttons */}
       <div className="space-y-5 lg:col-span-6">
         <div>

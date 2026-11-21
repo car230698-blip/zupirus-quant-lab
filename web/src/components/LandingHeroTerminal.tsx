@@ -1,19 +1,16 @@
 import React, { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'motion/react';
 import { SpotlightBento } from './ui/SpotlightBento';
-import { Activity, ShieldCheck, Zap, Lock } from 'lucide-react';
 
 export interface LandingHeroTerminalProps {
-  spotPrice: number;
-  askPrice: number;
-  spreadPips: number;
-  onEnterPortal: () => void;
+  spotPrice?: number;
+  askPrice?: number;
+  spreadPips?: number;
+  onEnterPortal?: () => void;
 }
 
 export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
-  spotPrice,
-  askPrice,
-  spreadPips,
+  spotPrice = 0,
   onEnterPortal,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -24,179 +21,193 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
 
   // Tilted 3D initially (5deg), smoothly flattens to 0deg as user scrolls into view
   const rotateX = useTransform(scrollYProgress, [0, 1], [6, 0]);
-  const scale = useTransform(scrollYProgress, [0, 1], [0.97, 1]);
-  const opacity = useTransform(scrollYProgress, [0, 1], [0.85, 1]);
+  const scale = useTransform(scrollYProgress, [0, 1], [0.985, 1]);
+  const opacity = useTransform(scrollYProgress, [0, 1], [0.9, 1]);
 
-  const liveBid = spotPrice > 0 ? spotPrice.toFixed(2) : '3,538.86';
-  const liveAsk = askPrice > 0 ? askPrice.toFixed(2) : '3,539.14';
-  const liveSpread = spreadPips > 0 ? spreadPips.toFixed(1) : '2.8';
+  const livePriceStr = spotPrice > 0 ? `$${spotPrice.toFixed(2)}` : 'XAU/USD';
 
   return (
     <div ref={containerRef} className="perspective-1000 mx-auto w-full max-w-5xl pt-4">
       <motion.div style={{ rotateX, scale, opacity, transformStyle: 'preserve-3d' }}>
-        <SpotlightBento borderBeam className="p-4 sm:p-7 shadow-[0_30px_90px_-20px_rgba(0,0,0,0.85)]">
-          {/* Top Terminal macOS Chrome Bar */}
-          <div className="flex items-center justify-between border-b border-white/[0.08] pb-4 mb-5">
+        <SpotlightBento borderBeam className="p-0 overflow-hidden shadow-[0_36px_95px_-24px_rgba(0,0,0,0.85)]">
+          {/* Top macOS Style Terminal Bar */}
+          <div className="flex items-center justify-between border-b border-white/[0.08] bg-[#070D1C]/90 px-5 py-3.5 text-xs text-slate-400">
             <div className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded-full bg-rose-500/80 inline-block" />
-              <span className="h-3 w-3 rounded-full bg-amber-500/80 inline-block" />
-              <span className="h-3 w-3 rounded-full bg-emerald-500/80 inline-block" />
-              <span className="ml-2 font-mono text-xs font-semibold text-slate-400">
-                ZUPIRUS QUANTUM ORDERFLOW COCKPIT · XAU/USD (M15)
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500/80 inline-block" />
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500/80 inline-block" />
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80 inline-block" />
+              <span className="ml-2 font-mono text-slate-300">
+                app.zupirus.com · Cloud MT5 Bridge
               </span>
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold text-[#12B5A6] bg-[#12B5A6]/10 border border-[#12B5A6]/25 px-2.5 py-0.5 rounded-full">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#12B5A6] animate-pulse" />
-                LONDON G2 · 19ms
+              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold text-[#12B5A6]">
+                <span className="pulse-wrap"><span className="pulse-core" /></span>
+                LIVE · 21ms
               </span>
-              <button
-                type="button"
-                onClick={onEnterPortal}
-                className="hidden sm:inline-flex items-center gap-1 font-mono text-xs font-bold text-amber-300 hover:text-white transition-colors cursor-pointer"
-              >
-                Vào Cổng App ↗
-              </button>
+              {onEnterPortal && (
+                <button
+                  type="button"
+                  onClick={onEnterPortal}
+                  className="hidden sm:inline-flex items-center gap-1 font-mono text-xs font-bold text-amber-300 hover:text-white transition-colors cursor-pointer ml-2"
+                >
+                  Vào Cổng App ↗
+                </button>
+              )}
             </div>
           </div>
 
           {/* 4 KPIs Row */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-            <div className="rounded-xl border border-white/[0.06] bg-[#070D1C]/80 p-3.5">
-              <div className="flex items-center justify-between text-slate-400 font-mono text-[10.5px]">
-                <span>SPOT BID / ASK</span>
-                <Activity className="w-3.5 h-3.5 text-amber-400" strokeWidth={1.75} />
+          <div className="grid grid-cols-2 lg:grid-cols-4 border-b border-white/[0.08] text-left">
+            <div className="p-4 sm:p-5 border-r border-b sm:border-b-0 border-white/[0.08] hover:bg-white/[0.02] transition-colors">
+              <div className="text-xs text-slate-400 mb-1.5 font-medium">Tổng Tài Sản Quy Đổi</div>
+              <div className="font-mono text-xl sm:text-2xl font-bold text-white tracking-tight tabular-nums">
+                $128,450.00
               </div>
-              <div className="mt-2 font-mono text-lg sm:text-xl font-extrabold text-white tabular-nums">
-                ${liveBid} <span className="text-xs text-slate-400 font-normal">/ ${liveAsk}</span>
-              </div>
-              <div className="mt-1 font-mono text-[11px] text-[#12B5A6]">
-                Spread {liveSpread}p · Overlap Active
+              <div className="mt-1 font-mono text-xs text-[#12B5A6]">
+                +6.4% · 30 ngày
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/[0.06] bg-[#070D1C]/80 p-3.5">
-              <div className="flex items-center justify-between text-slate-400 font-mono text-[10.5px]">
-                <span>4 LỚP GIÁP BẢO VỆ</span>
-                <ShieldCheck className="w-3.5 h-3.5 text-[#12B5A6]" strokeWidth={1.75} />
+            <div className="p-4 sm:p-5 border-b sm:border-b-0 lg:border-r border-white/[0.08] hover:bg-white/[0.02] transition-colors">
+              <div className="text-xs text-slate-400 mb-1.5 font-medium">Sụt Giảm Ngày (Daily DD)</div>
+              <div className="font-mono text-xl sm:text-2xl font-bold text-white tracking-tight tabular-nums">
+                0.42% <span className="text-sm font-normal text-slate-400">/ 4.0%</span>
               </div>
-              <div className="mt-2 font-mono text-lg sm:text-xl font-extrabold text-[#12B5A6] tabular-nums">
-                FAIL-CLOSED
-              </div>
-              <div className="mt-1 font-mono text-[11px] text-slate-400">
-                Auto-SL ATR(14) · News Shield
+              <div className="mt-1 text-xs text-slate-300">
+                Trạng thái an toàn
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/[0.06] bg-[#070D1C]/80 p-3.5">
-              <div className="flex items-center justify-between text-slate-400 font-mono text-[10.5px]">
-                <span>WIN RATE OOS</span>
-                <Zap className="w-3.5 h-3.5 text-cyan-400" strokeWidth={1.75} />
+            <div className="p-4 sm:p-5 border-r border-white/[0.08] hover:bg-white/[0.02] transition-colors">
+              <div className="text-xs text-slate-400 mb-1.5 font-medium">Khiên Prop Firm Live</div>
+              <div className="font-mono text-xl sm:text-2xl font-bold text-[#12B5A6] tracking-tight tabular-nums">
+                1.0% CAP
               </div>
-              <div className="mt-2 font-mono text-lg sm:text-xl font-extrabold text-cyan-300 tabular-nums">
-                71.4%
-              </div>
-              <div className="mt-1 font-mono text-[11px] text-slate-400">
-                Kiểm định Walk-Forward
+              <div className="mt-1 text-xs text-slate-300">
+                Tối đa 2.0% toàn danh mục
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/[0.06] bg-[#070D1C]/80 p-3.5">
-              <div className="flex items-center justify-between text-slate-400 font-mono text-[10.5px]">
-                <span>TRẦN RỦI RO / Ý TƯỞNG</span>
-                <Lock className="w-3.5 h-3.5 text-[#F5B700]" strokeWidth={1.75} />
+            <div className="p-4 sm:p-5 hover:bg-white/[0.02] transition-colors">
+              <div className="text-xs text-slate-400 mb-1.5 font-medium">Cặp Chính Đang Quét</div>
+              <div className="font-mono text-xl sm:text-2xl font-bold text-amber-300 tracking-tight tabular-nums">
+                {livePriceStr}
               </div>
-              <div className="mt-2 font-mono text-lg sm:text-xl font-extrabold text-[#F5B700] tabular-nums">
-                1.0% MAX
-              </div>
-              <div className="mt-1 font-mono text-[11px] text-slate-400">
-                Khóa Redis Idempotency
+              <div className="mt-1 font-mono text-xs text-slate-300">
+                EUR · GBP · JPY
               </div>
             </div>
           </div>
 
-          {/* SVG Equity Growth Curve + Candlestick Micro-Visualization */}
-          <div className="relative rounded-xl border border-white/[0.06] bg-[#040814]/90 p-4 mb-6 overflow-hidden">
-            <div className="flex items-center justify-between mb-3 text-xs font-mono">
-              <span className="text-slate-300 font-bold flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-[#12B5A6] animate-pulse" />
-                ĐƯỜNG CONG TĂNG TRƯỞNG EQUITY QUỸ PROP (SIMULATED OOS)
-              </span>
-              <span className="text-emerald-400 font-bold">+14.2% WFO NET</span>
-            </div>
-
-            <svg viewBox="0 0 700 130" className="w-full h-28 sm:h-36">
-              <defs>
-                <linearGradient id="termGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#12B5A6" stop-opacity="0.32" />
-                  <stop offset="100%" stop-color="#12B5A6" stop-opacity="0" />
-                </linearGradient>
-              </defs>
-
-              {/* Grid lines */}
-              <line x1="0" y1="30" x2="700" y2="30" stroke="rgba(255,255,255,0.05)" />
-              <line x1="0" y1="65" x2="700" y2="65" stroke="rgba(255,255,255,0.05)" />
-              <line x1="0" y1="100" x2="700" y2="100" stroke="rgba(255,255,255,0.05)" />
-
-              {/* Shaded Area */}
-              <path
-                d="M 10 110 L 80 102 L 150 96 L 230 82 L 310 88 L 390 64 L 470 52 L 550 56 L 620 32 L 690 18 L 690 125 L 10 125 Z"
-                fill="url(#termGrad)"
-              />
-
-              {/* Equity Stroke Line */}
-              <path
-                d="M 10 110 L 80 102 L 150 96 L 230 82 L 310 88 L 390 64 L 470 52 L 550 56 L 620 32 L 690 18"
-                fill="none"
-                stroke="#12B5A6"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-
-              {/* End Pulse Dot */}
-              <circle cx="690" cy="18" r="8" fill="rgba(18,181,166,0.25)" />
-              <circle cx="690" cy="18" r="4" fill="#12B5A6" stroke="#040814" strokeWidth="1.5" />
-            </svg>
-          </div>
-
-          {/* 3 Synced Cloud MT5 Nodes */}
-          <div>
-            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 mb-2.5">
-              <span>TRẠM CLOUD MT5 ĐỒNG BỘ ĐA TÀI KHOẢN (FAN-OUT ZERO EA)</span>
-              <span className="text-[#12B5A6] font-bold">3/3 ACTIVE</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs font-mono">
-              <div className="flex items-center justify-between rounded-lg border border-amber-500/25 bg-[#070D1C] p-3">
-                <div>
-                  <div className="font-bold text-amber-300">FTMO Prop Live $100K</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">0.50 Lot · Hard SL 35p</div>
-                </div>
-                <span className="rounded bg-amber-500/15 text-amber-300 px-2 py-0.5 text-[10px] font-bold">
-                  25ms
-                </span>
+          {/* Terminal Body: 2 Columns (1.45fr Chart + 1fr Accounts) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 text-left">
+            {/* Left Column: SVG Equity Growth Curve */}
+            <div className="lg:col-span-7 p-5 sm:p-6 lg:border-r border-b lg:border-b-0 border-white/[0.08]">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-sm font-semibold text-white">Đường Cong Tăng Trưởng Thực Chiến</span>
+                <span className="font-mono text-xs text-[#12B5A6] font-bold">TABULA RASA · APPROVED</span>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg border border-emerald-500/25 bg-[#070D1C] p-3">
-                <div>
-                  <div className="font-bold text-emerald-300">Exness Raw Spread</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">0.25 Lot · Dynamic BE</div>
-                </div>
-                <span className="rounded bg-emerald-500/15 text-emerald-300 px-2 py-0.5 text-[10px] font-bold">
-                  18ms
-                </span>
+              <div className="relative w-full overflow-hidden">
+                <svg
+                  viewBox="0 0 560 205"
+                  className="w-full h-44 sm:h-52"
+                  role="img"
+                  aria-label="Biểu đồ tăng trưởng equity"
+                >
+                  <defs>
+                    <linearGradient id="heroEqGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#12B5A6" stopOpacity="0.28" />
+                      <stop offset="100%" stopColor="#12B5A6" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Horizontal Gridlines */}
+                  <line x1="0" y1="45" x2="560" y2="45" stroke="rgba(148,163,184,0.09)" strokeWidth="1" />
+                  <line x1="0" y1="100" x2="560" y2="100" stroke="rgba(148,163,184,0.09)" strokeWidth="1" />
+                  <line x1="0" y1="155" x2="560" y2="155" stroke="rgba(148,163,184,0.09)" strokeWidth="1" />
+
+                  {/* Area Fill */}
+                  <path
+                    d="M 10 168 L 75 154 L 140 160 L 205 130 L 270 118 L 335 124 L 405 88 L 475 72 L 548 36 L 548 195 L 10 195 Z"
+                    fill="url(#heroEqGrad)"
+                  />
+
+                  {/* Bezier Equity Line */}
+                  <path
+                    d="M 10 168 L 75 154 L 140 160 L 205 130 L 270 118 L 335 124 L 405 88 L 475 72 L 548 36"
+                    fill="none"
+                    stroke="#12B5A6"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+
+                  {/* Gold Intermediate Milestones */}
+                  <circle cx="205" cy="130" r="4" fill="#F5B700" />
+                  <circle cx="405" cy="88" r="4" fill="#F5B700" />
+
+                  {/* Live Endpoint Pulse Dot */}
+                  <circle cx="548" cy="36" r="10" fill="rgba(18,181,166,0.22)" />
+                  <circle cx="548" cy="36" r="4.5" fill="#12B5A6" stroke="#0B1220" strokeWidth="2" />
+                </svg>
+              </div>
+            </div>
+
+            {/* Right Column: 3 Synced Cloud MT5 Accounts */}
+            <div className="lg:col-span-5 p-5 sm:p-6 flex flex-col justify-between gap-3">
+              <div className="flex items-center justify-between pb-1">
+                <span className="text-sm font-semibold text-white">Tài Khoản Đồng Bộ (3/3)</span>
+                <span className="font-mono text-xs text-slate-400">FAIL-CLOSED</span>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg border border-cyan-500/25 bg-[#070D1C] p-3">
-                <div>
-                  <div className="font-bold text-cyan-300">IC Markets Cent Account</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">2.50 Cent Lot · Scale 100x</div>
+              <div className="space-y-2.5">
+                <div className="group flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#070D1C]/90 p-3.5 transition-all duration-200 hover:border-[#12B5A6]/45 hover:translate-x-1">
+                  <div>
+                    <div className="text-xs font-bold text-white group-hover:text-[#12B5A6] transition-colors">
+                      FTMO $100K · Prop Live
+                    </div>
+                    <div className="font-mono text-[11px] text-slate-400 mt-0.5">
+                      Trần 1.0% / ý tưởng · SL cứng
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-xs font-bold text-[#12B5A6]">0.50 Lot</div>
+                    <div className="font-mono text-[10.5px] text-slate-400">21ms</div>
+                  </div>
                 </div>
-                <span className="rounded bg-cyan-500/15 text-cyan-300 px-2 py-0.5 text-[10px] font-bold">
-                  22ms
-                </span>
+
+                <div className="group flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#070D1C]/90 p-3.5 transition-all duration-200 hover:border-[#12B5A6]/45 hover:translate-x-1">
+                  <div>
+                    <div className="text-xs font-bold text-white group-hover:text-[#12B5A6] transition-colors">
+                      Exness Raw · Standard
+                    </div>
+                    <div className="font-mono text-[11px] text-slate-400 mt-0.5">
+                      $27,950.00 · Auto-Trade ON
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-xs font-bold text-[#12B5A6]">0.25 Lot</div>
+                    <div className="font-mono text-[10.5px] text-slate-400">19ms</div>
+                  </div>
+                </div>
+
+                <div className="group flex items-center justify-between rounded-xl border border-white/[0.08] bg-[#070D1C]/90 p-3.5 transition-all duration-200 hover:border-[#12B5A6]/45 hover:translate-x-1">
+                  <div>
+                    <div className="text-xs font-bold text-white group-hover:text-[#12B5A6] transition-colors">
+                      IC Markets · Cent (USC)
+                    </div>
+                    <div className="font-mono text-[11px] text-slate-400 mt-0.5">
+                      50,000 USC (≈ $500.00)
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-xs font-bold text-[#12B5A6]">0.10 Lot</div>
+                    <div className="font-mono text-[10.5px] text-slate-400">24ms</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
