@@ -260,9 +260,15 @@ def _serve_spa_dir(base_dir: Path, full_path: str):
     if not base_dir.exists():
         return None
     root = base_dir.resolve()
-    direct_file = (root / full_path.lstrip("/\\")).resolve()
-    if full_path and direct_file.is_relative_to(root) and direct_file.is_file():
+    clean_path = full_path.lstrip("/\\")
+    direct_file = (root / clean_path).resolve()
+    if clean_path and direct_file.is_relative_to(root) and direct_file.is_file():
         return FileResponse(direct_file, headers=_NO_CACHE_HEADERS if direct_file.name == 'index.html' else None)
+    for alt_pub in (ROOT / 'public', WEB_DIR / 'public'):
+        if alt_pub.exists():
+            cand = (alt_pub.resolve() / clean_path).resolve()
+            if cand.is_file() and cand.is_relative_to(alt_pub.resolve()):
+                return FileResponse(cand)
     index_file = base_dir / 'index.html'
     if index_file.exists():
         return FileResponse(index_file, headers=_NO_CACHE_HEADERS)
