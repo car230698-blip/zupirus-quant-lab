@@ -502,10 +502,11 @@ async def handle_sepay_webhook(
 
     if not matched_user_id:
         return {
-            "success": False,
+            "success": True,
             "transaction_id": tx_id,
             "amount": amount_in,
-            "message": "Không tìm thấy mã đơn hàng hoặc người dùng tương ứng. Giao dịch được lưu lại cho đối soát thủ công."
+            "manual_reconciliation": True,
+            "message": "Giao dịch đã được ghi nhận thành công và chuyển vào danh sách đối soát thủ công."
         }
 
     return {

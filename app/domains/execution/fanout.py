@@ -115,16 +115,16 @@ async def execute_fan_out_for_signal(
                     if q_row and q_row[0] and q_row[1]:
                         from app.services.symbol_precision import pip_multiplier_for_symbol
                         broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * pip_multiplier_for_symbol(canon_sym), 1)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"Could not compute broker spread from quotes table for {canon_sym} (acc {acc_id}): {exc}")
         if broker_spread <= 0:
             try:
                 from app.routers.telemetry import get_live_xauusd_quote
                 lq = get_live_xauusd_quote()
                 if lq.get("spread_pips"):
                     broker_spread = float(lq["spread_pips"])
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"Could not retrieve live quote spread for {symbol} (acc {acc_id}): {exc}")
         if broker_spread <= 0 and metaapi_client and getattr(metaapi_client, "is_mock", False):
             broker_spread = 1.5
         if broker_spread <= 0:

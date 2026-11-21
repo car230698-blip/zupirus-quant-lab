@@ -501,7 +501,7 @@ def seo_lot_calculator_page() -> HTMLResponse:
             keywords,
             json_ld,
             body,
-            extra_head_html='<script src="/lot-calculator.js" defer></script>',
+            extra_head_html="",
         )
     )
 

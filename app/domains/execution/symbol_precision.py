@@ -1,4 +1,7 @@
 """Symbol-aware price precision, pip size, and USD quote conversion helpers."""
+import logging
+
+logger = logging.getLogger("zupirus.execution.symbol_precision")
 
 
 def digits_for_symbol(symbol: str) -> int:
@@ -57,8 +60,8 @@ def _lookup_quote_mid(symbol: str) -> float:
             ).fetchone()
             if q and q[0] and q[1]:
                 return (float(q[0]) + float(q[1])) / 2.0
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"Could not lookup quote mid for {symbol}: {exc}")
     return 0.0
 
 

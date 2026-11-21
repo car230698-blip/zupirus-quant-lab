@@ -138,8 +138,8 @@ def resolve_broker_symbol(account_id: str, standard_symbol: str) -> Optional[str
                     if len(cs) <= 2:
                         return f"{std_sym}{cs}"
                     return f"{std_sym}.{cs}" if cs.isalpha() and len(cs) <= 4 else cs
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"Could not parse custom symbol mapping for account {account_id}, symbol {std_sym}: {exc}")
 
         row = c.execute(
             "SELECT broker_symbol, is_supported FROM account_symbol_map WHERE account_id = ? AND standard_symbol = ?",

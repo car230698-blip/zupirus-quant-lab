@@ -396,8 +396,8 @@ class PositionWatcher:
                                     f"KHẨN: Ngắt mạch Prop DD {acc_id} chưa đóng hết lệnh",
                                     f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}%. Đã tắt auto_trade và sẽ thử đóng lại ở chu kỳ sau. Chi tiết: {close_res}",
                                 )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.warning(f"Failed to send admin alert email for Prop DD account {acc_id}: {exc}")
                         continue
 
                 # 2B. Prop Firm Exclusive Protections (only when is_prop_firm_mode is explicitly enabled; personal accounts unaffected)
@@ -477,8 +477,8 @@ class PositionWatcher:
                                         f"KHẨN: Ngắt mạch HWM 8% {acc_id} chưa đóng hết lệnh",
                                         f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã tắt auto_trade và sẽ thử đóng lại ở chu kỳ sau. Chi tiết: {close_res}",
                                     )
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                logger.warning(f"Failed to send admin alert email for HWM DD account {acc_id}: {exc}")
                             continue
 
                 # 3. Friday 21:00 UTC Weekend Risk Close
@@ -629,8 +629,8 @@ class PositionWatcher:
                                                         user_id=acc.get("user_id"),
                                                         scope="user",
                                                     )
-                                            except Exception:
-                                                pass
+                                            except Exception as exc:
+                                                logger.debug(f"Failed to store partial TP1 hindsight memory for signal #{ex_row[0][:8]}: {exc}")
                                         results["partial_tp_executed"] += 1
                                 else:
                                     # Volume < 0.02 cannot be split; mark complete once BE SL is moved
