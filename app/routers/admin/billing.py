@@ -79,12 +79,12 @@ def get_billing_settings(_admin=Depends(get_current_admin)):
         row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
         saved = json.loads(row[0]) if row else {}
 
-    bank_name = saved.get("sepay_bank_name") or saved.get("bank_name", SEPAY_BANK_NAME)
-    account_number = saved.get("sepay_account_number") or saved.get("account_number", SEPAY_ACCOUNT_NUMBER)
-    account_holder = saved.get("sepay_account_holder") or saved.get("account_holder", SEPAY_ACCOUNT_HOLDER)
-    content_prefix = saved.get("content_prefix", "ZP")
-    fx_mode = saved.get("fx_mode", "AUTO")
-    manual_fx_rate = float(saved.get("fallback_usd_vnd_rate") or saved.get("manual_fx_rate", 25600.0))
+    bank_name = (saved.get("sepay_bank_name") or saved.get("bank_name") or SEPAY_BANK_NAME or "").strip()
+    account_number = (saved.get("sepay_account_number") or saved.get("account_number") or SEPAY_ACCOUNT_NUMBER or "").strip()
+    account_holder = (saved.get("sepay_account_holder") or saved.get("account_holder") or SEPAY_ACCOUNT_HOLDER or "").strip().upper()
+    content_prefix = (saved.get("content_prefix") or "ZP").strip().upper()
+    fx_mode = (saved.get("fx_mode") or "AUTO").strip().upper()
+    manual_fx_rate = float(saved.get("fallback_usd_vnd_rate") or saved.get("manual_fx_rate") or 25600.0)
 
     raw_enc_sec = saved.get("sepay_webhook_secret_encrypted")
     secret = ""
@@ -131,11 +131,11 @@ def _save_settings(req: FlexibleBillingSettingsUpdate):
         row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
         existing = json.loads(row[0]) if row else {}
 
-    bank_name = (req.sepay_bank_name or req.bank_name or existing.get("bank_name", SEPAY_BANK_NAME)).strip()
-    account_number = (req.sepay_account_number or req.account_number or existing.get("account_number", SEPAY_ACCOUNT_NUMBER)).strip()
-    account_holder = (req.sepay_account_holder or req.account_holder or existing.get("account_holder", SEPAY_ACCOUNT_HOLDER)).strip().upper()
-    content_prefix = (req.content_prefix or existing.get("content_prefix", "ZP")).strip().upper()
-    fx_mode = (req.fx_mode or existing.get("fx_mode", "AUTO")).strip().upper()
+    bank_name = (req.sepay_bank_name or req.bank_name or existing.get("sepay_bank_name") or existing.get("bank_name") or SEPAY_BANK_NAME or "").strip()
+    account_number = (req.sepay_account_number or req.account_number or existing.get("sepay_account_number") or existing.get("account_number") or SEPAY_ACCOUNT_NUMBER or "").strip()
+    account_holder = (req.sepay_account_holder or req.account_holder or existing.get("sepay_account_holder") or existing.get("account_holder") or SEPAY_ACCOUNT_HOLDER or "").strip().upper()
+    content_prefix = (req.content_prefix or existing.get("content_prefix") or "ZP").strip().upper()
+    fx_mode = (req.fx_mode or existing.get("fx_mode") or "AUTO").strip().upper()
 
     rate_val = req.fallback_usd_vnd_rate if req.fallback_usd_vnd_rate is not None else req.manual_fx_rate
     if rate_val is None:

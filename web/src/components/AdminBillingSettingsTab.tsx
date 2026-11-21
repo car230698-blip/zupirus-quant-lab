@@ -123,11 +123,24 @@ export const AdminBillingSettingsTab: React.FC = () => {
               </label>
               <input
                 type="text"
+                list="supported-sepay-banks"
                 value={settings.sepay_bank_name}
                 onChange={(e) => setSettings({ ...settings, sepay_bank_name: e.target.value })}
-                placeholder="VD: MB, VCB, ACB, TCB, BIDV..."
+                placeholder="VD: VietinBank, MBBank, VCB, ACB, TCB, BIDV..."
                 className="quant-input font-mono text-sm"
               />
+              <datalist id="supported-sepay-banks">
+                <option value="VietinBank">VietinBank (ICB)</option>
+                <option value="MBBank">MBBank (MB)</option>
+                <option value="Vietcombank">Vietcombank (VCB)</option>
+                <option value="Techcombank">Techcombank (TCB)</option>
+                <option value="ACB">ACB</option>
+                <option value="VPBank">VPBank</option>
+                <option value="TPBank">TPBank</option>
+                <option value="BIDV">BIDV</option>
+                <option value="Sacombank">Sacombank</option>
+                <option value="HDBank">HDBank</option>
+              </datalist>
             </div>
 
             <div>
@@ -271,6 +284,10 @@ export const AdminBillingSettingsTab: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-slate-400">Số tài khoản:</span>
                 <strong className="text-cyan-300">{settings.sepay_account_number || '—'}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Chủ tài khoản:</span>
+                <strong className="text-slate-200 uppercase">{settings.sepay_account_holder || '—'}</strong>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Số tiền quy đổi:</span>
