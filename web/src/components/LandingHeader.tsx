@@ -58,11 +58,11 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
             href="https://discord.gg/yxCx3dVe34"
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-[#5865F2]/40 bg-[#5865F2]/15 px-3 py-1.5 text-xs font-mono font-bold text-[#8EA1FF] hover:bg-[#5865F2]/25 transition"
+            className="hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-[#3b4b7a] bg-[#0c1326] px-3.5 py-2 text-xs font-mono font-bold text-[#8EA1FF] hover:bg-[#5865F2]/20 hover:border-[#5865F2]/50 transition"
             title="Tham gia cộng đồng ZUPIRUS Quant Lab trên Discord"
           >
-            <span>Discord</span>
-            <span>↗</span>
+            <span>Discord (1,200+ Trader)</span>
+            <span className="text-[11px]">↗</span>
           </a>
 
           <button

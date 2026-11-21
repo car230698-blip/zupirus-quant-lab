@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useCloudAccounts } from '../hooks/useQuantData';
 import { fmtNum } from '../utils/strategyDecision';
 import { AccountModals } from './AccountModals';
-import { ConnectedAccountsListSection } from './ConnectedAccountsListSection';
+import { ConnectedAccountsListSection, type EditAccountConfigForm } from './ConnectedAccountsListSection';
 import { UserReferralAndInvoicesSection } from './UserReferralAndInvoicesSection';
 import { IconShield } from './Icons';
 import { POPULAR_BROKERS, QUANT_PLANS, PRICING_TIERS_LIST, normalizePlanTier, type PlanTier } from '../data/quantConstants';
@@ -69,7 +69,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
 
   const [expandedConfigId, setExpandedConfigId] = useState<string | null>(null);
-  const [editConfigForm, setEditConfigForm] = useState({
+  const [editConfigForm, setEditConfigForm] = useState<EditAccountConfigForm>({
     lot_multiplier: '1.0',
     max_daily_dd_pct: '4.0',
     max_lot: '5.0',
@@ -77,6 +77,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     symbol_mapping_custom: '',
     is_prop_firm_mode: false,
     prop_stage: 'CHALLENGE' as 'CHALLENGE' | 'LIVE',
+    allowed_strategy_ids: '',
   });
 
   const fetchFxRate = async () => {
@@ -317,6 +318,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       symbol_mapping_custom: String(acc.symbol_mapping_custom ?? ''),
       is_prop_firm_mode: Boolean(acc.is_prop_firm_mode),
       prop_stage: (String(acc.prop_stage || 'CHALLENGE').toUpperCase() === 'LIVE' ? 'LIVE' : 'CHALLENGE'),
+      allowed_strategy_ids: String(acc.allowed_strategy_ids ?? ''),
     });
   };
 
@@ -336,6 +338,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         symbol_mapping_custom: editConfigForm.symbol_mapping_custom.trim(),
         is_prop_firm_mode: editConfigForm.is_prop_firm_mode,
         prop_stage: editConfigForm.is_prop_firm_mode ? editConfigForm.prop_stage : 'CHALLENGE',
+        allowed_strategy_ids: (editConfigForm.allowed_strategy_ids || '').trim(),
       });
       setExpandedConfigId(null);
       setCloudMsg(`Đã lưu cấu hình quản trị rủi ro cho tài khoản #${id}`);

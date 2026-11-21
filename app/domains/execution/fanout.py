@@ -154,6 +154,17 @@ async def execute_fan_out_for_signal(
             logger.warning(f"Idempotency: Signal {signal_id} already executed for account {acc_id}. Skipping.")
             continue
 
+        # Multi-Strategy Allocation Check (Stage 4)
+        allowed_strats_raw = acc.get("allowed_strategy_ids")
+        if allowed_strats_raw and str(allowed_strats_raw).strip():
+            allowed_list = [s.strip().lower() for s in str(allowed_strats_raw).split(",") if s.strip()]
+            sig_strat = str(signal.get("strategy") or signal.get("source") or "").strip().lower()
+            if allowed_list and sig_strat and (sig_strat not in allowed_list and "all" not in allowed_list):
+                logger.info(
+                    f"Account {acc_id} skipped: STRATEGY_NOT_SUBSCRIBED (strategy '{sig_strat}' not in {allowed_list})."
+                )
+                continue
+
         # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
         is_comp = bool(acc.get("is_compounding", False))
         try:

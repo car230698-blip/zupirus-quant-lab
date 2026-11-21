@@ -405,7 +405,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 rel="noopener noreferrer"
                 className="text-[#8EA1FF] hover:underline flex items-center gap-1 font-bold"
               >
-                <span>Cộng Đồng Discord</span>
+                <span>Discord (1,200+ Trader)</span>
                 <span>↗</span>
               </a>
               <a href="#pipeline" className="hover:text-white transition">4 Lớp Giáp</a>

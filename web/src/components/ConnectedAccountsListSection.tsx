@@ -10,6 +10,7 @@ export interface EditAccountConfigForm {
   symbol_mapping_custom: string;
   is_prop_firm_mode: boolean;
   prop_stage: 'CHALLENGE' | 'LIVE';
+  allowed_strategy_ids?: string;
 }
 
 export interface ConnectedAccountsListSectionProps {
@@ -295,6 +296,21 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                             setEditConfigForm({
                               ...editConfigForm,
                               symbol_mapping_custom: e.target.value,
+                            })
+                          }
+                          className="quant-input font-mono text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[11px] text-slate-400">Phân Bổ Chiến Lược</label>
+                        <input
+                          type="text"
+                          placeholder="all hoặc smc, price_action"
+                          value={editConfigForm.allowed_strategy_ids || ''}
+                          onChange={(e) =>
+                            setEditConfigForm({
+                              ...editConfigForm,
+                              allowed_strategy_ids: e.target.value,
                             })
                           }
                           className="quant-input font-mono text-xs"

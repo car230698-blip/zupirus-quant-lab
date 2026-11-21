@@ -16,66 +16,70 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
   simRunning,
   triggerSimulation,
 }) => {
+  const displayPrice = spotPrice > 0 ? spotPrice.toFixed(2) : '3538.86';
+
   return (
-    <section id="pipeline" className="quant-panel p-6 sm:p-10 space-y-8">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+    <section id="pipeline" className="rounded-3xl border border-slate-800/80 bg-[#080d19]/95 p-6 sm:p-10 space-y-7 shadow-2xl backdrop-blur-md">
+      {/* Header & Interactive Action Buttons */}
+      <div className="space-y-4">
         <div>
-          <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-amber-300">
+          <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-amber-400">
             QUANTUM EXECUTION PIPELINE SIMULATOR
           </div>
-          <h2 className="mt-1.5 font-display text-2xl sm:text-3xl font-extrabold text-white">
+          <h2 className="mt-1 font-display text-2xl sm:text-3xl font-extrabold text-white leading-tight">
             Mô Phỏng Luồng Quạt Lệnh Đa Sàn (Multi-Broker Fan-Out)
           </h2>
-          <p className="mt-1 max-w-2xl text-sm text-slate-300">
+          <p className="mt-1.5 max-w-2xl text-xs sm:text-sm text-slate-300">
             Kiểm nghiệm trực tiếp cách ZUPIRUS xử lý một tín hiệu XAU/USD từ lúc tiếp nhận đến khi khớp lệnh đồng thời trên nhiều tài khoản.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        {/* 3 Simulation Trigger Buttons */}
+        <div className="flex flex-wrap items-center gap-2.5 pt-1">
           <button
             type="button"
             onClick={() => triggerSimulation('BUY')}
             disabled={simRunning}
-            className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap cursor-pointer ${
               simSide === 'BUY'
-                ? 'border border-emerald-500 bg-emerald-500 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)]'
-                : 'border border-slate-700 bg-[#080E1A] text-slate-300 hover:border-slate-500'
+                ? 'bg-[#22c55e] text-slate-950 shadow-[0_0_20px_rgba(34,197,94,0.4)]'
+                : 'border border-slate-700 bg-[#0f172a] text-slate-200 hover:border-slate-500'
             }`}
           >
             <IconBolt className="w-3.5 h-3.5" />
-            Bắn Thử BUY XAU/USD
+            <span>⚡ Bắn Thử BUY XAU/USD</span>
           </button>
           <button
             type="button"
             onClick={() => triggerSimulation('SELL')}
             disabled={simRunning}
-            className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap cursor-pointer ${
               simSide === 'SELL'
-                ? 'border border-emerald-500 bg-emerald-500 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)]'
-                : 'border border-slate-700 bg-[#080E1A] text-slate-300 hover:border-slate-500'
+                ? 'bg-[#22c55e] text-slate-950 shadow-[0_0_20px_rgba(34,197,94,0.4)]'
+                : 'border border-slate-700/80 bg-[#141d2e] text-slate-200 hover:border-slate-500'
             }`}
           >
             <IconBolt className="w-3.5 h-3.5" />
-            Bắn Thử SELL XAU/USD
+            <span>⚡ Bắn Thử SELL XAU/USD</span>
           </button>
           <button
             type="button"
             onClick={() => triggerSimulation('NO_SL')}
             disabled={simRunning}
-            className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl border transition whitespace-nowrap shrink-0 cursor-pointer ${
+            className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-mono font-bold rounded-xl border transition whitespace-nowrap cursor-pointer ${
               simSide === 'NO_SL'
                 ? 'border-rose-400 bg-rose-500/25 text-rose-200 shadow-[0_0_20px_rgba(244,63,94,0.35)]'
-                : 'border-rose-500/30 bg-rose-950/20 text-rose-300 hover:bg-rose-500/20'
+                : 'border-rose-900/60 bg-[#1e111a] text-rose-300 hover:bg-rose-900/40'
             }`}
           >
             <IconBan className="w-3.5 h-3.5" />
-            Thử Kịch Bản Thiếu SL (Fail-Closed)
+            <span>⊘ Thử Kịch Bản Thiếu SL (Fail-Closed)</span>
           </button>
         </div>
       </div>
 
       {/* 4 Pipeline Stages */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           {
             step: 1,
@@ -84,7 +88,7 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
             detail:
               simSide === 'NO_SL'
                 ? 'Nhận tín hiệu: BUY GOLD NOW (Không có SL)'
-                : `Chuẩn hóa: ${simSide} XAUUSD @ $${spotPrice.toFixed(2)}`,
+                : `Chuẩn hóa: ${simSide} XAUUSD @ $${displayPrice}`,
             latency: '1.2 ms',
           },
           {
@@ -122,17 +126,17 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
               key={st.step}
               className={`rounded-2xl border p-5 transition-all ${
                 isBlockedStage
-                  ? 'border-rose-500/45 bg-rose-950/20'
+                  ? 'border-rose-500/50 bg-rose-950/20 shadow-[0_0_20px_rgba(244,63,94,0.15)]'
                   : isReached
-                  ? 'border-amber-400/45 bg-[#091224] shadow-[0_0_25px_rgba(245,158,11,0.12)]'
-                  : 'border-white/10 bg-[#050914]/60 opacity-60'
+                  ? 'border-amber-500/40 bg-[#080e1c] shadow-[0_0_20px_rgba(245,158,11,0.08)]'
+                  : 'border-amber-500/25 bg-[#060a14] opacity-85'
               }`}
             >
-              <div className="flex items-center justify-between font-mono text-[10px]">
-                <span className={isBlockedStage ? 'text-rose-300 font-bold' : 'text-amber-300 font-bold'}>
+              <div className="flex items-center justify-between font-mono text-[11px]">
+                <span className={isBlockedStage ? 'text-rose-400 font-bold' : 'text-amber-400 font-bold'}>
                   {st.code}
                 </span>
-                <span className="text-emerald-400 tabular-nums">{st.latency}</span>
+                <span className="text-emerald-400 font-bold tabular-nums">{st.latency}</span>
               </div>
               <div className="mt-2 text-sm font-bold text-white">{st.title}</div>
               <p className="mt-1.5 font-mono text-xs leading-relaxed text-slate-300">{st.detail}</p>
@@ -168,22 +172,22 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
         ].map((node) => (
           <div
             key={node.broker}
-            className="flex items-center justify-between rounded-xl border border-white/10 bg-[#040710]/90 p-4 tabular-nums"
+            className="flex items-center justify-between rounded-xl border border-slate-800/80 bg-[#060a14] p-4.5 tabular-nums"
           >
             <div>
-              <div className="text-[10px] text-amber-300 font-bold">{node.type}</div>
-              <div className="mt-0.5 font-bold text-white">{node.broker}</div>
-              <div className="mt-1 text-slate-400">
-                Symbol: <strong className="text-cyan-300">{node.symbol}</strong> · Khối lượng:{' '}
-                <strong className="text-white">{node.lots}</strong>
+              <div className="text-[10px] text-amber-400 font-bold tracking-wider">{node.type}</div>
+              <div className="mt-0.5 font-bold text-white text-sm">{node.broker}</div>
+              <div className="mt-1 text-slate-400 text-xs">
+                Symbol: <strong className="text-slate-200 font-semibold">{node.symbol}</strong> · Khối lượng:{' '}
+                <strong className="text-slate-200 font-semibold">{node.lots}</strong>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right shrink-0 ml-3">
               <span
-                className={`inline-block rounded-lg px-2.5 py-1 text-[11px] font-bold ${
+                className={`inline-block rounded-lg px-3 py-1.5 text-xs font-bold ${
                   simSide === 'NO_SL'
                     ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-emerald-950/60 text-emerald-400 border border-emerald-500/50'
                 }`}
               >
                 {simSide === 'NO_SL' ? 'PROTECTED' : `FILLED · ${node.latency}`}

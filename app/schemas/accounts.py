@@ -98,6 +98,7 @@ class TradingAccountUpdate(BaseModel):
     prop_profit_target_pct: Optional[float] = Field(default=None, ge=1.0, le=50.0)
     daily_profit_target_usd: Optional[float] = None
     symbol_mapping_custom: Optional[str] = None
+    allowed_strategy_ids: Optional[str] = None
     auto_trade: Optional[bool] = None
 
     @model_validator(mode="before")

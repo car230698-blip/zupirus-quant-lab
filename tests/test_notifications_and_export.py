@@ -36,8 +36,10 @@ def test_notifications_api_lifecycle():
     token_digest = digest(raw_token)
     expires = time.time() + 3600
     now = time.time()
+    test_notif_id = f"notif_qa_{int(now * 1000)}"
 
     with tx() as c:
+        c.execute("DELETE FROM notifications WHERE user_id = 'usr_notif_qa'")
         c.execute(
             """
             INSERT INTO users (id, email, password, role)
@@ -56,10 +58,10 @@ def test_notifications_api_lifecycle():
         c.execute(
             """
             INSERT INTO notifications (id, user_id, role, severity, title, body, created_at)
-            VALUES ('notif_qa_1', 'usr_notif_qa', 'customer', 'INFO', 'Hệ Thống Sẵn Sàng', 'Chào mừng đến với ZUPIRUS.', ?)
+            VALUES (?, 'usr_notif_qa', 'customer', 'INFO', 'Hệ Thống Sẵn Sàng', 'Chào mừng đến với ZUPIRUS.', ?)
             ON CONFLICT(id) DO NOTHING
             """,
-            (now,),
+            (test_notif_id, now),
         )
 
     # 1. List notifications
@@ -71,11 +73,11 @@ def test_notifications_api_lifecycle():
     data = res.json()
     assert data["ok"] is True
     assert data["unread_count"] >= 1
-    assert any(n["id"] == "notif_qa_1" for n in data["notifications"])
+    assert any(n["id"] == test_notif_id for n in data["notifications"])
 
     # 2. Mark single read
     res_read = client.post(
-        "/api/v1/notifications/notif_qa_1/read",
+        f"/api/v1/notifications/{test_notif_id}/read",
         headers={"Authorization": f"Bearer {raw_token}"},
     )
     assert res_read.status_code == 200

@@ -99,6 +99,7 @@ def _row_to_account_response(row: dict) -> dict:
         "is_compounding": bool(row.get("is_compounding", 0)),
         "is_prop_firm_mode": bool(row.get("is_prop_firm_mode", 0)),
         "prop_stage": str(row.get("prop_stage") or rc.get("prop_stage") or "CHALLENGE").upper(),
+        "allowed_strategy_ids": row.get("allowed_strategy_ids") or rc.get("allowed_strategy_ids"),
         "auto_be_partial_tp": bool(row.get("auto_be_partial_tp", 0)),
         "prop_daily_dd_limit_pct": dd_val,
         "max_daily_dd_pct": dd_val,
@@ -559,6 +560,16 @@ def update_account_risk(
             updates.append("prop_profit_target_pct=?")
             params.append(p.prop_profit_target_pct)
             rc["prop_profit_target_pct"] = p.prop_profit_target_pct
+
+        if p.allowed_strategy_ids is not None:
+            tier_code = sub.get("tier_code", "").upper()
+            is_eligible = (tier_code in ("GROWTH", "ALPHA", "PROP_FIRM_ALPHA") or u.get("role") == "admin")
+            if not is_eligible and p.allowed_strategy_ids.strip():
+                fail(403, "Cần nâng cấp lên gói Growth hoặc Prop Firm Alpha để phân bổ chiến lược tùy biến (Multi-Strategy Allocation).")
+            clean_strats = p.allowed_strategy_ids.strip() or None
+            updates.append("allowed_strategy_ids=?")
+            params.append(clean_strats)
+            rc["allowed_strategy_ids"] = clean_strats
 
         if p.auto_trade is not None:
             updates.append("auto_trade=?")

@@ -47,6 +47,29 @@ if sys.platform != "win32":
     except (ImportError, Exception):
         pass
 
+# Optional Sentry monitoring integration with credentials redaction
+if os.getenv("SENTRY_DSN"):
+    try:
+        import sentry_sdk
+
+        def _sentry_before_send(event, hint):
+            if "request" in event and "data" in event["request"]:
+                data = event["request"]["data"]
+                if isinstance(data, dict):
+                    for k in list(data.keys()):
+                        if any(s in k.lower() for s in ("password", "token", "secret", "api_key", "metaapi")):
+                            data[k] = "[REDACTED]"
+            return event
+
+        sentry_sdk.init(
+            dsn=os.getenv("SENTRY_DSN"),
+            traces_sample_rate=0.1,
+            before_send=_sentry_before_send,
+        )
+        logger.info("Sentry monitoring initialized successfully (traces_sample_rate=0.1).")
+    except Exception as exc:
+        logger.warning(f"Sentry init error: {exc}")
+
 
 @asynccontextmanager
 async def lifespan(app):

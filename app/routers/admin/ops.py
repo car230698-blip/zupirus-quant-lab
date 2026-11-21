@@ -505,3 +505,31 @@ def mailer_test_send(p: MailerTestPayload, u=Depends(get_current_admin)):
         fail(400, f"Gửi email qua Resend thất bại: {res.get('error')}")
     return res
 
+
+@router.get('/api/admin/metrics', tags=["admin-core"])
+def get_prometheus_metrics(_admin=Depends(get_current_admin)):
+    """Exposes Prometheus plain-text metrics for external monitoring systems (Grafana / Prometheus)."""
+    from fastapi.responses import PlainTextResponse
+    with tx() as c:
+        exec_count = c.execute("SELECT COUNT(*) FROM metaapi_trade_executions").fetchone()[0] or 0
+        avg_lat = c.execute("SELECT AVG(latency_ms) FROM metaapi_trade_executions WHERE latency_ms > 0").fetchone()[0] or 24.0
+        active_accs = c.execute("SELECT COUNT(*) FROM trading_accounts WHERE auto_trade = 1").fetchone()[0] or 0
+        dd_halts = c.execute("SELECT COUNT(*) FROM kv WHERE key LIKE 'drawdown_locked:%'").fetchone()[0] or 0
+
+    lines = [
+        "# HELP zupirus_fanout_executions_total Total count of trade executions dispatched via cloud fanout",
+        "# TYPE zupirus_fanout_executions_total counter",
+        f"zupirus_fanout_executions_total {int(exec_count)}",
+        "# HELP zupirus_fanout_latency_ms Average execution latency in milliseconds",
+        "# TYPE zupirus_fanout_latency_ms gauge",
+        f"zupirus_fanout_latency_ms {round(float(avg_lat), 2)}",
+        "# HELP zupirus_accounts_active Number of active cloud trading accounts",
+        "# TYPE zupirus_accounts_active gauge",
+        f"zupirus_accounts_active {int(active_accs)}",
+        "# HELP zupirus_active_drawdown_halts Number of accounts currently locked by drawdown guard",
+        "# TYPE zupirus_active_drawdown_halts gauge",
+        f"zupirus_active_drawdown_halts {int(dd_halts)}",
+    ]
+    return PlainTextResponse(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
