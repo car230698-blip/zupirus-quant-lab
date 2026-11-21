@@ -381,7 +381,7 @@ async def execute_fan_out_for_signal(
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
     total_elapsed_ms = int((time.time() - start_all) * 1000)
 
-    from app.services.execution.watcher import _is_metaapi_success
+    from app.domains.execution.watcher import _is_metaapi_success
 
     executions = []
     latencies = []

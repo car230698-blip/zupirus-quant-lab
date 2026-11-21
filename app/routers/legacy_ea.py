@@ -106,7 +106,9 @@ def download_ea_bridge():
     from pathlib import Path
     from fastapi.responses import Response
     root = Path(__file__).resolve().parents[2]
-    mq5_path = root / "public" / "ZupirusDemoBridge.mq5"
+    mq5_path = root / "web" / "public" / "ZupirusDemoBridge.mq5"
+    if not mq5_path.exists():
+        mq5_path = root / "public" / "ZupirusDemoBridge.mq5"
     if not mq5_path.exists():
         mq5_path = root / "dist" / "ZupirusDemoBridge.mq5"
     content = mq5_path.read_text(encoding="utf-8") if mq5_path.exists() else "// ZupirusDemoBridge.mq5 not found"

@@ -65,19 +65,27 @@ def dashboard(
                     pass
 
         # Legacy EA/Replay accounts if present
+        if is_pg:
+            c.execute("SAVEPOINT sp_dashboard_legacy")
         try:
             legacy_accs = [
                 dict(r) for r in c.execute(
-                    "SELECT id, user_id, login, server, mode, enabled, balance, equity, peak, positions, seen, created_at FROM accounts WHERE user_id = ?",
+                    "SELECT id, user_id, login, server, mode, enabled, balance, equity, peak, positions, seen FROM accounts WHERE user_id = ?",
                     (u['id'],)
                 )
             ]
+            if is_pg:
+                c.execute("RELEASE SAVEPOINT sp_dashboard_legacy")
             for la in legacy_accs:
                 la['is_real'] = (la.get('mode') == 'REAL')
                 la['is_active'] = bool(la.get('enabled', 1))
             accounts.extend(legacy_accs)
         except Exception:
-            pass
+            if is_pg:
+                try:
+                    c.execute("ROLLBACK TO SAVEPOINT sp_dashboard_legacy")
+                except Exception:
+                    pass
 
         # Enrich accounts with cached heartbeat from Redis if available
         for a in accounts:

@@ -13,3 +13,9 @@ data/snapshots/
 
 /artifacts/portal-review/
 scratch/
+.ruff_cache/
+test-results.xml
+coverage/
+.coverage
+*.log
+
