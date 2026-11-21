@@ -416,6 +416,8 @@ const AppContent: React.FC = () => {
               killSwitchLoading={killSwitchLoading}
               handleToggleKillSwitch={handleToggleKillSwitch}
               onNavigateTab={(tab) => setAdminTab(tab)}
+              monitorData={monitorData}
+              refetchMonitor={loadAdminMonitor}
             />
           )}
 

@@ -4,6 +4,7 @@ import { ToastNotification } from './ToastNotification';
 import { AdminAiOverviewPanel } from './AdminAiOverviewPanel';
 import { AdminAiKnowledgePanel } from './AdminAiKnowledgePanel';
 import { AdminAiManualOverrideDrawer } from './AdminAiManualOverrideDrawer';
+import { AdminErrorBanner, AdminErrorInfo } from './AdminErrorBanner';
 
 export const AdminAIEvolutionTab: React.FC = () => {
   const [evo, setEvo] = useState<any>({});
@@ -11,19 +12,24 @@ export const AdminAIEvolutionTab: React.FC = () => {
   const [ingestedList, setIngestedList] = useState<any[]>([]);
   const [msg, setMsg] = useState<string>('');
   const [activeSection, setActiveSection] = useState<'overview' | 'knowledge'>('overview');
+  const [errorBanner, setErrorBanner] = useState<AdminErrorInfo | null>(null);
 
   const loadAll = useCallback(async () => {
     try {
       const [eData, gData, iData] = await Promise.all([
-        apiGet('/api/v1/telemetry/ai-evolution').catch(() => null),
-        apiGet('/api/admin/gemini/keys').catch(() => null),
-        apiGet('/api/admin/skills/ingested').catch(() => null),
+        apiGet('/api/v1/telemetry/ai-evolution'),
+        apiGet('/api/admin/gemini/keys'),
+        apiGet('/api/admin/skills/ingested'),
       ]);
       if (eData) setEvo(eData);
       if (gData) setGeminiPool(gData.keys || []);
       if (iData) setIngestedList(iData.skills || iData.ingested_skills || []);
-    } catch {
-      // keep existing state
+      setErrorBanner(null);
+    } catch (err: any) {
+      setErrorBanner({
+        status: err?.status,
+        message: err?.message || 'Không thể đồng bộ dữ liệu tiến hóa AI & kho tri thức.',
+      });
     }
   }, []);
 
@@ -36,6 +42,13 @@ export const AdminAIEvolutionTab: React.FC = () => {
   return (
     <div className="space-y-6">
       <ToastNotification message={msg || null} type="info" onClose={() => setMsg('')} />
+
+      {/* ERROR BANNER */}
+      <AdminErrorBanner
+        error={errorBanner}
+        onRetry={loadAll}
+        onDismiss={() => setErrorBanner(null)}
+      />
 
       {/* TOP HEADER & UNDERLINE SUB-TABS */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-1">

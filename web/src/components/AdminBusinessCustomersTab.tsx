@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { AdminBillingSettingsTab } from './AdminBillingSettingsTab.tsx';
 import { ToastNotification } from './ToastNotification.tsx';
+import { AdminErrorBanner, AdminErrorInfo } from './AdminErrorBanner';
 
 export interface AdminBusinessCustomersTabProps {
   accounts: any[];
@@ -20,6 +21,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   const [searchUserQuery, setSearchUserQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
+  const [errorBanner, setErrorBanner] = useState<AdminErrorInfo | null>(null);
 
   // Password Reset Modal State
   const [resetTarget, setResetTarget] = useState<{ id: string; email: string } | null>(null);
@@ -52,9 +54,9 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   const loadBilling = useCallback(async () => {
     try {
       const [sData, oData, uData] = await Promise.all([
-        api.get('/api/admin/billing/summary').catch(() => null),
-        api.get('/api/admin/billing/orders').catch(() => null),
-        api.get('/api/admin/users').catch(() => null),
+        api.get('/api/admin/billing/summary'),
+        api.get('/api/admin/billing/orders'),
+        api.get('/api/admin/users'),
       ]);
       if (sData) setSummary(sData);
       if (oData) {
@@ -63,8 +65,12 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
       if (uData) {
         setUsers(uData.users || uData || []);
       }
-    } catch {
-      // ignore transient error
+      setErrorBanner(null);
+    } catch (err: any) {
+      setErrorBanner({
+        status: err?.status,
+        message: err?.message || 'Không thể đồng bộ dữ liệu doanh thu & khách hàng.',
+      });
     }
   }, []);
 
@@ -141,6 +147,13 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   return (
     <div className="space-y-6">
       <ToastNotification message={msg || null} type="info" onClose={() => setMsg('')} />
+
+      {/* ERROR BANNER */}
+      <AdminErrorBanner
+        error={errorBanner}
+        onRetry={loadBilling}
+        onDismiss={() => setErrorBanner(null)}
+      />
 
       {/* TOP 4-KPI REVENUE STRIP */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 font-mono">
