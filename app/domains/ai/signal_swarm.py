@@ -135,7 +135,17 @@ def run_alpha_cycle(c) -> Dict[str, Any]:
         except Exception:
             pass
 
-        action_text = f"Tabula Rasa Observer: Đang quan sát & ghi nhận {obs_count} mẫu hình từ nguồn ngoài XAUUSD. Tuyệt đối không tự phát lệnh."
+        # Stage 2: RAG Context Retrieval for Tabula Rasa Alpha Agent
+        active_rag_summary = ""
+        try:
+            from app.domains.ai.ingest_swarm import retrieve_relevant_knowledge
+            rel_chunks = retrieve_relevant_knowledge(c, query="XAUUSD market structure risk ATR Stop Loss", top_k=2)
+            if rel_chunks:
+                active_rag_summary = f" [RAG: {len(rel_chunks)} quy tắc kích hoạt]"
+        except Exception as e:
+            logger.debug(f"retrieve_relevant_knowledge error: {e}")
+
+        action_text = f"Tabula Rasa Observer: Đang quan sát & ghi nhận {obs_count} mẫu hình từ nguồn ngoài XAUUSD.{active_rag_summary} Tuyệt đối không tự phát lệnh."
         bias = "tabula_rasa_observing"
         _SWARM_STATE["agents"]["alpha"].update({
             "state": "working",

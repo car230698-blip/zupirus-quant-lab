@@ -3,10 +3,14 @@ import io
 import os
 import re
 import time
+import json
 import secrets
+import logging
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+
+logger = logging.getLogger("zupirus.routers.skills")
 
 from app.db import tx
 from app.routers.deps import get_current_admin, fail
@@ -308,6 +312,32 @@ async def ingest_trading_document(
             """,
             (record_id, skill_id, skill_name, skill_desc, trigger_cond, full_md, now, now),
         )
+
+        # Stage 2: Persist Semantic RAG Chunks
+        chunks = packaged.get("chunks", [])
+        if chunks:
+            try:
+                c.execute("DELETE FROM knowledge_chunks WHERE skill_id = ?", (skill_id,))
+                for chk in chunks:
+                    emb_json = json.dumps(chk.get("embedding", []))
+                    c.execute(
+                        """
+                        INSERT INTO knowledge_chunks (id, skill_id, school, doc_type, chunk_index, content, embedding_json, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            chk["id"],
+                            skill_id,
+                            packaged.get("school", "PRICE_ACTION"),
+                            detected_doc_type,
+                            chk["chunk_index"],
+                            chk["content"],
+                            emb_json,
+                            now,
+                        ),
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to persist knowledge_chunks: {e}")
 
     return {
         "ok": True,

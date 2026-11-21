@@ -135,6 +135,18 @@ def discover_candidate_from_observations(
         "tp_points": DEFAULT_TP_POINTS,
     }
 
+    # Stage 2: Semantic RAG rule grounding
+    try:
+        from app.domains.ai.ingest_swarm import retrieve_relevant_knowledge
+        rag_chunks = retrieve_relevant_knowledge(c, query=f"{sym_u} {preferred_session} breakout order block", top_k=2)
+        if rag_chunks:
+            rules["institutional_rag_basis"] = [
+                {"id": chk["id"], "school": chk["school"], "similarity": chk["similarity"]}
+                for chk in rag_chunks
+            ]
+    except Exception as exc:
+        logger.debug(f"Semantic RAG enrichment skipped: {exc}")
+
     # Record candidate in strategy_candidates table with unmeasured WFO metrics (NULL)
     now_ts = time.time()
     try:

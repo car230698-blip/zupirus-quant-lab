@@ -96,6 +96,21 @@ MIGRATIONS = [
         "version": 18,
         "name": "018_dispatches_volume_and_closed_at",
         "description": "Add volume, closed_at, and profit columns to dispatches table for soft-closing and accurate lot display"
+    },
+    {
+        "version": 19,
+        "name": "019_knowledge_chunks_rag",
+        "description": "Semantic RAG knowledge_chunks table with pgvector support and hybrid fallback"
+    },
+    {
+        "version": 20,
+        "name": "020_notifications_system",
+        "description": "In-App notification storage with user, role, severity, and read tracking"
+    },
+    {
+        "version": 21,
+        "name": "021_trading_accounts_allowed_strategies",
+        "description": "Multi-strategy allocation column for Growth & Alpha tiers"
     }
 ]
 
@@ -112,6 +127,7 @@ from .evolution import (
 from .seed_and_fixes import (
     apply_migration_013, apply_migration_014, apply_migration_015,
     apply_migration_016, apply_migration_017, apply_migration_018,
+    apply_migration_019, apply_migration_020, apply_migration_021,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -138,6 +154,9 @@ def run_all_migrations(c, is_pg: bool):
         16: apply_migration_016,
         17: apply_migration_017,
         18: apply_migration_018,
+        19: apply_migration_019,
+        20: apply_migration_020,
+        21: apply_migration_021,
     }
 
     for m in MIGRATIONS:

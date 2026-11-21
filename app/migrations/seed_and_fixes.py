@@ -1,3 +1,4 @@
+import os
 import time
 import logging
 
@@ -408,4 +409,100 @@ def apply_migration_018(c, is_pg: bool):
                 c.execute("ALTER TABLE dispatches ADD COLUMN profit REAL DEFAULT 0.0")
             except Exception:
                 pass
+
+
+def apply_migration_019(c, is_pg: bool):
+    """019_knowledge_chunks_rag: Semantic RAG knowledge_chunks table with pgvector support and hybrid fallback."""
+    if is_pg:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                id TEXT PRIMARY KEY,
+                skill_id TEXT NOT NULL,
+                school TEXT,
+                doc_type TEXT,
+                chunk_index INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                embedding_json TEXT,
+                created_at DOUBLE PRECISION NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_skill ON knowledge_chunks(skill_id);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_school ON knowledge_chunks(school);
+        """)
+        enable_pgvector = os.getenv("ENABLE_PGVECTOR", "true").lower() in ("true", "1", "yes")
+        if enable_pgvector:
+            c.execute("SAVEPOINT sp_mig_019_vector")
+            try:
+                c.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                c.execute("ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS embedding vector(768);")
+                c.execute("RELEASE SAVEPOINT sp_mig_019_vector")
+            except Exception as e:
+                logger.warning(f"pgvector extension not available or failed: {e}. Falling back to embedding_json.")
+                c.execute("ROLLBACK TO SAVEPOINT sp_mig_019_vector")
+    else:
+        c.executescript("""
+            CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                id TEXT PRIMARY KEY,
+                skill_id TEXT NOT NULL,
+                school TEXT,
+                doc_type TEXT,
+                chunk_index INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                embedding_json TEXT,
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_skill ON knowledge_chunks(skill_id);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_school ON knowledge_chunks(school);
+        """)
+
+
+def apply_migration_020(c, is_pg: bool):
+    """020_notifications_system: In-App notification storage with user, role, severity, and read tracking."""
+    if is_pg:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                role TEXT NOT NULL DEFAULT 'user',
+                severity TEXT NOT NULL DEFAULT 'INFO',
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                meta_json TEXT,
+                read_at DOUBLE PRECISION,
+                created_at DOUBLE PRECISION NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+            CREATE INDEX IF NOT EXISTS idx_notifications_role ON notifications(role);
+            CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+        """)
+    else:
+        c.executescript("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                role TEXT NOT NULL DEFAULT 'user',
+                severity TEXT NOT NULL DEFAULT 'INFO',
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                meta_json TEXT,
+                read_at REAL,
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+            CREATE INDEX IF NOT EXISTS idx_notifications_role ON notifications(role);
+            CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at DESC);
+        """)
+
+
+def apply_migration_021(c, is_pg: bool):
+    """021_trading_accounts_allowed_strategies: Multi-strategy allocation column for Growth & Alpha tiers."""
+    if is_pg:
+        c.execute("ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS allowed_strategy_ids TEXT DEFAULT NULL;")
+    else:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(trading_accounts)").fetchall()]
+        if "allowed_strategy_ids" not in cols:
+            try:
+                c.execute("ALTER TABLE trading_accounts ADD COLUMN allowed_strategy_ids TEXT DEFAULT NULL")
+            except Exception:
+                pass
+
 
