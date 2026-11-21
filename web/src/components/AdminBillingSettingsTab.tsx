@@ -3,14 +3,14 @@ import { api } from '../api/client';
 
 export const AdminBillingSettingsTab: React.FC = () => {
   const [settings, setSettings] = useState({
-    sepay_bank_name: '',
-    sepay_account_number: '',
-    sepay_account_holder: '',
+    sepay_bank_name: 'VietinBank',
+    sepay_account_number: '105887054819',
+    sepay_account_holder: 'LE NGUYEN NHU THUY',
     sepay_webhook_secret_masked: '',
-    fallback_usd_vnd_rate: 25500,
+    fallback_usd_vnd_rate: 25600,
     fx_rate_provider_url: 'https://open.er-api.com/v6/latest/USD',
     fx_rate_cache_ttl_seconds: 1800,
-    current_live_rate: 25500,
+    current_live_rate: 25600,
     current_rate_source: 'LIVE_OPEN_ER_API',
   });
   const [webhookSecretInput, setWebhookSecretInput] = useState('');
@@ -22,11 +22,20 @@ export const AdminBillingSettingsTab: React.FC = () => {
     setLoading(true);
     try {
       const data = await api.get('/api/admin/billing/settings');
-      if (data) {
-        setSettings(data);
+      if (data && typeof data === 'object') {
+        const bank = (data.sepay_bank_name || data.bank_name || '').trim();
+        const acc = (data.sepay_account_number || data.account_number || '').trim();
+        const holder = (data.sepay_account_holder || data.account_holder || '').trim().toUpperCase();
+        setSettings((prev) => ({
+          ...prev,
+          ...data,
+          sepay_bank_name: bank || prev.sepay_bank_name || 'VietinBank',
+          sepay_account_number: acc || prev.sepay_account_number || '105887054819',
+          sepay_account_holder: holder || prev.sepay_account_holder || 'LE NGUYEN NHU THUY',
+        }));
       }
-    } catch {
-      // ignore
+    } catch (e: any) {
+      setMsg(`Lỗi tải cấu hình SePay: ${e?.message || 'Không thể kết nối API'}`);
     } finally {
       setLoading(false);
     }
@@ -42,11 +51,11 @@ export const AdminBillingSettingsTab: React.FC = () => {
     setMsg('');
     try {
       const payload: any = {
-        sepay_bank_name: settings.sepay_bank_name,
-        sepay_account_number: settings.sepay_account_number,
-        sepay_account_holder: settings.sepay_account_holder,
-        fallback_usd_vnd_rate: Number(settings.fallback_usd_vnd_rate) || 25500,
-        fx_rate_provider_url: settings.fx_rate_provider_url,
+        sepay_bank_name: (settings.sepay_bank_name || 'VietinBank').trim(),
+        sepay_account_number: (settings.sepay_account_number || '105887054819').trim(),
+        sepay_account_holder: (settings.sepay_account_holder || 'LE NGUYEN NHU THUY').trim().toUpperCase(),
+        fallback_usd_vnd_rate: Number(settings.fallback_usd_vnd_rate) || 25600,
+        fx_rate_provider_url: settings.fx_rate_provider_url || 'https://open.er-api.com/v6/latest/USD',
         fx_rate_cache_ttl_seconds: Number(settings.fx_rate_cache_ttl_seconds) || 1800,
       };
       if (webhookSecretInput.trim()) {
@@ -55,7 +64,19 @@ export const AdminBillingSettingsTab: React.FC = () => {
       const data = await api.put('/api/admin/billing/settings', payload);
       setMsg('Đã lưu cấu hình thanh toán SePay & tỷ giá USD/VND thành công.');
       setWebhookSecretInput('');
-      if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+      if (data?.settings) {
+        const s = data.settings;
+        const bank = (s.sepay_bank_name || s.bank_name || '').trim();
+        const acc = (s.sepay_account_number || s.account_number || '').trim();
+        const holder = (s.sepay_account_holder || s.account_holder || '').trim().toUpperCase();
+        setSettings((prev) => ({
+          ...prev,
+          ...s,
+          sepay_bank_name: bank || prev.sepay_bank_name || 'VietinBank',
+          sepay_account_number: acc || prev.sepay_account_number || '105887054819',
+          sepay_account_holder: holder || prev.sepay_account_holder || 'LE NGUYEN NHU THUY',
+        }));
+      }
     } catch (e: any) {
       setMsg(`Lỗi: ${e.message || 'Lỗi lưu cấu hình'}`);
     } finally {
@@ -84,11 +105,14 @@ export const AdminBillingSettingsTab: React.FC = () => {
     }
   };
 
-  const previewVnd = Math.round(((previewUsd * (settings.current_live_rate || 25500)) / 1000)) * 1000;
+  const currentBank = (settings.sepay_bank_name || (settings as any).bank_name || 'VietinBank').trim();
+  const currentAcc = (settings.sepay_account_number || (settings as any).account_number || '105887054819').trim();
+  const currentHolder = (settings.sepay_account_holder || (settings as any).account_holder || 'LE NGUYEN NHU THUY').trim().toUpperCase();
+  const previewVnd = Math.round(((previewUsd * (settings.current_live_rate || 25600)) / 1000)) * 1000;
   const previewQrUrl =
-    settings.sepay_bank_name && settings.sepay_account_number
-      ? `https://qr.sepay.vn/img?bank=${encodeURIComponent(settings.sepay_bank_name)}&acc=${encodeURIComponent(
-          settings.sepay_account_number
+    currentBank && currentAcc
+      ? `https://qr.sepay.vn/img?bank=${encodeURIComponent(currentBank)}&acc=${encodeURIComponent(
+          currentAcc
         )}&template=compact&amount=${previewVnd}&des=ZUPTEST999`
       : '';
 
@@ -279,15 +303,15 @@ export const AdminBillingSettingsTab: React.FC = () => {
             <div className="space-y-1.5 rounded-xl border border-white/[0.07] bg-[#040710] p-3.5 font-mono text-xs tabular-nums">
               <div className="flex justify-between">
                 <span className="text-slate-400">Ngân hàng thụ hưởng:</span>
-                <strong className="text-white">{settings.sepay_bank_name || '—'}</strong>
+                <strong className="text-white">{currentBank || '—'}</strong>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Số tài khoản:</span>
-                <strong className="text-cyan-300">{settings.sepay_account_number || '—'}</strong>
+                <strong className="text-cyan-300">{currentAcc || '—'}</strong>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Chủ tài khoản:</span>
-                <strong className="text-slate-200 uppercase">{settings.sepay_account_holder || '—'}</strong>
+                <strong className="text-slate-200 uppercase">{currentHolder || '—'}</strong>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Số tiền quy đổi:</span>
