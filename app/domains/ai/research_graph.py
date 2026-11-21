@@ -666,7 +666,7 @@ def run_autonomous_induction_and_wfo(force: bool = False):
             # Compute observation fingerprint for XAUUSD so identical evidence cannot trigger duplicate auto-promotions
             obs_meta = c.execute(
                 """
-                SELECT COUNT(*), COALESCE(MAX(created_at), 0), COALESCE(ROUND(SUM(pnl), 2), 0)
+                SELECT COUNT(*), COALESCE(MAX(created_at), 0), COALESCE(ROUND(CAST(SUM(pnl) AS numeric), 2), 0)
                 FROM signal_audit_logs
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = 'XAUUSD'
