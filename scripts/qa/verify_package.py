@@ -1,7 +1,7 @@
 """Static packaging checks; explicitly not a Docker runtime test."""
 from pathlib import Path
 import yaml,ast,subprocess
-root=Path(__file__).resolve().parents[1]
+root=Path(__file__).resolve().parents[2]
 compose=yaml.safe_load((root/'compose.yaml').read_text())
 assert set(('api','execution','research','proxy','tests'))<=set(compose['services'])
 assert compose['services']['api']['ports']==['127.0.0.1:8080:8000']

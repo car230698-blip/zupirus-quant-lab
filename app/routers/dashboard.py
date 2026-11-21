@@ -64,6 +64,21 @@ def dashboard(
                 except Exception:
                     pass
 
+        # Legacy EA/Replay accounts if present
+        try:
+            legacy_accs = [
+                dict(r) for r in c.execute(
+                    "SELECT id, user_id, login, server, mode, enabled, balance, equity, peak, positions, seen, created_at FROM accounts WHERE user_id = ?",
+                    (u['id'],)
+                )
+            ]
+            for la in legacy_accs:
+                la['is_real'] = (la.get('mode') == 'REAL')
+                la['is_active'] = bool(la.get('enabled', 1))
+            accounts.extend(legacy_accs)
+        except Exception:
+            pass
+
         # Enrich accounts with cached heartbeat from Redis if available
         for a in accounts:
             hb = get_cached_heartbeat(a.get('id', ''))
@@ -141,6 +156,30 @@ def dashboard(
                 except Exception:
                     pass
 
+        # Legacy dispatches / Replay orders if present
+        try:
+            legacy_orders = [
+                dict(r) for r in c.execute(
+                    """
+                    SELECT d.*, a.login AS account_login, a.server AS account_server, a.mode AS account_mode, a.mode AS mode
+                    FROM dispatches d
+                    JOIN accounts a ON d.account_id = a.id
+                    WHERE a.user_id = ?
+                    ORDER BY d.created DESC LIMIT 100
+                    """,
+                    (u['id'],)
+                )
+            ]
+            for lod in legacy_orders:
+                if account_id and lod.get('account_id') != account_id:
+                    continue
+                if state and lod.get('state') != state:
+                    continue
+                lod['source'] = 'REPLAY' if (lod.get('mode') == 'REPLAY' or lod.get('account_mode') == 'REPLAY') else 'EA_BRIDGE'
+                all_orders.append(lod)
+        except Exception:
+            pass
+
         # Live quote for unrealized PnL calculation
         live_q = get_live_xauusd_quote()
         live_mid = float(live_q.get('mid') or 0.0)
@@ -206,10 +245,11 @@ def dashboard(
                     """
                     SELECT s.* FROM snapshots s
                     WHERE s.account_id = ? AND s.ts >= ?
-                      AND EXISTS (SELECT 1 FROM trading_accounts ta WHERE ta.id = s.account_id AND ta.user_id = ?)
+                      AND (EXISTS (SELECT 1 FROM trading_accounts ta WHERE ta.id = s.account_id AND ta.user_id = ?)
+                           OR EXISTS (SELECT 1 FROM accounts a WHERE a.id = s.account_id AND a.user_id = ?))
                     ORDER BY s.ts DESC LIMIT 400
                     """,
-                    (account_id, cutoff_ts, u['id']),
+                    (account_id, cutoff_ts, u['id'], u['id']),
                 )
             ][::-1]
             series = raw_series
@@ -220,10 +260,11 @@ def dashboard(
                     """
                     SELECT s.* FROM snapshots s
                     WHERE s.ts >= ?
-                      AND EXISTS (SELECT 1 FROM trading_accounts ta WHERE ta.id = s.account_id AND ta.user_id = ?)
+                      AND (EXISTS (SELECT 1 FROM trading_accounts ta WHERE ta.id = s.account_id AND ta.user_id = ?)
+                           OR EXISTS (SELECT 1 FROM accounts a WHERE a.id = s.account_id AND a.user_id = ?))
                     ORDER BY s.ts ASC LIMIT 1200
                     """,
-                    (cutoff_ts, u['id']),
+                    (cutoff_ts, u['id'], u['id']),
                 )
             ]
             distinct_acc_ids = {str(pt.get('account_id') or 'default') for pt in raw_series}

@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("zupirus.db")
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA = Path(os.getenv('DATA_DIR', ROOT / 'runtime'))
 DATA.mkdir(parents=True, exist_ok=True)
 DB = DATA / 'lab.sqlite3'
