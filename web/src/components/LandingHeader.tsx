@@ -75,9 +75,10 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
           <button
             type="button"
             onClick={onEnterPortal}
-            className="rounded-lg bg-[#12B5A6] px-4 py-2 text-xs font-bold text-[#042F2E] hover:bg-[#14C9B8] transition-colors shadow-sm whitespace-nowrap cursor-pointer"
+            className="rounded-lg bg-[#12B5A6] px-3 sm:px-4 py-2 text-xs font-bold text-[#042F2E] hover:bg-[#14C9B8] transition-colors shadow-sm whitespace-nowrap cursor-pointer"
           >
-            Mở Cổng Giao Dịch →
+            <span className="hidden sm:inline">Mở Cổng Giao Dịch →</span>
+            <span className="sm:hidden">Vào Cổng →</span>
           </button>
         </div>
       </div>

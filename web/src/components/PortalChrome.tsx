@@ -14,6 +14,7 @@ import {
   IconRadar,
   IconReceipt,
   IconServer,
+  IconUser,
   IconUsers,
 } from './Icons';
 
@@ -134,6 +135,7 @@ export function PortalShell({
   const [cmdQuery, setCmdQuery] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
   const [quantTheme, setQuantTheme] = useState<'gold' | 'cyber'>('gold');
   const [pwdModalOpen, setPwdModalOpen] = useState(false);
   const [curPwd, setCurPwd] = useState('');
@@ -434,8 +436,57 @@ export function PortalShell({
           </div>
         </div>
 
-        {/* Top Deck 2: Clean 3-Zone Top Bar Contract */}
-        <header className="quant-topbar">
+        {/* Mobile WebApp Header (Compact native-like header for mobile) */}
+        <header className="flex lg:hidden items-center justify-between border-b border-white/[0.08] bg-[#070c18]/95 px-3.5 py-2.5 backdrop-blur-md sticky top-0 z-30">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#12B5A6] font-mono text-sm font-extrabold text-[#042F2E]">
+              Z
+            </div>
+            <div>
+              <div className="font-display text-xs font-bold text-white tracking-tight leading-none">
+                ZUPIRUS
+              </div>
+              <span className="font-mono text-[9px] text-amber-300">
+                {portal === 'admin' ? 'ADMIN OS' : 'QUANT OS'}
+              </span>
+            </div>
+          </div>
+
+          {liveSpot.loaded && liveSpot.bid > 0 && (
+            <div className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-[#040814] px-2.5 py-0.5 font-mono text-[10.5px]">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-slate-400">XAU:</span>
+              <strong className="text-amber-300 tabular-nums">${liveSpot.bid.toFixed(2)}</strong>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setQuantTheme(quantTheme === 'gold' ? 'cyber' : 'gold')}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 hover:text-white transition cursor-pointer text-xs"
+              title="Đổi chủ đề (Gold / Cyber)"
+            >
+              {quantTheme === 'gold' ? '⚡' : '◈'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setNotifDropdownOpen(!notifDropdownOpen)}
+              className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 hover:text-white transition cursor-pointer"
+              title="Thông báo hệ thống"
+            >
+              <IconBell className="w-4 h-4" />
+              {unreadNotifCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
+                  {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+
+        {/* Top Deck 2: Clean 3-Zone Top Bar Contract (Desktop Only) */}
+        <header className="quant-topbar hidden lg:flex">
           {/* Zone 1: Sidebar Toggle + Contextual Breadcrumb Trail */}
           <div className="quant-context">
             <button
@@ -598,42 +649,187 @@ export function PortalShell({
         </main>
       </div>
 
-      {/* Mobile WebApp Bottom Navigation Bar */}
+      {/* Mobile WebApp Bottom Navigation Dock (Fixed at bottom on phones/tablets) */}
       <nav
-        aria-label="Điều hướng di động"
-        className="fixed bottom-0 left-0 right-0 z-30 flex md:hidden items-center justify-around border-t border-amber-500/25 bg-[#03060f]/95 px-1 py-1.5 backdrop-blur-2xl shadow-[0_-10px_30px_rgba(0,0,0,0.85)] pb-[max(0.375rem,env(safe-area-inset-bottom))]"
+        aria-label="Điều hướng WebApp di động"
+        className="fixed bottom-0 inset-x-0 z-40 flex lg:hidden items-center justify-around border-t border-white/[0.08] bg-[#070d18]/95 px-1 py-1.5 backdrop-blur-2xl shadow-[0_-10px_30px_rgba(0,0,0,0.85)] pb-[max(0.5rem,env(safe-area-inset-bottom))]"
       >
-        {navigation[portal].map(([key, label]) => {
+        {navigation[portal].map(([key]) => {
           const active = page === key;
-          const activeCls =
-            portal === 'admin'
-              ? 'text-cyan-300 font-semibold bg-cyan-500/12 border border-cyan-500/30'
-              : 'text-amber-300 font-semibold bg-amber-500/12 border border-amber-500/30';
+          const shortLabel =
+            key === 'overview'
+              ? 'Tổng quan'
+              : key === 'accounts'
+              ? 'Tài khoản'
+              : key === 'orders'
+              ? 'Sổ lệnh'
+              : key === 'radar'
+              ? 'Radar'
+              : key === 'ai'
+              ? 'AI Lab'
+              : 'Khách hàng';
           return (
             <button
               key={key}
               type="button"
-              onClick={() => onNavigate(key)}
+              onClick={() => {
+                setNotifDropdownOpen(false);
+                setMobileProfileOpen(false);
+                onNavigate(key);
+              }}
               aria-current={active ? 'page' : undefined}
-              className={`flex min-h-[44px] flex-col items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-[11px] transition cursor-pointer ${
-                active ? activeCls : 'text-slate-400 hover:text-slate-100 border border-transparent'
+              className={`flex flex-1 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
+                active
+                  ? portal === 'admin'
+                    ? 'text-cyan-300 font-bold'
+                    : 'text-amber-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {renderNavIcon(key)}
-              <span className="truncate max-w-[76px]">{label.split(' ').slice(0, 2).join(' ')}</span>
+              <div className="relative">
+                {renderNavIcon(key)}
+                {active && (
+                  <span
+                    className={`absolute -bottom-1 left-1/2 h-1 w-3.5 -translate-x-1/2 rounded-full ${
+                      portal === 'admin'
+                        ? 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]'
+                        : 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]'
+                    }`}
+                  />
+                )}
+              </div>
+              <span className="mt-1 font-mono text-[10px] tracking-tight truncate max-w-[68px]">
+                {shortLabel}
+              </span>
             </button>
           );
         })}
+
+        {/* Notifications WebApp Tab */}
         <button
           type="button"
-          onClick={() => setMobileMenuOpen(true)}
-          aria-label="Mở menu đầy đủ"
-          className="flex min-h-[44px] flex-col items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-[11px] text-slate-400 hover:text-slate-100 transition cursor-pointer"
+          onClick={() => {
+            setMobileProfileOpen(false);
+            setNotifDropdownOpen((v) => !v);
+          }}
+          className={`flex flex-1 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
+            notifDropdownOpen ? 'text-amber-300 font-bold' : 'text-slate-400 hover:text-slate-200'
+          }`}
         >
-          <IconMenu className="w-4 h-4" />
-          <span>Menu</span>
+          <div className="relative">
+            <IconBell className="w-4 h-4" />
+            {unreadNotifCount > 0 && (
+              <span className="absolute -top-1.5 -right-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-rose-500 px-0.5 text-[8.5px] font-bold text-white">
+                {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+              </span>
+            )}
+          </div>
+          <span className="mt-1 font-mono text-[10px] tracking-tight">Thông báo</span>
+        </button>
+
+        {/* Profile / Account Drawer Tab */}
+        <button
+          type="button"
+          onClick={() => {
+            setNotifDropdownOpen(false);
+            setMobileProfileOpen(true);
+          }}
+          className={`flex flex-1 min-h-[46px] flex-col items-center justify-center py-1 transition cursor-pointer ${
+            mobileProfileOpen ? 'text-cyan-300 font-bold' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <IconUser className="w-4 h-4" />
+          <span className="mt-1 font-mono text-[10px] tracking-tight">Cá nhân</span>
         </button>
       </nav>
+
+      {/* Mobile Profile & Settings Bottom Sheet */}
+      {mobileProfileOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/80 backdrop-blur-sm lg:hidden">
+          <div className="absolute inset-0" onClick={() => setMobileProfileOpen(false)} />
+          <div className="relative z-10 rounded-t-3xl border-t border-white/10 bg-[#080d19] p-5 space-y-4 shadow-2xl font-mono text-xs pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+            <div className="mx-auto h-1 w-10 rounded-full bg-slate-700 mb-1" />
+
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div>
+                <div className="text-white font-bold text-sm truncate max-w-[240px]">{email}</div>
+                <div className="text-[10px] text-amber-300 mt-0.5">
+                  {portal === 'admin' ? 'ADMINISTRATOR' : 'TRADER · 4/4 SHIELD ACTIVE'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileProfileOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+              >
+                <IconClose className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between rounded-xl border border-white/5 bg-[#040814] p-3">
+                <span className="text-slate-300">Giao diện (Theme):</span>
+                <div className="flex items-center gap-1 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => setQuantTheme('gold')}
+                    className={`rounded px-2.5 py-1 font-bold transition cursor-pointer ${
+                      quantTheme === 'gold' ? 'bg-amber-400 text-slate-950' : 'text-slate-400'
+                    }`}
+                  >
+                    SOVEREIGN GOLD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuantTheme('cyber')}
+                    className={`rounded px-2.5 py-1 font-bold transition cursor-pointer ${
+                      quantTheme === 'cyber' ? 'bg-cyan-400 text-slate-950' : 'text-slate-400'
+                    }`}
+                  >
+                    CYBER MATRIX
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileProfileOpen(false);
+                  setPwdMsg(null);
+                  setCurPwd('');
+                  setNewPwd('');
+                  setPwdModalOpen(true);
+                }}
+                className="w-full flex items-center justify-between rounded-xl border border-white/5 bg-[#040814] p-3 text-left text-slate-200 hover:bg-white/5 transition cursor-pointer"
+              >
+                <span>Đổi Mật Khẩu</span>
+                <span className="text-slate-500">→</span>
+              </button>
+
+              <a
+                href="https://discord.gg/yxCx3dVe34"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-left text-[#8EA1FF] hover:bg-indigo-500/20 transition"
+              >
+                <span>Cộng Đồng Discord</span>
+                <span>↗</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileProfileOpen(false);
+                  logout();
+                }}
+                className="w-full flex items-center justify-center rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 text-rose-300 font-bold hover:bg-rose-500/20 transition cursor-pointer"
+              >
+                Đăng Xuất
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Quick Command Palette Modal (⌘K) */}
       {cmdOpen && (

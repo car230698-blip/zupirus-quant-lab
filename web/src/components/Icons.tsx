@@ -121,3 +121,7 @@ export const IconChevronLeft: React.FC<IconProps> = ({ className }) => (
 export const IconChevronRight: React.FC<IconProps> = ({ className }) => (
   <svg {...base(className)}><path d="m9 18 6-6-6-6" /></svg>
 );
+
+export const IconUser: React.FC<IconProps> = ({ className }) => (
+  <svg {...base(className)}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+);

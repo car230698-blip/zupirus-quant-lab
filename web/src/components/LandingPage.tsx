@@ -389,7 +389,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </main>
 
       {/* Institutional Fintech Footer with Discord Community Links */}
-      <footer className="border-t border-slate-800/80 bg-[#050914] py-12 text-xs text-slate-400 font-mono">
+      <footer className="border-t border-slate-800/80 bg-[#050914] py-12 pb-24 sm:pb-12 text-xs text-slate-400 font-mono">
         <div className="mx-auto max-w-6xl px-6 space-y-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
@@ -426,6 +426,38 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
         </div>
       </footer>
+
+      {/* Mobile WebApp Bottom Dock on Landing Page (Fixed on phones for app-like conversion) */}
+      <div className="fixed bottom-0 inset-x-0 z-40 flex sm:hidden items-center justify-between gap-2 border-t border-slate-800/90 bg-[#070c18]/95 px-3 py-2.5 backdrop-blur-xl shadow-2xl pb-[max(0.6rem,env(safe-area-inset-bottom))]">
+        <a
+          href="https://discord.gg/yxCx3dVe34"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 rounded-xl border border-[#3b4b7a] bg-[#0c1326] px-3 py-2 text-xs font-mono font-bold text-[#8EA1FF] whitespace-nowrap"
+        >
+          <span>Discord</span>
+          <span className="text-[10px]">↗</span>
+        </a>
+
+        <button
+          type="button"
+          onClick={() => {
+            const el = document.getElementById('pipeline');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+          className="flex items-center gap-1 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-mono font-bold text-emerald-300 whitespace-nowrap cursor-pointer"
+        >
+          <span>⚡ Bắn Thử</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onEnterPortal}
+          className="flex-1 flex items-center justify-center rounded-xl bg-[#12B5A6] px-3 py-2 text-xs font-bold text-[#042F2E] whitespace-nowrap shadow-sm cursor-pointer"
+        >
+          <span>Vào Cổng App →</span>
+        </button>
+      </div>
 
       {/* VietQR Preview Modal */}
       <LandingQrPreviewModal
