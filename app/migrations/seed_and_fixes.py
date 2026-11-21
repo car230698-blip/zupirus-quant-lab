@@ -506,3 +506,26 @@ def apply_migration_021(c, is_pg: bool):
                 pass
 
 
+def apply_migration_022(c, is_pg: bool):
+    """022_align_quotes_hypertable_unique_constraint: Align quotes hypertable unique constraint with (time, source, symbol, ts)."""
+    if is_pg:
+        c.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = 'uq_quotes' AND conrelid = 'quotes'::regclass
+                  AND array_length(conkey, 1) < 4
+            ) THEN
+                ALTER TABLE quotes DROP CONSTRAINT uq_quotes;
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint WHERE conname = 'uq_quotes' AND conrelid = 'quotes'::regclass
+            ) THEN
+                ALTER TABLE quotes ADD CONSTRAINT uq_quotes UNIQUE ("time", source, symbol, ts);
+            END IF;
+        END $$;
+        """)
+
+
+

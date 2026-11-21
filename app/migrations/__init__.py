@@ -111,6 +111,11 @@ MIGRATIONS = [
         "version": 21,
         "name": "021_trading_accounts_allowed_strategies",
         "description": "Multi-strategy allocation column for Growth & Alpha tiers"
+    },
+    {
+        "version": 22,
+        "name": "022_align_quotes_hypertable_unique_constraint",
+        "description": "Align quotes hypertable unique constraint with (time, source, symbol, ts) for clean multi-symbol ON CONFLICT ingest"
     }
 ]
 
@@ -128,6 +133,7 @@ from .seed_and_fixes import (
     apply_migration_013, apply_migration_014, apply_migration_015,
     apply_migration_016, apply_migration_017, apply_migration_018,
     apply_migration_019, apply_migration_020, apply_migration_021,
+    apply_migration_022,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -157,6 +163,7 @@ def run_all_migrations(c, is_pg: bool):
         19: apply_migration_019,
         20: apply_migration_020,
         21: apply_migration_021,
+        22: apply_migration_022,
     }
 
     for m in MIGRATIONS:

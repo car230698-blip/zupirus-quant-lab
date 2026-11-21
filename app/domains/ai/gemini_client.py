@@ -196,6 +196,7 @@ def call_gemini(
     attempt = 0
     for target_model in model_candidates:
         url_template = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={{key}}"
+        model_timeouts = 0
         for k_item in keys:
             if attempt >= max_tries * 2:
                 break
@@ -232,6 +233,11 @@ def call_gemini(
             except Exception as e:
                 logger.warning(f"Gemini {target_model} network error on key {mask_key(api_key)}: {e}")
                 last_error = str(e)
+                if "timed out" in str(e).lower():
+                    model_timeouts += 1
+                    if model_timeouts >= 2:
+                        logger.warning(f"Gemini model {target_model} timed out consecutively, advancing to fallback model.")
+                        break
                 continue
 
     logger.info(f"Gemini pool exhausted or offline, returning fallback. Last err: {last_error}")

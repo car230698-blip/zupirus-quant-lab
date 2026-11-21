@@ -749,11 +749,31 @@ def autonomous_agent_step(force_side: Optional[str] = None, symbol: Optional[str
     return _run_coro(_run_all_pairs())
 
 
+def is_weekend_market_closed(now_ts: Optional[float] = None) -> bool:
+    """Check if the global forex & gold markets are closed for the weekend.
+    Forex closes Friday 21:00 UTC and reopens Sunday 21:00 UTC.
+    During weekend closure, market data polling and signal generation are safely throttled.
+    """
+    import datetime
+    dt = datetime.datetime.fromtimestamp(now_ts or time.time(), tz=datetime.timezone.utc)
+    wd = dt.weekday()  # 0=Mon, ..., 4=Fri, 5=Sat, 6=Sun
+    hour = dt.hour
+    if wd == 5:  # Saturday (full 24h closed)
+        return True
+    if wd == 4 and hour >= 21:  # Friday night after 21:00 UTC
+        return True
+    if wd == 6 and hour < 21:  # Sunday before 21:00 UTC
+        return True
+    return False
+
+
 _last_sub_lifecycle_ts = 0.0
 
 
 def tick():
     global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts, _last_sub_lifecycle_ts
+    market_closed = is_weekend_market_closed()
+
     with tx() as c:
         now = time.time()
         flush_outbox(c)
@@ -776,8 +796,8 @@ def tick():
                 except Exception as exc:
                     logger.debug("Failed to prune expired rows from table %s: %s", tbl, exc)
 
-    # 1. Fetch live market quotes & M1/M15 candles round-robin across XAUUSD & major FX pairs (outside pytest)
-    if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_market_feed_ts >= 3.0:
+    # 1. Fetch live market quotes & M1/M15 candles (skip when weekend market is closed)
+    if not os.getenv("PYTEST_CURRENT_TEST") and not market_closed and now - _last_market_feed_ts >= 3.0:
         _last_market_feed_ts = now
         try:
             from app.services.sources.streamer import fetch_next_supported_market_data
@@ -785,8 +805,9 @@ def tick():
         except Exception as e:
             logger.debug(f"Live market feed cycle note: {e}")
 
-    # 2. Run Position Watcher (Auto-BE, Partial TP, Prop DD Guard) every 5s
-    if now - _last_watcher_ts >= 5.0:
+    # 2. Run Position Watcher (Auto-BE, Partial TP, Prop DD Guard) every 5s (or every 30s when market closed)
+    watcher_interval = 30.0 if market_closed else 5.0
+    if now - _last_watcher_ts >= watcher_interval:
         _last_watcher_ts = now
         try:
             from app.services.execution.watcher import get_position_watcher
@@ -794,8 +815,8 @@ def tick():
         except Exception as e:
             logger.debug(f"Position watcher cycle error: {e}")
 
-    # 3. Run Autonomous AI Agent Signal Evaluation every 30s (outside pytest)
-    if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_agent_eval_ts >= 30.0:
+    # 3. Run Autonomous AI Agent Signal Evaluation every 30s (skip when market closed)
+    if not os.getenv("PYTEST_CURRENT_TEST") and not market_closed and now - _last_agent_eval_ts >= 30.0:
         _last_agent_eval_ts = now
         try:
             autonomous_agent_step()
@@ -811,12 +832,16 @@ def tick():
         except Exception as e:
             logger.debug(f"Subscription lifecycle cycle error: {e}")
 
+
 def main():
     init()
     while True:
-        try: tick()
+        try:
+            tick()
         except Exception as e:
             print('execution error', type(e).__name__, str(e), flush=True)
-        time.sleep(2)
+        sleep_sec = 10 if is_weekend_market_closed() else 2
+        time.sleep(sleep_sec)
+
 
 if __name__ == '__main__': main()

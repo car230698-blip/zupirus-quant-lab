@@ -7,7 +7,7 @@ import time
 import logging
 from typing import Dict, Any, Optional
 
-from app.db import tx
+from app.db import tx, is_postgres
 from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.streamer")
@@ -34,10 +34,16 @@ class MarketDataStreamer:
             insert_timescale_quote(source, now_ts, bid_r, ask_r, symbol=sym)
         except Exception:
             with tx() as c:
-                c.execute(
-                    "INSERT INTO quotes (ts, source, symbol, bid, ask) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                    (now_ts, source, sym, bid_r, ask_r)
-                )
+                if is_postgres():
+                    c.execute(
+                        'INSERT INTO quotes("time", source, symbol, ts, bid, ask) VALUES(to_timestamp(?), ?, ?, ?, ?, ?) ON CONFLICT ("time", source, symbol, ts) DO NOTHING',
+                        (now_ts, source, sym, now_ts, bid_r, ask_r),
+                    )
+                else:
+                    c.execute(
+                        "INSERT INTO quotes (ts, source, symbol, bid, ask) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                        (now_ts, source, sym, bid_r, ask_r),
+                    )
 
         mid = round((bid_r + ask_r) / 2.0, dec)
 
