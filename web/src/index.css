@@ -978,6 +978,13 @@ input[type="range"] {
     min-width: 0 !important;
     overflow-x: hidden !important;
   }
+  .quant-content {
+    padding: 16px 16px 116px !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+  }
   .quant-auth {
     grid-template-columns: 1fr;
   }
@@ -988,7 +995,7 @@ input[type="range"] {
 
 @media (max-width: 768px) {
   .quant-content {
-    padding: 12px 12px 112px !important;
+    padding: 12px 10px 120px !important;
     width: 100% !important;
     max-width: 100vw !important;
     overflow-x: hidden !important;

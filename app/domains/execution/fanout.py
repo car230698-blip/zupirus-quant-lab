@@ -549,20 +549,6 @@ async def execute_fan_out_for_signal(
 
     avg_lat = int(sum(latencies) / len(latencies)) if latencies else total_elapsed_ms
 
-    if executed_count > 0:
-        try:
-            from app.services.discord_notifier import notify_discord_signal
-            notify_discord_signal(
-                symbol=symbol,
-                action=action,
-                entry_price=entry_price,
-                sl=sl,
-                tp=tp,
-                accounts_count=executed_count,
-            )
-        except Exception as exc:
-            logger.warning("Optional signal notification failed for %s %s: %s", symbol, action, exc)
-
     if len(accounts) > 0 and failed_count >= 2:
         fail_rate = (failed_count / len(accounts)) * 100.0
         if fail_rate > 20.0:

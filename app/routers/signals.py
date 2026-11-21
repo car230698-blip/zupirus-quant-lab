@@ -41,14 +41,13 @@ def get_signal_pipeline_config(admin=Depends(get_current_admin)):
 @router.post("/config")
 def set_signal_pipeline_config(p: SignalConfigUpdate, admin=Depends(get_current_admin)):
     """Admin: Switch active signal source (EXTERNAL_FEED | HYBRID_AGENT_SCORER | ZUPIRUS_AGENT)."""
-    valid_sources = ("EXTERNAL_FEED", "HYBRID_AGENT_SCORER", "ZUPIRUS_AGENT")
+    from app.domains.signals.sources.curator import VALID_SIGNAL_MODES, set_active_signal_mode
     clean = p.signal_source.strip().upper()
-    if clean not in valid_sources:
-        raise HTTPException(status_code=400, detail=f"Invalid signal source. Must be one of {valid_sources}")
+    if clean not in VALID_SIGNAL_MODES:
+        raise HTTPException(status_code=400, detail=f"Invalid signal source. Must be one of {VALID_SIGNAL_MODES}")
 
     with tx() as c:
-        c.execute("INSERT INTO kv(key, value) VALUES('signal_source', ?) ON CONFLICT(key) DO UPDATE SET value = ?", (clean, clean))
-        c.execute("INSERT INTO kv(key, value) VALUES('signal_mode', ?) ON CONFLICT(key) DO UPDATE SET value = ?", (clean, clean))
+        set_active_signal_mode(c, clean)
 
     return {"ok": True, "signal_source": clean}
 

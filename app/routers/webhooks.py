@@ -13,6 +13,8 @@ from app.config import (
 from app.schemas.signals import TradingViewWebhookPayload
 from app.services.signal_ingestion.normalizer import normalize_tradingview_signal
 from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
+from app.services.signal_ingestion.context import get_fresh_live_price, capture_market_context_snapshot
+from app.domains.signals.sources.curator import get_active_signal_mode, score_external_signal_hybrid
 from app.services.billing_service import process_successful_payment
 from app.metaapi import MetaApiClient, execute_fan_out_for_signal
 from app.redis_client import get_redis_client
@@ -44,37 +46,18 @@ async def handle_tradingview_webhook(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Signal normalization error: {e}")
 
-    # 2b. Global Kill Switch Check (Fail-Closed)
+    # 2b. Global Kill Switch Check (Fail-Closed) & Autonomous Signal Mode Lock
     with tx() as c:
         halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
         is_halted = bool(halt_row and str(halt_row[0]).strip() in ("1", "true", "True"))
+        active_mode = get_active_signal_mode(c)
     if is_halted:
         logger.warning(f"TradingView signal {norm_signal.id} rejected: Kill switch is ACTIVE (halted=1)")
         return {"status": "REJECTED", "signal_id": norm_signal.id, "reason": "KILL_SWITCH_ACTIVE", "executed": 0}
 
-    # 3. Determine live reference price for symbol with strict freshness check (<120s)
-    live_price = None
+    # 3. Determine live reference price for symbol with strict freshness check (<120s) via unified helper
     with tx() as c:
-        q = c.execute(
-            "SELECT bid, ask, ts FROM quotes WHERE symbol = ? AND (? - ts) < 120 ORDER BY ts DESC LIMIT 1",
-            (norm_signal.symbol, now_ts)
-        ).fetchone()
-        if q and q["bid"] and q["ask"]:
-            from app.services.symbol_precision import digits_for_symbol
-            live_price = round((float(q["bid"]) + float(q["ask"])) / 2.0, digits_for_symbol(norm_signal.symbol))
-
-    if live_price is None:
-        try:
-            rc = get_redis_client()
-            cached = rc.get(f"quote:{norm_signal.symbol}:live")
-            if cached:
-                from app.services.symbol_precision import digits_for_symbol
-                val = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
-                parts = val.split(":")
-                if len(parts) < 3 or (now_ts - float(parts[2])) < 120.0:
-                    live_price = round((float(parts[0]) + float(parts[1])) / 2.0, digits_for_symbol(norm_signal.symbol))
-        except Exception:
-            pass
+        live_price = get_fresh_live_price(c, norm_signal.symbol, max_age_sec=120.0)
 
     if live_price is None:
         logger.warning(f"Signal {norm_signal.id} rejected: No fresh live quote available for {norm_signal.symbol}")
@@ -84,6 +67,61 @@ async def handle_tradingview_webhook(
             "reason": "REJECTED_STALE_MARKET_DATA: No fresh tick quote (<120s) available to verify slippage",
             "executed": 0,
         }
+
+    # If system is in autonomous ZUPIRUS_AGENT mode, strictly block external real order fan-out
+    # and automatically route signal to Shadow Ledger to continue tracking comparative performance.
+    if active_mode == "ZUPIRUS_AGENT":
+        logger.info(f"Signal {norm_signal.id} routed to Shadow Ledger: Autonomous ZUPIRUS_AGENT mode is active.")
+        from app.services.sources.curator import record_shadow_signal
+        from app.services.symbol_precision import digits_for_symbol, pip_size_for_symbol
+        is_buy = norm_signal.action == "BUY"
+        p_size = pip_size_for_symbol(norm_signal.symbol)
+        p_dec = digits_for_symbol(norm_signal.symbol)
+        def_sl = round(norm_signal.entry_price - 35.0 * p_size if is_buy else norm_signal.entry_price + 35.0 * p_size, p_dec)
+        def_tp = round(norm_signal.entry_price + 70.0 * p_size if is_buy else norm_signal.entry_price - 70.0 * p_size, p_dec)
+        with tx() as c:
+            record_shadow_signal(
+                source_id=norm_signal.source,
+                symbol=norm_signal.symbol,
+                side=norm_signal.action,
+                entry_price=norm_signal.entry_price,
+                sl=norm_signal.stop_loss or def_sl,
+                tp=norm_signal.take_profit or def_tp,
+                db_cursor=c,
+            )
+        return {
+            "status": "RECORDED_SHADOW",
+            "signal_id": norm_signal.id,
+            "source": norm_signal.source,
+            "message": "Signal recorded into shadow_signals ledger (system running in autonomous ZUPIRUS_AGENT mode). Zero duplicate orders dispatched.",
+            "executed": 0,
+        }
+
+    # If in HYBRID_AGENT_SCORER mode, score incoming external signal against learned skills & source trust
+    if active_mode == "HYBRID_AGENT_SCORER":
+        with tx() as c:
+            ctx_snapshot = capture_market_context_snapshot(c, norm_signal, live_price, now_ts)
+            h_ok, h_score, h_reason = score_external_signal_hybrid(c, norm_signal, ctx_snapshot)
+        if not h_ok:
+            logger.info(f"Signal {norm_signal.id} demoted to Shadow Ledger by HYBRID_AGENT_SCORER: {h_reason}")
+            from app.services.sources.curator import record_shadow_signal
+            with tx() as c:
+                record_shadow_signal(
+                    source_id=norm_signal.source,
+                    symbol=norm_signal.symbol,
+                    side=norm_signal.action,
+                    entry_price=norm_signal.entry_price,
+                    sl=norm_signal.stop_loss,
+                    tp=norm_signal.take_profit,
+                    db_cursor=c,
+                )
+            return {
+                "status": "RECORDED_SHADOW",
+                "signal_id": norm_signal.id,
+                "source": norm_signal.source,
+                "reason": f"HYBRID_AGENT_SCORER_BLOCKED: {h_reason}",
+                "executed": 0,
+            }
 
     # 4. Check Signal Source Registry Status (ACTIVE_LIVE vs SHADOW_ONLY vs SUSPENDED)
     with tx() as c:

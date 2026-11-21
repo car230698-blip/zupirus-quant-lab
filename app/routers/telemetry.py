@@ -121,6 +121,7 @@ def get_live_xauusd_quote(db_cursor: Optional[Any] = None) -> Dict[str, Any]:
 
 
 @router.get("/topbar")
+@router.get("/public")
 def get_topbar_telemetry():
     """Retrieve unified telemetry for the live header bar:
     - Live XAUUSD price and spread from TimescaleDB / MetaApi / Market Stream

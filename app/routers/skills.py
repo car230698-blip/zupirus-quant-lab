@@ -118,8 +118,9 @@ def synthesize_new_learned_skill(_admin=Depends(get_current_admin)):
     """Trigger Hindsight & Research inductive synthesis to package a newly discovered
     analytical filter into app/skills/learned/<skill_id>/SKILL.md in PENDING_APPROVAL state."""
     from app.hindsight import synthesize_inductive_rules
+    min_samples = int(os.getenv("MIN_INDUCTIVE_SAMPLES", "30"))
     with tx() as c:
-        discovered = synthesize_inductive_rules(c, min_samples=3)
+        discovered = synthesize_inductive_rules(c, min_samples=min_samples)
 
     if discovered:
         return {

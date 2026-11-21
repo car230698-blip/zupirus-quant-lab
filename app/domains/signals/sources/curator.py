@@ -17,6 +17,99 @@ MAX_ACTIVE_LIVE_SOURCES = 3
 MAX_SPREAD_XAUUSD_PIPS = 4.5
 MAX_SPREAD_FOREX_PIPS = 2.5
 
+VALID_SIGNAL_MODES = ("EXTERNAL_FEED", "HYBRID_AGENT_SCORER", "ZUPIRUS_AGENT")
+DEFAULT_SIGNAL_MODE = "EXTERNAL_FEED"
+
+
+def get_active_signal_mode(c=None) -> str:
+    """Retrieve the unified active signal mode from kv table."""
+    def _read(cursor):
+        row = cursor.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+        if not row:
+            row = cursor.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
+        if row and row[0]:
+            val = str(row[0]).strip().upper()
+            if val == "HYBRID":
+                return "HYBRID_AGENT_SCORER"
+            if val in VALID_SIGNAL_MODES:
+                return val
+        return DEFAULT_SIGNAL_MODE
+
+    if c is not None:
+        return _read(c)
+    with tx() as db_c:
+        return _read(db_c)
+
+
+def set_active_signal_mode(c, mode: str) -> str:
+    """Set the unified signal mode in kv table (syncing both signal_mode and signal_source)."""
+    norm = str(mode or "").strip().upper()
+    if norm == "HYBRID":
+        norm = "HYBRID_AGENT_SCORER"
+    if norm not in VALID_SIGNAL_MODES:
+        raise ValueError(f"Invalid signal mode '{mode}'. Expected one of {VALID_SIGNAL_MODES}")
+
+    from app.core.db import is_postgres
+    if is_postgres():
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES ('signal_mode', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (norm,),
+        )
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES ('signal_source', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (norm,),
+        )
+    else:
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES ('signal_mode', ?) ON CONFLICT (key) DO UPDATE SET value = ?",
+            (norm, norm),
+        )
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES ('signal_source', ?) ON CONFLICT (key) DO UPDATE SET value = ?",
+            (norm, norm),
+        )
+    return norm
+
+
+def score_external_signal_hybrid(c, signal, context_snapshot: Optional[Dict[str, Any]] = None) -> Tuple[bool, float, str]:
+    """Score external incoming signal under HYBRID_AGENT_SCORER regime:
+    1. Checks if signal action is prohibited by active learned skills in current session.
+    2. Queries source trust score; rejects signals with score < 50.0.
+    Returns (approved, trust_score, reason).
+    """
+    ctx = context_snapshot or {}
+    now_ts = float(ctx.get("captured_at") or time.time())
+    sig_action = str(getattr(signal, "action", "") or (signal.get("action") if isinstance(signal, dict) else "")).upper()
+    sig_source = str(getattr(signal, "source", "") or (signal.get("source") if isinstance(signal, dict) else ""))
+
+    # 1. Learned skills session filter
+    try:
+        from app.skills.registry import evaluate_active_learned_skills
+        eval_res = evaluate_active_learned_skills(db_cursor=c, current_time=now_ts)
+        blocked_sides = set(eval_res.get("blocked_sides") or [])
+        if sig_action in blocked_sides:
+            return False, 40.0, f"BLOCKED_BY_LEARNED_SKILL: {sig_action} is restricted during {eval_res.get('session')} session"
+    except Exception as sk_err:
+        logger.debug(f"Hybrid learned skills check note: {sk_err}")
+
+    # 2. Source trust score check
+    trust_score = 50.0
+    try:
+        s_row = c.execute(
+            "SELECT trust_score FROM signal_sources WHERE id = ? OR name = ?",
+            (sig_source, sig_source),
+        ).fetchone()
+        if s_row and s_row[0] is not None:
+            trust_score = float(s_row[0])
+    except Exception:
+        pass
+
+    if trust_score < 50.0:
+        return False, trust_score, f"HYBRID_LOW_TRUST_SCORE: Source score {trust_score:.1f} < 50.0 threshold"
+
+    return True, trust_score, "HYBRID_SCORER_APPROVED"
+
+
 
 def _enrich_source_row(r: dict) -> Dict[str, Any]:
     d = dict(r)

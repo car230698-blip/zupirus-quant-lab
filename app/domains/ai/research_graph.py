@@ -736,17 +736,10 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                     )
 
                     if auto_promote and qualifies:
-                        mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
-                        curr_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "EXTERNAL_FEED"
-                        next_mode = "HYBRID" if curr_mode == "EXTERNAL_FEED" else "ZUPIRUS_AGENT"
-                        c.execute(
-                            "INSERT INTO kv (key, value) VALUES ('signal_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                            (next_mode,),
-                        )
-                        c.execute(
-                            "INSERT INTO kv (key, value) VALUES ('signal_source', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                            (next_mode,),
-                        )
+                        from app.domains.signals.sources.curator import get_active_signal_mode, set_active_signal_mode
+                        curr_mode = get_active_signal_mode(c)
+                        next_mode = "HYBRID_AGENT_SCORER" if curr_mode == "EXTERNAL_FEED" else "ZUPIRUS_AGENT"
+                        set_active_signal_mode(c, next_mode)
                         audit(c, "research_worker", "auto_promoted_strategy_and_upgraded_mode", {
                             "candidate_id": cand["id"],
                             "win_rate": win_rate,

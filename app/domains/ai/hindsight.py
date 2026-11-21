@@ -323,42 +323,74 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
     if not rows or len(rows) < min_samples:
         return []
 
-    # Cluster by session and side (tracking USD live PnL separately from shadow pips)
-    clusters: Dict[Tuple[str, str], List[float]] = {}
-    shadow_pips_clusters: Dict[Tuple[str, str], List[float]] = {}
+    # Cluster by session and side (with optional h1_trend & swept_liquidity microstructure clustering)
+    clusters_detailed: Dict[Tuple[str, str, str, bool], List[float]] = {}
+    clusters_legacy: Dict[Tuple[str, str], List[float]] = {}
+    shadow_detailed: Dict[Tuple[str, str, str, bool], List[float]] = {}
+    shadow_legacy: Dict[Tuple[str, str], List[float]] = {}
+
     for r in rows:
         side = r["side"] if hasattr(r, 'keys') else r[0]
         pnl = float(r["pnl"] if hasattr(r, 'keys') else r[2])
         ctx_str = r["context_snapshot"] if hasattr(r, 'keys') else r[3]
         is_sh = bool(r.get("is_shadow")) if isinstance(r, dict) else False
         session = "London"
+        h1_trend = "NEUTRAL"
+        swept = False
         if ctx_str:
             try:
-                session = json.loads(ctx_str).get("session", "London")
+                c_data = json.loads(ctx_str)
+                session = c_data.get("session", "London")
+                h1_trend = c_data.get("h1_trend", "NEUTRAL")
+                swept = bool(c_data.get("swept_liquidity", False))
             except Exception:
                 pass
-        key = (session, side)
-        clusters.setdefault(key, []).append(pnl)
+
+        k_det = (session, side, h1_trend, swept)
+        k_leg = (session, side)
+
+        clusters_detailed.setdefault(k_det, []).append(pnl)
+        clusters_legacy.setdefault(k_leg, []).append(pnl)
         if is_sh:
-            shadow_pips_clusters.setdefault(key, []).append(pnl)
+            shadow_detailed.setdefault(k_det, []).append(pnl)
+            shadow_legacy.setdefault(k_leg, []).append(pnl)
+
+    # If any detailed cluster meets min_samples, use detailed clustering; otherwise fallback to legacy 2-tuple
+    if any(len(v) >= min_samples for v in clusters_detailed.values()):
+        clusters = {k: v for k, v in clusters_detailed.items()}
+        shadow_pips_clusters = shadow_detailed
+        is_detailed = True
+    else:
+        clusters = {k: v for k, v in clusters_legacy.items()}
+        shadow_pips_clusters = shadow_legacy
+        is_detailed = False
 
     discovered_rules = []
-    for (sess, side), pnls in clusters.items():
+    for cluster_key, pnls in clusters.items():
         if len(pnls) >= min_samples:
+            if is_detailed:
+                sess, side, h1_trend, swept = cluster_key
+                micro_desc = f", H1 {h1_trend}" + (", Swept Liquidity" if swept else "")
+                slug_extra = f"_{h1_trend.lower()}" + ("_swept" if swept else "")
+            else:
+                sess, side = cluster_key
+                micro_desc = ""
+                slug_extra = ""
+
             wins = sum(1 for p in pnls if p > 0)
             win_rate = round(wins / len(pnls), 2)
-            sh_pips_list = shadow_pips_clusters.get((sess, side), [])
+            sh_pips_list = shadow_pips_clusters.get(cluster_key, [])
             sh_pips_sum = round(sum(sh_pips_list), 2)
             live_usd_sum = round(sum(pnls) - sum(sh_pips_list), 2)
             total_pnl = live_usd_sum if (len(pnls) > len(sh_pips_list)) else sh_pips_sum
             expectancy_pips = round(total_pnl / len(pnls), 3)
             unit_lbl = "USD" if (len(pnls) > len(sh_pips_list) and not sh_pips_list) else ("pips (Shadow)" if len(sh_pips_list) == len(pnls) else f"USD (Live: {live_usd_sum:+.2f} USD, Shadow: {sh_pips_sum:+.1f} pips)")
             if win_rate >= 0.58 and total_pnl > 0 and expectancy_pips > 0:
-                rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}%, kỳ vọng {expectancy_pips:+.2f} {unit_lbl}/lệnh (Mẫu: {len(pnls)} lệnh, Hiệu suất: {total_pnl:+.2f} {unit_lbl})."
+                rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}{micro_desc}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}%, kỳ vọng {expectancy_pips:+.2f} {unit_lbl}/lệnh (Mẫu: {len(pnls)} lệnh, Hiệu suất: {total_pnl:+.2f} {unit_lbl})."
                 store_memory(
                     c,
                     category=CATEGORY_SEMANTIC,
-                    title=f"Discovered Rule: {sess} {side} Edge",
+                    title=f"Discovered Rule: {sess}{micro_desc} {side} Edge",
                     content=rule_desc,
                     tags=["discovered_rule", sess.lower(), side.lower(), "inductive"],
                     metadata={"session": sess, "side": side, "win_rate": win_rate, "sample_size": len(pnls)}
@@ -367,21 +399,21 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
                 # Persist self-learned skill into Agent Skill Registry (slugify session to avoid '/' in skill_id)
                 sess_slug = re.sub(r"[^a-z0-9]+", "_", sess.lower()).strip("_")
                 side_slug = re.sub(r"[^a-z0-9]+", "_", side.lower()).strip("_")
-                learned_skill_id = f"learned_{sess_slug}_{side_slug}_filter"
-                learned_name = f"Learned Filter: {sess} {side} Edge"
-                learned_desc = f"Bộ lọc tự học: Tín hiệu {side} trong phiên {sess} đạt WinRate {win_rate*100:.0f}% ({len(pnls)} lệnh thực tế)."
-                learned_trigger = f"Khi có tín hiệu {side} phát sinh trong phiên {sess}."
+                learned_skill_id = f"learned_{sess_slug}_{side_slug}{slug_extra}_filter"
+                learned_name = f"Learned Filter: {sess}{micro_desc} {side} Edge"
+                learned_desc = f"Bộ lọc tự học: Tín hiệu {side} trong phiên {sess}{micro_desc} đạt WinRate {win_rate*100:.0f}% ({len(pnls)} lệnh thực tế)."
+                learned_trigger = f"Khi có tín hiệu {side} phát sinh trong phiên {sess}{micro_desc}."
                 learned_md = f"""# Kỹ Năng Tự Học: {learned_name}
 
 ## Nguồn Gốc & Dữ Liệu Thực Chiến
 Được đúc kết tự động qua vòng lặp phản tư (Reflective Memory) của AI Agent từ {len(pnls)} lệnh thực tế.
-- Phiên giao dịch: {sess}
+- Phiên giao dịch: {sess}{micro_desc}
 - Hướng lệnh: {side}
 - Tỷ lệ thắng thực nghiệm: {win_rate*100:.0f}%
 - Hiệu suất tích lũy: {total_pnl:+.2f} {unit_lbl}
 
 ## Hướng Dẫn Kích Hoạt
-Khi có tín hiệu {side} được gửi đến trong phiên {sess}, AI Agent đối chiếu với quy tắc này để ưu tiên giữ lệnh hoặc cộng thêm điểm số tin cậy cho nguồn phát tín hiệu.
+Khi có tín hiệu {side} được gửi đến trong phiên {sess}{micro_desc}, AI Agent đối chiếu với quy tắc này để ưu tiên giữ lệnh hoặc cộng thêm điểm số tin cậy cho nguồn phát tín hiệu.
 """
                 try:
                     from app.skills.registry import register_learned_skill

@@ -433,18 +433,6 @@ async def process_successful_payment(
             logger.warning(f"Failed sending payment receipt email to {user_email}: {mail_err}")
 
     try:
-        from app.services.discord_notifier import notify_discord_billing
-        notify_discord_billing(
-            order_code=str(order.get("payment_code") or order["id"]),
-            user_email=str(user_email or order["user_id"]),
-            plan_tier=tier,
-            amount_vnd=float(new_paid_total),
-            cloud_slots=int(max_accounts),
-        )
-    except Exception:
-        pass
-
-    try:
         from app.redis_client import publish_realtime_event
         publish_realtime_event(
             f"user:{order['user_id']}",

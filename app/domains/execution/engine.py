@@ -177,15 +177,32 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
         except Exception as exc:
             logger.debug("Failed to evaluate learned skills: %s", exc)
 
+        # Extract close prices while preserving OHLC for advanced micro-structure filters
+        ohlc_list = []
+        close_prices = []
+        for p in prices:
+            if isinstance(p, dict):
+                c_val = float(p.get("close", p.get("c", 0.0)))
+                close_prices.append(c_val)
+                ohlc_list.append(p)
+            elif isinstance(p, (list, tuple)) and len(p) >= 5:
+                c_val = float(p[4])
+                close_prices.append(c_val)
+                ohlc_list.append({"time": p[0], "open": float(p[1]), "high": float(p[2]), "low": float(p[3]), "close": c_val})
+            else:
+                c_val = float(p)
+                close_prices.append(c_val)
+                ohlc_list.append({"close": c_val, "open": c_val, "high": c_val, "low": c_val})
+
         # Evaluate learned rule criteria against recent price action (10-interval slope matching backtest)
-        if len(prices) >= 15:
-            p_back10 = prices[-11] if len(prices) >= 11 else prices[-10]
-            recent_slope = (prices[-1] - p_back10) / 10.0
+        if len(close_prices) >= 15:
+            p_back10 = close_prices[-11] if len(close_prices) >= 11 else close_prices[-10]
+            recent_slope = (close_prices[-1] - p_back10) / 10.0
             target_action = rules.get("action", "BUY")
             if target_action == "BOTH" and len(allowed_sides) == 1:
                 target_action = next(iter(allowed_sides))
             raw_thresh = float(rules.get("min_slope", 0.20))
-            price_scale = 0.001 if prices[-1] < 10.0 else (0.1 if prices[-1] < 300.0 else 1.0)
+            price_scale = 0.001 if close_prices[-1] < 10.0 else (0.1 if close_prices[-1] < 300.0 else 1.0)
             slope_threshold = raw_thresh * price_scale
 
             if target_action in ("BUY", "BOTH") and recent_slope >= slope_threshold:
@@ -511,29 +528,48 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         if halt_row and str(halt_row[0]).strip() in ("1", "true", "True"):
             return {"status": "SKIPPED", "reason": "KILL_SWITCH_ACTIVE"}
 
-        mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
-        active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "HYBRID"
+        from app.domains.signals.sources.curator import get_active_signal_mode
+        active_mode = get_active_signal_mode(c)
         if active_mode != "ZUPIRUS_AGENT":
             return {"status": "SKIPPED", "reason": f"MODE_IS_{active_mode}"}
 
         # Load latest Admin-approved strategy candidate (APPROVED_FOR_PROD)
-        cand = c.execute(
-            "SELECT id, name, rules_json FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC LIMIT 1"
-        ).fetchone()
-        if not cand:
+        cands = c.execute(
+            "SELECT id, name, rules_json FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC"
+        ).fetchall()
+        if not cands:
             return {"status": "SKIPPED", "reason": "NO_APPROVED_FOR_PROD_STRATEGY"}
 
-        cand_d = dict(cand)
-        try:
-            rules = json.loads(cand_d.get("rules_json") or "{}")
-        except Exception:
-            rules = {}
-        rule_sym = str(rules.get("symbol") or "XAUUSD").strip().upper()
-        if rule_sym not in ("ANY", "ALL", sym_u):
-            return {"status": "SKIPPED", "reason": f"CANDIDATE_SYMBOL_MISMATCH_{rule_sym}_VS_{sym_u}"}
+        cand = None
+        cand_rules = {}
+        for row in cands:
+            r_dict = dict(row)
+            try:
+                rj = json.loads(r_dict.get("rules_json") or "{}")
+            except Exception:
+                rj = {}
+            rsym = str(rj.get("symbol") or "XAUUSD").strip().upper()
+            if rsym == sym_u:
+                cand = r_dict
+                cand_rules = rj
+                break
+            elif rsym in ("ANY", "ALL") and cand is None:
+                cand = r_dict
+                cand_rules = rj
+
+        if not cand:
+            # Fallback to the latest approved candidate if none explicitly matched
+            cand = dict(cands[0])
+            try:
+                cand_rules = json.loads(cand.get("rules_json") or "{}")
+            except Exception:
+                cand_rules = {}
+
+        rules = cand_rules
+        cand_d = cand
 
         bars = c.execute(
-            "SELECT time, close FROM candles WHERE symbol = ? AND timeframe = 'M15' ORDER BY time DESC LIMIT 40",
+            "SELECT time, open, high, low, close FROM candles WHERE symbol = ? AND timeframe = 'M15' ORDER BY time DESC LIMIT 40",
             (sym_u,),
         ).fetchall()
         if not bars:
@@ -551,24 +587,21 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:
             return {"status": "SKIPPED", "reason": "CANDLE_ALREADY_EVALUATED"}
 
-        prices = [float(b["close"]) for b in bars_asc]
-        decision = coordinate_strategies(prices, timeframe="M15", db_cursor=c)
+        decision = coordinate_strategies(bars_asc, timeframe="M15", db_cursor=c)
         side = force_side or decision.get("side")
         if not side:
             setkv(c, last_ts_key, str(latest_bar_ts))
             setkv(c, "strategy_last_decision", json.dumps(decision, ensure_ascii=False))
             return {"status": "STAND_ASIDE", "reason": decision.get("reason", "NO_SIGNAL")}
 
-        # Fetch live price
-        q_row = c.execute(
-            "SELECT bid, ask, ts FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
-            (sym_u,),
-        ).fetchone()
-        if not q_row or (now - float(q_row["ts"])) > 180:
+        # Fetch fresh live price (with Redis quote fallback)
+        from app.domains.signals.ingestion.context import get_fresh_live_price, get_market_atr14
+        fresh_quote = get_fresh_live_price(c, sym_u, max_age_sec=180.0)
+        if not fresh_quote:
             return {"status": "SKIPPED", "reason": f"STALE_QUOTE_{sym_u}"}
         from app.services.symbol_precision import digits_for_symbol
         dec = digits_for_symbol(sym_u)
-        entry_price = round((float(q_row["bid"]) + float(q_row["ask"])) / 2.0, dec)
+        entry_price = round((float(fresh_quote["bid"]) + float(fresh_quote["ask"])) / 2.0, dec)
         setkv(c, last_ts_key, str(latest_bar_ts))
 
     # Trigger AI Swarm (Sentinel + Alpha + Risk Guardian) & MCP cross-asset context check
@@ -588,10 +621,13 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         from app.metaapi import MetaApiClient, execute_fan_out_for_signal
         from app.redis_client import get_redis_client
 
-        default_sl = 5.0 if "XAU" in sym_u else (0.35 if "JPY" in sym_u else 0.0025)
-        default_tp = default_sl * 2.0
-        sl_pts = float(rules.get("sl_points", default_sl)) if "XAU" in sym_u else default_sl
-        tp_pts = float(rules.get("tp_points", default_tp)) if "XAU" in sym_u else default_tp
+        atr_val = get_market_atr14(c, sym_u, "M15")
+        if atr_val <= 0.0:
+            atr_val = 5.0 if "XAU" in sym_u else (0.35 if "JPY" in sym_u else 0.0025)
+        sl_mult = float(rules.get("atr_sl_mult", 1.5))
+        tp_mult = float(rules.get("atr_tp_mult", sl_mult * 2.0))
+        sl_pts = float(rules.get("sl_points", round(atr_val * sl_mult, dec)))
+        tp_pts = float(rules.get("tp_points", round(atr_val * tp_mult, dec)))
         is_buy = side.upper() == "BUY"
         sig_id = f"ag_{sym_u.lower()}_{int(latest_bar_ts)}_{side.lower()}"
         norm_sig = NormalizedSignalSchema(

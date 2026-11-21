@@ -224,7 +224,7 @@ export function PortalShell({
   }, []);
 
   const handleToggleSidebar = () => {
-    if (typeof window !== 'undefined' && window.innerWidth <= 960) {
+    if (typeof window !== 'undefined' && window.innerWidth <= 1023) {
       setMobileMenuOpen((v) => !v);
     } else {
       setSidebarCollapsed((v) => !v);
