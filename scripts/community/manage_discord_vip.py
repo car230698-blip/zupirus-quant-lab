@@ -134,42 +134,46 @@ def main():
 
     print(f"\n[4] VIP Category: {vip_cat['name'] if vip_cat else 'None'}")
 
-    # 4. CREATE '#kho-sách-vip' IN VIP CATEGORY
+    # 4. FIND OR CREATE '#kho-sách-miễn-phí' (Free for all members)
     kho_sach_ch = None
     for t in texts:
-        if t["name"] in ["kho-sách-vip", "tủ-sách-vip", "thư-viện-vip"]:
+        if t["name"] in ["kho-sách-miễn-phí", "kho-sách", "kho-sách-vip", "tủ-sách-vip", "thư-viện-vip"]:
             kho_sach_ch = t
             break
 
+    # Look for info/getting started category
+    info_cat = None
+    for c in cats.values():
+        if "thông tin" in c["name"].lower() or "bắt đầu" in c["name"].lower():
+            info_cat = c
+            break
+
     if not kho_sach_ch:
-        print("    Creating '#kho-sách-vip' channel...")
-        vip_overwrites = [
-            {"id": GID, "type": 0, "allow": "0", "deny": str(PERM_VIEW_CHANNEL)},  # @everyone cannot view
+        print("    Creating '#kho-sách-miễn-phí' channel (Free for all members)...")
+        free_overwrites = [
+            {
+                "id": GID,  # @everyone can view and read history
+                "type": 0,
+                "allow": str(PERM_VIEW_CHANNEL | PERM_READ_HISTORY),
+                "deny": str(PERM_SEND_MESSAGES),  # Read-only library
+            }
         ]
-        # Allow Admin, Alpha VIP, Prop Funded
-        for rname in ["👑 Root Admin", "⚡ Alpha VIP", "🏆 Prop Funded (LIVE)", "📈 Growth Trader"]:
-            if rname in role_by_name:
-                vip_overwrites.append({
-                    "id": role_by_name[rname],
-                    "type": 0,
-                    "allow": str(PERM_VIEW_CHANNEL | PERM_READ_HISTORY | PERM_ATTACH_FILES),
-                    "deny": "0",
-                })
 
         payload = {
-            "name": "kho-sách-vip",
+            "name": "kho-sách-miễn-phí",
             "type": 0,
-            "topic": "📚 Thư viện 12 Ebook & 30 Setup Quỹ độc quyền dành riêng cho Alpha VIP & Prop Funded",
+            "topic": "📚 Thư viện 12 Ebook & 30 Cẩm nang Quỹ miễn phí 100% dành cho tất cả thành viên ZUPIRUS Quant Lab",
         }
-        if vip_cat:
+        if info_cat:
+            payload["parent_id"] = info_cat["id"]
+        elif vip_cat:
             payload["parent_id"] = vip_cat["id"]
-        if vip_overwrites:
-            payload["permission_overwrites"] = vip_overwrites
+        payload["permission_overwrites"] = free_overwrites
 
         kho_sach_ch = req("POST", f"/guilds/{GID}/channels", payload)
-        print(f"    ✅ Created channel '#kho-sách-vip' (ID: {kho_sach_ch['id']})")
+        print(f"    ✅ Created channel '#kho-sách-miễn-phí' (ID: {kho_sach_ch['id']})")
     else:
-        print(f"    Found existing channel '#kho-sách-vip' (ID: {kho_sach_ch['id']})")
+        print(f"    Found existing channel '#{kho_sach_ch['name']}' (ID: {kho_sach_ch['id']})")
 
     # 5. UPLOAD / POST 12 BOOKS WITH RICH EMBEDS & ATTACHMENTS
     target_ch_id = kho_sach_ch["id"]
@@ -184,15 +188,14 @@ def main():
 
     # Post Welcome Banner
     banner_embed = {
-        "title": "💎 KHO TRI THỨC ĐỊNH LƯỢNG & EBOOK ĐỘC QUYỀN VIP",
+        "title": "📚 KHO TRI THỨC ĐỊNH LƯỢNG & EBOOK MIỄN PHÍ (ALL MEMBERS)",
         "description": (
-            "Chào mừng các nhà giao dịch **Alpha VIP** và **Prop Funded** đến với kho tài liệu độc quyền của **ZUPIRUS Quant Lab**.\n\n"
-            "Dưới đây là trọn bộ **12 ấn phẩm cẩm nang & 30 thế đánh Quỹ thực chiến** (SMC, Đa Khung Thời Gian, Bẫy Thanh Khoản, Giờ Vàng, Quản Trị Rủi Ro) "
-            "đã được biên soạn chuẩn mực.\n\n"
+            "Chào mừng tất cả các nhà giao dịch và thành viên cộng đồng đến với kho tài liệu của **ZUPIRUS Quant Lab**.\n\n"
+            "Nhằm hỗ trợ cộng đồng trang bị kiến thức và tư duy chuẩn mực, **ZUPIRUS mở quyền truy cập và tải về MIỄN PHÍ 100% toàn bộ 12 ấn phẩm cẩm nang & 30 thế đánh Quỹ thực chiến** (SMC, Đa Khung Thời Gian, Bẫy Thanh Khoản, Giờ Vàng, Quản Trị Rủi Ro) cho tất cả thành viên (không yêu cầu VIP).\n\n"
             "👇 **Nhấp vào file PDF đính kèm bên dưới mỗi bài viết để tải về máy!**"
         ),
-        "color": 0xF59E0B,
-        "footer": {"text": "ZUPIRUS QUANT LAB · BẢN QUYỀN NỘI BỘ VIP"},
+        "color": 0x10B981,
+        "footer": {"text": "ZUPIRUS QUANT LAB · TÀI NGUYÊN MIỄN PHÍ CỘNG ĐỒNG"},
     }
     req("POST", f"/channels/{target_ch_id}/messages", {"embeds": [banner_embed]})
     print("    [POSTED] Welcome VIP Banner embed.")
