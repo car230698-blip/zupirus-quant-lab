@@ -1,7 +1,7 @@
 """Global Top Telemetry Bar API Endpoint for app.zupirus.com and adm.zupirus.com."""
 import time
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends
 
 from app.db import tx
@@ -15,7 +15,7 @@ logger = logging.getLogger("zupirus.telemetry")
 router = APIRouter(prefix="/api/v1/telemetry", tags=["Telemetry"])
 
 
-def get_live_xauusd_quote() -> Dict[str, Any]:
+def get_live_xauusd_quote(db_cursor: Optional[Any] = None) -> Dict[str, Any]:
     """Retrieve real-time XAUUSD quote strictly from authentic market sources:
     1. Redis live quote cache (updated by MetaApi streamer)
     2. TimescaleDB/Postgres latest quote tick
@@ -48,53 +48,62 @@ def get_live_xauusd_quote() -> Dict[str, Any]:
     except Exception:
         pass
 
+    def _read_from_cursor(c):
+        q_row = c.execute(
+            "SELECT bid, ask, ts FROM quotes WHERE symbol = 'XAUUSD' ORDER BY ts DESC LIMIT 1"
+        ).fetchone()
+        if q_row and q_row[0] and q_row[1]:
+            bid = float(q_row[0])
+            ask = float(q_row[1])
+            quote_ts = float(q_row[2]) if q_row[2] else 0.0
+            age_seconds = now_ts - quote_ts
+            is_stale = age_seconds > 180.0  # Older than 3 minutes
+            spread_pips = round(max(abs(ask - bid), 0.10) * 10, 1)
+            return {
+                "bid": bid,
+                "ask": ask,
+                "mid": round((bid + ask) / 2, 2),
+                "spread_pips": spread_pips,
+                "live": not is_stale,
+                "data_available": True,
+                "stale": is_stale,
+                "source": "DB_QUOTES",
+                "age_seconds": round(age_seconds, 1),
+            }
+
+        # 3. Fallback to latest closed candle
+        c_row = c.execute(
+            "SELECT close, time FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1"
+        ).fetchone()
+        if c_row and c_row[0]:
+            from app.db import to_epoch_ts
+            close_p = float(c_row[0])
+            candle_ts = to_epoch_ts(c_row[1]) if c_row[1] else 0.0
+            age_seconds = now_ts - candle_ts
+            return {
+                "bid": close_p,
+                "ask": close_p,
+                "mid": close_p,
+                "spread_pips": 0.0,
+                "live": False,
+                "data_available": True,
+                "stale": True,
+                "source": "DB_CANDLE_FALLBACK",
+                "age_seconds": round(age_seconds, 1),
+            }
+        return None
+
     # 2. Database quotes check (from MetaApi real quotes stream)
     try:
-        with tx() as c:
-            q_row = c.execute(
-                "SELECT bid, ask, ts FROM quotes WHERE symbol = 'XAUUSD' ORDER BY ts DESC LIMIT 1"
-            ).fetchone()
-            if q_row and q_row[0] and q_row[1]:
-                bid = float(q_row[0])
-                ask = float(q_row[1])
-                quote_ts = float(q_row[2]) if q_row[2] else 0.0
-                age_seconds = now_ts - quote_ts
-                is_stale = age_seconds > 180.0  # Older than 3 minutes
-                spread_pips = round(max(abs(ask - bid), 0.10) * 10, 1)
-                return {
-                    "bid": bid,
-                    "ask": ask,
-                    "mid": round((bid + ask) / 2, 2),
-                    "spread_pips": spread_pips,
-                    "live": not is_stale,
-                    "data_available": True,
-                    "stale": is_stale,
-                    "source": "DB_QUOTES",
-                    "age_seconds": round(age_seconds, 1),
-                }
-
-            # 3. Fallback to latest closed candle
-            c_row = c.execute(
-                "SELECT close, time FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1"
-            ).fetchone()
-            if c_row and c_row[0]:
-                from app.db import to_epoch_ts
-                close_p = float(c_row[0])
-                candle_ts = to_epoch_ts(c_row[1]) if c_row[1] else 0.0
-                age_seconds = now_ts - candle_ts
-                bid = close_p
-                ask = close_p
-                return {
-                    "bid": bid,
-                    "ask": ask,
-                    "mid": close_p,
-                    "spread_pips": 0.0,
-                    "live": False,
-                    "data_available": True,
-                    "stale": True,
-                    "source": "DB_CANDLE_FALLBACK",
-                    "age_seconds": round(age_seconds, 1),
-                }
+        if db_cursor is not None:
+            res = _read_from_cursor(db_cursor)
+            if res:
+                return res
+        else:
+            with tx() as c:
+                res = _read_from_cursor(c)
+                if res:
+                    return res
     except Exception as e:
         logger.debug(f"DB quote read error: {e}")
 

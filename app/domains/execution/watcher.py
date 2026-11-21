@@ -84,6 +84,70 @@ MAX_PROP_DAILY_DRAWDOWN_PCT = 4.5
 WEEKEND_CLOSE_FRIDAY_HOUR_UTC = 21
 
 
+def reconcile_account_positions(
+    c,
+    acc_id: str,
+    live_pos_ids: set,
+    now_ts: float,
+) -> Dict[str, Any]:
+    """Position Reconciliation (B4): Reconcile OPEN executions in metaapi_trade_executions with live MetaApi positions.
+    Detects orphan positions (closed on broker but open in DB for >= 2 sync cycles).
+    Automatically updates sync state and records an audit event at WARNING level.
+    """
+    orphans_closed = 0
+    open_db_rows = c.execute(
+        """
+        SELECT id, position_id, ticket, symbol, action
+        FROM metaapi_trade_executions
+        WHERE account_id = ? AND status IN ('FILLED', 'OPEN')
+        """,
+        (acc_id,),
+    ).fetchall()
+
+    for r in open_db_rows:
+        exec_id = r["id"] if hasattr(r, "keys") else r[0]
+        pos_id = str((r["position_id"] if hasattr(r, "keys") else r[1]) or "")
+        t_id = str((r["ticket"] if hasattr(r, "keys") else r[2]) or "")
+        sym = r["symbol"] if hasattr(r, "keys") else r[3]
+        matched_id = pos_id if (pos_id and pos_id in live_pos_ids) else (t_id if (t_id and t_id in live_pos_ids) else None)
+
+        if not matched_id:
+            # Position not on broker: increment orphan cycles
+            cycle_key = f"orphan_missing_cycle:{exec_id}"
+            missing_cycles = int(getkv(c, cycle_key) or "0") + 1
+            setkv(c, cycle_key, str(missing_cycles))
+
+            if missing_cycles >= 2:
+                # Missing for >= 2 cycles: reconcile to CLOSED
+                c.execute(
+                    "UPDATE metaapi_trade_executions SET status = 'CLOSED', closed_at = COALESCE(closed_at, ?) WHERE id = ?",
+                    (now_ts, exec_id),
+                )
+                orphans_closed += 1
+                logger.warning(
+                    f"RECONCILIATION_WARNING: Orphan position {exec_id} (symbol={sym}, ticket={t_id or pos_id}) "
+                    f"closed on broker but was OPEN in DB for {missing_cycles} cycles. Auto-synchronized to CLOSED."
+                )
+                audit(
+                    c,
+                    "reconciliation_worker",
+                    "position_reconciled_orphan_closed",
+                    {
+                        "account_id": acc_id,
+                        "execution_id": exec_id,
+                        "ticket": t_id or pos_id,
+                        "symbol": sym,
+                        "status": "WARNING",
+                        "missing_cycles": missing_cycles,
+                    },
+                )
+        else:
+            # Active on broker: clear any orphan counter
+            setkv(c, f"orphan_missing_cycle:{exec_id}", "0")
+
+    return {"account_id": acc_id, "orphans_closed": orphans_closed}
+
+
 class PositionWatcher:
     """Active runtime position monitor for all deployed trading terminals."""
 
@@ -258,29 +322,10 @@ class PositionWatcher:
                     except Exception as sync_op_err:
                         logger.debug(f"PositionWatcher sync manual positions note for {acc_id}: {sync_op_err}")
 
-                # Reconcile executions: mark any open executions no longer in live_pos_ids as CLOSED
+                # Position Reconciliation (B4): Detect & auto-heal orphan positions across sync cycles
                 try:
                     with tx() as c:
-                        if live_pos_ids:
-                            placeholders = ",".join(["?"] * len(live_pos_ids))
-                            c.execute(
-                                f"""
-                                UPDATE metaapi_trade_executions
-                                SET status='CLOSED', closed_at=COALESCE(closed_at, ?)
-                                WHERE account_id=? AND status IN ('FILLED', 'OPEN')
-                                  AND COALESCE(position_id, ticket) NOT IN ({placeholders})
-                                """,
-                                (now_watch_ts, acc_id, *live_pos_ids)
-                            )
-                        else:
-                            c.execute(
-                                """
-                                UPDATE metaapi_trade_executions
-                                SET status='CLOSED', closed_at=COALESCE(closed_at, ?)
-                                WHERE account_id=? AND status IN ('FILLED', 'OPEN')
-                                """,
-                                (now_watch_ts, acc_id)
-                            )
+                        reconcile_account_positions(c, acc_id, live_pos_ids, now_watch_ts)
                 except Exception as rec_err:
                     logger.debug(f"PositionWatcher reconcile executions note for {acc_id}: {rec_err}")
 

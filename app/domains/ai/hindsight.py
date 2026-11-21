@@ -271,10 +271,16 @@ def reflect_on_signal_outcome(
     )
 
 
-def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
+def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dict[str, Any]]:
     """Tabula Rasa induction: Synthesizes high-probability semantic rules from observed
     winning signal clusters vs losing signal clusters (combining signal_audit_logs + graded shadow_signals)."""
+    import os
     import re
+    if min_samples is None:
+        try:
+            min_samples = int(os.getenv("MIN_INDUCTIVE_SAMPLES", "30").strip())
+        except (ValueError, TypeError):
+            min_samples = 30
     rows = []
     try:
         audit_rows = c.execute(
@@ -345,9 +351,10 @@ def synthesize_inductive_rules(c, min_samples: int = 5) -> List[Dict[str, Any]]:
             sh_pips_sum = round(sum(sh_pips_list), 2)
             live_usd_sum = round(sum(pnls) - sum(sh_pips_list), 2)
             total_pnl = live_usd_sum if (len(pnls) > len(sh_pips_list)) else sh_pips_sum
+            expectancy_pips = round(total_pnl / len(pnls), 3)
             unit_lbl = "USD" if (len(pnls) > len(sh_pips_list) and not sh_pips_list) else ("pips (Shadow)" if len(sh_pips_list) == len(pnls) else f"USD (Live: {live_usd_sum:+.2f} USD, Shadow: {sh_pips_sum:+.1f} pips)")
-            if win_rate >= 0.58 and total_pnl > 0:
-                rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}% (Mẫu: {len(pnls)} lệnh, Hiệu suất: {total_pnl:+.2f} {unit_lbl})."
+            if win_rate >= 0.58 and total_pnl > 0 and expectancy_pips > 0:
+                rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}%, kỳ vọng {expectancy_pips:+.2f} {unit_lbl}/lệnh (Mẫu: {len(pnls)} lệnh, Hiệu suất: {total_pnl:+.2f} {unit_lbl})."
                 store_memory(
                     c,
                     category=CATEGORY_SEMANTIC,

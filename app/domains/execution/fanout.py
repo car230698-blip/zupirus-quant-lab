@@ -3,6 +3,7 @@ import time
 import uuid
 import asyncio
 import logging
+import datetime
 from typing import Dict, Any, List
 from app.domains.execution.metaapi_client import MetaApiClient
 
@@ -213,6 +214,26 @@ async def execute_fan_out_for_signal(
             except Exception:
                 pass
 
+        # Dynamic De-Risking check (B4):
+        # When account daily drawdown exceeds 50% of daily loss limit, multiply effective_mult by 0.5
+        try:
+            prop_dd_limit = float(acc.get("prop_daily_dd_limit_pct") or 4.0)
+            date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+            from app.db import tx, getkv
+            with tx() as c:
+                day_start_str = getkv(c, f"daily_start_bal:{acc_id}:{date_str}")
+                day_start_bal = float(day_start_str) if day_start_str else balance
+            if day_start_bal > 0 and equity < day_start_bal:
+                current_daily_dd_pct = ((day_start_bal - equity) / day_start_bal) * 100.0
+                if current_daily_dd_pct >= (prop_dd_limit * 0.5):
+                    effective_mult = effective_mult * 0.5
+                    logger.warning(
+                        f"DYNAMIC_DERISK_50PCT: Account {acc_id} daily drawdown {current_daily_dd_pct:.2f}% >= "
+                        f"50% of limit ({prop_dd_limit * 0.5:.2f}%). Throttling multiplier by 0.5x -> {effective_mult:.2f}x"
+                    )
+        except Exception as dd_err:
+            logger.debug(f"Dynamic derisk check note for {acc_id}: {dd_err}")
+
         open_positions_cache = None
         if metaapi_client:
             try:
@@ -281,6 +302,47 @@ async def execute_fan_out_for_signal(
                 capped_risk = min(effective_risk_pct * effective_mult, remaining_idea_risk_pct)
                 effective_risk_pct = capped_risk
                 effective_mult = 1.0
+
+                # --- B2: Portfolio Correlation & Total Risk Cap (Max 2.0%) ---
+                max_portfolio_risk_pct = float(os.getenv("PROP_LIVE_MAX_PORTFOLIO_RISK_PCT", "2.0").strip())
+                total_open_portfolio_risk_pct = 0.0
+                unprotected_any_position = False
+
+                for pos in open_positions:
+                    p_sym = str(pos.get("symbol") or "").upper()
+                    p_type = str(pos.get("type") or "").upper()
+                    p_side = "BUY" if "BUY" in p_type else ("SELL" if "SELL" in p_type else "")
+                    p_open = float(pos.get("openPrice") or 0.0)
+                    p_sl = float(pos.get("stopLoss") or 0.0)
+                    p_vol = float(pos.get("volume") or 0.0)
+                    if p_open <= 0 or p_vol <= 0:
+                        continue
+                    if p_sl <= 0:
+                        unprotected_any_position = True
+                        break
+
+                    is_p_buy = (p_side == "BUY")
+                    p_at_risk = (is_p_buy and p_sl < p_open) or (not is_p_buy and p_sl > p_open)
+                    if p_at_risk:
+                        p_contract = contract_size_for_symbol(p_sym, is_cent=is_cent_acc, account_contract_size=c_size)
+                        p_risk_usd = abs(p_open - p_sl) * p_vol * p_contract * quote_to_usd_rate(p_sym, p_open)
+                        base_cap_usd = (base_capital / 100.0) if is_cent_acc else base_capital
+                        if base_cap_usd > 0:
+                            total_open_portfolio_risk_pct += (p_risk_usd / base_cap_usd) * 100.0
+
+                if unprotected_any_position:
+                    logger.warning(f"Account {acc_id} (PROP LIVE) skipped fail-closed: open position on account has no SL.")
+                    continue
+
+                remaining_portfolio_risk_pct = max(0.0, max_portfolio_risk_pct - total_open_portfolio_risk_pct)
+                if remaining_portfolio_risk_pct <= 0.05:
+                    logger.info(
+                        f"Account {acc_id} (PROP LIVE) skipped: PROP_LIVE_PORTFOLIO_RISK_CAP_2PCT "
+                        f"(open={total_open_portfolio_risk_pct:.2f}%, max={max_portfolio_risk_pct:.2f}%, remaining={remaining_portfolio_risk_pct:.2f}%)."
+                    )
+                    continue
+
+                effective_risk_pct = min(effective_risk_pct, remaining_portfolio_risk_pct)
             except Exception as prop_err:
                 logger.warning(f"Account {acc_id} (PROP LIVE) fail-closed on position check error: {prop_err}")
                 continue

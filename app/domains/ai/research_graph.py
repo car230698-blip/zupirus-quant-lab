@@ -177,15 +177,20 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
         first_bar = prices[0]
         ref_price = float(first_bar["close"]) if isinstance(first_bar, dict) else float(first_bar)
 
+    # Configurable realistic transaction cost model (B3: Spread + Commission + Slippage)
+    # Default 3.5 pips for XAUUSD (ref_price >= 300.0) and 1.5 pips for major FX (ref_price < 300.0)
     if ref_price < 10.0:
         asset_scale = 0.001
-        spread_cost = 0.00015
+        cost_pips = float(os.getenv("WFO_ROUNDTRIP_COST_PIPS_FX", os.getenv("WFO_ROUNDTRIP_COST_PIPS", "1.5")).strip())
+        spread_cost = cost_pips * 0.0001
     elif ref_price < 300.0:
         asset_scale = 0.1
-        spread_cost = 0.03
+        cost_pips = float(os.getenv("WFO_ROUNDTRIP_COST_PIPS_FX", os.getenv("WFO_ROUNDTRIP_COST_PIPS", "1.5")).strip())
+        spread_cost = cost_pips * 0.01
     else:
         asset_scale = 1.0
-        spread_cost = 0.37
+        cost_pips = float(os.getenv("WFO_ROUNDTRIP_COST_PIPS_GOLD", os.getenv("WFO_ROUNDTRIP_COST_PIPS", "3.5")).strip())
+        spread_cost = cost_pips * 0.10
 
     sl = (raw_sl * asset_scale) if raw_sl >= 1.0 and asset_scale < 1.0 else raw_sl
     tp = (raw_tp * asset_scale) if raw_tp >= 1.0 and asset_scale < 1.0 else raw_tp
@@ -356,6 +361,20 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         and sharpe_ratio >= 1.2
     )
 
+    # Institutional Cost Model metrics (B3)
+    cost_model_pips = 3.5 if base_price >= 300.0 else 1.5
+    try:
+        if base_price >= 300.0:
+            cost_model_pips = float(os.getenv("WFO_ROUNDTRIP_COST_PIPS_GOLD", os.getenv("WFO_ROUNDTRIP_COST_PIPS", "3.5")).strip())
+        else:
+            cost_model_pips = float(os.getenv("WFO_ROUNDTRIP_COST_PIPS_FX", os.getenv("WFO_ROUNDTRIP_COST_PIPS", "1.5")).strip())
+    except Exception:
+        pass
+
+    spread_unit = (cost_model_pips * 0.10) if base_price >= 300.0 else (cost_model_pips * (0.01 if base_price >= 10.0 else 0.0001))
+    gross_return = round(net_oos + (trades_count * spread_unit), 4)
+    net_return_after_costs = round(net_oos, 4)
+
     return {
         'candidate_id': candidate.get("id"),
         'candidate_name': candidate.get("name"),
@@ -363,6 +382,9 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         'strategy': f"Tabula Rasa Inductive Model: {candidate.get('name')}",
         'rules': rules,
         'folds': folds,
+        'gross_return': gross_return,
+        'net_return_after_costs': net_return_after_costs,
+        'cost_model_pips': cost_model_pips,
         'oos_net_price_units': net_oos,
         'max_drawdown_price_units': max_dd,
         'max_drawdown_pct': max_dd_pct,
@@ -626,7 +648,8 @@ def run_autonomous_induction_and_wfo(force: bool = False):
     try:
         from app.hindsight import synthesize_inductive_rules, CATEGORY_REFLECTIVE
         with tx() as c:
-            synthesize_inductive_rules(c, min_samples=5)
+            min_inductive_samples = int(os.getenv("MIN_INDUCTIVE_SAMPLES", "30").strip())
+            synthesize_inductive_rules(c, min_samples=min_inductive_samples)
 
             # Compute observation fingerprint for XAUUSD so identical evidence cannot trigger duplicate auto-promotions
             obs_meta = c.execute(

@@ -12,6 +12,10 @@ from app.services.execution.watcher import PositionWatcher
 @pytest.fixture(autouse=True)
 def _isolated_db(tmp_path, monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr("app.core.db.DATABASE_URL", "")
+    monkeypatch.setattr("app.core.db._pg_pool", None)
+    monkeypatch.setattr("app.core.db.DB", tmp_path / "lab.sqlite3")
+    monkeypatch.setattr("app.core.db.DATA", tmp_path)
     monkeypatch.setattr(db, "DATABASE_URL", "")
     monkeypatch.setattr(db, "_pg_pool", None)
     monkeypatch.setattr(db, "DB", tmp_path / "lab.sqlite3")

@@ -168,6 +168,7 @@ def test_post_trade_reflection_and_inductive_rule_synthesis():
     now_ts = time.time()
 
     with tx() as c:
+        c.execute("DELETE FROM signal_audit_logs")
         c.execute(
             """
             INSERT INTO signal_audit_logs(

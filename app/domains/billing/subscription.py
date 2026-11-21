@@ -6,6 +6,7 @@
 3. Retries any `DEPLOY_PENDING` accounts whose initial Cloud deploy failed transiently.
 """
 import logging
+import sys
 import time
 from typing import Any, Dict, Optional
 
@@ -14,6 +15,13 @@ from app.mailer import send_subscription_expiry_reminder
 from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.subscription_lifecycle")
+
+
+def _get_reminder_sender():
+    shim = sys.modules.get("app.services.subscription_lifecycle")
+    if shim and hasattr(shim, "send_subscription_expiry_reminder"):
+        return getattr(shim, "send_subscription_expiry_reminder")
+    return send_subscription_expiry_reminder
 
 
 async def run_subscription_lifecycle_cycle(
@@ -80,7 +88,7 @@ async def run_subscription_lifecycle_cycle(
             with tx() as c:
                 already = getkv(c, kv_key)
                 if not already:
-                    send_subscription_expiry_reminder(email=email, plan_tier=tier, days_left=3, expires_at=exp)
+                    _get_reminder_sender()(email=email, plan_tier=tier, days_left=3, expires_at=exp)
                     setkv(c, kv_key, str(now))
                     stats["reminded_3d"] += 1
 
@@ -90,7 +98,7 @@ async def run_subscription_lifecycle_cycle(
             with tx() as c:
                 already = getkv(c, kv_key)
                 if not already:
-                    send_subscription_expiry_reminder(email=email, plan_tier=tier, days_left=1, expires_at=exp)
+                    _get_reminder_sender()(email=email, plan_tier=tier, days_left=1, expires_at=exp)
                     setkv(c, kv_key, str(now))
                     stats["reminded_1d"] += 1
 

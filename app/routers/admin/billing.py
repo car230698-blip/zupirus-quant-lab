@@ -21,7 +21,7 @@ from app.redis_client import get_redis_client
 
 logger = logging.getLogger("zupirus.admin_billing")
 
-router = APIRouter(prefix="/api/admin/billing", tags=["Admin Billing & VietQR Settings"])
+router = APIRouter(tags=["Admin Billing & VietQR Settings"])
 
 SUPPORTED_BANKS = [
     {"code": "ICB", "shortName": "VietinBank", "name": "Ngân hàng TMCP Công thương Việt Nam"},
@@ -72,7 +72,7 @@ class GrantSubscriptionRequest(BaseModel):
     duration_days: Optional[int] = Field(default=None, ge=1, le=365)
 
 
-@router.get("/settings")
+@router.get("/api/admin/billing/settings")
 def get_billing_settings(_admin=Depends(get_current_admin)):
     """Retrieve active bank configuration, memo prefix, and USD/VND conversion mode."""
     with tx() as c:
@@ -187,19 +187,19 @@ def _save_settings(req: FlexibleBillingSettingsUpdate):
     return {"message": "Cấu hình thanh toán SePay và tỷ giá đã được lưu thành công.", "settings": payload}
 
 
-@router.put("/settings")
+@router.put("/api/admin/billing/settings")
 def put_billing_settings(req: FlexibleBillingSettingsUpdate, _admin=Depends(get_current_admin)):
     """Save bank configuration and USD/VND exchange rate settings via PUT."""
     return _save_settings(req)
 
 
-@router.post("/settings")
+@router.post("/api/admin/billing/settings")
 def update_billing_settings(req: FlexibleBillingSettingsUpdate, _admin=Depends(get_current_admin)):
     """Save bank configuration and USD/VND exchange rate settings via POST."""
     return _save_settings(req)
 
 
-@router.post("/preview-qr")
+@router.post("/api/admin/billing/preview-qr")
 def generate_preview_qr(req: PreviewQRRequest, _admin=Depends(get_current_admin)):
     """Generate live preview URLs for SePay VietQR and fallback VietQR."""
     bank = req.bank_name or SEPAY_BANK_NAME
@@ -222,7 +222,7 @@ def generate_preview_qr(req: PreviewQRRequest, _admin=Depends(get_current_admin)
     }
 
 
-@router.post("/flush-fx-cache")
+@router.post("/api/admin/billing/flush-fx-cache")
 def flush_fx_cache(_admin=Depends(get_current_admin)):
     """Flush the USD/VND exchange rate from Redis cache and refresh from live provider."""
     try:
@@ -237,7 +237,7 @@ def flush_fx_cache(_admin=Depends(get_current_admin)):
     return {"message": "Đã làm mới bộ nhớ đệm tỷ giá USD/VND thành công.", "new_rate": rate, "source": source}
 
 
-@router.get("/summary")
+@router.get("/api/admin/billing/summary")
 def get_admin_billing_summary(_admin=Depends(get_current_admin)):
     """Summary metrics for AdminOrdersSubscriptionsTab Bento KPI cards."""
     now_ts = time.time()
@@ -300,7 +300,7 @@ def get_admin_billing_summary(_admin=Depends(get_current_admin)):
     }
 
 
-@router.get("/orders")
+@router.get("/api/admin/billing/orders")
 def get_admin_billing_orders(
     status: Optional[str] = None,
     limit: int = 50,
@@ -342,7 +342,7 @@ def get_admin_billing_orders(
     return {"total": total, "orders": orders_list}
 
 
-@router.post("/grant-subscription")
+@router.post("/api/admin/billing/grant-subscription")
 def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current_admin)):
     """Grant or extend cloud subscription manually for a customer."""
     target_ident = req.user_id.strip()
@@ -445,7 +445,7 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
     }
 
 
-@router.post("/orders/{order_id}/approve")
+@router.post("/api/admin/billing/orders/{order_id}/approve")
 async def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_admin)):
     """Admin manual override to approve an order and activate its subscription."""
     from app.services.billing_service import process_successful_payment
@@ -485,7 +485,7 @@ class LinkPaymentPayload(BaseModel):
     user_email: str = Field(min_length=5, max_length=120)
 
 
-@router.get('/payments')
+@router.get('/api/admin/billing/payments')
 @router.get('/api/admin/payments')
 def list_payments(u=Depends(get_current_admin)):
     """Returns recent SePay banking transactions and total revenue summary."""
@@ -507,7 +507,7 @@ def list_payments(u=Depends(get_current_admin)):
     }
 
 
-@router.post('/payments/manual-approve')
+@router.post('/api/admin/billing/payments/manual-approve')
 @router.post('/api/admin/payments/manual-approve')
 def admin_manual_approve_payment(p: ManualPaymentPayload, u=Depends(get_current_admin)):
     """Manually approves and records a payment transaction, crediting the customer and sending an official email receipt."""
@@ -566,7 +566,7 @@ def admin_manual_approve_payment(p: ManualPaymentPayload, u=Depends(get_current_
     }
 
 
-@router.post('/payments/{tx_id}/link-user')
+@router.post('/api/admin/billing/payments/{tx_id}/link-user')
 @router.post('/api/admin/payments/{tx_id}/link-user')
 def admin_link_payment_user(tx_id: str, p: LinkPaymentPayload, u=Depends(get_current_admin)):
     """Links an unmatched incoming payment transaction to a specific customer account."""

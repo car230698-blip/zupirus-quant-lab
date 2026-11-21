@@ -69,3 +69,32 @@ def test_guardrail_no_duplicate_admin_payments_router():
     main_py = ROOT / "app" / "main.py"
     content = main_py.read_text(encoding="utf-8")
     assert "admin_payments_router" not in content, "admin_payments_router must not be included (admin_billing_router is canonical)"
+
+
+def test_guardrail_no_duplicate_fastapi_routes():
+    """Verify that no (path, method) pairs are registered more than once in app.routes (excluding HEAD/OPTIONS)."""
+    from app.main import app
+    from collections import Counter
+    seen_routes = []
+    for route in app.routes:
+        methods = getattr(route, "methods", None) or []
+        path = getattr(route, "path", None)
+        if not path or not methods:
+            continue
+        for m in methods:
+            if m.upper() in ("HEAD", "OPTIONS"):
+                continue
+            seen_routes.append((path, m.upper()))
+
+    counts = Counter(seen_routes)
+    duplicates = [f"{m} {p} (count={c})" for (p, m), c in counts.items() if c > 1]
+    assert not duplicates, f"Found duplicate FastAPI routes:\n" + "\n".join(duplicates)
+
+
+def test_guardrail_ingest_pdf_uses_domain_swarm():
+    """Verify app/routers/skills.py imports and delegates to app.domains.ai.ingest_swarm."""
+    skills_py = ROOT / "app" / "routers" / "skills.py"
+    assert skills_py.exists(), "skills.py must exist"
+    content = skills_py.read_text(encoding="utf-8")
+    assert "app.domains.ai.ingest_swarm" in content, "skills.py must import from app.domains.ai.ingest_swarm"
+    assert "execute_4agent_ingest_pipeline" in content, "skills.py must call execute_4agent_ingest_pipeline"

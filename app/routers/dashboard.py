@@ -1,4 +1,5 @@
 """Dashboard Router — Single Source of Truth for trader portfolio and performance telemetry."""
+import os
 import time
 import re
 from typing import Any, Dict, List, Optional
@@ -64,28 +65,52 @@ def dashboard(
                 except Exception:
                     pass
 
-        # Legacy EA/Replay accounts if present
+        # Real MT5 accounts if present
         if is_pg:
-            c.execute("SAVEPOINT sp_dashboard_legacy")
+            c.execute("SAVEPOINT sp_dashboard_real")
         try:
-            legacy_accs = [
+            real_accs = [
                 dict(r) for r in c.execute(
-                    "SELECT id, user_id, login, server, mode, enabled, balance, equity, peak, positions, seen FROM accounts WHERE user_id = ?",
+                    "SELECT id, user_id, login, server, mode, enabled, balance, equity, peak, max_positions AS positions, seen FROM real_accounts WHERE user_id = ?",
                     (u['id'],)
                 )
             ]
             if is_pg:
-                c.execute("RELEASE SAVEPOINT sp_dashboard_legacy")
-            for la in legacy_accs:
-                la['is_real'] = (la.get('mode') == 'REAL')
-                la['is_active'] = bool(la.get('enabled', 1))
-            accounts.extend(legacy_accs)
+                c.execute("RELEASE SAVEPOINT sp_dashboard_real")
+            for ra in real_accs:
+                ra['is_real'] = True
+                ra['is_active'] = bool(ra.get('enabled', 1))
+            accounts.extend(real_accs)
         except Exception:
             if is_pg:
                 try:
-                    c.execute("ROLLBACK TO SAVEPOINT sp_dashboard_legacy")
+                    c.execute("ROLLBACK TO SAVEPOINT sp_dashboard_real")
                 except Exception:
                     pass
+
+        # Legacy EA/Replay accounts if present (controlled via ENABLE_LEGACY_EA_BRIDGE, defaults to enabled in test/dev)
+        if os.getenv("ENABLE_LEGACY_EA_BRIDGE", "true").strip().lower() == "true":
+            if is_pg:
+                c.execute("SAVEPOINT sp_dashboard_legacy")
+            try:
+                legacy_accs = [
+                    dict(r) for r in c.execute(
+                        "SELECT id, user_id, login, server, mode, enabled, balance, equity, peak, positions, seen FROM accounts WHERE user_id = ?",
+                        (u['id'],)
+                    )
+                ]
+                if is_pg:
+                    c.execute("RELEASE SAVEPOINT sp_dashboard_legacy")
+                for la in legacy_accs:
+                    la['is_real'] = (la.get('mode') == 'REAL')
+                    la['is_active'] = bool(la.get('enabled', 1))
+                accounts.extend(legacy_accs)
+            except Exception:
+                if is_pg:
+                    try:
+                        c.execute("ROLLBACK TO SAVEPOINT sp_dashboard_legacy")
+                    except Exception:
+                        pass
 
         # Enrich accounts with cached heartbeat from Redis if available
         for a in accounts:
@@ -169,9 +194,11 @@ def dashboard(
             legacy_orders = [
                 dict(r) for r in c.execute(
                     """
-                    SELECT d.*, a.login AS account_login, a.server AS account_server, a.mode AS account_mode, a.mode AS mode
+                    SELECT d.*, s.side, s.price, s.sl, s.tp, s.source AS signal_source,
+                           a.login AS account_login, a.server AS account_server, a.mode AS account_mode, a.mode AS mode
                     FROM dispatches d
                     JOIN accounts a ON d.account_id = a.id
+                    LEFT JOIN signals s ON d.signal_id = s.id
                     WHERE a.user_id = ?
                     ORDER BY d.created DESC LIMIT 100
                     """,
@@ -189,7 +216,7 @@ def dashboard(
             pass
 
         # Live quote for unrealized PnL calculation
-        live_q = get_live_xauusd_quote()
+        live_q = get_live_xauusd_quote(db_cursor=c)
         live_mid = float(live_q.get('mid') or 0.0)
         acc_by_id = {str(a.get('id')): a for a in accounts}
         filled_per_acc: Dict[str, List[dict]] = {}

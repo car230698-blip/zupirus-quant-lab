@@ -183,6 +183,7 @@ def test_sepay_webhook_underpaid_rejected(client, monkeypatch):
 
     # Send only 200,000 VND with matching hex suffix
     payload = {
+        "id": int(time.time() * 1000),
         "gateway": "vietinbank",
         "transferType": "in",
         "transferAmount": 200000,
