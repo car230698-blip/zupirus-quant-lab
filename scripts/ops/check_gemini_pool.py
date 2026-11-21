@@ -1,8 +1,10 @@
 import json
 import urllib.request
-from app.db import getkv
+from app.db import tx, getkv
 
-data_val = getkv('gemini_api_key_pool')
+with tx() as c:
+    data_val = getkv(c, 'gemini_api_key_pool')
+
 keys = []
 if data_val:
     try:
