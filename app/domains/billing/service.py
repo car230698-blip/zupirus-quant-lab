@@ -156,6 +156,10 @@ def create_checkout_order(
 
     # Sepay VietQR generation (Configured account: VietinBank)
     bank_name, bank_acc, bank_holder = get_effective_sepay_config()
+    is_vietin = str(bank_name or "").lower() in ("vietinbank", "icb")
+    # For VietinBank personal/household accounts, SePay strictly requires 'SEVQR' prefix in memo
+    if is_vietin and not content_memo.upper().startswith("SEVQR"):
+        content_memo = f"SEVQR {content_memo}"
     encoded_memo = quote(content_memo)
     qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={amount_vnd}&des={encoded_memo}"
 

@@ -37,10 +37,18 @@ def get_sepay_secret() -> str:
 
     return os.getenv("SEPAY_WEBHOOK_SECRET", "").strip()
 
-def verify_sepay_signature(raw_body: bytes, signature_header: Optional[str], secret: str = None) -> bool:
+def verify_sepay_signature(
+    raw_body: bytes,
+    signature_header: Optional[str],
+    secret: str = None,
+    timestamp_header: Optional[str] = None,
+) -> bool:
     """
     Verify HMAC-SHA256 signature from SePay header 'x-sepay-signature'.
-    Supports raw hex digest or standard 't=...,v1=...' format.
+    Supports:
+    - Direct raw body HMAC: hmac(secret, raw_body)
+    - Timestamp-prefixed HMAC per SePay official spec: hmac(secret, '{X-SePay-Timestamp}.' + raw_body)
+    - Formats: raw hex, sha256=<hex>, v1=<hex>, signature=<hex>
     """
     secret = secret or get_sepay_secret()
     if not secret:
@@ -49,21 +57,30 @@ def verify_sepay_signature(raw_body: bytes, signature_header: Optional[str], sec
     if not signature_header:
         return False
 
-    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    sec_bytes = secret.encode("utf-8")
+    expected_digests = set()
+    # 1. Direct raw body digest
+    expected_digests.add(hmac.new(sec_bytes, raw_body, hashlib.sha256).hexdigest().lower())
+    # 2. Timestamp-prefixed digest if timestamp provided (per SePay official spec: {X-SePay-Timestamp}.{raw body})
+    if timestamp_header:
+        ts_str = str(timestamp_header).strip()
+        expected_digests.add(hmac.new(sec_bytes, f"{ts_str}.".encode("utf-8") + raw_body, hashlib.sha256).hexdigest().lower())
+
     sig = signature_header.strip()
-
-    # 1. Direct match
-    if hmac.compare_digest(expected.lower(), sig.lower()):
-        return True
-
-    # 2. Key-value formatted headers
+    candidate_sigs = [sig]
     for part in sig.split(","):
         part = part.strip()
         if "=" in part:
             k, v = part.split("=", 1)
-            k = k.strip()
+            k = k.strip().lower()
             v = v.strip()
-            if k in ("v1", "sha256", "signature") and hmac.compare_digest(expected.lower(), v.lower()):
+            if k in ("v1", "sha256", "signature"):
+                candidate_sigs.append(v)
+
+    for cand in candidate_sigs:
+        cand_clean = cand.lower().strip()
+        for exp in expected_digests:
+            if hmac.compare_digest(exp, cand_clean):
                 return True
 
     return False

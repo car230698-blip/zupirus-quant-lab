@@ -109,11 +109,13 @@ export const AdminBillingSettingsTab: React.FC = () => {
   const currentAcc = (settings.sepay_account_number || (settings as any).account_number || '105887054819').trim();
   const currentHolder = (settings.sepay_account_holder || (settings as any).account_holder || 'LE NGUYEN NHU THUY').trim().toUpperCase();
   const previewVnd = Math.round(((previewUsd * (settings.current_live_rate || 25600)) / 1000)) * 1000;
+  const isVietin = currentBank.toLowerCase().includes('vietin') || currentBank.toLowerCase() === 'icb';
+  const testMemo = isVietin ? 'SEVQR ZPTEST999' : 'ZPTEST999';
   const previewQrUrl =
     currentBank && currentAcc
       ? `https://qr.sepay.vn/img?bank=${encodeURIComponent(currentBank)}&acc=${encodeURIComponent(
           currentAcc
-        )}&template=compact&amount=${previewVnd}&des=ZUPTEST999`
+        )}&template=compact&amount=${previewVnd}&des=${encodeURIComponent(testMemo)}`
       : '';
 
   return (

@@ -338,12 +338,13 @@ async def handle_sepay_webhook(
 
     # 2. Check SePay authentication: HMAC-SHA256 signature OR API key / token header
     sig_header = request.headers.get("x-sepay-signature")
+    timestamp_header = request.headers.get("x-sepay-timestamp")
     auth_valid = False
 
     if sig_header:
         from app.sepay import verify_sepay_signature
         for s in valid_secrets:
-            if verify_sepay_signature(raw_body, sig_header, s):
+            if verify_sepay_signature(raw_body, sig_header, s, timestamp_header=timestamp_header):
                 auth_valid = True
                 break
 
@@ -437,13 +438,13 @@ async def handle_sepay_webhook(
                 return {"success": True, "amount": amount_in, "message": "Transaction already recorded"}
 
     # 4. Match order pattern: strictly match token "ZP <order_suffix>" or "ORD_<suffix>"
-    # Supports bank memos formatted with spaces, hyphens, underscores, dots or prefixes
-    match = re.search(r"\bZP[\s\-_.:]*([A-F0-9]{6,12})\b", combined_content, re.IGNORECASE)
+    # Supports bank memos formatted with spaces, hyphens, underscores, dots or prefixes (including SEVQR for VietinBank)
+    match = re.search(r"\b(?:SEVQR[\s\-_.:]*)?ZP[\s\-_.:]*([A-F0-9]{6,12})\b", combined_content, re.IGNORECASE)
     if not match:
-        match = re.search(r"\bORD[\s\-_.:]*([A-F0-9]{6,16})\b", combined_content, re.IGNORECASE)
+        match = re.search(r"\b(?:SEVQR[\s\-_.:]*)?ORD[\s\-_.:]*([A-F0-9]{6,16})\b", combined_content, re.IGNORECASE)
     if not match and payload.get("code"):
         code_str = str(payload.get("code") or "").strip()
-        m_code = re.search(r"^(?:ZP[\s\-_.:]*)?([A-F0-9]{6,12})$", code_str, re.IGNORECASE)
+        m_code = re.search(r"^(?:SEVQR[\s\-_.:]*)?(?:ZP[\s\-_.:]*)?([A-F0-9]{6,12})$", code_str, re.IGNORECASE)
         if m_code:
             match = m_code
 
@@ -498,6 +499,14 @@ async def handle_sepay_webhook(
             """,
             (tx_id, trans_id or None, matched_user_id, amount_in, gateway, combined_content, ref_code, now_ts)
         )
+
+    if not matched_user_id:
+        return {
+            "success": False,
+            "transaction_id": tx_id,
+            "amount": amount_in,
+            "message": "Không tìm thấy mã đơn hàng hoặc người dùng tương ứng. Giao dịch được lưu lại cho đối soát thủ công."
+        }
 
     return {
         "success": True,

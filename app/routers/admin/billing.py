@@ -205,7 +205,10 @@ def generate_preview_qr(req: PreviewQRRequest, _admin=Depends(get_current_admin)
     bank = req.bank_name or SEPAY_BANK_NAME
     acc = req.account_number or SEPAY_ACCOUNT_NUMBER
     holder = req.account_holder or SEPAY_ACCOUNT_HOLDER
-    encoded_memo = quote(req.content_memo)
+    memo = req.content_memo
+    if str(bank or "").lower() in ("vietinbank", "icb") and not memo.upper().startswith("SEVQR"):
+        memo = f"SEVQR {memo}"
+    encoded_memo = quote(memo)
     encoded_holder = quote(holder)
 
     sepay_qr = f"https://qr.sepay.vn/img?acc={acc}&bank={bank}&amount={req.amount_vnd}&des={encoded_memo}"

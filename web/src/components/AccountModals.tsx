@@ -121,7 +121,9 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
               const displayBank = checkoutOrder.bank_name || 'Chưa cấu hình';
               const displayAccNum = checkoutOrder.account_number || 'Chưa cấu hình';
               const displayHolder = checkoutOrder.account_holder || 'ZUPIRUS QUANT LAB';
-              const displayMemo = checkoutOrder.payment_content || `ZP ${displayOrderId.slice(-6).toUpperCase()}`;
+              const isVietin = String(displayBank || '').toLowerCase().includes('vietin') || String(displayBank || '').toLowerCase() === 'icb';
+              const defaultMemo = isVietin ? `SEVQR ZP ${displayOrderId.slice(-6).toUpperCase()}` : `ZP ${displayOrderId.slice(-6).toUpperCase()}`;
+              const displayMemo = checkoutOrder.payment_content || defaultMemo;
               const displayAmountVnd = Number(checkoutOrder.amount_vnd || estimatedVnd || 0);
               const qrCodeUrl =
                 checkoutOrder.qr_code_url ||
