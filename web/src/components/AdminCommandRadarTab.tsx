@@ -59,7 +59,9 @@ export function humanizeAuditEntry(entry: any): {
     d = entry.detail;
     try {
       rawJson = JSON.stringify(d, null, 2);
-    } catch {}
+    } catch (err) {
+      console.warn('[AdminRadar] Failed to serialize entry detail to JSON:', err);
+    }
   } else if (typeof entry.detail === 'string' && entry.detail.trim()) {
     rawJson = entry.detail;
     try {

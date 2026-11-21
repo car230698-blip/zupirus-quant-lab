@@ -2,6 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react';
 import type { PortalType } from '../App.tsx';
 import { useLiveTopbarTelemetry, useRealtimePortalStream } from '../hooks/useQuantData.ts';
 import { api, apiPost } from '../api/client.ts';
+import { NotificationBellMenu } from './NotificationBellMenu.tsx';
 import {
   IconBell,
   IconBolt,
@@ -469,19 +470,16 @@ export function PortalShell({
             >
               {quantTheme === 'gold' ? '⚡' : '◈'}
             </button>
-            <button
-              type="button"
-              onClick={() => setNotifDropdownOpen(!notifDropdownOpen)}
-              className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 hover:text-white transition cursor-pointer"
-              title="Thông báo hệ thống"
-            >
-              <IconBell className="w-4 h-4" />
-              {unreadNotifCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
-                  {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
-                </span>
-              )}
-            </button>
+            <NotificationBellMenu
+              notifications={notifications}
+              unreadCount={unreadNotifCount}
+              isOpen={notifDropdownOpen}
+              onToggle={() => setNotifDropdownOpen(!notifDropdownOpen)}
+              onClose={() => setNotifDropdownOpen(false)}
+              onMarkAllRead={markAllRead}
+              onMarkSingleRead={markSingleRead}
+              isMobileHeader
+            />
           </div>
         </header>
 
@@ -519,76 +517,15 @@ export function PortalShell({
           {/* Zone 3: Session Identity & Primary Action */}
           <div className="quant-session">
             {/* Notification Bell Dropdown */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setNotifDropdownOpen(!notifDropdownOpen)}
-                className="quant-quiet relative p-1.5 flex items-center justify-center cursor-pointer"
-                title="Thông báo hệ thống"
-              >
-                <IconBell className="w-4 h-4" />
-                {unreadNotifCount > 0 && (
-                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm">
-                    {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
-                  </span>
-                )}
-              </button>
-
-              {notifDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl border border-slate-800 bg-[#070c18] p-3 shadow-2xl z-50 font-mono text-xs">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
-                    <span className="font-bold text-slate-200">Thông Báo Hệ Thống</span>
-                    {unreadNotifCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={markAllRead}
-                        className="text-[11px] text-amber-300 hover:underline cursor-pointer"
-                      >
-                        Đọc tất cả
-                      </button>
-                    )}
-                  </div>
-                  <div className="max-h-72 overflow-y-auto space-y-2">
-                    {notifications.length === 0 ? (
-                      <div className="py-6 text-center text-slate-500 text-xs">
-                        Không có thông báo nào
-                      </div>
-                    ) : (
-                      notifications.map((n) => {
-                        const isUnread = !n.read_at;
-                        const isCrit = n.severity === 'CRITICAL';
-                        const isWarn = n.severity === 'WARNING';
-                        return (
-                          <div
-                            key={n.id}
-                            onClick={() => isUnread && markSingleRead(n.id)}
-                            className={`p-2.5 rounded-lg border transition cursor-pointer text-left ${
-                              isCrit
-                                ? 'border-rose-500/30 bg-rose-950/20 text-rose-200'
-                                : isWarn
-                                ? 'border-amber-500/30 bg-amber-950/20 text-amber-200'
-                                : 'border-slate-800 bg-[#040813] text-slate-300'
-                            } ${isUnread ? 'ring-1 ring-amber-400/30' : 'opacity-70'}`}
-                          >
-                            <div className="flex items-center justify-between text-[10px]">
-                              <span
-                                className={`font-bold ${
-                                  isCrit ? 'text-rose-400' : isWarn ? 'text-amber-400' : 'text-cyan-400'
-                                }`}
-                              >
-                                [{n.severity}] {n.title}
-                              </span>
-                              {isUnread && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
-                            </div>
-                            <div className="mt-1 text-xs text-slate-300 leading-snug">{n.body}</div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <NotificationBellMenu
+              notifications={notifications}
+              unreadCount={unreadNotifCount}
+              isOpen={notifDropdownOpen}
+              onToggle={() => setNotifDropdownOpen(!notifDropdownOpen)}
+              onClose={() => setNotifDropdownOpen(false)}
+              onMarkAllRead={markAllRead}
+              onMarkSingleRead={markSingleRead}
+            />
 
             <button
               type="button"

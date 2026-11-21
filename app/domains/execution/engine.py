@@ -43,8 +43,8 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                     row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
                 if row:
                     active_source = row["value"] if hasattr(row, 'keys') else row[0]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Active signal source check failed (defaulting to tabula rasa): %s", exc)
 
     if active_source != "ZUPIRUS_AGENT":
         return {
@@ -174,8 +174,8 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
             eval_res = evaluate_active_learned_skills(db_cursor=db_cursor)
             blocked_sides = set(eval_res.get("blocked_sides") or [])
             allowed_sides = set(eval_res.get("allowed_sides") or [])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to evaluate learned skills: %s", exc)
 
         # Evaluate learned rule criteria against recent price action (10-interval slope matching backtest)
         if len(prices) >= 15:
@@ -297,8 +297,8 @@ def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[
     try:
         publish_signal_event(signal_payload)
         c.execute("UPDATE outbox SET status='published', published_at=? WHERE event_type='signal_created' AND status='pending' AND CAST(payload AS TEXT) LIKE ?", (now, f'%{sid}%'))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Failed to publish signal event or update outbox for sid %s: %s", sid, exc)
 
     # 2. Iterate accounts and apply Distributed Lock to prevent duplicate dispatches
     for a in c.execute('SELECT * FROM accounts WHERE mode=?', (source,)).fetchall():
@@ -316,7 +316,7 @@ def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[
                     release_dispatch_lock(a['id'], sid, lock_token)
             else:
                 # Concurrent worker already holding lock for this signal + account
-                pass
+                logger.debug("Concurrent worker already holding dispatch lock for account %s, signal %s", a['id'], sid)
 
     return sid
 
@@ -694,8 +694,8 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
             redis_cli = None
             try:
                 redis_cli = get_redis_client()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Redis client unavailable for signal fan-out: %s", exc)
             report = await execute_fan_out_for_signal(
                 signal={
                     "id": sanitized.id,
@@ -773,8 +773,8 @@ def tick():
             ):
                 try:
                     c.execute(f'DELETE FROM {tbl} WHERE {col} IS NOT NULL AND {col} > 0 AND {col} < ?', (cutoff,))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to prune expired rows from table %s: %s", tbl, exc)
 
     # 1. Fetch live market quotes & M1/M15 candles round-robin across XAUUSD & major FX pairs (outside pytest)
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_market_feed_ts >= 3.0:

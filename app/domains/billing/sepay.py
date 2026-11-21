@@ -5,6 +5,7 @@ verifies HMAC-SHA256 signature, matches user payment memos,
 records transactions, and dispatches confirmation emails via Resend.
 """
 import os
+import time
 import hmac
 import html as html_mod
 import json
@@ -56,6 +57,25 @@ def verify_sepay_signature(
         return False
     if not signature_header:
         return False
+
+    # Defend against Webhook Replay Attacks (CWE-294) when timestamp is provided
+    if timestamp_header is not None and str(timestamp_header).strip() != "":
+        ts_str = str(timestamp_header).strip()
+        try:
+            ts_val = float(ts_str)
+            # Support both seconds and milliseconds (timestamps > 1e11 are ms)
+            ts_sec = ts_val / 1000.0 if ts_val > 1e11 else ts_val
+            skew = abs(time.time() - ts_sec)
+            if skew > 300.0:
+                logger.warning(
+                    "SePay webhook timestamp skew exceeded 300s (received=%s, skew=%.1fs). Replay attack rejected.",
+                    ts_str,
+                    skew,
+                )
+                return False
+        except (ValueError, TypeError) as exc:
+            logger.warning("Invalid SePay timestamp header %r: %s. Rejecting webhook.", ts_str, exc)
+            return False
 
     sec_bytes = secret.encode("utf-8")
     expected_digests = set()

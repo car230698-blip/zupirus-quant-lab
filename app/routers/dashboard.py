@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.db import tx
 from app.routers.deps import get_current_user
 from app.redis_client import get_cached_heartbeat
+from app.core.redis_client import check_rate_limit
 from app.routers.telemetry import get_live_xauusd_quote
 
 router = APIRouter(tags=["dashboard"])
@@ -339,6 +340,16 @@ def dashboard(
         }
 
 
+def _csv_safe(val: Any) -> Any:
+    """Neutralize potential CSV formula injection (CWE-1236) by prepending a single quote."""
+    if val is None:
+        return ""
+    s = str(val)
+    if s and s[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return f"'{s}"
+    return s
+
+
 @router.get('/api/v1/orders/export')
 def export_orders_csv(
     u=Depends(get_current_user),
@@ -347,10 +358,17 @@ def export_orders_csv(
 ):
     """Export trade execution statement as CSV with UTF-8 BOM (utf-8-sig)
     ensuring clean Vietnamese character display in Excel.
+    Safely normalizes Cent accounts and defends against CSV Formula Injection.
     """
     import io
     import csv
     from fastapi.responses import Response
+
+    if not check_rate_limit(f"orders_export:{u['id']}", limit=10, window_sec=60):
+        raise HTTPException(
+            status_code=429,
+            detail="Quá nhiều yêu cầu xuất CSV. Giới hạn tối đa 10 lần/phút.",
+        )
 
     now_ts = time.time()
     cutoff_ts = now_ts - max(1, min(days, 365)) * 86400
@@ -358,7 +376,8 @@ def export_orders_csv(
     with tx() as c:
         query = """
             SELECT e.executed_at, e.symbol, e.action, e.volume, e.entry_price,
-                   e.profit, e.status, e.ticket, ta.account_name, ta.mt5_login, ta.broker_server
+                   e.profit, e.status, e.ticket, ta.account_name, ta.mt5_login, ta.broker_server,
+                   ta.account_type, ta.currency
             FROM metaapi_trade_executions e
             JOIN trading_accounts ta ON e.account_id = ta.id
             WHERE ta.user_id = ? AND e.executed_at >= ?
@@ -381,7 +400,8 @@ def export_orders_csv(
         "Lệnh",
         "Khối Lượng (Lot)",
         "Giá Khớp",
-        "Lợi Nhuận ($)",
+        "Lợi Nhuận (Đơn vị gốc)",
+        "Lợi Nhuận Quy Đổi (USD)",
         "Trạng Thái",
         "Ticket ID",
     ])
@@ -390,17 +410,37 @@ def export_orders_csv(
         d = dict(r) if hasattr(r, "keys") else {}
         ts = d.get("executed_at")
         date_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else ""
+
+        acc_type = str(d.get("account_type") or "").upper()
+        curr = str(d.get("currency") or "").upper()
+        is_cent = acc_type == "CENT" or curr in ("USC", "EUC")
+        raw_profit = float(d.get("profit") or 0.0)
+
+        if is_cent:
+            orig_unit = curr if curr else "USC"
+            profit_orig_str = f"{raw_profit:.2f} {orig_unit}"
+            profit_usd = round(raw_profit / 100.0, 2)
+        else:
+            orig_unit = curr if curr else "USD"
+            profit_orig_str = f"{raw_profit:.2f} {orig_unit}"
+            profit_usd = round(raw_profit, 2)
+
+        acc_name = d.get("account_name", "")
+        mt5_login = d.get("mt5_login", "")
+        acc_label = f"{acc_name} (#{mt5_login})"
+
         writer.writerow([
             date_str,
-            f"{d.get('account_name', '')} (#{d.get('mt5_login', '')})",
-            d.get("broker_server", ""),
-            d.get("symbol", "XAUUSD"),
-            d.get("action", ""),
+            _csv_safe(acc_label),
+            _csv_safe(d.get("broker_server", "")),
+            _csv_safe(d.get("symbol", "XAUUSD")),
+            _csv_safe(d.get("action", "")),
             d.get("volume", 0.0),
             d.get("entry_price", 0.0),
-            d.get("profit", 0.0),
-            d.get("status", ""),
-            d.get("ticket", ""),
+            _csv_safe(profit_orig_str),
+            profit_usd,
+            _csv_safe(d.get("status", "")),
+            _csv_safe(d.get("ticket", "")),
         ])
 
     csv_bytes = buf.getvalue().encode("utf-8")

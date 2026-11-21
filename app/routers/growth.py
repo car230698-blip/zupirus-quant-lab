@@ -6,11 +6,12 @@ import json
 import time
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.db import tx, getkv, setkv, audit
 from app.routers.deps import fail, get_current_user
+from app.core.redis_client import check_rate_limit
 
 router = APIRouter(tags=["Growth & Public Track Record"])
 
@@ -21,8 +22,17 @@ def _user_referral_code(user_id: str) -> str:
 
 
 @router.get("/api/v1/public/track-record")
-def get_public_track_record() -> Dict[str, Any]:
+def get_public_track_record(request: Request) -> Dict[str, Any]:
     """Return strictly anonymized, verified XAU/USD Prop LIVE performance metrics (zero PII)."""
+    client_ip = (
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "unknown")
+    )
+    if not check_rate_limit(f"track_record:{client_ip}", limit=60, window_sec=60):
+        raise HTTPException(
+            status_code=429,
+            detail="Quá nhiều yêu cầu tải track record. Vui lòng thử lại sau giây lát.",
+        )
     with tx() as c:
         exec_rows = c.execute(
             """

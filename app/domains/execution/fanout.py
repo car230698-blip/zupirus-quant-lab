@@ -147,8 +147,8 @@ async def execute_fan_out_for_signal(
                 ).fetchone()
                 if existing:
                     is_duplicate = True
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Fast duplicate check failed for account %s: %s", acc_id, exc)
 
         if is_duplicate:
             logger.warning(f"Idempotency: Signal {signal_id} already executed for account {acc_id}. Skipping.")
@@ -222,8 +222,8 @@ async def execute_fan_out_for_signal(
                 with tx() as c:
                     if getkv(c, f"prop_target_throttle:{acc_id}") == "1":
                         effective_risk_pct = effective_risk_pct * 0.5
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Prop throttle check failed for account %s: %s", acc_id, exc)
 
         # Dynamic De-Risking check (B4):
         # When account daily drawdown exceeds 50% of daily loss limit, multiply effective_mult by 0.5
@@ -398,8 +398,8 @@ async def execute_fan_out_for_signal(
                     if redis_client and redis_locked:
                         try:
                             redis_client.delete(f"zupirus:lock:signal:{signal_id}:{acc_id}")
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Failed to release Redis lock for %s:%s: %s", signal_id, acc_id, exc)
                     continue
         except Exception as db_lock_err:
             if not redis_locked:
@@ -560,8 +560,8 @@ async def execute_fan_out_for_signal(
                 tp=tp,
                 accounts_count=executed_count,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Optional signal notification failed for %s %s: %s", symbol, action, exc)
 
     if len(accounts) > 0 and failed_count >= 2:
         fail_rate = (failed_count / len(accounts)) * 100.0

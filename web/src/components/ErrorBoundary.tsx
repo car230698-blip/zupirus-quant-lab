@@ -28,7 +28,7 @@ export class ErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-[#020617] text-slate-100 flex items-center justify-center p-6">
+        <div className="min-h-screen bg-[#0B1220] text-slate-100 flex items-center justify-center p-6">
           <div className="max-w-md w-full rounded-2xl border border-rose-500/35 bg-[#060c1d] p-6 space-y-4 shadow-2xl">
             <div className="font-mono text-xs uppercase tracking-[0.2em] text-rose-400">
               ZUPIRUS FAIL-SAFE RECOVERY

@@ -57,7 +57,10 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
       const d = await apiPost<{ message?: string }>('/api/v1/referral/apply', { code: applyCode.trim() });
       setRefMsg(d?.message || 'Áp dụng mã giới thiệu thành công!');
       setApplyCode('');
-      const refreshed = await apiGet<ReferralInfo>('/api/v1/referral/me').catch(() => null);
+      const refreshed = await apiGet<ReferralInfo>('/api/v1/referral/me').catch((err) => {
+        console.warn('[Referral] Failed to refresh referral status:', err);
+        return null;
+      });
       if (refreshed) setRefInfo(refreshed);
     } catch (err: any) {
       setRefMsg(`Lỗi: ${err.message || String(err)}`);

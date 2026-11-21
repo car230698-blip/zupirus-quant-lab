@@ -166,6 +166,31 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const ddDanger = computedDailyDd >= maxDdLimitPct * 0.8;
   const activeShield = dynamicShieldLayers[activeShieldIdx] || dynamicShieldLayers[0];
 
+  const propAccounts = React.useMemo(() => {
+    return accounts.filter((a: any) => {
+      const type = String(a.account_type || '').toUpperCase();
+      const name = String(a.account_name || a.server || a.broker_server || '').toUpperCase();
+      return (
+        type.includes('PROP') ||
+        name.includes('FTMO') ||
+        name.includes('PROP') ||
+        name.includes('THE5ERS') ||
+        name.includes('FUNDED') ||
+        Boolean(a.prop_firm_profile)
+      );
+    });
+  }, [accounts]);
+
+  const hasPropAccount = propAccounts.length > 0;
+  const propBal = propAccounts.reduce((sum, a) => sum + Number(a.balance || 0), 0);
+  const propEq = propAccounts.reduce((sum, a) => sum + Number(a.equity || a.balance || 0), 0);
+  const propPnlPct = propBal > 0 ? ((propEq - propBal) / propBal) * 100 : 0;
+  const targetPct = 8.0;
+  const targetProgress = Math.min(Math.max((propPnlPct / targetPct) * 100, 0), 100);
+  const propDailyDd = propAccounts.reduce((max, a) => Math.max(max, Number(a.daily_dd_pct || 0)), 0);
+  const propMaxDailyDd = 4.0;
+  const ddProgress = Math.min((propDailyDd / propMaxDailyDd) * 100, 100);
+
   return (
     <div className="space-y-6">
       {/* Subscription Status & Renewal Banner */}
@@ -225,6 +250,67 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
           </div>
         );
       })()}
+
+      {/* Prop Firm Challenge Tracker (Auto-activated when Prop accounts are detected) */}
+      {hasPropAccount && (
+        <div className="rounded-2xl border border-amber-400/40 bg-gradient-to-r from-[#040813] via-[#091024] to-[#040813] p-4 sm:p-5 shadow-[0_0_30px_rgba(245,158,11,0.08)] space-y-3 font-mono text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-400/30">
+                ⚡
+              </span>
+              <div>
+                <span className="font-bold text-white text-sm">BẢNG THEO DÕI PASS QUỸ (PROP CHALLENGE TRACKER)</span>
+                <span className="ml-2 rounded bg-cyan-500/20 border border-cyan-400/30 px-1.5 py-0.5 text-[10px] text-cyan-300 font-bold">
+                  {propAccounts.length} Tài Khoản Quỹ
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-slate-300">
+              <span>Trần Rủi Ro:</span>
+              <strong className="text-emerald-400">1.0%/lệnh</strong>
+              <span>·</span>
+              <strong className="text-cyan-300">2.0%/danh mục (ARMED · Fail-Closed)</strong>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            {/* Profit Target Progress */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] mb-1.5">
+                <span className="text-slate-300">Mục Tiêu Lợi Nhuận (Target 8.0%)</span>
+                <span className={`font-bold tabular-nums ${propPnlPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {propPnlPct >= 0 ? '+' : ''}{propPnlPct.toFixed(2)}% / +8.0%
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-300"
+                  style={{ width: `${targetProgress}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Daily Drawdown Ceiling Progress */}
+            <div>
+              <div className="flex items-center justify-between text-[11px] mb-1.5">
+                <span className="text-slate-300">Sụt Giảm Ngày (Max Daily DD 4.0%)</span>
+                <span className={`font-bold tabular-nums ${propDailyDd >= 3.2 ? 'text-rose-400' : 'text-amber-300'}`}>
+                  {propDailyDd.toFixed(2)}% / 4.00% {propDailyDd >= 3.2 ? '(NGUY HIỂM)' : '(AN TOÀN)'}
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    propDailyDd >= 3.2 ? 'bg-rose-500' : 'bg-amber-400'
+                  }`}
+                  style={{ width: `${ddProgress}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Row 1: 4 Executive Quantum Portfolio HUD Cards with Sparklines */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">

@@ -37,6 +37,12 @@ jobs:
             DEPLOY_PATH="${{ secrets.VPS_DEPLOY_PATH || '/home/hoangminh2306/zupirus-quant-lab-test' }}"
             TARGET_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
             cd "$DEPLOY_PATH"
+
+            PREV_SHA=$(git rev-parse HEAD)
+            echo "Current commit before deployment: $PREV_SHA"
+            echo "Running best-effort pre-deployment database backup..."
+            python3 scripts/ops/backup_postgres.py || true
+
             git fetch origin main
             git checkout -B main "$TARGET_SHA"
 
@@ -55,7 +61,13 @@ jobs:
             echo "================================================================="
             # Allow uvicorn and background workers time to finish initial startup
             sleep 8
-            docker exec zupirus-prod-api-1 python -m cli healthcheck --json || curl -f http://127.0.0.1:8080/readyz
+            if ! (docker exec zupirus-prod-api-1 python -m cli healthcheck --json || curl -f http://127.0.0.1:8080/readyz); then
+              echo "[CRITICAL] Deployment healthcheck failed for $TARGET_SHA! Executing auto-rollback to $PREV_SHA..."
+              git checkout "$PREV_SHA"
+              docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --build --remove-orphans
+              echo "[ROLLBACK COMPLETE] Successfully restored previous stable commit $PREV_SHA."
+              exit 1
+            fi
 
             echo "================================================================="
             echo " [SUCCESS] ZUPIRUS Quant Lab Deployment Verified on Production!"

@@ -456,3 +456,24 @@ def poll_realtime_events(channel: str, since_ts: float) -> List[Dict[str, Any]]:
                 events.append(item)
     return events
 
+
+def check_rate_limit(key: str, limit: int, window_sec: int) -> bool:
+    """
+    Check rate limit for a given key using Redis INCR + EXPIRE.
+    Returns True if request is ALLOWED (count <= limit), False if EXCEEDED (429).
+    Gracefully falls back to allowing the request if Redis is unreachable.
+    """
+    if limit <= 0 or window_sec <= 0:
+        return True
+    try:
+        r = get_redis_client()
+        rate_key = f"zupirus:ratelimit:{key}"
+        val = r.incr(rate_key)
+        if val == 1:
+            r.expire(rate_key, window_sec)
+        return int(val) <= limit
+    except Exception as exc:
+        logger.warning("Rate limit check failed for key %s (falling back to ALLOW): %s", key, exc)
+        return True
+
+

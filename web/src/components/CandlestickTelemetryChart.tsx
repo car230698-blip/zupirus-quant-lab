@@ -238,7 +238,7 @@ export const CandlestickTelemetryChart: React.FC<CandlestickTelemetryChartProps>
           x="788"
           y={currentY + 3}
           textAnchor="middle"
-          fill="#020617"
+          fill="#0B1220"
           fontSize="9"
           fontWeight="800"
           fontFamily="JetBrains Mono, monospace"
