@@ -1,6 +1,5 @@
 import React from 'react';
 import { IconBan, IconBolt } from './Icons';
-import { FanOutTopologyDiagram } from './FanOutTopologyDiagram';
 
 export interface LandingPipelineSimulationSectionProps {
   spotPrice: number;
@@ -19,89 +18,59 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
 }) => {
   return (
     <section id="pipeline" className="quant-panel p-6 sm:p-10 space-y-8">
-      {/* 2-Column Responsive Cockpit Header: Controls on Left, Real-Time Architecture Visual on Right */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center border-b border-slate-800/60 pb-8">
-        {/* Left Column (6 Cols): Header, Description, 3 Action Buttons */}
-        <div className="space-y-5 lg:col-span-6">
-          <div>
-            <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-[#F5B700]">
-              QUANTUM EXECUTION PIPELINE SIMULATOR
-            </div>
-            <h2 className="mt-1 font-display text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Mô Phỏng Luồng Quạt Lệnh Đa Sàn (Multi-Broker Fan-Out)
-            </h2>
-            <p className="mt-2 text-sm text-slate-300 leading-relaxed">
-              Kiểm nghiệm trực tiếp cách ZUPIRUS xử lý một tín hiệu XAU/USD từ lúc tiếp nhận đến khi khớp lệnh đồng thời trên nhiều tài khoản với thời gian phản hồi microsecond.
-            </p>
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+        <div>
+          <div className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-amber-300">
+            QUANTUM EXECUTION PIPELINE SIMULATOR
           </div>
-
-          {/* 3 Action Buttons */}
-          <div className="space-y-2">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
-              Kịch Bản Bắn Lệnh Thử Nghiệm:
-            </span>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => triggerSimulation('BUY')}
-                disabled={simRunning}
-                className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap cursor-pointer ${
-                  simSide === 'BUY'
-                    ? 'border border-[#12B5A6] bg-[#12B5A6] text-[#042F2E] shadow-[0_0_20px_rgba(18,181,166,0.35)]'
-                    : 'border border-slate-700 bg-[#080E1A] text-slate-300 hover:border-slate-500'
-                }`}
-              >
-                <IconBolt className="w-3.5 h-3.5" />
-                Bắn Thử BUY XAU/USD
-              </button>
-              <button
-                type="button"
-                onClick={() => triggerSimulation('SELL')}
-                disabled={simRunning}
-                className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap cursor-pointer ${
-                  simSide === 'SELL'
-                    ? 'border border-[#12B5A6] bg-[#12B5A6] text-[#042F2E] shadow-[0_0_20px_rgba(18,181,166,0.35)]'
-                    : 'border border-slate-700 bg-[#080E1A] text-slate-300 hover:border-slate-500'
-                }`}
-              >
-                <IconBolt className="w-3.5 h-3.5" />
-                Bắn Thử SELL XAU/USD
-              </button>
-              <button
-                type="button"
-                onClick={() => triggerSimulation('NO_SL')}
-                disabled={simRunning}
-                className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl border transition whitespace-nowrap cursor-pointer ${
-                  simSide === 'NO_SL'
-                    ? 'border-rose-400 bg-rose-500/25 text-rose-200 shadow-[0_0_20px_rgba(244,63,94,0.35)]'
-                    : 'border-rose-500/40 bg-rose-950/20 text-rose-300 hover:bg-rose-500/20'
-                }`}
-              >
-                <IconBan className="w-3.5 h-3.5" />
-                Thử Kịch Bản Thiếu SL (Fail-Closed)
-              </button>
-            </div>
-          </div>
-
-          {/* Real-time Status Callout */}
-          <div className="rounded-xl border border-slate-800 bg-[#050914] p-3 text-xs font-mono flex items-center justify-between">
-            <span className="text-slate-400">Trạng thái kịch bản:</span>
-            <span className={simSide === 'NO_SL' ? 'text-rose-400 font-bold' : 'text-[#12B5A6] font-bold'}>
-              {simSide === 'NO_SL'
-                ? 'CHẶN TẠI GIÁP #02 · 100% VỐN AN TOÀN'
-                : `KHỚP ĐỒNG BỘ 3 TÀI KHOẢN (${simSide} XAU/USD)`}
-            </span>
-          </div>
+          <h2 className="mt-1.5 font-display text-2xl sm:text-3xl font-extrabold text-white">
+            Mô Phỏng Luồng Quạt Lệnh Đa Sàn (Multi-Broker Fan-Out)
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-300">
+            Kiểm nghiệm trực tiếp cách ZUPIRUS xử lý một tín hiệu XAU/USD từ lúc tiếp nhận đến khi khớp lệnh đồng thời trên nhiều tài khoản.
+          </p>
         </div>
 
-        {/* Right Column (6 Cols): Real-time SVG Architecture Diagram (Eliminates the empty gap!) */}
-        <div className="lg:col-span-6 w-full h-full min-h-[220px]">
-          <FanOutTopologyDiagram
-            simSide={simSide}
-            simStep={simStep}
-            simRunning={simRunning}
-            spotPrice={spotPrice}
-          />
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => triggerSimulation('BUY')}
+            disabled={simRunning}
+            className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap shrink-0 cursor-pointer ${
+              simSide === 'BUY'
+                ? 'border border-emerald-500 bg-emerald-500 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)]'
+                : 'border border-slate-700 bg-[#080E1A] text-slate-300 hover:border-slate-500'
+            }`}
+          >
+            <IconBolt className="w-3.5 h-3.5" />
+            Bắn Thử BUY XAU/USD
+          </button>
+          <button
+            type="button"
+            onClick={() => triggerSimulation('SELL')}
+            disabled={simRunning}
+            className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl transition whitespace-nowrap shrink-0 cursor-pointer ${
+              simSide === 'SELL'
+                ? 'border border-emerald-500 bg-emerald-500 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.35)]'
+                : 'border border-slate-700 bg-[#080E1A] text-slate-300 hover:border-slate-500'
+            }`}
+          >
+            <IconBolt className="w-3.5 h-3.5" />
+            Bắn Thử SELL XAU/USD
+          </button>
+          <button
+            type="button"
+            onClick={() => triggerSimulation('NO_SL')}
+            disabled={simRunning}
+            className={`inline-flex items-center gap-1.5 px-4 py-2.5 text-xs font-mono font-bold rounded-xl border transition whitespace-nowrap shrink-0 cursor-pointer ${
+              simSide === 'NO_SL'
+                ? 'border-rose-400 bg-rose-500/25 text-rose-200 shadow-[0_0_20px_rgba(244,63,94,0.35)]'
+                : 'border-rose-500/30 bg-rose-950/20 text-rose-300 hover:bg-rose-500/20'
+            }`}
+          >
+            <IconBan className="w-3.5 h-3.5" />
+            Thử Kịch Bản Thiếu SL (Fail-Closed)
+          </button>
         </div>
       </div>
 
