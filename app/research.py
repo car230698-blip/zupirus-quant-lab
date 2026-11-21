@@ -1,17 +1,3 @@
-"""Persistent research graph: research results never control execution automatically.
-Integrated with PostgreSQL/TimescaleDB checkpointer and LangSmith tracing."""
-import time, json, os, uuid, logging
-from typing import TypedDict
-import httpx
-from langgraph.graph import StateGraph, START, END
-from langgraph.types import interrupt, Command
-from .db import DATA, ROOT, tx, init, setkv, audit, is_postgres, DATABASE_URL
-from .tracing import trace_langgraph_step, trace_ai_interaction
-from .hindsight import reflect_on_policy_approval
-from .gemini_client import call_gemini
-
-logger = logging.getLogger("zupirus.research")
-
 """Tabula Rasa Inductive Research Graph.
 Learns strategy candidates inductively from external signal observations and market context snapshots.
 Integrated with TimescaleDB, PostgreSQL checkpointer, Hindsight memory, and LangSmith tracing.

@@ -1,8 +1,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from '../web/src/lib/queryClient.ts';
-import { ErrorBoundary } from '../web/src/components/ErrorBoundary.tsx';
+import { queryClient } from './lib/queryClient.ts';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 import App from './App.tsx';
 

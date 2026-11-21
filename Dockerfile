@@ -3,10 +3,8 @@ FROM node:22-slim AS frontend-builder
 WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci
-COPY index.html tsconfig.json vite.config.ts ./
-COPY src src
+COPY tsconfig.json vite.config.ts ./
 COPY web web
-COPY public public
 RUN npm run build
 
 # Stage 2: Production Python runtime
@@ -21,7 +19,7 @@ COPY requirements.lock .
 RUN uv pip install --system --no-cache -r requirements.lock uvloop && \
     useradd -u 10001 -m lab && mkdir /data && chown lab:lab /data
 COPY --from=frontend-builder --chown=lab:lab /build/dist dist
-COPY --chown=lab:lab public public
+COPY --chown=lab:lab web/public public
 COPY --chown=lab:lab app app
 COPY --chown=lab:lab cli cli
 COPY --chown=lab:lab data data

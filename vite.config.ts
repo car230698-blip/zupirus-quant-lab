@@ -22,6 +22,8 @@ export default defineConfig(() => {
   };
 
   return {
+    root: 'web',
+    publicDir: 'public',
     plugins: [useFixtures && zupirusApiPlugin(), react(), tailwindcss()],
     server: {
       port: 3000,
@@ -39,7 +41,8 @@ export default defineConfig(() => {
       proxy: proxyConfig,
     },
     build: {
-      outDir: 'dist',
+      outDir: '../dist',
+      emptyOutDir: true,
       rollupOptions: {
         output: {
           manualChunks(id) {

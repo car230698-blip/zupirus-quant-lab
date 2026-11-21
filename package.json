@@ -9,9 +9,9 @@
     "build": "vite build",
     "preview": "vite preview --port 3000",
     "start": "vite --port 3000",
-    "lint": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "lint": "tsc --noEmit",
     "test": "npm run lint && npx --yes tsx --test web/src/utils/quantMath.test.ts web/src/utils/stateMapping.test.ts web/src/components/PortalComponents.test.tsx && npm run build",
-    "build:ui": "tsc -p web/tsconfig.json --noEmit"
+    "build:ui": "tsc --noEmit"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.107.1",
