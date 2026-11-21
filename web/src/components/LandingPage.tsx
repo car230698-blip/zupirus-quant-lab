@@ -184,7 +184,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-xl border border-[#5865F2]/40 bg-[#5865F2]/15 px-4 py-3.5 font-mono text-xs font-bold text-[#8EA1FF] hover:bg-[#5865F2]/25 transition whitespace-nowrap"
               >
-                <span>Discord (1,200+ Trader)</span>
+                <span>Cộng Đồng Discord</span>
                 <span>↗</span>
               </a>
             </div>
@@ -405,7 +405,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 rel="noopener noreferrer"
                 className="text-[#8EA1FF] hover:underline flex items-center gap-1 font-bold"
               >
-                <span>Discord (1,200+ Trader)</span>
+                <span>Cộng Đồng Discord</span>
                 <span>↗</span>
               </a>
               <a href="#pipeline" className="hover:text-white transition">4 Lớp Giáp</a>
