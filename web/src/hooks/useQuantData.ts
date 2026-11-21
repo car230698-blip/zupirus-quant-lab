@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiGet } from '../api/client.ts';
 
 export interface CloudAccountItem {
   id: string;
@@ -32,7 +33,7 @@ export interface EquityPoint {
   balance?: number;
 }
 
-function getActiveUserKey(explicitKey?: string | null): string {
+export function getActiveUserKey(explicitKey?: string | null): string {
   if (explicitKey) return explicitKey;
   if (typeof window !== 'undefined' && (window as any).__ZUPIRUS_USER_KEY__) {
     return String((window as any).__ZUPIRUS_USER_KEY__);
@@ -40,22 +41,34 @@ function getActiveUserKey(explicitKey?: string | null): string {
   return 'anonymous';
 }
 
+export const QUERY_KEYS = {
+  allAccounts: ['accounts'] as const,
+  accounts: (userKey?: string | null) => ['accounts', getActiveUserKey(userKey)] as const,
+  allOrders: ['orders'] as const,
+  orders: (url?: string | null, sessionKey?: string | null) => ['orders', url || 'all', sessionKey || 'anon'] as const,
+  allEquityHistory: ['equity-history'] as const,
+  equityHistory: (days: number = 30, userKey?: string | null) => ['equity-history', getActiveUserKey(userKey), days] as const,
+  telemetryTopbar: ['telemetry', 'topbar'] as const,
+  userBilling: ['user-billing'] as const,
+  adminBilling: ['admin-billing'] as const,
+};
+
 export function useEquityHistory(days: number = 30, userKey?: string | null) {
   const uKey = getActiveUserKey(userKey);
   return useQuery<EquityPoint[]>({
-    queryKey: ['equity-history', uKey, days],
+    queryKey: QUERY_KEYS.equityHistory(days, uKey),
     queryFn: async () => {
-      const res = await fetch(`/api/dashboard?days=${days}`, {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      if (Array.isArray(data.series) && data.series.length > 0) {
-        return data.series.map((item: any) => ({
-          timestamp: item.timestamp || item.time || item.ts || item.bucket,
-          equity: Number(item.equity ?? item.balance ?? 0),
-          balance: Number(item.balance ?? item.equity ?? 0),
-        }));
+      try {
+        const data = await apiGet<any>(`/api/dashboard?days=${days}`);
+        if (Array.isArray(data?.series) && data.series.length > 0) {
+          return data.series.map((item: any) => ({
+            timestamp: item.timestamp || item.time || item.ts || item.bucket,
+            equity: Number(item.equity ?? item.balance ?? 0),
+            balance: Number(item.balance ?? item.equity ?? 0),
+          }));
+        }
+      } catch {
+        // fallback empty
       }
       return [];
     },
@@ -66,13 +79,9 @@ export function useEquityHistory(days: number = 30, userKey?: string | null) {
 export function useCloudAccounts(userKey?: string | null) {
   const uKey = getActiveUserKey(userKey);
   return useQuery<{ accounts: CloudAccountItem[]; total: number }>({
-    queryKey: ['accounts', uKey],
+    queryKey: QUERY_KEYS.accounts(uKey),
     queryFn: async () => {
-      const res = await fetch('/api/v1/accounts', {
-        headers: { 'X-Zupirus': '1' },
-      });
-      if (!res.ok) throw new Error('Không thể tải danh sách tài khoản MT5');
-      return res.json();
+      return apiGet<{ accounts: CloudAccountItem[]; total: number }>('/api/v1/accounts');
     },
     staleTime: 10_000,
     refetchInterval: () => (typeof document !== 'undefined' && document.visibilityState === 'visible' ? 15000 : false),
@@ -98,7 +107,14 @@ export interface LiveTopbarTelemetry {
   news_shield: {
     status: string;
     distance_mins: number;
-    nearest_title: string | null;
+    next_event_name?: string;
+    nearest_title?: string | null;
+  };
+  system_guard?: {
+    kill_switch_active: boolean;
+    active_connections: number;
+    execution_engine_healthy: boolean;
+    max_slippage_pips: number;
   };
   shields?: Array<{
     layer: string;
@@ -110,68 +126,45 @@ export interface LiveTopbarTelemetry {
   redis_ping_ms?: number;
   db_ping_ms?: number;
   metaapi_latency_ms: number;
-  region: string;
-  active_sources_count: number;
-  shadow_sources_count: number;
-  system_status: string;
-  server_time: number;
+  region?: string;
+  active_sources_count?: number;
+  shadow_sources_count?: number;
+  system_status?: string;
+  server_time?: number;
 }
 
-let _sharedTopbarEs: EventSource | null = null;
-let _sharedTopbarSubscribers = 0;
-
 export function useLiveTopbarTelemetry() {
-  const queryClient = useQueryClient();
   const [sseConnected, setSseConnected] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
-    _sharedTopbarSubscribers += 1;
-    if (!_sharedTopbarEs || _sharedTopbarEs.readyState === EventSource.CLOSED) {
-      _sharedTopbarEs = new EventSource('/api/v1/stream/topbar', { withCredentials: true });
-    }
-    const es = _sharedTopbarEs;
-    const onOpen = () => setSseConnected(true);
-    const onTopbar = (ev: MessageEvent) => {
-      try {
-        const parsed = JSON.parse(ev.data) as LiveTopbarTelemetry;
-        queryClient.setQueryData(['telemetry', 'topbar'], parsed);
-        setSseConnected(true);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('zupirus:topbar-tick', { detail: parsed }));
-        }
-      } catch {
-        // ignore malformed frame
-      }
-    };
-    const onErr = () => setSseConnected(false);
+    const es = new EventSource('/api/v1/stream/topbar', { withCredentials: true });
 
-    if (es.readyState === EventSource.OPEN) {
-      setSseConnected(true);
-    }
-    es.addEventListener('open', onOpen);
-    es.addEventListener('topbar', onTopbar);
-    es.addEventListener('error', onErr);
+    es.addEventListener('topbar', (ev: MessageEvent) => {
+      try {
+        const payload: LiveTopbarTelemetry = JSON.parse(ev.data);
+        queryClient.setQueryData(QUERY_KEYS.telemetryTopbar, payload);
+        setSseConnected(true);
+      } catch {
+        // ignore parse error
+      }
+    });
+
+    es.onerror = () => {
+      setSseConnected(false);
+    };
 
     return () => {
-      es.removeEventListener('open', onOpen);
-      es.removeEventListener('topbar', onTopbar);
-      es.removeEventListener('error', onErr);
-      _sharedTopbarSubscribers = Math.max(0, _sharedTopbarSubscribers - 1);
-      if (_sharedTopbarSubscribers === 0 && _sharedTopbarEs) {
-        _sharedTopbarEs.close();
-        _sharedTopbarEs = null;
-      }
+      es.close();
       setSseConnected(false);
     };
   }, [queryClient]);
 
   return useQuery<LiveTopbarTelemetry>({
-    queryKey: ['telemetry', 'topbar'],
+    queryKey: QUERY_KEYS.telemetryTopbar,
     queryFn: async () => {
-      const res = await fetch('/api/v1/telemetry/topbar', { credentials: 'include' });
-      if (!res.ok) throw new Error('Không thể tải dữ liệu telemetry');
-      return res.json();
+      return apiGet<LiveTopbarTelemetry>('/api/v1/telemetry/topbar');
     },
     staleTime: sseConnected ? 30_000 : 2500,
     refetchInterval: sseConnected ? false : 5000,
@@ -188,9 +181,10 @@ export function useRealtimePortalStream(portal: 'user' | 'admin', enabled: boole
 
     if (portal === 'user') {
       const refreshUser = () => {
-        void queryClient.invalidateQueries({ queryKey: ['accounts'] });
-        void queryClient.invalidateQueries({ queryKey: ['orders'] });
-        void queryClient.invalidateQueries({ queryKey: ['equity-history'] });
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.allAccounts });
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.allOrders });
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.allEquityHistory });
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.userBilling });
         window.dispatchEvent(new CustomEvent('zupirus:user-refresh'));
       };
       es.addEventListener('payment_paid', refreshUser);
@@ -205,7 +199,7 @@ export function useRealtimePortalStream(portal: 'user' | 'admin', enabled: boole
         }
       });
       es.addEventListener('billing_paid', () => {
-        void queryClient.invalidateQueries({ queryKey: ['admin-billing'] });
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminBilling });
         window.dispatchEvent(new CustomEvent('zupirus:admin-billing-refresh'));
       });
     }

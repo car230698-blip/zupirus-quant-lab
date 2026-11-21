@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fmtNum, fmtPnL, fmtTime } from '../utils/strategyDecision';
+import { formatTradePnl } from '../utils/currencyFormat.ts';
 import { translateOrderStatus, orderStates } from '../utils/stateMapping';
 import { computeOrderLedgerMetrics } from '../utils/quantMath';
 import { MetricCard, Panel, StatusBadge } from './ui/Primitives';
@@ -350,7 +351,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                           pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
                         }`}
                       >
-                        <div>{fmtPnL(pnl)}</div>
+                        <div>{formatTradePnl(pnl, o)}</div>
                         {o._isLiveOpen && (
                           <div className="text-[10px] font-normal text-emerald-300/80">Real-time</div>
                         )}
@@ -407,7 +408,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                     pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
                   }`}
                 >
-                  {fmtPnL(pnl)}
+                  {formatTradePnl(pnl, o)}
                 </div>
               </div>
               <div className="mt-2 flex items-center justify-between font-mono text-[11px] text-slate-400 tabular-nums">
@@ -477,7 +478,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                     Number(selectedOrder.pnl ?? selectedOrder.profit ?? selectedOrder.realized_pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
                   }`}
                 >
-                  {fmtPnL(selectedOrder.pnl ?? selectedOrder.profit ?? selectedOrder.realized_pnl)}
+                  {formatTradePnl(selectedOrder.pnl ?? selectedOrder.profit ?? selectedOrder.realized_pnl, selectedOrder)}
                 </div>
               </div>
               <div>

@@ -5,6 +5,7 @@ import { PropCertificateModal } from './PropCertificateModal';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { apiGet } from '../api/client.ts';
+import { formatAccountMoney } from '../utils/currencyFormat.ts';
 
 export interface UserOverviewTabProps {
   totalBalance?: number;
@@ -149,7 +150,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
 
   const dynamicShieldLayers = React.useMemo(() => {
     if (telemetryData?.shields && telemetryData.shields.length === 4) {
-      return telemetryData.shields.map((s, i) => ({
+      return telemetryData.shields.map((s: any, i: number) => ({
         id: `0${i + 1}`,
         code: SHIELD_LAYERS[i]?.code || s.layer,
         title: s.name || SHIELD_LAYERS[i]?.title,
@@ -406,7 +407,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-white/[0.08] font-mono text-xs">
-          {dynamicShieldLayers.map((layer, idx) => {
+          {dynamicShieldLayers.map((layer: any, idx: number) => {
             const isSelected = activeShieldIdx === idx;
             return (
               <button
@@ -652,11 +653,11 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                       <div className="mt-3 grid grid-cols-3 gap-2 border-t border-white/[0.06] pt-2.5 font-mono text-xs tabular-nums">
                         <div>
                           <div className="text-[10px] text-slate-500">BALANCE</div>
-                          <div className="font-bold text-white">${fmtNum(acc.balance, 0)}</div>
+                          <div className="font-bold text-white">{formatAccountMoney(acc.balance, acc)}</div>
                         </div>
                         <div>
                           <div className="text-[10px] text-slate-500">EQUITY</div>
-                          <div className="font-bold text-amber-300">${fmtNum(acc.equity, 0)}</div>
+                          <div className="font-bold text-amber-300">{formatAccountMoney(acc.equity, acc)}</div>
                         </div>
                         <div className="text-right">
                           <div className="text-[10px] text-slate-500">DAILY DD</div>

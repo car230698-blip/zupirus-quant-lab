@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient.ts';
+import { apiGet, apiPost } from './api/client.ts';
 import { useOrderQuery } from './hooks/useOrderQuery.ts';
 import { PortalAuth, PortalShell } from './components/PortalChrome.tsx';
 import { UserOverviewTab } from './components/UserOverviewTab.tsx';
@@ -85,11 +86,10 @@ const AppContent: React.FC = () => {
   // Check auth session
   const checkAuth = useCallback(async () => {
     try {
-      const res = await fetch('/api/me');
-      if (res.ok) setCurrentUser(await res.json());
-      else if (res.status !== 401) setAuthError('Không thể kiểm tra phiên đăng nhập.');
-    } catch {
-      setAuthError('Không thể kết nối máy chủ.');
+      const data = await apiGet<UserInfo>('/api/me');
+      setCurrentUser(data);
+    } catch (err: any) {
+      if (err?.status && err.status !== 401) setAuthError('Không thể kiểm tra phiên đăng nhập.');
     } finally {
       setAuthChecking(false);
     }
@@ -97,33 +97,27 @@ const AppContent: React.FC = () => {
 
   const loadDashboard = useCallback(async () => {
     try {
-      const res = await fetch('/api/dashboard');
-      if (res.ok) {
-        const d = await res.json();
-        setDashboard(d);
-        setDashboardStatus('ready');
-        setSelectedAccount((prev) => {
-          if (prev && d.accounts?.some((a: any) => a.id === prev)) return prev;
-          return d.accounts?.[0]?.id || '';
-        });
-      } else if (res.status === 401) {
+      const d = await apiGet<any>('/api/dashboard');
+      setDashboard(d);
+      setDashboardStatus('ready');
+      setSelectedAccount((prev) => {
+        if (prev && d.accounts?.some((a: any) => a.id === prev)) return prev;
+        return d.accounts?.[0]?.id || '';
+      });
+    } catch (err: any) {
+      if (err?.status === 401) {
         setCurrentUser(null);
         setAuthError('Phiên đăng nhập đã hết hạn.');
       } else {
         setDashboardStatus('offline');
       }
-    } catch {
-      setDashboardStatus('offline');
     }
   }, []);
 
   const loadCandles = useCallback(async (tf: string) => {
     try {
-      const res = await fetch(`/api/timescale/candles?symbol=XAUUSD&timeframe=${tf}&source=ALL&limit=48`);
-      if (res.ok) {
-        const d = await res.json();
-        setCandles((d.candles || []).slice().reverse());
-      }
+      const d = await apiGet<any>(`/api/timescale/candles?symbol=XAUUSD&timeframe=${tf}&source=ALL&limit=48`);
+      setCandles((d.candles || []).slice().reverse());
     } catch {
       // ignore
     }
@@ -131,13 +125,9 @@ const AppContent: React.FC = () => {
 
   const loadAdminMonitor = useCallback(async () => {
     try {
-      const mRes = await fetch('/api/admin/monitor');
-      if (mRes.ok) {
-        setMonitorData(await mRes.json());
-        setMonitorStatus('ready');
-      } else {
-        setMonitorStatus('offline');
-      }
+      const data = await apiGet<any>('/api/admin/monitor');
+      setMonitorData(data);
+      setMonitorStatus('ready');
     } catch {
       setMonitorStatus('offline');
     }
@@ -191,36 +181,30 @@ const AppContent: React.FC = () => {
   const authenticate = async (email: string, password: string, register: boolean, otp?: string) => {
     setAuthLoading(true);
     setAuthError(null);
-    const options = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-      body: JSON.stringify({ email, password, ...(otp ? { otp_code: otp } : {}) }),
-    };
     try {
       if (register) {
-        const registration = await fetch('/api/register', options);
-        if (!registration.ok) {
-          const data = await registration.json().catch(() => ({}));
+        try {
+          await apiPost('/api/register', { email, password, ...(otp ? { otp_code: otp } : {}) });
+        } catch (err: any) {
           throw new Error(
-            data.detail ||
-              (registration.status === 409 ? 'Email đã được đăng ký.' : 'Không thể tạo tài khoản. Kiểm tra email và mã OTP.')
+            err?.data?.detail ||
+              (err?.status === 409 ? 'Email đã được đăng ký.' : 'Không thể tạo tài khoản. Kiểm tra email và mã OTP.')
           );
         }
       }
-      const session = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({ email, password }),
-      });
-      if (!session.ok)
+      let session: any;
+      try {
+        session = await apiPost<UserInfo>('/api/login', { email, password });
+      } catch (err: any) {
         throw new Error(
-          session.status === 401 ? 'Email hoặc mật khẩu không chính xác.' : 'Không thể đăng nhập. Vui lòng thử lại.'
+          err?.status === 401 ? 'Email hoặc mật khẩu không chính xác.' : 'Không thể đăng nhập. Vui lòng thử lại.'
         );
+      }
       setDashboardStatus('loading');
       setMonitorStatus('loading');
       setNotice(null);
       setAuthPreviewOpen(false);
-      setCurrentUser(await session.json());
+      setCurrentUser(session);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Không thể kết nối máy chủ.');
     } finally {
@@ -230,7 +214,7 @@ const AppContent: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/logout', { method: 'POST', headers: { 'X-Zupirus': '1' } });
+      await apiPost('/api/logout');
     } catch {
       // ignore
     }
@@ -249,25 +233,15 @@ const AppContent: React.FC = () => {
     setKillSwitchLoading(true);
     try {
       const nextHalt = !currentHalted;
-      const res = await fetch('/api/admin/safety', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Zupirus': '1' },
-        body: JSON.stringify({
-          halted: nextHalt,
-        }),
-      });
-      if (res.ok) {
-        showNotice(
-          nextHalt
-            ? 'Đã ngắt cấp lệnh và tạm dừng sao chép trên mọi tài khoản.'
-            : 'Đã mở cấp lệnh ở cấp hệ thống. Bật lại sao chép trên từng tài khoản khi cần.',
-          nextHalt ? 'warning' : 'success'
-        );
-        await loadDashboard();
-        await loadAdminMonitor();
-      } else {
-        showNotice('Không thể thay đổi trạng thái cấp lệnh.', 'error');
-      }
+      await apiPost('/api/admin/safety', { halted: nextHalt });
+      showNotice(
+        nextHalt
+          ? 'Đã ngắt cấp lệnh và tạm dừng sao chép trên mọi tài khoản.'
+          : 'Đã mở cấp lệnh ở cấp hệ thống. Bật lại sao chép trên từng tài khoản khi cần.',
+        nextHalt ? 'warning' : 'success'
+      );
+      await loadDashboard();
+      await loadAdminMonitor();
     } catch {
       showNotice('Không thể kết nối máy chủ để đổi trạng thái cấp lệnh.', 'error');
     } finally {

@@ -5,7 +5,7 @@ import { AccountModals } from './AccountModals';
 import { ConnectedAccountsListSection } from './ConnectedAccountsListSection';
 import { UserReferralAndInvoicesSection } from './UserReferralAndInvoicesSection';
 import { IconShield } from './Icons';
-import { POPULAR_BROKERS, normalizePlanTier } from '../data/quantConstants';
+import { POPULAR_BROKERS, QUANT_PLANS, PRICING_TIERS_LIST, normalizePlanTier, type PlanTier } from '../data/quantConstants';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/client.ts';
 
 export interface UserAccountsTabProps {
@@ -39,7 +39,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   };
 
   const [cloudSub, setCloudSub] = useState<any>(null);
-  const [subTier, setSubTier] = useState('STARTER');
+  const [subTier, setSubTier] = useState<PlanTier>('starter');
   const [subBillingCycle, setSubBillingCycle] = useState('MONTHLY');
   const [subCloudSlots, setSubCloudSlots] = useState(1);
 
@@ -119,15 +119,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       if (data) {
         setCloudSub(data);
         if (data?.plan_tier) {
-          const upper = String(data.plan_tier).trim().toUpperCase();
-          const tierMap: Record<string, string> = {
-            STARTER: 'STARTER',
-            GROWTH: 'PRO',
-            PRO: 'PRO',
-            ALPHA: 'INSTITUTIONAL',
-            INSTITUTIONAL: 'INSTITUTIONAL',
-          };
-          setSubTier(tierMap[upper] || 'STARTER');
+          setSubTier(normalizePlanTier(data.plan_tier));
         }
         if (data?.billing_cycle) setSubBillingCycle(String(data.billing_cycle).trim().toUpperCase());
         if (data?.max_cloud_accounts) setSubCloudSlots(Number(data.max_cloud_accounts));
@@ -355,13 +347,12 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     }
   };
 
-  const maxTierSlots = subTier === 'INSTITUTIONAL' ? 5 : subTier === 'PRO' ? 3 : 1;
+  const maxTierSlots = QUANT_PLANS[subTier]?.slots || 1;
   const effectiveSlots = Math.max(1, Math.min(subCloudSlots, maxTierSlots));
 
   const calculateEstimateUsd = () => {
-    const basePrices: Record<string, number> = { STARTER: 25, PRO: 39, INSTITUTIONAL: 59 };
     const slotAddonPrice = 10;
-    const base = basePrices[subTier] || 25;
+    const base = QUANT_PLANS[subTier]?.baseUsd || 25;
     const extraSlots = Math.max(0, effectiveSlots - 1);
     const monthly = base + extraSlots * slotAddonPrice;
     const cycleMult: Record<string, number> = {
@@ -494,11 +485,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   1. Chọn Hạng Gói Định Lượng
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'STARTER', name: 'Khởi Đầu / Cent', price: '$25/th', badge: 'Trọn gói 1 TK' },
-                    { id: 'PRO', name: 'Tăng Trưởng', price: '$39/th', badge: 'Phổ biến nhất' },
-                    { id: 'INSTITUTIONAL', name: 'Thi Quỹ Alpha', price: '$59/th', badge: 'Chuyên Quỹ' },
-                  ].map((t) => (
+                  {PRICING_TIERS_LIST.map((t) => (
                     <button
                       key={t.id}
                       type="button"
@@ -512,7 +499,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                       <div className="font-mono text-[10px] font-bold text-cyan-300">
                         {t.name}
                       </div>
-                      <div className="mt-1 font-mono text-sm font-extrabold text-white tabular-nums">{t.price}</div>
+                      <div className="mt-1 font-mono text-sm font-extrabold text-white tabular-nums">${t.baseUsd}/th</div>
                       <div className="mt-0.5 text-[9px] text-slate-400">{t.badge}</div>
                     </button>
                   ))}
@@ -523,23 +510,23 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-cyan-300">
                     Quyền lợi gói đang chọn (Đã gồm 01 tài khoản Cloud MT5):
                   </div>
-                  {subTier === 'STARTER' && (
+                  {subTier === 'starter' && (
                     <ul className="space-y-1 text-[11px] text-slate-300">
                       <li>✓ Tối đa <strong className="text-white">01 tài khoản MT5</strong> (phù hợp tài khoản Cent / Standard nhỏ, không cần thuê VPS).</li>
                       <li>✓ Tự động chia Lot theo số dư, gắn SL theo biến động ATR &amp; chặn tin đỏ ±15 phút.</li>
                       <li>✓ Tự động cắt lỗ bảo vệ ngày <strong className="text-emerald-300">5.0%</strong> an toàn.</li>
                     </ul>
                   )}
-                  {subTier === 'PRO' && (
+                  {subTier === 'growth' && (
                     <ul className="space-y-1 text-[11px] text-slate-300">
-                      <li>✓ Gồm sẵn 01 tài khoản Cloud (mở rộng thêm chỉ +$10/TK phụ).</li>
+                      <li>✓ Gồm sẵn 01 tài khoản Cloud (mở rộng thêm chỉ +$10/TK phụ, tối đa 3 TK).</li>
                       <li>✓ <strong className="text-amber-300">Tự động dời Hòa Vốn (+1R) &amp; Chốt 50% TP1</strong> khóa lợi nhuận.</li>
                       <li>✓ <strong className="text-emerald-300">Tự động Lãi Kép</strong> theo tăng trưởng vốn + Cắt lỗ ngày 5.0%.</li>
                     </ul>
                   )}
-                  {subTier === 'INSTITUTIONAL' && (
+                  {subTier === 'alpha' && (
                     <ul className="space-y-1 text-[11px] text-slate-300">
-                      <li>✓ Chuyên dụng cho thi &amp; giữ quỹ <strong className="text-white">FTMO, FundedNext, The5ers</strong>.</li>
+                      <li>✓ Chuyên dụng cho thi &amp; giữ quỹ <strong className="text-white">FTMO, FundedNext, The5ers</strong> (tối đa 5 TK).</li>
                       <li>✓ Ngắt mạch cứng <strong className="text-rose-300">Daily Drawdown 4.0%</strong> + Tự đóng lệnh trước cuối tuần (T6 21:00 UTC).</li>
                       <li>✓ Mở khóa <strong className="text-amber-300">AI Swarm tự chủ</strong> &amp; Kiểm toán chuyên sâu MAE/MFE.</li>
                     </ul>

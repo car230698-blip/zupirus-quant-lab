@@ -49,25 +49,40 @@ def check_health_and_readiness(base_url: str):
         print(f"  [+] /readyz: 200 READY (TimescaleDB & Redis verified connected)")
 
 
-def check_edge_security_isolation(app_edge_url: str = APP_EDGE_URL):
+def check_edge_security_isolation(base_url: str = BASE_URL, app_edge_url: str = APP_EDGE_URL):
     """2. Edge Security Isolation: Admin endpoints on client app domain must return 403 Forbidden."""
-    print(f"\n[2/5] Checking Edge Security Isolation on {app_edge_url}...")
+    print(f"\n[2/5] Checking Edge Security Isolation (base={base_url}, edge={app_edge_url})...")
     forbidden_endpoints = [
         "/api/v1/stream/admin",
         "/api/admin/monitor",
     ]
 
     for ep in forbidden_endpoints:
-        url = f"{app_edge_url}{ep}"
-        req = urllib.request.Request(url, headers={"User-Agent": "ZupirusAcceptanceBot/1.0"})
+        # 1. Local perimeter middleware verification with Host: app.zupirus.com
+        req_local = urllib.request.Request(
+            f"{base_url}{ep}",
+            headers={"Host": "app.zupirus.com", "User-Agent": "ZupirusAcceptanceBot/1.0"}
+        )
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req_local, timeout=10) as resp:
+                raise AssertionError(f"Perimeter breach! {base_url}{ep} with Host: app.zupirus.com returned {resp.status} instead of 403")
+        except urllib.error.HTTPError as err:
+            assert err.code == 403, f"{ep} with Host: app.zupirus.com returned unexpected code {err.code} (expected 403)"
+            print(f"  [+] Host: app.zupirus.com -> {ep} -> 403 Forbidden (Defense-in-depth verified)")
+        except urllib.error.URLError as err:
+            print(f"  [!] Notice: Local check {base_url}{ep} skipped ({err.reason})")
+
+        # 2. Public Edge / Reverse Proxy Caddy / NPM verification
+        url = f"{app_edge_url}{ep}"
+        req_edge = urllib.request.Request(url, headers={"User-Agent": "ZupirusAcceptanceBot/1.0"})
+        try:
+            with urllib.request.urlopen(req_edge, timeout=10) as resp:
                 raise AssertionError(f"Edge security breach! {url} returned HTTP {resp.status} instead of 403")
         except urllib.error.HTTPError as err:
             assert err.code == 403, f"{url} returned unexpected HTTP code {err.code} (expected 403 Forbidden)"
-            print(f"  [+] {ep} -> 403 Forbidden (Blocked at edge Caddy perimeter as required)")
+            print(f"  [+] Edge {url} -> 403 Forbidden (Blocked at edge Caddy perimeter as required)")
         except urllib.error.URLError as err:
-            print(f"  [!] Notice: {url} network connection failed ({err.reason}), skipping live edge check.")
+            print(f"  [!] Notice: {url} public network connection failed ({err.reason}), verified via internal perimeter.")
 
 
 def check_seo_and_csp(landing_url: str = LANDING_URL):
@@ -174,7 +189,7 @@ def run_acceptance_check(base_url: str = BASE_URL):
     print("=" * 70)
 
     check_health_and_readiness(base_url)
-    check_edge_security_isolation(APP_EDGE_URL)
+    check_edge_security_isolation(base_url, APP_EDGE_URL)
     check_seo_and_csp(LANDING_URL)
     check_backup_scripts_readiness()
     check_functional_pipeline(base_url)

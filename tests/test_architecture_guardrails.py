@@ -158,3 +158,64 @@ def test_guardrail_defense_in_depth_domain_isolation():
     assert "adm.zupirus.com" in resp_stream.text
 
 
+def test_guardrail_user_ui_uses_central_api_client():
+    """Verify that all User*.tsx components and PortalAuth.tsx use the central api client instead of raw fetch()."""
+    components_dir = ROOT / "web" / "src" / "components"
+    user_files = list(components_dir.glob("User*.tsx")) + [components_dir / "PortalAuth.tsx"]
+
+    fetch_violations = {}
+    for uf in user_files:
+        assert uf.exists(), f"Expected file {uf.name} must exist"
+        content = uf.read_text(encoding="utf-8")
+        matches = re.findall(r"\bfetch\(", content)
+        if matches:
+            fetch_violations[uf.name] = len(matches)
+
+    assert not fetch_violations, f"Found raw fetch() calls in User/Portal components: {fetch_violations}"
+
+
+def test_guardrail_entire_web_uses_central_api_client():
+    """Verify that only web/src/api/client.ts contains native fetch() in the entire web/src tree."""
+    web_src = ROOT / "web" / "src"
+    ts_files = list(web_src.rglob("*.tsx")) + list(web_src.rglob("*.ts"))
+
+    fetch_violations = {}
+    for f in ts_files:
+        if f.name == "client.ts" and f.parent.name == "api":
+            continue
+        content = f.read_text(encoding="utf-8", errors="ignore")
+        matches = re.findall(r"(?<![a-zA-Z0-9_])fetch\(", content)
+        if matches:
+            rel_path = f.relative_to(web_src).as_posix()
+            fetch_violations[rel_path] = len(matches)
+
+    assert not fetch_violations, f"Found raw fetch() calls outside api/client.ts: {fetch_violations}"
+
+
+def test_guardrail_production_compose_security_locks():
+    """Verify compose.prod.yaml enforces strict production hardening."""
+    prod_compose = (ROOT / "compose.prod.yaml").read_text(encoding="utf-8")
+    assert "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}" in prod_compose
+    assert 'APP_ENV: "production"' in prod_compose
+    assert 'COOKIE_SECURE: "true"' in prod_compose
+    assert 'ENABLE_LEGACY_EA_BRIDGE: "false"' in prod_compose
+    assert "127.0.0.1:5432" in prod_compose
+    assert "127.0.0.1:6379" in prod_compose
+    assert "0.0.0.0" not in prod_compose
+
+
+def test_guardrail_env_example_completeness():
+    """Verify .env.example contains all required quant safety and production configuration keys."""
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    required_keys = [
+        "ENABLE_LEGACY_EA_BRIDGE=false",
+        "MIN_INDUCTIVE_SAMPLES=30",
+        "PROP_LIVE_MAX_PORTFOLIO_RISK_PCT=2.0",
+        "WFO_ROUNDTRIP_COST_PIPS=3.5",
+        "REDIS_PASSWORD=",
+    ]
+    for key in required_keys:
+        assert key in env_example, f".env.example is missing required configuration key: {key}"
+
+
+

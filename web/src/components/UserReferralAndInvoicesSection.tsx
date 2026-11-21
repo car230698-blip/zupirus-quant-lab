@@ -30,13 +30,23 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    apiGet<ReferralInfo>('/api/v1/referral/me')
-      .then((d) => d && setRefInfo(d))
-      .catch(() => {});
+    const loadBillingData = () => {
+      apiGet<ReferralInfo>('/api/v1/referral/me')
+        .then((d) => d && setRefInfo(d))
+        .catch(() => {});
 
-    apiGet<{ orders: BillingOrderItem[] }>('/api/v1/billing/my-orders')
-      .then((d) => d?.orders && setOrders(d.orders))
-      .catch(() => {});
+      apiGet<{ orders: BillingOrderItem[] }>('/api/v1/billing/my-orders')
+        .then((d) => d?.orders && setOrders(d.orders))
+        .catch(() => {});
+    };
+
+    loadBillingData();
+
+    const handleRefresh = () => loadBillingData();
+    window.addEventListener('zupirus:user-refresh', handleRefresh);
+    return () => {
+      window.removeEventListener('zupirus:user-refresh', handleRefresh);
+    };
   }, []);
 
   const handleApplyReferral = async (e: React.FormEvent) => {

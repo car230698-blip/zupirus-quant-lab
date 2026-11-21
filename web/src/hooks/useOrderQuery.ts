@@ -1,45 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiGet } from '../api/client.ts';
+import { QUERY_KEYS } from './useQuantData.ts';
 
-type OrderResponse = { orders: any[]; total?: number };
-type OrderQuery = { url: string; data?: OrderResponse; status: 'loading' | 'ready' | 'offline' };
+export type OrderResponse = { orders: any[]; total?: number };
+export type OrderQuery = { url: string; data?: OrderResponse; status: 'loading' | 'ready' | 'offline' };
 
-export function useOrderQuery(url: string | null, sessionKey: string | null) {
-  const [result, setResult] = useState<(OrderQuery & { sessionKey: string }) | null>(null);
+export function useOrderQuery(url: string | null, sessionKey: string | null): OrderQuery {
+  const query = useQuery<OrderResponse>({
+    queryKey: QUERY_KEYS.orders(url, sessionKey),
+    queryFn: async () => {
+      if (!url) return { orders: [] };
+      const data = await apiGet<OrderResponse>(url);
+      if (!Array.isArray(data?.orders)) throw new Error('Invalid order response');
+      return data;
+    },
+    enabled: Boolean(url && sessionKey),
+    refetchInterval: 3000,
+  });
 
-  useEffect(() => {
-    if (!url || !sessionKey) return;
-    let active = true;
-    let controller: AbortController | undefined;
-
-    async function refresh() {
-      if (controller) return;
-      const request = new AbortController();
-      controller = request;
-      try {
-        const response = await fetch(url!, { signal: request.signal });
-        if (!response.ok) throw new Error('Order request failed');
-        const data: OrderResponse = await response.json();
-        if (!Array.isArray(data.orders)) throw new Error('Invalid order response');
-        if (active) setResult({ url: url!, sessionKey: sessionKey!, data, status: 'ready' });
-      } catch {
-        if (active) setResult((previous) => ({
-          url: url!, sessionKey: sessionKey!, status: 'offline',
-          data: previous?.url === url && previous.sessionKey === sessionKey ? previous.data : undefined,
-        }));
-      } finally {
-        controller = undefined;
-      }
-    }
-
-    void refresh();
-    const timer = window.setInterval(refresh, 2500);
-    return () => {
-      active = false;
-      controller?.abort();
-      window.clearInterval(timer);
-    };
-  }, [url, sessionKey]);
-
-  if (result && result.url === url && result.sessionKey === sessionKey) return result;
-  return { status: 'loading' as const, data: undefined };
+  return {
+    url: url || '',
+    data: query.data,
+    status: query.isLoading ? 'loading' : query.isError ? 'offline' : 'ready',
+  };
 }

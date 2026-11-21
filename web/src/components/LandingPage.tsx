@@ -78,7 +78,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     riskPercent: calcRiskPct,
     stopLossPips: calcSlPips,
     accountKind: calcAccountKind,
-    dailyDrawdownLimitPct: calcAccountKind === 'PROP' ? 4.5 : 10,
+    dailyDrawdownLimitPct: calcAccountKind === 'PROP' ? 4.0 : 10,
   });
 
   const askPrice = spotPrice > 0 ? Math.round((spotPrice + (spreadPips || 1.8) * 0.1) * 100) / 100 : 0;

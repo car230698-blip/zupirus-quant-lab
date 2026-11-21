@@ -1,3 +1,5 @@
+import { PRICING_TIERS_LIST } from './quantConstants';
+
 export const GUARD_LAYERS = [
   {
     id: '01',
@@ -27,54 +29,10 @@ export const GUARD_LAYERS = [
     id: '04',
     code: 'PROP_DRAWDOWN_CIRCUIT_BREAKER',
     title: 'Cầu Dao Bảo Vệ Quỹ Prop & Giới Hạn Trượt Giá',
-    metric: 'Max 4.5% Daily DD',
+    metric: 'Max 4.0% Daily DD',
     desc: 'Kiểm toán độ giãn Spread thực tế trên cầu nối London G2 và tự động ngắt kết nối bảo toàn tài khoản nếu mức sụt giảm trong ngày chạm ngưỡng cài đặt.',
     rule: 'IF daily_dd_pct >= max_daily_dd OR spread > 4.5_pips -> CIRCUIT_BREAK',
   },
 ];
 
-export const PRICING_TIERS = [
-  {
-    id: 'STARTER' as const,
-    code: 'GÓI 01 // TRẢI NGHIỆM & CENT',
-    name: 'Khởi Đầu / Cent',
-    baseUsd: 25,
-    slots: 1,
-    badge: 'Trọn Gói 1 TK Cloud',
-    features: [
-      'Đã bao gồm sẵn 01 Tài khoản Cloud MT5 London G2 (tiết kiệm $10 VPS)',
-      'Tự động nhận diện Cent / Standard và chia Lot an toàn theo số dư',
-      'Kích hoạt 3 Lớp Giáp: Tự gắn SL theo ATR, Chặn tin đỏ ±15 phút',
-      'Tự động cắt lỗ bảo vệ ngày (Max Daily DD 5.0%)',
-    ],
-  },
-  {
-    id: 'PRO' as const,
-    code: 'GÓI 02 // TĂNG TRƯỞNG VỐN (GROWTH)',
-    name: 'Growth & Lãi Kép',
-    baseUsd: 39,
-    slots: 1,
-    popular: true,
-    badge: 'Tối đa 3 TK Cloud',
-    features: [
-      'Đã bao gồm sẵn 01 Tài khoản Cloud (mở rộng tối đa 3 TK, thêm chỉ +$10/TK)',
-      'Tự động Dời Hòa Vốn (+1R) & Chốt lời 50% TP1 khóa lợi nhuận',
-      'Tự động Lãi Kép (Auto-Compounding) tăng Lot theo tăng trưởng vốn',
-      'Tín hiệu chọn lọc qua AI lọc nhiễu + Cắt lỗ ngày tự động 5.0%',
-    ],
-  },
-  {
-    id: 'INSTITUTIONAL' as const,
-    code: 'GÓI 03 // QUỸ PROP FIRM (ALPHA)',
-    name: 'Alpha Prop Firm',
-    baseUsd: 59,
-    slots: 1,
-    badge: 'Tối đa 5 TK Cloud',
-    features: [
-      'Đã bao gồm sẵn 01 Tài khoản Cloud (mở rộng tối đa 5 TK, thêm chỉ +$10/TK)',
-      'Ngắt mạch cứng Daily Drawdown 4.0% (an toàn dưới luật 5% FTMO/FundedNext)',
-      'Tự động đóng toàn bộ lệnh trước cuối tuần (Thứ 6 lúc 21:00 UTC)',
-      'Mở khóa AI Swarm tự chủ & Kiểm toán chuyên sâu MAE / MFE',
-    ],
-  },
-];
+export const PRICING_TIERS = PRICING_TIERS_LIST;
