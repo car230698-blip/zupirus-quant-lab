@@ -79,7 +79,10 @@ services:
       DISCORD_WEBHOOK_BILLING: ${DISCORD_WEBHOOK_BILLING:-}
     ports: ["127.0.0.1:8080:8000"]
     networks:
-      - private
+      private:
+      npm_default:
+        aliases:
+          - zupirus-api
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz',timeout=3)"]
       interval: 10s
@@ -185,3 +188,5 @@ volumes:
 
 networks:
   private:
+  npm_default:
+    external: true
