@@ -47,17 +47,17 @@ export const MetricCard: React.FC<{
   className?: string;
 }> = ({ label, value, subtext, icon, tone = 'default', className = '' }) => {
   const iconTone: Record<string, string> = {
-    default: 'bg-slate-800/90 text-slate-200 border-slate-700/80',
-    emerald: 'bg-emerald-500/12 text-emerald-300 border-emerald-500/25',
-    amber: 'bg-amber-500/12 text-amber-300 border-amber-500/25',
-    cyan: 'bg-cyan-500/12 text-cyan-300 border-cyan-500/25',
-    rose: 'bg-rose-500/12 text-rose-300 border-rose-500/25',
+    default: 'bg-white/[0.04] text-slate-200 border-white/10',
+    emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    cyan: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+    rose: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
   };
 
   return (
-    <div className={`quant-card-interactive p-5 flex flex-col justify-between gap-3 ${className}`}>
+    <div className={`quant-card-interactive p-5 sm:p-6 flex flex-col justify-between gap-3 ${className}`}>
       <div className="flex items-start justify-between gap-3">
-        <span className="text-[11px] font-mono font-semibold uppercase tracking-[0.12em] text-slate-400 leading-snug">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-300 leading-snug">
           {label}
         </span>
         {icon && (
@@ -66,7 +66,7 @@ export const MetricCard: React.FC<{
           </span>
         )}
       </div>
-      <div className="font-mono text-2xl sm:text-[26px] font-bold tracking-tight text-slate-50 tabular-nums">
+      <div className="font-mono text-2xl sm:text-[26px] font-extrabold tracking-tight text-white tabular-nums">
         {value}
       </div>
       {subtext && <div className="text-xs text-slate-400 leading-relaxed">{subtext}</div>}
@@ -85,15 +85,15 @@ export const Panel: React.FC<{
 }> = ({ title, subtitle, icon, action, children, className = '', bodyClassName = 'p-5 sm:p-6' }) => (
   <section className={`quant-panel ${className}`}>
     {(title || action) && (
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/90 px-5 py-4 sm:px-6">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-5 py-4 sm:px-6">
         <div className="flex items-center gap-3 min-w-0">
           {icon && (
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-700/80 bg-slate-900/90 text-slate-200">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-200">
               {icon}
             </span>
           )}
           <div className="min-w-0">
-            {title && <h2 className="text-[15px] font-semibold text-slate-50 tracking-tight truncate">{title}</h2>}
+            {title && <h2 className="text-[15px] font-semibold text-white tracking-tight truncate">{title}</h2>}
             {subtitle && <p className="mt-0.5 text-xs text-slate-400 leading-relaxed">{subtitle}</p>}
           </div>
         </div>

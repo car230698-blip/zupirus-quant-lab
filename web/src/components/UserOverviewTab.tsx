@@ -322,7 +322,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
               <div className="min-w-0 space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-300 font-bold">
+                  <span className="text-[10px] uppercase tracking-[0.18em] text-amber-300 font-bold">
                     01 // TỔNG VỐN &amp; BUỒNG LÁI ĐỊNH LƯỢNG
                   </span>
                   <span className="rounded bg-amber-500/15 border border-amber-400/35 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-amber-300">
@@ -333,8 +333,8 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                   <span className="font-mono text-2xl sm:text-3xl font-extrabold text-white tracking-tight tabular-nums">
                     ${fmtNum(totalBalance, 2)}
                   </span>
-                  <span className="text-xs text-slate-400 font-mono">
-                    Equity: <strong className="text-amber-300">${fmtNum(totalEquity, 2)}</strong>
+                  <span className="text-xs text-slate-400">
+                    Equity: <strong className="text-amber-300 font-mono tabular-nums">${fmtNum(totalEquity, 2)}</strong>
                   </span>
                   <span
                     className={`rounded-lg px-2 py-0.5 font-mono text-xs font-bold tabular-nums ${
@@ -344,8 +344,8 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                     {fmtPnL(computedOpenPnl)} ({totalBalance > 0 ? `${computedOpenPnl >= 0 ? '+' : ''}${fmtNum((computedOpenPnl / totalBalance) * 100, 2)}%` : '0%'})
                   </span>
                   {totalPositions > 0 && (
-                    <span className="text-xs text-slate-400 font-mono">
-                      · {totalPositions} lệnh mở
+                    <span className="text-xs text-slate-400">
+                      · <span className="font-mono tabular-nums">{totalPositions}</span> lệnh mở
                     </span>
                   )}
                 </div>
@@ -494,8 +494,8 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 badgeLabel={ddDanger ? 'NGUY HIỂM' : 'AN TOÀN'}
                 badgeTone={ddDanger ? 'rose' : 'teal'}
                 subtitle={
-                  <div className="space-y-1 font-mono text-[11px] text-slate-300">
-                    <div>Trần bảo vệ: <strong className="text-amber-300">{fmtNum(maxDdLimitPct, 1)}%</strong></div>
+                  <div className="space-y-1 text-[11px] text-slate-300">
+                    <div>Trần bảo vệ: <strong className="text-amber-300 font-mono tabular-nums">{fmtNum(maxDdLimitPct, 1)}%</strong></div>
                     <div>Cơ chế: <strong className="text-emerald-300">Fail-Closed 100%</strong></div>
                   </div>
                 }
@@ -513,8 +513,8 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                   badgeLabel="PROP LIVE"
                   badgeTone="gold"
                   subtitle={
-                    <div className="space-y-1 font-mono text-[11px] text-slate-300">
-                      <div>Tiến độ: <strong className="text-emerald-300">+{fmtNum(Math.max(0, propPnlPct), 2)}%</strong> / 8.0%</div>
+                    <div className="space-y-1 text-[11px] text-slate-300">
+                      <div>Tiến độ: <strong className="text-emerald-300 font-mono tabular-nums">+{fmtNum(Math.max(0, propPnlPct), 2)}%</strong> / 8.0%</div>
                       <div>Tài khoản: <strong className="text-cyan-300">{propAccounts.length} Quỹ Live</strong></div>
                     </div>
                   }
@@ -529,9 +529,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                   badgeLabel="ONLINE"
                   badgeTone="teal"
                   subtitle={
-                    <div className="space-y-1 font-mono text-[11px] text-slate-300">
+                    <div className="space-y-1 text-[11px] text-slate-300">
                       <div>Kết nối: <strong className="text-emerald-300">Cloud MetaAPI</strong></div>
-                      <div>Độ trễ: <strong className="text-cyan-300">{liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)}ms` : '24ms'}</strong></div>
+                      <div>Độ trễ: <strong className="text-cyan-300 font-mono tabular-nums">{liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)}ms` : '24ms'}</strong></div>
                     </div>
                   }
                 />
@@ -555,7 +555,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
               4L
             </div>
             <div>
-              <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-slate-300">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
                 <span className="font-bold uppercase tracking-wider text-amber-300">
                   LÁ CHẮN BẢO VỆ VỐN 4 LỚP (FAIL-CLOSED)
                 </span>
@@ -593,7 +593,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 pt-2 border-t border-white/[0.08] font-mono text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 pt-2 border-t border-white/[0.08] text-xs">
           {dynamicShieldLayers.map((layer: any, idx: number) => {
             const isSelected = activeShieldIdx === idx;
             return (
@@ -629,7 +629,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
       <SpotlightBento className="p-5 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
           <div>
-            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-amber-300 font-bold">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-amber-300 font-bold font-mono">
               CLOUD MT5 NODES
             </div>
             <h3 className="mt-0.5 text-base font-bold text-white">Tài Khoản MT5 Đang Ghép Nối Với Trạm Đám Mây London G2</h3>

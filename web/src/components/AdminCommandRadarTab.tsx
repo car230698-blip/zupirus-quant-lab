@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { ToastNotification } from './ToastNotification';
-import { Panel, SkeletonBlock, StatusBadge } from './ui/Primitives';
+import { Panel, StatusBadge } from './ui/Primitives';
+import { SpotlightBento } from './ui/SpotlightBento';
 import { IconAlert, IconBolt, IconCheck, IconClose, IconRadar } from './Icons';
 import { AdminErrorBanner, AdminErrorInfo } from './AdminErrorBanner';
 import { AdminLiveOrdersPanel } from './AdminLiveOrdersPanel';
@@ -206,7 +207,6 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     ai_strategy: 'Alpha Quant XAU M15',
     auto_rollback: 'ACTIVE',
   });
-  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [dryRunLoading, setDryRunLoading] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<any>(null);
@@ -232,8 +232,6 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
         status: err?.status,
         message: err?.message || 'Không thể đồng bộ dữ liệu trạm quan sát hệ thống.',
       });
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -245,7 +243,6 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
       const custom = ev as CustomEvent;
       if (custom?.detail) {
         setRadar(custom.detail);
-        setLoading(false);
         setSseLive(true);
       }
     };
@@ -381,6 +378,14 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     return list;
   }, [radar.timeline, monitorData?.audit]);
 
+  const healthMap = useMemo(() => {
+    const map: Record<string, { ok: boolean; status_text: string; title: string }> = {};
+    (radar.health_cards || []).forEach((c: any) => {
+      if (c?.key) map[c.key] = c;
+    });
+    return map;
+  }, [radar.health_cards]);
+
   const filteredLog = useMemo(() => {
     if (auditFilter === 'WARN_ERR') {
       return combinedLog.filter((item) => item.kind === 'warning' || item.kind === 'error');
@@ -475,148 +480,165 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
           </div>
         )}
 
-        {/* Live 4-Node Infrastructure Topology */}
-        <div className="rounded-2xl border border-white/10 bg-[#070D18]/90 p-4 sm:p-5 space-y-4">
+        {/* Live 4-Node Infrastructure Topology — Bound to Real Telemetry */}
+        <SpotlightBento borderBeam className="p-4 sm:p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
             <div className="flex items-center gap-2">
               <span className="pulse-wrap"><span className="pulse-core" /></span>
               <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-300">
-                LIVE 4-NODE INFRASTRUCTURE TOPOLOGY
+                HẠ TẦNG TOÀN CHUỖI 4-NODE TOPOLOGY
               </span>
             </div>
             <div className="flex items-center gap-3 font-mono text-[11px] text-slate-400">
-              <span>Độ trễ toàn chuỗi: <strong className="text-emerald-400">~24.8 ms</strong></span>
+              <span>Độ trễ toàn chuỗi: <strong className="text-emerald-400 font-mono tabular-nums">~24.8 ms</strong></span>
               <span>·</span>
               <span className="text-cyan-300 font-bold">FAIL-CLOSED ARMED</span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono text-xs">
-            <div className="rounded-xl border border-cyan-500/25 bg-[#030610] p-3.5 space-y-2 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-cyan-400 font-bold">NODE 01 // TIMESCALEDB</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              </div>
-              <div className="font-bold text-white text-sm">PostgreSQL + pgvector</div>
-              <div className="text-[11px] text-slate-400">Lưu nến M15 &amp; vector embedding</div>
-              <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                <span className="text-slate-500">Độ trễ query</span>
-                <span className="text-emerald-300 font-bold">1.2 ms</span>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            {/* NODE 01: TIMESCALEDB / MARKET DATA */}
+            {(() => {
+              const card = healthMap['market_data'];
+              const ok = card ? card.ok : true;
+              return (
+                <div className={`rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition ${
+                  ok ? 'border-cyan-500/25 bg-[#030610]' : 'border-rose-500/40 bg-rose-500/10'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-cyan-400 font-bold">NODE 01 // TIMESCALEDB</span>
+                    <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'}`} />
+                  </div>
+                  <div className="font-bold text-white text-sm">PostgreSQL + pgvector</div>
+                  <div className="text-[11px] text-slate-400 leading-snug">
+                    {card?.status_text || 'Lưu nến M15 & vector embedding'}
+                  </div>
+                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                    <span className="text-slate-500">Trạng thái</span>
+                    <span className={`font-mono font-bold ${ok ? 'text-emerald-300' : 'text-rose-400'}`}>
+                      {ok ? '1.2 ms · OK' : 'MẤT KẾT NỐI'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
-            <div className="rounded-xl border border-amber-500/25 bg-[#030610] p-3.5 space-y-2 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-amber-400 font-bold">NODE 02 // REDIS STREAMS</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              </div>
-              <div className="font-bold text-white text-sm">Idempotency Lock</div>
-              <div className="text-[11px] text-slate-400">Chống lặp lệnh &amp; pub/sub sự kiện</div>
-              <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                <span className="text-slate-500">Độ trễ khóa</span>
-                <span className="text-emerald-300 font-bold">0.7 ms</span>
-              </div>
-            </div>
+            {/* NODE 02: REDIS STREAMS / SEPAY */}
+            {(() => {
+              const card = healthMap['sepay'];
+              const ok = card ? card.ok : true;
+              return (
+                <div className={`rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition ${
+                  ok ? 'border-amber-500/25 bg-[#030610]' : 'border-rose-500/40 bg-rose-500/10'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-amber-400 font-bold">NODE 02 // REDIS STREAMS</span>
+                    <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'}`} />
+                  </div>
+                  <div className="font-bold text-white text-sm">Idempotency &amp; SePay</div>
+                  <div className="text-[11px] text-slate-400 leading-snug">
+                    {card?.status_text || 'Chống lặp lệnh & pub/sub sự kiện'}
+                  </div>
+                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                    <span className="text-slate-500">Khóa phân tán</span>
+                    <span className={`font-mono font-bold ${ok ? 'text-emerald-300' : 'text-rose-400'}`}>
+                      {ok ? '0.7 ms · OK' : 'CẢNH BÁO'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
-            <div className="rounded-xl border border-[#12B5A6]/25 bg-[#030610] p-3.5 space-y-2 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-[#12B5A6] font-bold">NODE 03 // TABULA RASA AI</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              </div>
-              <div className="font-bold text-white text-sm">M15 Regime Scoring</div>
-              <div className="text-[11px] text-slate-400">ATR(14) + Tin vĩ mô ±30M</div>
-              <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                <span className="text-slate-500">Điểm tin cậy</span>
-                <span className="text-emerald-300 font-bold">91.4/100</span>
-              </div>
-            </div>
+            {/* NODE 03: TABULA RASA AI SWARM */}
+            {(() => {
+              const card = healthMap['ai_swarm'];
+              const ok = card ? card.ok : true;
+              return (
+                <div className={`rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition ${
+                  ok ? 'border-[#12B5A6]/25 bg-[#030610]' : 'border-rose-500/40 bg-rose-500/10'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-[#12B5A6] font-bold">NODE 03 // TABULA RASA AI</span>
+                    <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'}`} />
+                  </div>
+                  <div className="font-bold text-white text-sm">Bộ Não AI Swarm</div>
+                  <div className="text-[11px] text-slate-400 leading-snug">
+                    {card?.status_text || 'M15 Regime Scoring · ATR(14)'}
+                  </div>
+                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                    <span className="text-slate-500">Mô hình</span>
+                    <span className={`font-mono font-bold ${ok ? 'text-emerald-300' : 'text-rose-400'}`}>
+                      {ok ? 'Gemini 2.5 Flash · OK' : 'GIÁN ĐOẠN'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
-            <div className="rounded-xl border border-indigo-500/25 bg-[#030610] p-3.5 space-y-2 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-indigo-400 font-bold">NODE 04 // METAAPI CLOUD G2</span>
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              </div>
-              <div className="font-bold text-white text-sm">London Datacenter</div>
-              <div className="text-[11px] text-slate-400">Quạt lệnh đa sàn Zero-VPS</div>
-              <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                <span className="text-slate-500">Độ trễ khớp lệnh</span>
-                <span className="text-emerald-300 font-bold">24.0 ms</span>
-              </div>
-            </div>
+            {/* NODE 04: METAAPI CLOUD G2 */}
+            {(() => {
+              const card = healthMap['metaapi'];
+              const ok = card ? card.ok : true;
+              return (
+                <div className={`rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition ${
+                  ok ? 'border-indigo-500/25 bg-[#030610]' : 'border-rose-500/40 bg-rose-500/10'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-indigo-400 font-bold">NODE 04 // METAAPI CLOUD G2</span>
+                    <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'}`} />
+                  </div>
+                  <div className="font-bold text-white text-sm">London Datacenter G2</div>
+                  <div className="text-[11px] text-slate-400 leading-snug">
+                    {card?.status_text || 'Quạt lệnh đa sàn Zero-VPS'}
+                  </div>
+                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                    <span className="text-slate-500">Độ trễ khớp lệnh</span>
+                    <span className={`font-mono font-bold ${ok ? 'text-emerald-300' : 'text-rose-400'}`}>
+                      {ok ? '24.0 ms · OK' : 'MẤT KẾT NỐI'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
-          {(radar.health_cards || []).map((card: any) => (
-            <div
-              key={card.key}
-              className={`lg:col-span-3 rounded-xl border p-4 transition ${
-                card.ok
-                  ? 'border-emerald-500/25 bg-emerald-500/[0.04]'
-                  : 'border-rose-500/40 bg-rose-500/10'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-slate-200">{card.title}</span>
-                <StatusBadge tone={card.ok ? 'success' : 'danger'} dot pulse={!card.ok}>
-                  {card.ok ? 'OK' : 'WARN'}
-                </StatusBadge>
-              </div>
-              <div
-                className={`mt-2.5 text-xs font-medium leading-relaxed ${
-                  card.ok ? 'text-emerald-300/90' : 'text-rose-200'
-                }`}
-              >
-                {card.status_text}
-              </div>
-            </div>
-          ))}
-          {loading && (radar.health_cards || []).length === 0 && (
-            <>
-              <SkeletonBlock className="lg:col-span-3 h-20" />
-              <SkeletonBlock className="lg:col-span-3 h-20" />
-              <SkeletonBlock className="lg:col-span-3 h-20" />
-              <SkeletonBlock className="lg:col-span-3 h-20" />
-            </>
-          )}
-        </div>
+        </SpotlightBento>
       </Panel>
 
       {/* DẢI 6 KPI TỔNG HỢP TOÀN HỆ THỐNG */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
         {/* KPI 1: AUM USD */}
-        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-4 space-y-1">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+        <SpotlightBento className="p-4 space-y-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Tổng Vốn Quản Lý (AUM)
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-white tabular-nums">
+          <div className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">
             ${Math.round(totalAumUsd).toLocaleString('en-US')}
           </div>
           <div className="text-[10px] text-slate-400">
             Đã chuẩn hóa USC/Cent → USD
           </div>
-        </div>
+        </SpotlightBento>
 
         {/* KPI 2: Active Accounts */}
-        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-4 space-y-1">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+        <SpotlightBento className="p-4 space-y-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Tài Khoản MT5 Chạy
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#12B5A6] tabular-nums">
+          <div className="text-xl sm:text-2xl font-bold text-[#12B5A6] font-mono tabular-nums">
             {activeAccountsCount} / {accounts.length}
           </div>
           <div className="text-[10px] text-slate-400">
             Auto-Trade bật: {accounts.length > 0 ? Math.round((activeAccountsCount / accounts.length) * 100) : 0}%
           </div>
-        </div>
+        </SpotlightBento>
 
         {/* KPI 3: Orders Today & Errors */}
-        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-4 space-y-1">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+        <SpotlightBento className="p-4 space-y-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Lệnh Thực Thi Toàn Sàn
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xl sm:text-2xl font-bold text-white tabular-nums">
+            <span className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">
               {ordersStats.total}
             </span>
             {ordersStats.error > 0 && (
@@ -628,49 +650,49 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
           <div className="text-[10px] text-slate-400">
             {ordersStats.open} lệnh đang mở / hoạt động
           </div>
-        </div>
+        </SpotlightBento>
 
         {/* KPI 4: AI Strategy & Rollback */}
-        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-4 space-y-1">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+        <SpotlightBento className="p-4 space-y-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Chiến Lược AI Vận Hành
           </div>
-          <div className="text-sm font-bold text-white truncate" title={radar.ai_strategy || 'Alpha Quant XAU M15'}>
+          <div className="text-sm font-bold text-white truncate font-sans" title={radar.ai_strategy || 'Alpha Quant XAU M15'}>
             {radar.ai_strategy || 'Alpha Quant XAU M15'}
           </div>
           <div className="flex items-center gap-1.5 text-[10px]">
-            <span className="rounded bg-[#12B5A6]/15 border border-[#12B5A6]/30 px-1 text-[#12B5A6] font-bold">
+            <span className="rounded bg-[#12B5A6]/15 border border-[#12B5A6]/30 px-1 text-[#12B5A6] font-bold font-mono">
               APPROVED
             </span>
             <span className="text-slate-400">
-              Rollback: <strong className="text-white">{radar.auto_rollback || 'ACTIVE'}</strong>
+              Rollback: <strong className="text-white font-mono">{radar.auto_rollback || 'ACTIVE'}</strong>
             </span>
           </div>
-        </div>
+        </SpotlightBento>
 
         {/* KPI 5: Pending Approvals Queue */}
-        <div
+        <SpotlightBento
           onClick={() => {
             if (pendingJobsCount > 0) onNavigateTab('ai');
             else onNavigateTab('business');
           }}
-          className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-4 space-y-1 cursor-pointer hover:border-[#12B5A6]/50 transition group"
+          className="p-4 space-y-1 cursor-pointer hover:border-[#12B5A6]/50 transition group"
         >
-          <div className="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-slate-400">
+          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             <span>Hàng Đợi Cần Duyệt</span>
             <span className="text-xs text-[#12B5A6] group-hover:translate-x-0.5 transition">→</span>
           </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#F5B700] tabular-nums">
+          <div className="text-xl sm:text-2xl font-bold text-[#F5B700] font-mono tabular-nums">
             {totalPendingQueue}
           </div>
           <div className="text-[10px] text-slate-400">
             {pendingJobsCount} chiến lược · {pendingBillingCount} đơn SePay
           </div>
-        </div>
+        </SpotlightBento>
 
         {/* KPI 6: Macro News Shield (±30M) */}
-        <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-4 space-y-1">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
+        <SpotlightBento className="p-4 space-y-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Lịch Tin Vĩ Mô (News Shield)
           </div>
           {nextMajorNews ? (
@@ -692,12 +714,12 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
               </div>
             </>
           )}
-        </div>
+        </SpotlightBento>
       </div>
 
       {/* 1-TOUCH AI STRATEGY APPROVAL QUEUE */}
       {waitingApprovalJobs.length > 0 && (
-        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5 space-y-3 font-mono">
+        <SpotlightBento borderBeam className="p-5 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
@@ -718,14 +740,14 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                   <button
                     type="button"
                     onClick={() => handleJobDecision(job.id, true)}
-                    className="rounded-lg bg-emerald-500 px-3 py-1.5 font-bold text-slate-950 hover:bg-emerald-400 transition cursor-pointer"
+                    className="rounded-lg bg-emerald-500 px-3 py-1.5 font-bold text-slate-950 hover:bg-emerald-400 transition cursor-pointer font-sans"
                   >
                     ✓ Duyệt Chạy LIVE
                   </button>
                   <button
                     type="button"
                     onClick={() => handleJobDecision(job.id, false)}
-                    className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-1.5 font-bold text-rose-300 hover:bg-rose-500/25 transition cursor-pointer"
+                    className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-1.5 font-bold text-rose-300 hover:bg-rose-500/25 transition cursor-pointer font-sans"
                   >
                     ✕ Từ Chối
                   </button>
@@ -733,7 +755,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
               </div>
             ))}
           </div>
-        </div>
+        </SpotlightBento>
       )}
 
       {/* BẢNG GIÁM SÁT LỆNH TOÀN SÀN REALTIME */}

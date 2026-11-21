@@ -386,9 +386,9 @@ export function PortalShell({
       </aside>
 
       {/* Main Execution Stage */}
-      <div className={`quant-stage ${sidebarCollapsed ? 'is-collapsed' : ''}`}>
-        {/* Top Deck 1: Institutional Global Telemetry & Theme Ribbon */}
-        <div className="hidden md:flex items-center justify-between border-b border-white/[0.07] bg-[#020409]/95 px-6 py-1.5 font-mono text-[11px] text-slate-400">
+      <div className={`quant-stage ${sidebarCollapsed ? 'is-collapsed' : 'is-expanded'}`}>
+        {/* Top Deck 1: Institutional Global Telemetry Ribbon */}
+        <div className="hidden md:flex items-center justify-between border-b border-white/[0.07] bg-[#020409]/95 px-6 py-2 font-mono text-[11px] text-slate-400">
           <div className="flex items-center gap-4 tabular-nums">
             <span className="inline-flex items-center gap-1.5 text-amber-300 font-bold">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
@@ -417,30 +417,10 @@ export function PortalShell({
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] p-0.5 text-[10px]">
-              <button
-                type="button"
-                onClick={() => setQuantTheme('gold')}
-                className={`rounded px-2 py-0.5 font-bold transition cursor-pointer ${
-                  quantTheme === 'gold'
-                    ? 'bg-amber-500 text-slate-950'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                SOVEREIGN GOLD
-              </button>
-              <button
-                type="button"
-                onClick={() => setQuantTheme('cyber')}
-                className={`rounded px-2 py-0.5 font-bold transition cursor-pointer ${
-                  quantTheme === 'cyber'
-                    ? 'bg-cyan-400 text-slate-950'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                CYBER MATRIX
-              </button>
-            </div>
+            <span className="inline-flex items-center gap-1.5 font-mono text-[10.5px] text-[#12B5A6]">
+              <span className="pulse-wrap"><span className="pulse-core" /></span>
+              LONDON G2 · {liveSpot.latency || 24}ms
+            </span>
           </div>
         </div>
 

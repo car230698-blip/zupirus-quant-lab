@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { fmtNum } from '../utils/strategyDecision';
 
 export interface CandlestickTelemetryChartProps {
@@ -36,32 +36,67 @@ export const CandlestickTelemetryChart: React.FC<CandlestickTelemetryChartProps>
     );
   }
 
-  const highs = valid.map((c) => Number(c.high));
-  const lows = valid.map((c) => Number(c.low));
+  // Check if weekend or market closed (UTC: Saturday, Sunday, or Friday >= 22:00 UTC)
+  const isWeekendClosed = (() => {
+    const now = new Date();
+    const day = now.getUTCDay();
+    const hour = now.getUTCHours();
+    return day === 0 || day === 6 || (day === 5 && hour >= 22);
+  })();
+
+  const flatCandlesCount = valid.filter(
+    (c) => Math.abs(Number(c.high) - Number(c.low)) < 0.05
+  ).length;
+  const isMarketFlat = valid.length > 0 && (flatCandlesCount / valid.length >= 0.7 || isWeekendClosed);
+
+  // Sanitize head outlier if candle 0 is wildly detached from the rest of the stream
+  const sanitizedCandles = useMemo(() => {
+    if (valid.length < 5) return valid;
+    const tailCloses = valid.slice(1).map((c) => Number(c.close)).sort((a, b) => a - b);
+    const median = tailCloses[Math.floor(tailCloses.length / 2)];
+    const firstClose = Number(valid[0].close);
+    if (Math.abs(firstClose - median) / (median || 1) > 0.03) {
+      const sanitized0 = {
+        ...valid[0],
+        open: median,
+        high: median,
+        low: median,
+        close: median,
+      };
+      return [sanitized0, ...valid.slice(1)];
+    }
+    return valid;
+  }, [valid]);
+
+  const highs = sanitizedCandles.map((c) => Number(c.high));
+  const lows = sanitizedCandles.map((c) => Number(c.low));
   const rawMin = Math.min(...lows);
   const rawMax = Math.max(...highs);
-  const rawSpan = rawMax - rawMin || 1;
-  const pad = rawSpan * 0.08;
+  const rawSpan = rawMax - rawMin;
+  const baseSpan = Math.max(rawSpan, 4.0);
+  const pad = baseSpan * 0.08;
   const min = rawMin - pad;
-  const max = rawMax + pad;
+  const max = rawMax + (rawSpan < 0.1 ? 4.0 : pad);
   const span = max - min || 1;
-  const lastCandle = valid[valid.length - 1];
+  const lastCandle = sanitizedCandles[sanitizedCandles.length - 1];
   const inspectedCandle =
-    hoveredCandleIdx !== null && valid[hoveredCandleIdx] ? valid[hoveredCandleIdx] : lastCandle;
+    hoveredCandleIdx !== null && sanitizedCandles[hoveredCandleIdx]
+      ? sanitizedCandles[hoveredCandleIdx]
+      : lastCandle;
   const currentPrice = liveBid || Number(lastCandle.close);
   const currentY = 18 + ((max - currentPrice) / span) * 204;
 
   const emaPoints: string[] = [];
   const upperBandPoints: string[] = [];
   const lowerBandPoints: string[] = [];
-  let ema = Number(valid[0].close);
+  let ema = Number(sanitizedCandles[0].close);
   const k = 2 / (10 + 1);
   const effectiveAtr = liveAtr14 > 0 ? liveAtr14 : span * 0.12;
   const bandOffset = Math.max(4, Math.min(48, (effectiveAtr / span) * 204));
-  valid.forEach((c, idx) => {
+  sanitizedCandles.forEach((c, idx) => {
     const closeVal = Number(c.close);
     ema = idx === 0 ? closeVal : closeVal * k + ema * (1 - k);
-    const x = 20 + (idx / Math.max(valid.length - 1, 1)) * 725;
+    const x = 20 + (idx / Math.max(sanitizedCandles.length - 1, 1)) * 725;
     const y = 18 + ((max - ema) / span) * 204;
     emaPoints.push(`${x.toFixed(1)},${y.toFixed(1)}`);
     upperBandPoints.push(`${x.toFixed(1)},${Math.max(12, y - bandOffset).toFixed(1)}`);
@@ -70,6 +105,14 @@ export const CandlestickTelemetryChart: React.FC<CandlestickTelemetryChartProps>
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-amber-500/25 bg-[#040710]/95 p-3 sm:p-3.5 w-full max-w-full">
+      {isMarketFlat && (
+        <div className="mb-2.5 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+          <span className="font-medium">
+            Thị trường đóng cửa (Cuối tuần) · Hiển thị nến phiên gần nhất
+          </span>
+        </div>
+      )}
       <div className="mb-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.06] pb-2.5 text-xs font-mono">
         <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar py-0.5">
           <span className="inline-flex items-center gap-1.5 font-bold text-amber-300 shrink-0">
