@@ -24,6 +24,7 @@ from app.routers import (
     ai_chat_router,
     auth_router,
     billing_router,
+    dashboard_router,
     ea_router,
     metaapi_dispatch_router,
     realtime_router,
@@ -180,7 +181,7 @@ def readyz():
 
 for _router in (
     auth_router,
-    ea_router,
+    dashboard_router,
     admin_ops_router,
     admin_payments_router,
     admin_users_router,
@@ -202,6 +203,9 @@ for _router in (
     seo_pages_router,
 ):
     app.include_router(_router)
+
+if os.getenv("ENABLE_LEGACY_EA_BRIDGE", "false").lower() in ("true", "1", "yes"):
+    app.include_router(ea_router)
 
 
 DIST_DIR = ROOT / 'dist'

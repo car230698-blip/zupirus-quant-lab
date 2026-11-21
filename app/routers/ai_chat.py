@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from app.db import tx, query_timescale_candles
-from app.routers.ea import dashboard
+from app.routers.dashboard import dashboard
 from app.routers.deps import Model, get_current_user, get_current_admin
 
 logger = logging.getLogger("zupirus.api")
