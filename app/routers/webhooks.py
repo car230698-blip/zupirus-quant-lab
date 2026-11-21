@@ -1,4 +1,5 @@
 """Webhook handlers for external signal providers (TradingView) and SePay banking payments."""
+import os
 import time
 import re
 import secrets
@@ -290,16 +291,19 @@ async def handle_tradingview_webhook(
 
 @router.post("/api/sepay/webhook")
 @router.post("/api/webhooks/sepay")
+@router.post("/api/v1/webhooks/sepay")
+@router.post("/api/v1/sepay/webhook")
 async def handle_sepay_webhook(
     request: Request,
     authorization: str = Header(default=""),
 ):
     """Handle SePay VietQR payment webhook and automatically fulfill order.
-    Strictly secured: requires valid secret, verifies transferType=='in' and full amount.
+    Strictly secured: requires valid secret/API key, verifies transferType=='in' and full amount.
+    Supports standard endpoints: /api/sepay/webhook, /api/webhooks/sepay, /api/v1/webhooks/sepay.
     """
-    # 1. Check SePay secret authorization: prefer decrypted Admin UI setting, then get_sepay_secret(), then env
     raw_body = await request.body()
     expected_secret = ""
+    # 1. Check SePay secret authorization: prefer decrypted Admin UI setting, then get_sepay_secret(), then env
     try:
         from app.security import decrypt_secret
         with tx() as c:
@@ -317,8 +321,8 @@ async def handle_sepay_webhook(
                 if raw_sec:
                     dec_sec = decrypt_secret(raw_sec)
                     expected_secret = dec_sec if dec_sec else ("" if raw_sec.startswith("enc:") else raw_sec)
-    except Exception:
-        pass
+    except Exception as err:
+        logger.warning(f"Error reading DB secret in SePay webhook: {err}")
 
     if not expected_secret:
         from app.sepay import get_sepay_secret
@@ -328,23 +332,40 @@ async def handle_sepay_webhook(
         logger.error("SePay webhook rejected: SEPAY_WEBHOOK_SECRET is not configured.")
         raise HTTPException(status_code=503, detail="Payment webhook secret not configured")
 
-    # Support either Authorization header (Apikey <secret>) or x-sepay-signature header (HMAC-SHA256)
+    valid_secrets = {expected_secret.strip()}
+    if SEPAY_WEBHOOK_SECRET and str(SEPAY_WEBHOOK_SECRET).strip():
+        valid_secrets.add(str(SEPAY_WEBHOOK_SECRET).strip())
+
+    # 2. Check SePay authentication: HMAC-SHA256 signature OR API key / token header
     sig_header = request.headers.get("x-sepay-signature")
     auth_valid = False
 
     if sig_header:
         from app.sepay import verify_sepay_signature
-        if verify_sepay_signature(raw_body, sig_header, expected_secret):
-            auth_valid = True
+        for s in valid_secrets:
+            if verify_sepay_signature(raw_body, sig_header, s):
+                auth_valid = True
+                break
 
-    if not auth_valid and authorization:
-        token = authorization.replace("Apikey ", "").strip()
-        if secrets.compare_digest(token, str(expected_secret)):
-            auth_valid = True
+    def _extract_token(val: str) -> str:
+        s = str(val or "").strip()
+        for prefix in ("apikey ", "bearer ", "token "):
+            if s.lower().startswith(prefix):
+                return s[len(prefix):].strip()
+        return s
 
-    if not auth_valid:
-        logger.warning("Invalid SePay webhook authorization: bad signature or token mismatch")
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    token_candidates = []
+    if authorization:
+        token_candidates.append(_extract_token(authorization))
+    for h in ("x-api-key", "apikey", "x-sepay-key", "x-sepay-api-key"):
+        val = request.headers.get(h)
+        if val:
+            token_candidates.append(_extract_token(val))
+
+    for param in ("token", "key", "secret", "api_key"):
+        val = request.query_params.get(param)
+        if val:
+            token_candidates.append(str(val).strip())
 
     try:
         import json, math
@@ -354,7 +375,30 @@ async def handle_sepay_webhook(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
 
-    # 2. Verify transfer direction: MUST BE EXPLICIT INBOUND ("in")
+    # Also check if payload contains api_key or token
+    for p_field in ("api_key", "token", "secret"):
+        if payload.get(p_field):
+            token_candidates.append(str(payload[p_field]).strip())
+
+    if not auth_valid:
+        for t in token_candidates:
+            if not t:
+                continue
+            for s in valid_secrets:
+                if secrets.compare_digest(t, s):
+                    auth_valid = True
+                    break
+            if auth_valid:
+                break
+
+    if not auth_valid:
+        logger.warning(
+            f"Invalid SePay webhook authorization: bad signature or token mismatch "
+            f"(received {len(token_candidates)} candidate tokens)"
+        )
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # 3. Verify transfer direction: MUST BE EXPLICIT INBOUND ("in")
     raw_type = payload.get("transferType")
     if not raw_type:
         logger.warning("SePay webhook rejected: missing transferType in payload")
@@ -372,9 +416,18 @@ async def handle_sepay_webhook(
         logger.warning(f"SePay webhook rejected invalid transferAmount: {amount_in}")
         return {"success": False, "message": "Invalid transfer amount"}
 
-    content = payload.get("content") or payload.get("description") or ""
+    # Aggregate all possible content fields from SePay bank push
+    content_parts = [
+        str(payload.get("transactionContent") or ""),
+        str(payload.get("content") or ""),
+        str(payload.get("description") or ""),
+        str(payload.get("code") or ""),
+        str(payload.get("referenceCode") or ""),
+        str(payload.get("body") or ""),
+    ]
+    combined_content = " ".join(p for p in content_parts if p).strip()
     trans_id = str(payload.get("id") or payload.get("transaction_id") or "")
-    logger.info(f"Received SePay transaction: ID={trans_id}, Amount={amount_in} VND, Content='{content}'")
+    logger.info(f"Received SePay transaction: ID={trans_id}, Amount={amount_in} VND, Content='{combined_content}'")
 
     # Deduplication check
     if trans_id:
@@ -383,10 +436,16 @@ async def handle_sepay_webhook(
             if existing:
                 return {"success": True, "amount": amount_in, "message": "Transaction already recorded"}
 
-    # 3. Match order pattern: strictly match token "ZP <order_suffix>" or "ORD_<suffix>"
-    match = re.search(r"\bZP\s*([A-F0-9]{6,12})\b", content.upper())
+    # 4. Match order pattern: strictly match token "ZP <order_suffix>" or "ORD_<suffix>"
+    # Supports bank memos formatted with spaces, hyphens, underscores, dots or prefixes
+    match = re.search(r"\bZP[\s\-_.:]*([A-F0-9]{6,12})\b", combined_content, re.IGNORECASE)
     if not match:
-        match = re.search(r"\bORD_([A-F0-9]{6,16})\b", content.upper())
+        match = re.search(r"\bORD[\s\-_.:]*([A-F0-9]{6,16})\b", combined_content, re.IGNORECASE)
+    if not match and payload.get("code"):
+        code_str = str(payload.get("code") or "").strip()
+        m_code = re.search(r"^(?:ZP[\s\-_.:]*)?([A-F0-9]{6,12})$", code_str, re.IGNORECASE)
+        if m_code:
+            match = m_code
 
     if match:
         import hashlib
@@ -400,10 +459,10 @@ async def handle_sepay_webhook(
         )
         return {"success": success, "order_key": order_suffix, "amount": amount_in, "amount_vnd": amount_in}
 
-    # 4. Fallback: match by customer email or user identifier in memo
+    # 5. Fallback: match by customer email or user identifier in memo
     from app.sepay import extract_user_identifier
 
-    user_identifier = extract_user_identifier(content)
+    user_identifier = extract_user_identifier(combined_content)
     matched_user_id = None
     matched_email = None
     tx_id = f"pay_{secrets.token_hex(8)}"
@@ -437,7 +496,7 @@ async def handle_sepay_webhook(
             VALUES(?, ?, ?, ?, 'VND', ?, ?, ?, 'completed', ?)
             ON CONFLICT DO NOTHING
             """,
-            (tx_id, trans_id or None, matched_user_id, amount_in, gateway, content, ref_code, now_ts)
+            (tx_id, trans_id or None, matched_user_id, amount_in, gateway, combined_content, ref_code, now_ts)
         )
 
     return {

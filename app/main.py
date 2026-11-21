@@ -96,7 +96,7 @@ async def perimeter(request: Request, call_next):
             if len(body_bytes) > max_body_size:
                 return JSONResponse({'detail': 'Body too large'}, 413)
         # External webhooks bypass browser origin checks
-        if request.url.path.startswith('/api/v1/webhooks') or request.url.path.startswith('/api/sepay') or request.url.path == '/api/webhooks/sepay':
+        if request.url.path.startswith('/api/v1/webhooks') or request.url.path.startswith('/api/sepay') or request.url.path.startswith('/api/webhooks'):
             return await call_next(request)
         origin = request.headers.get('origin')
         if origin and origin not in ORIGINS:

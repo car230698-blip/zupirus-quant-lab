@@ -190,20 +190,22 @@ async def process_successful_payment(
     - Accumulates paid_amount_vnd for PENDING or UNDERPAID orders
     - Transitions order status -> PAID only when cumulative paid_amount_vnd >= (amount_vnd - 50)
     - Tracks separated payment_status, entitlement_status, and cloud_deploy_status
+    - Revives orders within 48-hour grace window if payment arrived after initial 20-minute lock
     """
     now_ts = time.time()
     order = None
     accounts_to_deploy = []
+    order_id = str(order_id or "").strip().lower()
 
     from app.db import is_postgres
     for_update = " FOR UPDATE" if is_postgres() else ""
     with tx() as c:
         # 1. Exact match first (row-locked on PostgreSQL to prevent concurrent UNDERPAID race)
-        row = c.execute(f"SELECT * FROM orders WHERE id = ?{for_update}", (order_id,)).fetchone()
+        row = c.execute(f"SELECT * FROM orders WHERE LOWER(id) = ?{for_update}", (order_id,)).fetchone()
         if not row and len(order_id) >= 6:
-            # Prefer active PENDING/UNDERPAID orders when matching by 6-char suffix
+            # Prefer active PENDING/UNDERPAID orders, then recently EXPIRED within grace window
             row = c.execute(
-                f"SELECT * FROM orders WHERE id LIKE ? ORDER BY CASE WHEN status IN ('PENDING', 'UNDERPAID') THEN 0 ELSE 1 END, created_at DESC LIMIT 1{for_update}",
+                f"SELECT * FROM orders WHERE LOWER(id) LIKE ? ORDER BY CASE WHEN status IN ('PENDING', 'UNDERPAID') THEN 0 WHEN status = 'EXPIRED' THEN 1 ELSE 2 END, created_at DESC LIMIT 1{for_update}",
                 (f"%{order_id}",)
             ).fetchone()
 
@@ -216,15 +218,20 @@ async def process_successful_payment(
             logger.info(f"Order {order['id']} is already fulfilled (idempotent return).")
             return True
 
-        # Ensure order is in PENDING or UNDERPAID state and not expired
-        if order["status"] not in ("PENDING", "UNDERPAID"):
-            logger.warning(f"Order {order['id']} cannot be fulfilled: status is '{order['status']}' (must be PENDING or UNDERPAID).")
+        # Check status: must be PENDING, UNDERPAID, or recently EXPIRED
+        if order["status"] not in ("PENDING", "UNDERPAID", "EXPIRED"):
+            logger.warning(f"Order {order['id']} cannot be fulfilled: status is '{order['status']}'.")
             return False
 
-        if order["status"] in ("PENDING", "UNDERPAID") and order.get("expires_at") and float(order["expires_at"]) < now_ts:
-            logger.warning(f"Order {order['id']} has expired (status={order['status']}, expired at {order['expires_at']}).")
-            c.execute("UPDATE orders SET status = 'EXPIRED', payment_status = 'EXPIRED' WHERE id = ? AND status IN ('PENDING', 'UNDERPAID')", (order["id"],))
-            return False
+        # If order was marked or is expired, verify it is within the 48-hour bank transfer grace window
+        exp_ts = float(order.get("expires_at") or 0.0)
+        if exp_ts and exp_ts < now_ts:
+            if (now_ts - exp_ts) <= (48 * 3600):
+                logger.info(f"Order {order['id']} past expiration, but payment arrived within 48h grace window. Reviving and fulfilling order.")
+            else:
+                logger.warning(f"Order {order['id']} has expired beyond 48h grace window (expired at {exp_ts}).")
+                c.execute("UPDATE orders SET status = 'EXPIRED', payment_status = 'EXPIRED' WHERE id = ? AND status != 'PAID'", (order["id"],))
+                return False
 
         expected_vnd = float(order.get("amount_vnd") or 0.0)
         received_now = float(amount_received_vnd) if amount_received_vnd is not None else expected_vnd
