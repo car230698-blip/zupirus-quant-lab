@@ -1,8 +1,9 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import type { PortalType } from '../App.tsx';
 import { useLiveTopbarTelemetry, useRealtimePortalStream } from '../hooks/useQuantData.ts';
-import { apiPost } from '../api/client.ts';
+import { api, apiPost } from '../api/client.ts';
 import {
+  IconBell,
   IconBolt,
   IconBrain,
   IconChevronLeft,
@@ -139,8 +140,51 @@ export function PortalShell({
   const [newPwd, setNewPwd] = useState('');
   const [pwdBusy, setPwdBusy] = useState(false);
   const [pwdMsg, setPwdMsg] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState<boolean>(false);
   const { data: telemetryData } = useLiveTopbarTelemetry();
   useRealtimePortalStream(portal, Boolean(email));
+
+  const fetchNotifications = async () => {
+    try {
+      const data = await api.get('/api/v1/notifications?limit=20');
+      if (data?.notifications) {
+        setNotifications(data.notifications);
+        setUnreadNotifCount(data.unread_count || 0);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 20000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const markAllRead = async () => {
+    try {
+      await api.post('/api/v1/notifications/read-all');
+      setUnreadNotifCount(0);
+      setNotifications((prev) => prev.map((n) => ({ ...n, read_at: Date.now() / 1000 })));
+    } catch {
+      // ignore
+    }
+  };
+
+  const markSingleRead = async (id: string) => {
+    try {
+      await api.post(`/api/v1/notifications/${id}/read`);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read_at: Date.now() / 1000 } : n))
+      );
+      setUnreadNotifCount((c) => Math.max(0, c - 1));
+    } catch {
+      // ignore
+    }
+  };
 
   const liveSpot = {
     bid: Number(telemetryData?.xauusd?.bid || 0),
@@ -423,6 +467,78 @@ export function PortalShell({
 
           {/* Zone 3: Session Identity & Primary Action */}
           <div className="quant-session">
+            {/* Notification Bell Dropdown */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setNotifDropdownOpen(!notifDropdownOpen)}
+                className="quant-quiet relative p-1.5 flex items-center justify-center cursor-pointer"
+                title="Thông báo hệ thống"
+              >
+                <IconBell className="w-4 h-4" />
+                {unreadNotifCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm">
+                    {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                  </span>
+                )}
+              </button>
+
+              {notifDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl border border-slate-800 bg-[#070c18] p-3 shadow-2xl z-50 font-mono text-xs">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                    <span className="font-bold text-slate-200">Thông Báo Hệ Thống</span>
+                    {unreadNotifCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={markAllRead}
+                        className="text-[11px] text-amber-300 hover:underline cursor-pointer"
+                      >
+                        Đọc tất cả
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-72 overflow-y-auto space-y-2">
+                    {notifications.length === 0 ? (
+                      <div className="py-6 text-center text-slate-500 text-xs">
+                        Không có thông báo nào
+                      </div>
+                    ) : (
+                      notifications.map((n) => {
+                        const isUnread = !n.read_at;
+                        const isCrit = n.severity === 'CRITICAL';
+                        const isWarn = n.severity === 'WARNING';
+                        return (
+                          <div
+                            key={n.id}
+                            onClick={() => isUnread && markSingleRead(n.id)}
+                            className={`p-2.5 rounded-lg border transition cursor-pointer text-left ${
+                              isCrit
+                                ? 'border-rose-500/30 bg-rose-950/20 text-rose-200'
+                                : isWarn
+                                ? 'border-amber-500/30 bg-amber-950/20 text-amber-200'
+                                : 'border-slate-800 bg-[#040813] text-slate-300'
+                            } ${isUnread ? 'ring-1 ring-amber-400/30' : 'opacity-70'}`}
+                          >
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span
+                                className={`font-bold ${
+                                  isCrit ? 'text-rose-400' : isWarn ? 'text-amber-400' : 'text-cyan-400'
+                                }`}
+                              >
+                                [{n.severity}] {n.title}
+                              </span>
+                              {isUnread && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-300 leading-snug">{n.body}</div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={() => setCmdOpen(true)}

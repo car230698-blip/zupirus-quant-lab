@@ -375,9 +375,41 @@ class PositionWatcher:
                                 "equity": current_equity,
                                 "close_result": close_res
                             })
+                            try:
+                                from app.domains.notifications.service import emit_notification
+                                emit_notification(
+                                    c,
+                                    user_id=acc.get("user_id"),
+                                    role="user",
+                                    severity="CRITICAL",
+                                    title="Ngắt Khẩn Cấp: Vi Phạm Drawdown",
+                                    body=f"Tài khoản {acc.get('account_name') or acc_id} chạm sụt giảm {drawdown_pct:.1f}% >= giới hạn {prop_dd_limit:.1f}%. Toàn bộ vị thế đã được đóng tự động.",
+                                    send_email=True,
+                                    cooldown_key=f"user_dd_breach_{acc_id}_{date_str}",
+                                    cooldown_sec=3600,
+                                )
+                            except Exception as ne:
+                                logger.debug(f"Failed to emit drawdown breach notification: {ne}")
                         if not close_ok:
                             logger.error(f"PROP FIRM BREACH close incomplete for {acc_id}: {close_res} — will retry next cycle.")
                         results["prop_breakers_triggered"] += 1
+                    elif drawdown_pct >= 0.75 * prop_dd_limit:
+                        with tx() as c:
+                            try:
+                                from app.domains.notifications.service import emit_notification
+                                emit_notification(
+                                    c,
+                                    user_id=acc.get("user_id"),
+                                    role="user",
+                                    severity="WARNING",
+                                    title="Cảnh Báo Chạm Ngưỡng Drawdown",
+                                    body=f"Tài khoản {acc.get('account_name') or acc_id} chạm {drawdown_pct:.1f}% sụt giảm (đạt 75% ngưỡng giới hạn {prop_dd_limit:.1f}%).",
+                                    send_email=True,
+                                    cooldown_key=f"user_dd_warn_{acc_id}_{date_str}",
+                                    cooldown_sec=3600,
+                                )
+                            except Exception as ne:
+                                logger.debug(f"Failed to emit drawdown warning: {ne}")
                         results["details"].append({
                             "account_id": acc_id,
                             "action": "PROP_CIRCUIT_BREAKER_LOCKED" if close_ok else "PROP_CIRCUIT_BREAKER_CLOSE_INCOMPLETE",

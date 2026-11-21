@@ -337,3 +337,76 @@ def dashboard(
             'health': health,
             'real_trading': False,
         }
+
+
+@router.get('/api/v1/orders/export')
+def export_orders_csv(
+    u=Depends(get_current_user),
+    account_id: Optional[str] = None,
+    days: int = 30,
+):
+    """Export trade execution statement as CSV with UTF-8 BOM (utf-8-sig)
+    ensuring clean Vietnamese character display in Excel.
+    """
+    import io
+    import csv
+    from fastapi.responses import Response
+
+    now_ts = time.time()
+    cutoff_ts = now_ts - max(1, min(days, 365)) * 86400
+
+    with tx() as c:
+        query = """
+            SELECT e.executed_at, e.symbol, e.action, e.volume, e.entry_price,
+                   e.profit, e.status, e.ticket, ta.account_name, ta.mt5_login, ta.broker_server
+            FROM metaapi_trade_executions e
+            JOIN trading_accounts ta ON e.account_id = ta.id
+            WHERE ta.user_id = ? AND e.executed_at >= ?
+        """
+        params: List[Any] = [u["id"], cutoff_ts]
+        if account_id:
+            query += " AND ta.id = ?"
+            params.append(account_id)
+        query += " ORDER BY e.executed_at DESC"
+        rows = c.execute(query, tuple(params)).fetchall()
+
+    buf = io.StringIO()
+    buf.write("\ufeff")  # UTF-8 with BOM
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Thời Gian",
+        "Tài Khoản MT5",
+        "Máy Chủ",
+        "Mã Giao Dịch",
+        "Lệnh",
+        "Khối Lượng (Lot)",
+        "Giá Khớp",
+        "Lợi Nhuận ($)",
+        "Trạng Thái",
+        "Ticket ID",
+    ])
+
+    for r in rows:
+        d = dict(r) if hasattr(r, "keys") else {}
+        ts = d.get("executed_at")
+        date_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else ""
+        writer.writerow([
+            date_str,
+            f"{d.get('account_name', '')} (#{d.get('mt5_login', '')})",
+            d.get("broker_server", ""),
+            d.get("symbol", "XAUUSD"),
+            d.get("action", ""),
+            d.get("volume", 0.0),
+            d.get("entry_price", 0.0),
+            d.get("profit", 0.0),
+            d.get("status", ""),
+            d.get("ticket", ""),
+        ])
+
+    csv_bytes = buf.getvalue().encode("utf-8")
+    filename = f"zupirus_sao_ke_lenh_{int(time.time())}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { api } from '../api/client';
 import { fmtNum, fmtPnL, fmtTime } from '../utils/strategyDecision';
 import { formatTradePnl } from '../utils/currencyFormat.ts';
 import { translateOrderStatus, orderStates } from '../utils/stateMapping';
@@ -91,6 +92,19 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
 
   const ledgerStats = computeOrderLedgerMetrics(filteredOrders);
 
+  const handleExportCsv = async () => {
+    try {
+      const q = new URLSearchParams();
+      if (orderAccountFilter && orderAccountFilter !== 'all') {
+        q.set('account_id', orderAccountFilter);
+      }
+      q.set('days', '30');
+      await api.downloadBlob(`/api/v1/orders/export?${q.toString()}`, `zupirus_sao_ke_lenh_${Date.now()}.csv`);
+    } catch (err) {
+      alert('Lỗi xuất sao kê CSV: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Row 1: 12-Column Bento KPI Strip (4 x 3 cols) */}
@@ -147,9 +161,18 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
         subtitle="Sổ cái thực thi định lượng — lọc theo tài khoản, trạng thái hoặc mã Ticket/Deal."
         icon={<IconReceipt className="w-4 h-4 text-amber-300" />}
         action={
-          <StatusBadge tone="info" dot>
-            {filteredOrders.length} lệnh
-          </StatusBadge>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-mono font-bold rounded-lg border border-slate-700 bg-[#091224] text-slate-200 hover:border-amber-400/50 hover:text-amber-300 transition cursor-pointer"
+            >
+              📥 Xuất Sao Kê CSV
+            </button>
+            <StatusBadge tone="info" dot>
+              {filteredOrders.length} lệnh
+            </StatusBadge>
+          </div>
         }
         bodyClassName="p-4 sm:p-5"
       >

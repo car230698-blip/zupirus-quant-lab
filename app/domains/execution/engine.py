@@ -121,6 +121,20 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                         "UPDATE strategy_candidates SET status = 'PAUSED_DRAWDOWN_GUARD' WHERE id = ?",
                         (cand_id,),
                     )
+                    try:
+                        from app.domains.notifications.service import emit_notification
+                        emit_notification(
+                            active_cur,
+                            role="admin",
+                            severity="CRITICAL",
+                            title="Auto-Rollback: Tạm Ngắt Chiến Lược AI",
+                            body=f"Chiến lược [{cand_name}] tạm ngắt (PAUSED_DRAWDOWN_GUARD) sau {losses_in_a_row} tín hiệu AI thua liên tiếp.",
+                            send_email=True,
+                            cooldown_key=f"crit_rollback_{cand_id}",
+                            cooldown_sec=1800,
+                        )
+                    except Exception as ne:
+                        logger.warning(f"Failed to emit rollback notification: {ne}")
                     return {
                         "side": None,
                         "strategy": cand_name,

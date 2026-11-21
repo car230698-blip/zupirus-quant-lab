@@ -13,6 +13,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.ea import router as ea_router
 from app.routers.legacy_ea import router as legacy_ea_router
 from app.routers.metaapi_dispatch import router as metaapi_dispatch_router
+from app.routers.notifications import router as notifications_router
 from app.routers.realtime import router as realtime_router
 from app.routers.signals import router as signals_router
 from app.routers.skills import router as skills_router
@@ -36,6 +37,7 @@ __all__ = [
     "ea_router",
     "legacy_ea_router",
     "metaapi_dispatch_router",
+    "notifications_router",
     "realtime_router",
     "signals_router",
     "skills_router",

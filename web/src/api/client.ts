@@ -120,6 +120,22 @@ export const api = {
     }),
   delete: <T = any>(url: string, options?: ApiRequestOptions) =>
     apiRequest<T>(url, { ...options, method: 'DELETE' }),
+  downloadBlob: async (url: string, filename: string) => {
+    const res = await fetch(url, {
+      credentials: 'include',
+      headers: { 'X-Zupirus': '1' },
+    });
+    if (!res.ok) throw new Error(`Download failed with HTTP ${res.status}`);
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(blobUrl);
+  },
 };
 
 export const apiGet = api.get;

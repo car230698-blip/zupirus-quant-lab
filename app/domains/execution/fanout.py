@@ -552,6 +552,24 @@ async def execute_fan_out_for_signal(
         except Exception:
             pass
 
+    if len(accounts) > 0 and failed_count >= 2:
+        fail_rate = (failed_count / len(accounts)) * 100.0
+        if fail_rate > 20.0:
+            try:
+                from app.db import tx
+                from app.domains.notifications.service import emit_notification
+                with tx() as conn:
+                    emit_notification(
+                        conn,
+                        role="admin",
+                        severity="WARNING",
+                        title="Cảnh Báo Quạt Lệnh Đa Sàn",
+                        body=f"Tín hiệu {signal_id} ({action} {symbol}): Tỷ lệ lỗi fan-out {fail_rate:.1f}% ({failed_count}/{len(accounts)} tài khoản lỗi).",
+                        send_email=False,
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to emit fanout alert: {e}")
+
     return {
         "signal_id": signal_id,
         "symbol": symbol,
