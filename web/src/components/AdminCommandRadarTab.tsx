@@ -22,6 +22,173 @@ export interface AdminCommandRadarTabProps {
   refetchMonitor?: () => Promise<void>;
 }
 
+export function formatAuditDateTime(rawTs: any): string {
+  if (!rawTs) return '--:--:--';
+  const num = Number(rawTs);
+  if (isNaN(num) || num <= 0) return '--:--:--';
+  const millis = num > 1e11 ? num : num * 1000;
+  const d = new Date(millis);
+  if (isNaN(d.getTime())) return '--:--:--';
+
+  const time = d.toLocaleTimeString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const date = d.toLocaleDateString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    day: '2-digit',
+    month: '2-digit',
+  });
+  return `${time} ${date}`;
+}
+
+export function humanizeAuditEntry(entry: any): {
+  title: string;
+  subtitle?: string;
+  isWarn: boolean;
+  rawJson?: string;
+} {
+  const ev = String(entry.event || entry.action || entry.type || '').trim();
+  let d: any = {};
+  let rawJson = '';
+
+  if (typeof entry.detail === 'object' && entry.detail !== null) {
+    d = entry.detail;
+    try {
+      rawJson = JSON.stringify(d, null, 2);
+    } catch {}
+  } else if (typeof entry.detail === 'string' && entry.detail.trim()) {
+    rawJson = entry.detail;
+    try {
+      d = JSON.parse(entry.detail);
+    } catch {
+      d = { text: entry.detail };
+    }
+  }
+
+  let title = '';
+  let subtitle = '';
+  let isWarn = false;
+
+  switch (ev) {
+    case 'trading_account_toggle_auto_trade': {
+      const isAuto = Number(d.auto_trade ?? d.is_active ?? 0) === 1;
+      const acctRef = d.login || d.mt5_login || (d.account_id ? `#${String(d.account_id).slice(-8)}` : '');
+      title = isAuto
+        ? `Bật Auto-Trade cho tài khoản ${acctRef}`
+        : `Tạm dừng Auto-Trade tài khoản ${acctRef}`;
+      subtitle = d.broker_server || d.server || '';
+      break;
+    }
+    case 'trading_account_cloud_connected': {
+      const login = d.login || d.mt5_login || '';
+      const srv = d.server || d.broker_server || '';
+      const tier = d.tier ? ` · gói ${d.tier}` : '';
+      title = `Kết nối Cloud MT5 #${login}`;
+      subtitle = `${srv}${tier}`;
+      break;
+    }
+    case 'trading_account_deleted': {
+      const acctRef = d.login || (d.account_id ? `#${String(d.account_id).slice(-8)}` : '');
+      title = `Gỡ tài khoản ${acctRef} khỏi hệ thống`;
+      isWarn = true;
+      break;
+    }
+    case 'trading_account_risk_updated': {
+      const acctRef = d.login || (d.account_id ? `#${String(d.account_id).slice(-8)}` : '');
+      title = `Cập nhật cấu hình rủi ro tài khoản ${acctRef}`;
+      subtitle = d.risk_pct ? `Mức rủi ro: ${d.risk_pct}%` : '';
+      break;
+    }
+    case 'kill_switch_toggled': {
+      const halted = Boolean(d.halted);
+      title = halted
+        ? 'KÍCH HOẠT CẦU DAO KHẨN CẤP TOÀN SÀN (HALTED)'
+        : 'Mở lại hệ thống giao dịch tự hành';
+      isWarn = halted;
+      break;
+    }
+    case 'manual_payment_approved': {
+      title = `Duyệt bù đơn hàng SePay #${d.order_id || d.id || ''}`;
+      subtitle = 'Kích hoạt hạn mức Cloud MT5 thành công';
+      break;
+    }
+    case 'auto_calendar_synced':
+    case 'calendar_synced': {
+      const added = d.added ?? 0;
+      title = `Đồng bộ lịch tin vĩ mô tự động (+${added} tin mới)`;
+      break;
+    }
+    case 'circuit_breaker_triggered': {
+      title = `Lá chắn Prop Firm ngắt mạch khẩn cấp tài khoản #${d.account_id || ''}`;
+      subtitle = `Sụt giảm chạm ngưỡng: ${d.drawdown_pct || ''}%`;
+      isWarn = true;
+      break;
+    }
+    case 'expired_account_undeployed': {
+      title = `Tự động thu hồi trạm Cloud MT5 hết hạn`;
+      subtitle = `Tài khoản: ${d.account_id || ''}`;
+      isWarn = true;
+      break;
+    }
+    case 'user_created': {
+      title = `Tạo tài khoản người dùng: ${d.email || ''}`;
+      subtitle = `Quyền hạn: ${d.role || 'customer'}`;
+      break;
+    }
+    case 'user_role_changed': {
+      title = `Đổi quyền người dùng ${d.email || ''} → ${d.new_role || ''}`;
+      break;
+    }
+    case 'user_password_reset': {
+      title = `Đặt lại mật khẩu cho tài khoản ${d.email || ''}`;
+      break;
+    }
+    case 'user_deleted': {
+      title = `Xóa tài khoản người dùng ${d.email || ''}`;
+      isWarn = true;
+      break;
+    }
+    case 'gemini_key_added': {
+      title = `Thêm API key Gemini mới vào cụm xoay vòng`;
+      subtitle = `Khóa: ${d.masked || ''}`;
+      break;
+    }
+    case 'gemini_key_toggled': {
+      title = `${d.is_active ? 'Kích hoạt' : 'Tạm dừng'} API key Gemini (${d.masked || ''})`;
+      break;
+    }
+    case 'gemini_key_deleted': {
+      title = `Xóa API key Gemini (${d.masked || ''})`;
+      isWarn = true;
+      break;
+    }
+    case 'research_requested': {
+      title = `Khởi tạo chu trình nghiên cứu WFO & Backtest AI`;
+      break;
+    }
+    case 'research_decision': {
+      title = d.approved ? `Duyệt triển khai chiến lược AI mới` : `Từ chối chiến lược AI`;
+      break;
+    }
+    default: {
+      if (entry.text) {
+        title = entry.text;
+      } else {
+        const readableEv = ev ? ev.replace(/_/g, ' ') : 'Sự kiện hệ thống';
+        title = `Hệ thống ghi nhận: ${readableEv}`;
+      }
+      isWarn = ev.includes('error') || ev.includes('fail') || ev.includes('reject') || ev.includes('delete') || ev.includes('circuit');
+      break;
+    }
+  }
+
+  return { title, subtitle, isWarn, rawJson };
+}
+
 export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   killSwitchLoading,
   handleToggleKillSwitch,
@@ -44,6 +211,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   const [msg, setMsg] = useState('');
   const [errorBanner, setErrorBanner] = useState<AdminErrorInfo | null>(null);
   const [auditFilter, setAuditFilter] = useState<'ALL' | 'WARN_ERR'>('ALL');
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [ordersStats, setOrdersStats] = useState<{ total: number; open: number; error: number }>({
     total: 0,
     open: 0,
@@ -147,12 +315,12 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   const pendingBillingCount = Number(monitorData?.pendingBillingCount ?? 0);
   const totalPendingQueue = pendingJobsCount + pendingBillingCount;
 
-  // Upcoming Macro News
+  // Upcoming Macro News (Shield threshold: ±30 minutes)
   const newsList = monitorData?.news || [];
   const nowSec = Date.now() / 1000;
   const upcomingNews = useMemo(() => {
     return newsList
-      .filter((n: any) => Number(n.ts || 0) >= nowSec - 300)
+      .filter((n: any) => Number(n.ts || 0) >= nowSec - 1800)
       .sort((a: any, b: any) => Number(a.ts || 0) - Number(b.ts || 0));
   }, [newsList, nowSec]);
 
@@ -162,26 +330,36 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   const combinedLog = useMemo(() => {
     const list: any[] = [];
 
-    // 1. Radar timeline
+    // 1. Radar timeline (AI-SWARM events)
     (radar.timeline || []).forEach((t: any, idx: number) => {
+      const tsVal = Number(t.ts || 0);
       list.push({
-        id: `tl-${idx}-${t.ts}`,
-        ts: Number(t.ts || 0),
-        text: t.text,
-        kind: t.kind || 'info',
+        id: `tl-${idx}-${tsVal}`,
+        ts: tsVal,
+        actor: 'AI-SWARM',
         source: 'AI-SWARM',
+        title: t.text || 'Nhịp tim trí tuệ nhân tạo',
+        subtitle: '',
+        kind: t.kind || 'info',
+        rawJson: '',
       });
     });
 
-    // 2. Database audit log
+    // 2. Database audit log (Humanized cleanly)
     (monitorData?.audit || []).forEach((au: any) => {
-      const isWarn = au.action?.includes('kill_switch') || au.action?.includes('rejected') || au.action?.includes('delete');
+      const tsVal = Number(au.ts || au.created_at || au.created || au.timestamp || 0);
+      const actorName = String(au.actor || au.actor_id || 'ADMIN').toUpperCase();
+      const { title, subtitle, isWarn, rawJson } = humanizeAuditEntry(au);
+
       list.push({
-        id: `au-${au.id}`,
-        ts: Number(au.created || 0),
-        text: `[${au.actor_id || 'ADMIN'}] ${au.action}: ${typeof au.detail === 'object' ? JSON.stringify(au.detail) : au.detail || ''}`,
-        kind: isWarn ? 'warning' : 'info',
+        id: `au-${au.id || tsVal}`,
+        ts: tsVal,
+        actor: actorName,
         source: 'AUDIT',
+        title,
+        subtitle,
+        kind: isWarn ? 'warning' : 'info',
+        rawJson,
       });
     });
 
@@ -319,7 +497,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
         </div>
       </Panel>
 
-      {/* HẠNG MỤC 3 — DẢI 6 KPI TỔNG HỢP TOÀN HỆ THỐNG */}
+      {/* DẢI 6 KPI TỔNG HỢP TOÀN HỆ THỐNG */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
         {/* KPI 1: AUM USD */}
         <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-4 space-y-1">
@@ -405,7 +583,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
           </div>
         </div>
 
-        {/* KPI 6: Macro News Shield */}
+        {/* KPI 6: Macro News Shield (±30M) */}
         <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-4 space-y-1">
           <div className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
             Lịch Tin Vĩ Mô (News Shield)
@@ -416,7 +594,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                 {nextMajorNews.title} ({nextMajorNews.currency})
               </div>
               <div className="text-[10px] text-slate-400">
-                {Math.max(0, Math.round((Number(nextMajorNews.ts) - nowSec) / 60))} phút tới cửa sổ khóa lệnh
+                {Math.max(0, Math.round((Number(nextMajorNews.ts) - nowSec) / 60))} phút tới cửa sổ khóa lệnh ±30m
               </div>
             </>
           ) : (
@@ -432,12 +610,12 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
         </div>
       </div>
 
-      {/* HẠNG MỤC 2 — BẢNG GIÁM SÁT LỆNH TOÀN SÀN REALTIME */}
+      {/* BẢNG GIÁM SÁT LỆNH TOÀN SÀN REALTIME */}
       <AdminLiveOrdersPanel onOrdersCountChange={setOrdersStats} />
 
-      {/* HẠNG MỤC 4 — 12-COLUMN BENTO SPLIT (7 cols Live Activity & Audit Log + 5 cols Alert Center & News) */}
+      {/* 12-COLUMN BENTO SPLIT (7 cols Live Activity & Audit Log + 5 cols Alert Center & News) */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left 7 Cols: Realtime AI & Audit Activity Log */}
+        {/* Left 7 Cols: Realtime AI & Audit Activity Log (Flat List with divide-y) */}
         <div className="quant-panel lg:col-span-7 p-5 sm:p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
             <div>
@@ -474,43 +652,66 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             </div>
           </div>
 
-          <div className="max-h-[460px] space-y-2.5 overflow-y-auto pr-1 font-mono text-xs">
+          {/* Flat hairline list format */}
+          <div className="max-h-[460px] overflow-y-auto pr-1">
             {filteredLog.length === 0 ? (
-              <div className="rounded-xl border border-white/10 bg-[#040710]/60 p-5 text-center text-slate-400">
+              <div className="p-8 text-center text-xs text-slate-400 font-sans">
                 Chưa có sự kiện nào được ghi nhận. Hệ thống AI đang chạy nền 24/5.
               </div>
             ) : (
-              filteredLog.map((item: any) => {
-                const timeStr = item.ts > 0
-                  ? new Date(item.ts > 1e11 ? item.ts : item.ts * 1000).toLocaleTimeString('vi-VN', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    })
-                  : '—';
+              <div className="divide-y divide-slate-800/60">
+                {filteredLog.map((item: any) => {
+                  const timeFormatted = formatAuditDateTime(item.ts);
+                  const isWarn = item.kind === 'warning' || item.kind === 'error';
+                  const isExpanded = expandedLogId === item.id;
 
-                const isWarn = item.kind === 'warning' || item.kind === 'error';
-                return (
-                  <div
-                    key={item.id}
-                    className={`rounded-xl border px-3.5 py-2.5 text-xs transition ${
-                      isWarn
-                        ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-                        : 'border-white/[0.06] bg-[#040710]/60 text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-cyan-400">[{timeStr}]</span>
-                      <span className="rounded bg-slate-800 px-1.5 py-0.2 text-[9px] text-slate-400 uppercase font-sans">
-                        {item.source}
-                      </span>
+                  return (
+                    <div key={item.id} className="py-2.5 px-2 hover:bg-slate-800/20 transition space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[11px] font-bold text-cyan-400 tabular-nums">
+                            [{timeFormatted}]
+                          </span>
+                          <span className="rounded bg-slate-800/90 border border-slate-700/60 px-1.5 py-0.2 text-[9px] font-mono text-slate-300 font-bold uppercase">
+                            {item.actor}
+                          </span>
+                        </div>
+                        {item.rawJson && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedLogId(isExpanded ? null : item.id)}
+                            className="text-[10px] font-mono text-slate-400 hover:text-cyan-300 transition cursor-pointer"
+                          >
+                            {isExpanded ? 'Ẩn JSON' : 'Chi tiết'}
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className={`text-xs font-sans font-medium leading-relaxed ${
+                            isWarn ? 'text-amber-300 font-semibold' : 'text-slate-200'
+                          }`}>
+                            {item.title}
+                          </div>
+                          {item.subtitle && (
+                            <div className="text-[11px] font-sans text-slate-400 mt-0.5">
+                              {item.subtitle}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expandable Raw JSON */}
+                      {isExpanded && item.rawJson && (
+                        <pre className="mt-1.5 max-h-40 overflow-x-auto rounded-lg border border-slate-800 bg-[#040710] p-2.5 font-mono text-[10px] text-slate-300">
+                          {item.rawJson}
+                        </pre>
+                      )}
                     </div>
-                    <div className="mt-1 font-sans text-xs text-slate-200 leading-relaxed">
-                      {item.text}
-                    </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
@@ -570,7 +771,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             </div>
           </div>
 
-          {/* Lower: Upcoming Macro News Calendar */}
+          {/* Lower: Upcoming Macro News Calendar (NEWS SHIELD ±30M) */}
           <div className="quant-panel p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
               <div>
@@ -582,7 +783,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                 </h3>
               </div>
               <span className="rounded-full bg-[#12B5A6]/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-[#12B5A6]">
-                NEWS SHIELD ±15M
+                NEWS SHIELD ±30M
               </span>
             </div>
 
@@ -595,11 +796,13 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                 upcomingNews.map((n: any, idx: number) => {
                   const evTs = Number(n.ts || 0);
                   const diffMinutes = Math.round((evTs - nowSec) / 60);
-                  const isImminent = diffMinutes >= -15 && diffMinutes <= 15;
+                  const isImminent = diffMinutes >= -30 && diffMinutes <= 30;
                   const timeFormatted = evTs > 0
                     ? new Date(evTs * 1000).toLocaleTimeString('vi-VN', {
+                        timeZone: 'Asia/Ho_Chi_Minh',
                         hour: '2-digit',
                         minute: '2-digit',
+                        hour12: false,
                       })
                     : '—';
 

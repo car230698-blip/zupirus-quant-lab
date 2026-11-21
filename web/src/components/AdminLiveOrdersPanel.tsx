@@ -1,9 +1,28 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { formatTradePnl } from '../utils/currencyFormat';
 
 export interface AdminLiveOrdersPanelProps {
   onOrdersCountChange?: (stats: { total: number; open: number; error: number }) => void;
+}
+
+export function isOrderError(o: any): boolean {
+  if (!o) return false;
+  const st = String(o.state || o.status || '').toUpperCase();
+  const errorStates = ['FAILED', 'ERROR', 'REJECTED', 'SKIPPED_ERROR', 'CANCELLED'];
+  if (errorStates.includes(st)) return true;
+
+  // A filled, open, or closed order is NEVER an error, even if there is a success note in error_message
+  const normalStates = ['FILLED', 'OPEN', 'CLOSED', 'ACTIVE'];
+  if (normalStates.includes(st)) return false;
+
+  return Boolean(o.reason || o.error_message);
+}
+
+export function isOrderOpen(o: any): boolean {
+  if (!o || isOrderError(o)) return false;
+  const st = String(o.state || o.status || '').toUpperCase();
+  return st === 'OPEN' || st === 'FILLED' || st === 'QUEUED' || st === 'PENDING' || st === 'ACTIVE';
 }
 
 export const AdminLiveOrdersPanel: React.FC<AdminLiveOrdersPanelProps> = ({
@@ -16,21 +35,13 @@ export const AdminLiveOrdersPanel: React.FC<AdminLiveOrdersPanelProps> = ({
 
   const fetchOrders = useCallback(async () => {
     try {
-      const data = await api.get('/api/admin/orders?limit=30');
+      const data = await api.get('/api/admin/orders?limit=50');
       const list = data?.orders || [];
       setOrders(list);
       setErrorMsg('');
 
-      // Compute counts for stats
-      const openCount = list.filter((o: any) => {
-        const s = String(o.state || o.status || '').toLowerCase();
-        return s === 'filled' || s === 'open' || s === 'queued' || s === 'pending';
-      }).length;
-
-      const errCount = list.filter((o: any) => {
-        const s = String(o.state || o.status || '').toLowerCase();
-        return s === 'rejected' || s === 'failed' || s === 'cancelled' || Boolean(o.reason);
-      }).length;
+      const openCount = list.filter(isOrderOpen).length;
+      const errCount = list.filter(isOrderError).length;
 
       if (onOrdersCountChange) {
         onOrdersCountChange({
@@ -61,23 +72,17 @@ export const AdminLiveOrdersPanel: React.FC<AdminLiveOrdersPanelProps> = ({
     };
   }, [fetchOrders]);
 
-  const filteredOrders = orders.filter((o: any) => {
-    const s = String(o.state || o.status || '').toLowerCase();
-    const hasErr = s === 'rejected' || s === 'failed' || s === 'cancelled' || Boolean(o.reason);
-    if (filter === 'ERROR') return hasErr;
-    if (filter === 'OPEN') return (s === 'filled' || s === 'open' || s === 'queued') && !hasErr;
-    return true;
-  });
+  const errorCount = useMemo(() => orders.filter(isOrderError).length, [orders]);
+  const openCount = useMemo(() => orders.filter(isOrderOpen).length, [orders]);
 
-  const errorCount = orders.filter((o: any) => {
-    const s = String(o.state || o.status || '').toLowerCase();
-    return s === 'rejected' || s === 'failed' || s === 'cancelled' || Boolean(o.reason);
-  }).length;
-
-  const openCount = orders.filter((o: any) => {
-    const s = String(o.state || o.status || '').toLowerCase();
-    return (s === 'filled' || s === 'open' || s === 'queued') && !Boolean(o.reason);
-  }).length;
+  const filteredOrders = useMemo(() => {
+    return orders.filter((o: any) => {
+      const isErr = isOrderError(o);
+      if (filter === 'ERROR') return isErr;
+      if (filter === 'OPEN') return isOrderOpen(o);
+      return true;
+    });
+  }, [orders, filter]);
 
   return (
     <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5 sm:p-6 space-y-4">
@@ -155,22 +160,22 @@ export const AdminLiveOrdersPanel: React.FC<AdminLiveOrdersPanelProps> = ({
         </div>
       )}
 
-      {/* Orders Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="border-b border-slate-800 text-[11px] uppercase text-slate-400 font-mono tracking-wider">
-              <th className="py-2.5 pr-3">Thời Gian</th>
-              <th className="py-2.5 pr-3">Tài Khoản / Email</th>
-              <th className="py-2.5 pr-3">Cặp &amp; Chiều</th>
-              <th className="py-2.5 pr-3 text-right">Khối Lượng</th>
-              <th className="py-2.5 pr-3 text-right">Giá / SL / TP</th>
-              <th className="py-2.5 pr-3 text-center">Độ Trễ</th>
-              <th className="py-2.5 pr-3 text-right">Lời / Lỗ</th>
-              <th className="py-2.5 text-right">Trạng Thái</th>
+      {/* Orders Table Container: Scrollable max-h-[420px] with Sticky Header */}
+      <div className="overflow-x-auto max-h-[420px] overflow-y-auto rounded-xl border border-slate-800/80">
+        <table className="w-full text-left text-xs border-collapse">
+          <thead className="sticky top-0 bg-[#080E1A] z-10 border-b border-slate-800 shadow-sm font-mono text-[11px] uppercase text-slate-400 tracking-wider">
+            <tr>
+              <th className="py-2.5 px-3 w-28 whitespace-nowrap">Thời Gian</th>
+              <th className="py-2.5 px-3 w-48 whitespace-nowrap">Tài Khoản / Email</th>
+              <th className="py-2.5 px-3 w-28 whitespace-nowrap">Cặp &amp; Chiều</th>
+              <th className="py-2.5 px-3 w-24 text-right whitespace-nowrap">Khối Lượng</th>
+              <th className="py-2.5 px-3 w-36 text-right whitespace-nowrap">Giá / SL / TP</th>
+              <th className="py-2.5 px-3 w-20 text-center whitespace-nowrap">Độ Trễ</th>
+              <th className="py-2.5 px-3 w-28 text-right whitespace-nowrap">Lời / Lỗ</th>
+              <th className="py-2.5 px-3 w-32 text-right whitespace-nowrap">Trạng Thái</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 font-mono text-xs tabular-nums">
+          <tbody className="divide-y divide-slate-800/60 font-mono text-xs tabular-nums bg-[#10192B]/50">
             {filteredOrders.length === 0 ? (
               <tr>
                 <td colSpan={8} className="py-8 text-center text-slate-400 font-sans">
@@ -184,36 +189,39 @@ export const AdminLiveOrdersPanel: React.FC<AdminLiveOrdersPanelProps> = ({
                 const ts = Number(o.created || o.executed_at || o.timestamp || 0);
                 const timeStr = ts > 0
                   ? new Date(ts > 1e11 ? ts : ts * 1000).toLocaleTimeString('vi-VN', {
+                      timeZone: 'Asia/Ho_Chi_Minh',
                       hour: '2-digit',
                       minute: '2-digit',
                       second: '2-digit',
+                      hour12: false,
                     })
                   : '—';
 
                 const isBuy = String(o.side || o.action || '').toUpperCase() === 'BUY';
                 const st = String(o.state || o.status || 'UNKNOWN').toUpperCase();
-                const isErr = st === 'REJECTED' || st === 'FAILED' || Boolean(o.reason);
+                const isErr = isOrderError(o);
                 const latency = Number(o.latency_ms || 0);
+                const pnl = Number(o.profit ?? o.pnl ?? 0);
 
                 return (
-                  <tr key={o.id || idx} className="hover:bg-slate-800/25 transition">
+                  <tr key={o.id || idx} className="hover:bg-slate-800/30 transition">
                     {/* Time */}
-                    <td className="py-2.5 pr-3 text-slate-300 font-mono">
+                    <td className="py-2.5 px-3 text-slate-300 font-mono whitespace-nowrap">
                       {timeStr}
                     </td>
 
                     {/* Account / User */}
-                    <td className="py-2.5 pr-3">
+                    <td className="py-2.5 px-3">
                       <div className="font-bold text-white">
                         {o.account_login || o.login || 'Cloud-Auto'}
                       </div>
-                      <div className="text-[10px] text-slate-400 font-sans truncate max-w-[150px]">
+                      <div className="text-[10px] text-slate-400 font-sans truncate max-w-[160px]" title={o.user_email || o.account_server}>
                         {o.user_email || o.account_server || 'zupirus-core'}
                       </div>
                     </td>
 
                     {/* Symbol & Side */}
-                    <td className="py-2.5 pr-3">
+                    <td className="py-2.5 px-3 whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-slate-200">
                           {o.symbol || 'XAUUSD'}
@@ -231,12 +239,12 @@ export const AdminLiveOrdersPanel: React.FC<AdminLiveOrdersPanelProps> = ({
                     </td>
 
                     {/* Volume */}
-                    <td className="py-2.5 pr-3 text-right text-slate-200 font-bold">
+                    <td className="py-2.5 px-3 text-right text-slate-200 font-bold whitespace-nowrap">
                       {Number(o.volume || 0.01).toFixed(2)} Lot
                     </td>
 
                     {/* Price / SL / TP */}
-                    <td className="py-2.5 pr-3 text-right">
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
                       <div className="text-white font-semibold">
                         {Number(o.fill_price || o.price || 0).toFixed(2)}
                       </div>
@@ -246,7 +254,7 @@ export const AdminLiveOrdersPanel: React.FC<AdminLiveOrdersPanelProps> = ({
                     </td>
 
                     {/* Latency */}
-                    <td className="py-2.5 pr-3 text-center">
+                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       <span
                         className={`rounded px-1.5 py-0.5 text-[10px] font-mono ${
                           latency <= 35
@@ -260,28 +268,45 @@ export const AdminLiveOrdersPanel: React.FC<AdminLiveOrdersPanelProps> = ({
                       </span>
                     </td>
 
-                    {/* PnL */}
-                    <td className="py-2.5 pr-3 text-right">
-                      <span className="font-bold">
-                        {formatTradePnl(o.profit ?? o.pnl ?? 0, o)}
+                    {/* PnL with accurate semantic color: > 0 Teal #12B5A6, < 0 Rose #F43F5E, = 0 Slate #94A3B8 */}
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                      <span className={`font-bold ${
+                        pnl > 0
+                          ? 'text-[#12B5A6]'
+                          : pnl < 0
+                          ? 'text-[#F43F5E]'
+                          : 'text-[#94A3B8]'
+                      }`}>
+                        {formatTradePnl(pnl, o)}
                       </span>
                     </td>
 
-                    {/* Status */}
-                    <td className="py-2.5 text-right">
+                    {/* Status & Error Reason (ONLY in red when isErr is true) */}
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
                       <span
                         className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                          st === 'FILLED' || st === 'OPEN'
-                            ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/30'
-                            : isErr
+                          isErr
                             ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                            : st === 'FILLED' || st === 'OPEN' || st === 'CLOSED'
+                            ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/30'
                             : 'bg-slate-800 text-slate-300 border border-slate-700'
                         }`}
                       >
                         {st}
                       </span>
-                      {o.reason && (
-                        <div className="mt-0.5 text-[10px] text-rose-400 font-sans truncate max-w-[130px]" title={o.reason}>
+                      {isErr && o.reason && (
+                        <div
+                          className="mt-0.5 text-[10px] text-rose-400 font-sans truncate max-w-[140px] ml-auto"
+                          title={o.reason}
+                        >
+                          {o.reason}
+                        </div>
+                      )}
+                      {!isErr && o.reason && (
+                        <div
+                          className="mt-0.5 text-[9px] text-slate-500 font-sans truncate max-w-[140px] ml-auto"
+                          title={o.reason}
+                        >
                           {o.reason}
                         </div>
                       )}
