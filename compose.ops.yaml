@@ -3,7 +3,7 @@
 #   docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml -f compose.ops.yaml up -d
 services:
   autoheal:
-    image: willfarrell/docker-autoheal:latest
+    image: willfarrell/autoheal:latest
     restart: unless-stopped
     environment:
       AUTOHEAL_CONTAINER_LABEL: "all"
