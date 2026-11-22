@@ -122,7 +122,7 @@ export const AdminBillingSettingsTab: React.FC = () => {
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left 7 Cols: SePay & FX Configuration Form */}
-        <form onSubmit={handleSave} className="quant-panel p-6 space-y-5 lg:col-span-7">
+        <form onSubmit={handleSave} className="rounded-2xl border border-white/10 bg-[#0B1221]/80 backdrop-blur-xl p-6 space-y-5 lg:col-span-7">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.07] pb-4">
             <div>
               <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
@@ -263,7 +263,7 @@ export const AdminBillingSettingsTab: React.FC = () => {
         </form>
 
         {/* Right 5 Cols: Live VietQR Simulator Card */}
-        <div className="quant-panel flex flex-col justify-between p-6 lg:col-span-5">
+        <div className="rounded-2xl border border-white/10 bg-[#0B1221]/80 backdrop-blur-xl flex flex-col justify-between p-6 lg:col-span-5">
           <div className="space-y-4">
             <div className="border-b border-white/[0.07] pb-4">
               <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-400">

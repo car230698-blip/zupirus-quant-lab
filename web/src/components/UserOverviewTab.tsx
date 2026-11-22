@@ -698,7 +698,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             <span>{runtimeModeLabel} · {computedActiveAccounts}/{computedTotalAccounts} Online</span>
           </div>
           <span className="text-amber-300 font-bold">
-            {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : '24ms'} G2 · {isMt5Connected ? 'ĐÃ ĐỒNG BỘ' : 'CHỜ ĐỒNG BỘ'}
+            {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : 'Đang đo...'} G2 · {isMt5Connected ? 'ĐÃ ĐỒNG BỘ' : 'CHỜ ĐỒNG BỘ'}
           </span>
         </div>
       </SpotlightBento>

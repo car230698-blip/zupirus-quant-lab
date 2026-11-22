@@ -30,11 +30,11 @@ Hệ thống được phát triển theo mô hình Single Page Application (Reac
 
 ```mermaid
 graph TD
-    UserClient[Người Dùng Trình Duyệt] --> Caddy[Caddy Reverse Proxy & WAF]
-    AdminClient[Quản Trị Viên Trình Duyệt] --> Caddy
+    UserClient[Người Dùng Trình Duyệt] --> NPM[Nginx Proxy Manager / OpenResty WAF]
+    AdminClient[Quản Trị Viên Trình Duyệt] --> NPM
     
-    Caddy -->|app.zupirus.com| UserPortal[User Portal: 3 Tabs Tinh Gọn]
-    Caddy -->|adm.zupirus.com| AdminPortal[Admin Portal: 3 Unified Tabs]
+    NPM -->|app.zupirus.com| UserPortal[User Portal: 3 Tabs Tinh Gọn]
+    NPM -->|adm.zupirus.com| AdminPortal[Admin Portal: 3 Unified Tabs]
     
     UserPortal --> ApiClient[Centralized API Client]
     AdminPortal --> ApiClient
@@ -53,7 +53,7 @@ Giao diện người dùng được chuẩn hóa theo tiêu chuẩn **Glassmorph
   - **Logo Thương Hiệu:** Nhãn kính `ZUPIRUS QUANTUM OS v5.0` kèm đèn trạng thái xanh ngọc nhịp thở.
   - **Trạng thái Trạm VPS:** Hiển thị độ trễ trực tiếp đến trung tâm hạ tầng London (`London G2 · 30.8ms`).
   - **Thước Đo Giá Sống (Realtime Price Ticker):** Hiển thị cặp `XAU/USD $3,539.00` tự động nhảy theo luồng SSE.
-  - **Thẻ Hồ Sơ Người Dùng (User Profile Badge):** Thể hiện email khách hàng, huy hiệu gói dịch vụ (`STARTER`, `PRO`, `QUANT FIRM`) và nút chuyển nhanh Đổi Mật Khẩu / Đăng Xuất.
+  - **Thẻ Hồ Sơ Người Dùng (User Profile Badge):** Thể hiện email khách hàng, huy hiệu gói dịch vụ (`STARTER`, `GROWTH`, `ALPHA`) và nút chuyển nhanh Đổi Mật Khẩu / Đăng Xuất.
 - **Thanh Bên Mở Rộng / Thu Gọn (Sidebar Desktop 1440px):**
   - Chiều rộng linh hoạt: 264px khi mở rộng, thu gọn về 76px khi bấm icon thu nhỏ.
   - 3 Mục Menu Chính:
@@ -246,7 +246,7 @@ Bảng điều khiển tác chiến cao cấp nhất dành cho SRE và Trưởng
 Môi trường giám sát và huấn luyện bộ não định lượng của hệ thống Zupirus:
 
 1. **Bảng Hiệu Suất & Trọng Số Tiến Hóa (`AdminAiOverviewPanel.tsx`):**
-   - Hiển thị mô hình AI đang vận hành chính (`gemini-1.5-pro`, `gemini-1.5-flash`, hoặc Fallback Engine).
+   - Hiển thị mô hình AI đang vận hành chính (`gemini-4-hydrogen` kèm fallback đa tầng sang Gemini Flash / Heuristic Engine).
    - Thước đo tỷ lệ tự học thành công và độ chính xác dự báo (Self-learning Accuracy %).
    - Phân bổ trọng số chiến lược động:
      - Mô hình ICT / SMC (Smart Money Concepts): Khối Order Block, Fair Value Gap (FVG).
@@ -298,8 +298,8 @@ Trung tâm quản lý người dùng, vận hành tài chính và thiết lập 
 - **Thiết Lập Bảng Giá Gói Dịch Vụ:**
   - Điều chỉnh giá bán niêm yết (VND/tháng) cho từng phân khúc:
     - Gói `STARTER`: Hạn mức 1 tài khoản MT5, tính năng bảo vệ cơ bản.
-    - Gói `PRO`: Hạn mức 3 tài khoản MT5, đầy đủ lá chắn 4 lớp và hỗ trợ Quỹ Prop.
-    - Gói `QUANT FIRM`: Không giới hạn tài khoản MT5, ưu tiên băng thông thấp nhất.
+    - Gói `GROWTH`: Hạn mức 3 tài khoản MT5, đầy đủ lá chắn 4 lớp và hỗ trợ Quỹ Prop.
+    - Gói `ALPHA`: Không giới hạn tài khoản MT5, ưu tiên băng thông thấp nhất và tính năng tự trị nâng cao.
   - Thiết lập tỷ lệ chiết khấu khi thanh toán theo quý (-15%) hoặc theo năm (-30%).
 
 ---

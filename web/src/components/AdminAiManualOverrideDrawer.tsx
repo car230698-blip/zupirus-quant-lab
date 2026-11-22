@@ -85,7 +85,7 @@ export const AdminAiManualOverrideDrawer: React.FC<AdminAiManualOverrideDrawerPr
   };
 
   return (
-    <div className="quant-panel border border-white/10 rounded-2xl bg-[#030612] overflow-hidden">
+    <div className="border border-white/10 rounded-2xl bg-[#030612] overflow-hidden">
       {/* Header bar toggles the drawer */}
       <button
         type="button"
