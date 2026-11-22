@@ -596,12 +596,12 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
 
         # Fetch fresh live price (with Redis quote fallback)
         from app.domains.signals.ingestion.context import get_fresh_live_price, get_market_atr14
-        fresh_quote = get_fresh_live_price(c, sym_u, max_age_sec=180.0)
-        if not fresh_quote:
+        fresh_price = get_fresh_live_price(c, sym_u, max_age_sec=180.0)
+        if fresh_price is None:
             return {"status": "SKIPPED", "reason": f"STALE_QUOTE_{sym_u}"}
         from app.services.symbol_precision import digits_for_symbol
         dec = digits_for_symbol(sym_u)
-        entry_price = round((float(fresh_quote["bid"]) + float(fresh_quote["ask"])) / 2.0, dec)
+        entry_price = round(float(fresh_price), dec)
         setkv(c, last_ts_key, str(latest_bar_ts))
 
     # Trigger AI Swarm (Sentinel + Alpha + Risk Guardian) & MCP cross-asset context check

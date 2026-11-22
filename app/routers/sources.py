@@ -74,24 +74,12 @@ def set_signal_mode(req: SetSignalModeRequest, _admin=Depends(get_current_admin)
     mode = req.mode.upper().strip()
     if mode == "HYBRID":
         mode = "HYBRID_AGENT_SCORER"
-    if mode not in ("EXTERNAL_FEED", "HYBRID_AGENT_SCORER", "ZUPIRUS_AGENT"):
-        fail(400, "Chế độ không hợp lệ. Chọn EXTERNAL_FEED, HYBRID_AGENT_SCORER, hoặc ZUPIRUS_AGENT.")
+    from app.domains.signals.sources.curator import VALID_SIGNAL_MODES, set_active_signal_mode
+    if mode not in VALID_SIGNAL_MODES:
+        fail(400, f"Chế độ không hợp lệ. Chọn {', '.join(VALID_SIGNAL_MODES)}.")
 
     with tx() as c:
-        c.execute(
-            """
-            INSERT INTO kv (key, value) VALUES ('signal_mode', ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """,
-            (mode,)
-        )
-        c.execute(
-            """
-            INSERT INTO kv (key, value) VALUES ('signal_source', ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """,
-            (mode,)
-        )
+        set_active_signal_mode(c, mode)
 
     return {"message": f"Đã chuyển sang chế độ {mode}.", "active_signal_mode": mode}
 

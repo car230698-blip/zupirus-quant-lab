@@ -196,10 +196,8 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
             halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
             if halt_row and str(halt_row[0]).strip() in ("1", "true", "True"):
                 return
-            mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
-            if not mode_row:
-                mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
-            active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "EXTERNAL_FEED"
+            from app.domains.signals.sources.curator import get_active_signal_mode, score_external_signal_hybrid
+            active_mode = get_active_signal_mode(c)
             if active_mode == "ZUPIRUS_AGENT":
                 return
             src_row = c.execute("SELECT status FROM signal_sources WHERE id = 'src_tv_m15_consensus'").fetchone()
@@ -272,6 +270,13 @@ def _dispatch_scanner_candidates(candidates: List[Dict[str, Any]], now_ts: float
                         live_quote_price = (float(q_row[0]) + float(q_row[1])) / 2.0
             except Exception:
                 pass
+            if active_mode == "HYBRID_AGENT_SCORER":
+                with tx() as sc_c:
+                    h_ok, h_score, h_reason = score_external_signal_hybrid(sc_c, norm_sig)
+                if not h_ok:
+                    logger.info("Discovery signal %s rejected by HYBRID_AGENT_SCORER: %s (score=%.1f)", norm_sig.id, h_reason, h_score)
+                    continue
+
             ok, reason, sanitized = sanitize_and_audit_signal(
                 signal=norm_sig,
                 live_price=live_quote_price,
