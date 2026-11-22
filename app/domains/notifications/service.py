@@ -133,8 +133,8 @@ def run_daily_executive_digest(c=None, force: bool = False) -> Dict[str, Any]:
         from app.domains.signals.sources.curator import get_active_signal_mode
         sig_mode = get_active_signal_mode(cursor)
         err_row = cursor.execute(
-            "SELECT count(*) FROM audit WHERE ts >= ? AND (event LIKE '%error%' OR event LIKE '%fail%' OR event LIKE '%halt%')",
-            (now_ts - 7200,),
+            "SELECT count(*) FROM audit WHERE ts >= ? AND (event LIKE ? OR event LIKE ? OR event LIKE ?)",
+            (now_ts - 7200, "%error%", "%fail%", "%halt%"),
         ).fetchone()
         recent_errs = int(err_row[0] or 0)
         sys_status = "OK" if recent_errs == 0 else "WARN"
@@ -174,12 +174,12 @@ def run_daily_executive_digest(c=None, force: bool = False) -> Dict[str, Any]:
         # 5. Metric 4: Gemini Quota
         from app.domains.ai.gemini_client import get_daily_quota_stats
         q_stats = get_daily_quota_stats(c=cursor)
-        quota_str = f"{q_stats.get('calls_today', 0)} / {q_stats.get('daily_cap', 90)} ({q_stats.get('usage_pct', 0.0)}%)"
+        quota_str = f"{q_stats.get('calls_today', 0)} / {q_stats.get('daily_cap', 144)} ({q_stats.get('usage_pct', 0.0)}%)"
 
         # 6. Metric 5: Anomalies / Alerts
         warn_rows = cursor.execute(
-            "SELECT event FROM audit WHERE ts >= ? AND (event LIKE '%warn%' OR event LIKE '%error%' OR event LIKE '%halt%') ORDER BY ts DESC LIMIT 3",
-            (now_ts - 86400,),
+            "SELECT event FROM audit WHERE ts >= ? AND (event LIKE ? OR event LIKE ? OR event LIKE ?) ORDER BY ts DESC LIMIT 3",
+            (now_ts - 86400, "%warn%", "%error%", "%halt%"),
         ).fetchall()
         if not warn_rows:
             anomalies_text = "Hệ thống tự vận hành ổn định — không cần thao tác."
