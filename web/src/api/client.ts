@@ -74,15 +74,18 @@ export async function apiRequest<T = any>(
   });
 
   if (!response.ok) {
+    const rawText = await response.text();
     let errData: any;
     try {
-      errData = await response.json();
+      errData = rawText ? JSON.parse(rawText) : null;
     } catch {
-      errData = await response.text();
+      errData = rawText;
     }
     const message =
       (typeof errData === 'object' && (errData?.detail || errData?.message)) ||
-      `HTTP ${response.status}: ${response.statusText}`;
+      (typeof errData === 'string' && errData.trim().length > 0
+        ? errData
+        : `HTTP ${response.status}: ${response.statusText}`);
     throw new ApiError(message, response.status, errData);
   }
 
@@ -90,11 +93,16 @@ export async function apiRequest<T = any>(
     return {} as T;
   }
 
+  const rawText = await response.text();
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
-    return (await response.json()) as T;
+    try {
+      return (rawText ? JSON.parse(rawText) : null) as T;
+    } catch {
+      return rawText as unknown as T;
+    }
   }
-  return (await response.text()) as unknown as T;
+  return rawText as unknown as T;
 }
 
 export const api = {

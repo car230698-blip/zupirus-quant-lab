@@ -212,8 +212,8 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
         active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "EXTERNAL_FEED"
 
-        live_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY promoted_at DESC LIMIT 1").fetchone()
-        canary_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'CANARY_DEMO' ORDER BY canary_started_at DESC LIMIT 1").fetchone()
+        live_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC LIMIT 1").fetchone()
+        canary_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'CANARY_DEMO' ORDER BY updated_at DESC LIMIT 1").fetchone()
 
     health_cards = [
         {

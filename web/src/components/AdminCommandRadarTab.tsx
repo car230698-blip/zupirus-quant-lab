@@ -520,7 +520,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                   <span className={`h-2 w-2 rounded-full ${(aiQuota?.status === 'CAPPED_100') ? 'bg-rose-500' : 'bg-emerald-400'}`} />
                   <span className="text-slate-400">Gemini:</span>
                   <span className={`font-bold ${(aiQuota?.status === 'CAPPED_100') ? 'text-rose-400' : 'text-emerald-300'}`}>
-                    {aiQuota?.calls_today ?? 0}/{aiQuota?.daily_cap ?? 90}
+                    {aiQuota?.calls_today ?? 0}/{aiQuota?.daily_cap ?? 144}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -862,7 +862,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                 <span className={`h-1.5 w-1.5 rounded-full ${aiQuota?.status === 'CAPPED_100' ? 'bg-rose-500' : 'bg-emerald-400'}`} />
                 <span className="text-slate-400">Gemini Pool:</span>
                 <span className={`font-bold ${aiQuota?.status === 'CAPPED_100' ? 'text-rose-400' : 'text-emerald-300'}`}>
-                  {aiQuota?.calls_today ?? 0}/{aiQuota?.daily_cap ?? 90} ({aiQuota?.status || 'OK'})
+                  {aiQuota?.calls_today ?? 0}/{aiQuota?.daily_cap ?? 144} ({aiQuota?.status || 'OK'})
                 </span>
               </div>
 
@@ -1300,7 +1300,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             <div className="pt-3 border-t border-white/[0.08] space-y-2">
               <div className="flex items-center justify-between text-xs font-mono">
                 <span className="text-slate-300">
-                  Quota AI: <strong className="text-white tabular-nums">{aiQuota?.calls_today ?? 0}</strong> / <strong className="text-slate-400 tabular-nums">{aiQuota?.daily_cap ?? 90}</strong> calls
+                  Quota AI: <strong className="text-white tabular-nums">{aiQuota?.calls_today ?? 0}</strong> / <strong className="text-slate-400 tabular-nums">{aiQuota?.daily_cap ?? 144}</strong> calls
                 </span>
                 <div className="flex items-center gap-2">
                   <span className={`font-bold tabular-nums ${
