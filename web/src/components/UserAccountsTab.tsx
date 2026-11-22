@@ -7,6 +7,7 @@ import { UserReferralAndInvoicesSection } from './UserReferralAndInvoicesSection
 import { IconShield } from './Icons';
 import { POPULAR_BROKERS, QUANT_PLANS, PRICING_TIERS_LIST, normalizePlanTier, type PlanTier } from '../data/quantConstants';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/client.ts';
+import { SpotlightBento } from './ui/SpotlightBento';
 
 export interface UserAccountsTabProps {
   accounts?: any[];
@@ -374,7 +375,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="quant-panel flex flex-col justify-between p-6 lg:col-span-5">
+        <SpotlightBento className="flex flex-col justify-between p-6 lg:col-span-5">
           <div>
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -599,9 +600,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </SpotlightBento>
 
-        <div className="quant-panel p-6 lg:col-span-7">
+        <SpotlightBento className="p-6 lg:col-span-7">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-400">
@@ -741,7 +742,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </SpotlightBento>
       </div>
 
       <ConnectedAccountsListSection

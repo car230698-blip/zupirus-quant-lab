@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../api/client.ts';
+import { SpotlightBento } from './ui/SpotlightBento';
 
 interface ReferralInfo {
   referral_code: string;
@@ -114,7 +115,7 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
       {/* Left 6 cols: Referral / Affiliate Card */}
-      <div className="lg:col-span-6 quant-panel p-5 space-y-4">
+      <SpotlightBento className="lg:col-span-6 p-5 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-300">
@@ -173,10 +174,10 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
           </form>
         )}
         {refMsg && <div className="font-mono text-xs text-amber-300">{refMsg}</div>}
-      </div>
+      </SpotlightBento>
 
       {/* Right 6 cols: SePay Invoice History & Printable PDF */}
-      <div className="lg:col-span-6 quant-panel p-5 space-y-4">
+      <SpotlightBento className="lg:col-span-6 p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300">
@@ -221,7 +222,7 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
             ))}
           </div>
         )}
-      </div>
+      </SpotlightBento>
     </div>
   );
 };

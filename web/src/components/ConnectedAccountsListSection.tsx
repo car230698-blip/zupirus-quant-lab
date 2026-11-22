@@ -1,6 +1,7 @@
 import React from 'react';
 import { fmtNum } from '../utils/strategyDecision';
 import { formatAccountBalance, formatAccountEquity } from '../utils/currencyFormat';
+import { SpotlightBento } from './ui/SpotlightBento';
 
 export interface EditAccountConfigForm {
   lot_multiplier: string;
@@ -46,7 +47,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
 }) => {
   const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
   return (
-    <div className="quant-panel p-6">
+    <SpotlightBento className="p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
           <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
@@ -369,6 +370,6 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
           })}
         </div>
       )}
-    </div>
+    </SpotlightBento>
   );
 };

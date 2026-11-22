@@ -187,10 +187,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const propEq = propAccounts.reduce((sum, a) => sum + Number(a.equity || a.balance || 0), 0);
   const propPnlPct = propBal > 0 ? ((propEq - propBal) / propBal) * 100 : 0;
   const targetPct = 8.0;
-  const targetProgress = Math.min(Math.max((propPnlPct / targetPct) * 100, 0), 100);
-  const propDailyDd = propAccounts.reduce((max, a) => Math.max(max, Number(a.daily_dd_pct || 0)), 0);
-  const propMaxDailyDd = 4.0;
-  const ddProgress = Math.min((propDailyDd / propMaxDailyDd) * 100, 100);
+  const isTargetPassed = propPnlPct >= targetPct;
 
   return (
     <div className="space-y-6">
@@ -251,67 +248,6 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
           </div>
         );
       })()}
-
-      {/* Prop Firm Challenge Tracker (Auto-activated when Prop accounts are detected) */}
-      {hasPropAccount && (
-        <div className="rounded-2xl border border-amber-400/40 bg-gradient-to-r from-[#040813] via-[#091024] to-[#040813] p-4 sm:p-5 shadow-[0_0_30px_rgba(245,158,11,0.08)] space-y-3 font-mono text-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-500/20 text-amber-300 font-bold text-xs border border-amber-400/30">
-                ⚡
-              </span>
-              <div>
-                <span className="font-bold text-white text-sm">BẢNG THEO DÕI PASS QUỸ (PROP CHALLENGE TRACKER)</span>
-                <span className="ml-2 rounded bg-cyan-500/20 border border-cyan-400/30 px-1.5 py-0.5 text-[10px] text-cyan-300 font-bold">
-                  {propAccounts.length} Tài Khoản Quỹ
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-slate-300">
-              <span>Trần Rủi Ro:</span>
-              <strong className="text-emerald-400">1.0%/lệnh</strong>
-              <span>·</span>
-              <strong className="text-cyan-300">2.0%/danh mục (ARMED · Fail-Closed)</strong>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            {/* Profit Target Progress */}
-            <div>
-              <div className="flex items-center justify-between text-[11px] mb-1.5">
-                <span className="text-slate-300">Mục Tiêu Lợi Nhuận (Target 8.0%)</span>
-                <span className={`font-bold tabular-nums ${propPnlPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {propPnlPct >= 0 ? '+' : ''}{propPnlPct.toFixed(2)}% / +8.0%
-                </span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-300"
-                  style={{ width: `${targetProgress}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Daily Drawdown Ceiling Progress */}
-            <div>
-              <div className="flex items-center justify-between text-[11px] mb-1.5">
-                <span className="text-slate-300">Sụt Giảm Ngày (Max Daily DD 4.0%)</span>
-                <span className={`font-bold tabular-nums ${propDailyDd >= 3.2 ? 'text-rose-400' : 'text-amber-300'}`}>
-                  {propDailyDd.toFixed(2)}% / 4.00% {propDailyDd >= 3.2 ? '(NGUY HIỂM)' : '(AN TOÀN)'}
-                </span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-slate-800/80 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${
-                    propDailyDd >= 3.2 ? 'bg-rose-500' : 'bg-amber-400'
-                  }`}
-                  style={{ width: `${ddProgress}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* BENTO GRID 12 CỘT: 8 CỘT CHART + 4 CỘT GAUGE RỦI RO */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-stretch">
@@ -471,9 +407,10 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 <div className="mt-0.5 font-bold text-emerald-400">ARMED @ +1.0R</div>
               </div>
               <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
-                <div className="text-[10px] text-slate-400">ĐỘ TRỄ KHỚP LỆNH</div>
-                <div className="mt-0.5 font-bold text-white">
-                  {liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)} ms G2` : '24.0 ms G2'}
+                <div className="text-[10px] text-slate-400">CHẾ ĐỘ BẢO VỆ</div>
+                <div className="mt-0.5 font-bold text-emerald-400 flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Fail-Closed 4/4</span>
                 </div>
               </div>
             </div>
@@ -482,10 +419,10 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
 
         {/* Right 4 Cols: 2 RadialRiskGauges (Daily DD + Prop Target / Latency) */}
         <div className="lg:col-span-4 min-w-0 w-full flex flex-col justify-between gap-5">
-          {/* Mobile: 2-column grid side-by-side; Desktop: stacked 2 cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-5 h-full">
+          {/* Mobile: 2-column grid side-by-side (grid-cols-2); Desktop: stacked 2 cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-1 gap-3 sm:gap-5 h-full">
             {/* Gauge 1: Khiên Sụt Giảm Ngày */}
-            <SpotlightBento className="p-5 flex-1 flex flex-col justify-between">
+            <SpotlightBento className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
               <RadialRiskGauge
                 title="Khiên Sụt Giảm Ngày"
                 value={computedDailyDd}
@@ -494,7 +431,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 badgeLabel={ddDanger ? 'NGUY HIỂM' : 'AN TOÀN'}
                 badgeTone={ddDanger ? 'rose' : 'teal'}
                 subtitle={
-                  <div className="space-y-1 text-[11px] text-slate-300">
+                  <div className="space-y-1 text-[11px] text-slate-300 font-sans">
                     <div>Trần bảo vệ: <strong className="text-amber-300 font-mono tabular-nums">{fmtNum(maxDdLimitPct, 1)}%</strong></div>
                     <div>Cơ chế: <strong className="text-emerald-300">Fail-Closed 100%</strong></div>
                   </div>
@@ -503,35 +440,51 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             </SpotlightBento>
 
             {/* Gauge 2: Tiến Độ Mục Tiêu Quỹ Prop / Hạ Tầng G2 */}
-            <SpotlightBento className="p-5 flex-1 flex flex-col justify-between">
+            <SpotlightBento className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
               {hasPropAccount ? (
-                <RadialRiskGauge
-                  title="Mục Tiêu Pass Quỹ (8%)"
-                  value={Math.max(0, propPnlPct)}
-                  max={8.0}
-                  tone="gold"
-                  badgeLabel="PROP LIVE"
-                  badgeTone="gold"
-                  subtitle={
-                    <div className="space-y-1 text-[11px] text-slate-300">
-                      <div>Tiến độ: <strong className="text-emerald-300 font-mono tabular-nums">+{fmtNum(Math.max(0, propPnlPct), 2)}%</strong> / 8.0%</div>
-                      <div>Tài khoản: <strong className="text-cyan-300">{propAccounts.length} Quỹ Live</strong></div>
-                    </div>
-                  }
-                />
+                <div className="space-y-2 h-full flex flex-col justify-between">
+                  <div className="flex items-center justify-between gap-1 text-[10px] font-mono">
+                    <span className="text-amber-300 font-bold truncate max-w-[130px]" title={propAccounts[0]?.broker_server}>
+                      {propAccounts[0]?.broker_server || 'PROP CHALLENGE'}
+                    </span>
+                    {isTargetPassed && (
+                      <button
+                        type="button"
+                        onClick={() => setCertModalOpen(true)}
+                        className="rounded-lg border border-amber-400/50 bg-amber-500/20 px-1.5 py-0.5 text-[9.5px] font-bold text-amber-300 hover:bg-amber-500/30 transition shrink-0 cursor-pointer font-sans"
+                      >
+                        🏆 Xuất Chứng Chỉ
+                      </button>
+                    )}
+                  </div>
+                  <RadialRiskGauge
+                    title="Mục Tiêu Pass Quỹ (8%)"
+                    value={Math.max(0, propPnlPct)}
+                    max={8.0}
+                    tone="gold"
+                    badgeLabel={isTargetPassed ? 'ĐÃ ĐẠT TARGET' : 'PROP LIVE'}
+                    badgeTone="gold"
+                    subtitle={
+                      <div className="space-y-1 text-[11px] text-slate-300 font-sans">
+                        <div>Tiến độ: <strong className="text-emerald-300 font-mono tabular-nums">+{fmtNum(Math.max(0, propPnlPct), 2)}%</strong> / 8.0%</div>
+                        <div>Tài khoản: <strong className="text-cyan-300">{propAccounts.length} Quỹ Live</strong></div>
+                      </div>
+                    }
+                  />
+                </div>
               ) : (
                 <RadialRiskGauge
                   title="Hạ Tầng London G2"
-                  value={liveLatencyMs > 0 ? liveLatencyMs : 24}
+                  value={liveLatencyMs > 0 ? liveLatencyMs : 0}
                   max={100}
                   tone="teal"
                   suffix="ms"
-                  badgeLabel="ONLINE"
+                  badgeLabel={liveLatencyMs > 0 ? 'ONLINE' : 'CONNECTING'}
                   badgeTone="teal"
                   subtitle={
-                    <div className="space-y-1 text-[11px] text-slate-300">
+                    <div className="space-y-1 text-[11px] text-slate-300 font-sans">
                       <div>Kết nối: <strong className="text-emerald-300">Cloud MetaAPI</strong></div>
-                      <div>Độ trễ: <strong className="text-cyan-300 font-mono tabular-nums">{liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)}ms` : '24ms'}</strong></div>
+                      <div>Độ trễ: <strong className="text-cyan-300 font-mono tabular-nums">{liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)}ms` : 'Đang đo...'}</strong></div>
                     </div>
                   }
                 />

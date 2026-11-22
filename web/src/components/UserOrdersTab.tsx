@@ -5,6 +5,7 @@ import { formatTradePnl } from '../utils/currencyFormat.ts';
 import { translateOrderStatus, orderStates } from '../utils/stateMapping';
 import { computeOrderLedgerMetrics } from '../utils/quantMath';
 import { MetricCard, Panel, StatusBadge } from './ui/Primitives';
+import { SpotlightBento } from './ui/SpotlightBento';
 import { IconActivity, IconClose, IconReceipt, IconSearch, IconShield, IconTrendingUp } from './Icons';
 
 export interface UserOrdersTabProps {
@@ -283,7 +284,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
       </Panel>
 
       {/* Desktop High-Density Tabular Ledger */}
-      <div className="quant-panel hidden md:block overflow-hidden">
+      <SpotlightBento className="hidden md:block overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="quant-table">
             <thead>
@@ -404,7 +405,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
             </tbody>
           </table>
         </div>
-      </div>
+      </SpotlightBento>
 
       {/* Mobile Cards */}
       <div className="space-y-3 md:hidden">
@@ -415,11 +416,10 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
           const orderState = o.status || o.state || 'filled';
           const price = o.filled_price || o.requested_price || o.price || 0;
           return (
-            <button
+            <SpotlightBento
               key={orderId}
-              type="button"
               onClick={() => setSelectedOrder(o)}
-              className="quant-panel w-full p-4 text-left"
+              className="w-full p-4 text-left cursor-pointer transition hover:border-cyan-500/40"
             >
               <div className="flex items-center justify-between">
                 <div className="font-mono text-xs font-bold text-white">
@@ -438,7 +438,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 <span>Giá: {fmtNum(price, 2)}</span>
                 <span>{translateOrderStatus(orderState)}</span>
               </div>
-            </button>
+            </SpotlightBento>
           );
         })}
       </div>
@@ -450,15 +450,15 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
           onClick={() => setSelectedOrder(null)}
         >
           <div
-            className="quant-panel w-full max-w-md space-y-4 p-6 border-cyan-500/40"
+            className="w-full max-w-md space-y-4 p-6 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div>
-                <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400">
-                  Chi Tiết Khớp Lệnh & Kiểm Toán MT5
+                <span className="text-[10px] font-sans uppercase tracking-widest text-cyan-400 font-semibold">
+                  Chi Tiết Khớp Lệnh &amp; Kiểm Toán MT5
                 </span>
-                <h4 className="font-mono text-base font-bold text-white">
+                <h4 className="font-mono text-base font-bold text-white tabular-nums">
                   #{selectedOrder.client_order_id || selectedOrder.id}
                 </h4>
               </div>

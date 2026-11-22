@@ -762,7 +762,7 @@ export function PortalShell({
           onClick={() => setCmdOpen(false)}
         >
           <div
-            className="quant-panel w-full max-w-xl p-5 space-y-4 border-amber-400/50 shadow-[0_0_60px_rgba(245,158,11,0.25)]"
+            className="w-full max-w-xl p-5 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-amber-400/50 shadow-[0_0_60px_rgba(245,158,11,0.25)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
@@ -823,7 +823,7 @@ export function PortalShell({
           onClick={() => setPwdModalOpen(false)}
         >
           <div
-            className="quant-panel w-full max-w-md border-cyan-500/40 p-5 space-y-4 shadow-2xl"
+            className="w-full max-w-md p-5 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">

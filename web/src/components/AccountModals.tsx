@@ -34,7 +34,7 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
       {/* Disclaimer Modal */}
       {disclaimerModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
-          <div className="quant-panel max-w-lg w-full p-6 space-y-4 border-cyan-500/40">
+          <div className="max-w-lg w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-amber-400">
@@ -98,7 +98,7 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
       {/* VietQR Modal */}
       {checkoutModalOpen && checkoutOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
-          <div className="quant-panel max-w-md w-full p-6 space-y-4 border-cyan-500/40 text-center">
+          <div className="max-w-md w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl text-center">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 text-left">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400">
