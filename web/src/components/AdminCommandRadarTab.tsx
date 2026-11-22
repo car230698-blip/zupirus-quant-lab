@@ -152,6 +152,40 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   const [dryRunResult, setDryRunResult] = useState<any | null>(null);
   const [sseLive, setSseLive] = useState<boolean>(false);
 
+  // Autopilot View Mode & Canary Promotion Toggle (v1.3)
+  const [viewMode, setViewMode] = useState<'autopilot' | 'engineer'>(() => {
+    try {
+      const saved = localStorage.getItem('zupirus_admin_view_mode');
+      return saved === 'engineer' ? 'engineer' : 'autopilot';
+    } catch {
+      return 'autopilot';
+    }
+  });
+  const [autoPromoteCanary, setAutoPromoteCanary] = useState<boolean>(false);
+  const [togglingAutoPromote, setTogglingAutoPromote] = useState<boolean>(false);
+
+  const handleSwitchViewMode = (mode: 'autopilot' | 'engineer') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('zupirus_admin_view_mode', mode);
+    } catch {}
+  };
+
+  const handleToggleAutoPromote = async () => {
+    setTogglingAutoPromote(true);
+    const nextVal = !autoPromoteCanary;
+    try {
+      await api.post('/api/sources/auto-promote', { enabled: nextVal });
+      setAutoPromoteCanary(nextVal);
+      setMsg(nextVal ? '✓ Đã kích hoạt Autopilot Canary (Tự động thử nghiệm 7 ngày & tiến hóa).' : 'Đã tắt Autopilot Canary (Duyệt chiến lược thủ công).');
+      if (refetchMonitor) await refetchMonitor();
+    } catch (err: any) {
+      setMsg(`Không thể đổi trạng thái Autopilot Canary: ${err?.message || 'Lỗi'}`);
+    } finally {
+      setTogglingAutoPromote(false);
+    }
+  };
+
   // Load telemetry & control plane data
   const loadAllControlPlaneData = useCallback(async () => {
     try {
@@ -161,7 +195,12 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
         fetchAdminAiQuota().catch(() => null),
         fetchStrategyReviewQueue().catch(() => ({ total: 0, queue: [] })),
       ]);
-      if (rData) setRadar(rData);
+      if (rData) {
+        setRadar(rData);
+        if (typeof rData.auto_promote === 'boolean') {
+          setAutoPromoteCanary(rData.auto_promote);
+        }
+      }
       if (hbRes && Array.isArray(hbRes.agents)) setAgentsHeartbeat(hbRes.agents);
       if (quotaData) setAiQuota(quotaData);
       if (queueRes && Array.isArray(queueRes.queue)) setReviewQueue(queueRes.queue);
@@ -410,9 +449,310 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
       )}
 
       {/* =====================================================================
-          TẦNG 1: STATE — HỆ THỐNG ĐANG DIỄN RA CHUYỆN GÌ (TOÀN BỘ SÀN)
+          VIEW MODE TOGGLE: AUTOPILOT (MẶC ĐỊNH) VS KỸ SƯ (FULL CONTROL)
           ===================================================================== */}
-      <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#050A18] border border-white/[0.08] rounded-2xl shadow-xl">
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] font-mono text-slate-400 font-bold uppercase tracking-wider pl-1">
+            CHẾ ĐỘ QUAN SÁT:
+          </span>
+          <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-black/60 p-1 text-xs font-sans">
+            <button
+              type="button"
+              onClick={() => handleSwitchViewMode('autopilot')}
+              className={`px-3 py-1.5 rounded-lg transition cursor-pointer font-bold flex items-center gap-2 ${
+                viewMode === 'autopilot'
+                  ? 'bg-[#12B5A6] text-slate-950 shadow-md shadow-[#12B5A6]/20'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${viewMode === 'autopilot' ? 'bg-slate-950' : 'bg-slate-500'}`} />
+              <span>Chế Độ Lái Tự Động</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSwitchViewMode('engineer')}
+              className={`px-3 py-1.5 rounded-lg transition cursor-pointer font-bold flex items-center gap-2 ${
+                viewMode === 'engineer'
+                  ? 'bg-[#12B5A6] text-slate-950 shadow-md shadow-[#12B5A6]/20'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${viewMode === 'engineer' ? 'bg-slate-950' : 'bg-slate-500'}`} />
+              <span>Chế Độ Kỹ Sư</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pr-1 text-xs font-mono">
+          <span className="text-slate-400 hidden sm:inline">
+            {viewMode === 'autopilot' ? 'Tối giản 1 màn hình · Quét 3 giây' : 'Toàn bộ bảng lệnh, nhịp tim & kiểm toán'}
+          </span>
+          <span className="text-slate-500">
+            {sseLive ? '● SSE Live' : '○ Polling 15s'}
+          </span>
+        </div>
+      </div>
+
+      {viewMode === 'autopilot' ? (
+        /* =====================================================================
+           AUTOPILOT VIEW — 3 KHỐI TỐI GIẢN QUÉT TRONG 3 GIÂY
+           ===================================================================== */
+        <div className="space-y-6">
+          {/* KHỐI 1: THANH TRẠNG THÁI TOÀN HỆ THỐNG */}
+          <SpotlightBento className="p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              {/* Đèn 4 Node */}
+              <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
+                <div className="flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${healthMap['market_data']?.ok !== false ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                  <span className="text-slate-400">PostgreSQL:</span>
+                  <span className={`font-bold ${healthMap['market_data']?.ok !== false ? 'text-emerald-300' : 'text-amber-300'}`}>
+                    {healthMap['market_data']?.ok !== false ? 'ONLINE' : 'WARN'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                  <span className="text-slate-400">Redis:</span>
+                  <span className="text-emerald-300 font-bold">ONLINE</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${(aiQuota?.status === 'CAPPED_100') ? 'bg-rose-500' : 'bg-emerald-400'}`} />
+                  <span className="text-slate-400">Gemini:</span>
+                  <span className={`font-bold ${(aiQuota?.status === 'CAPPED_100') ? 'text-rose-400' : 'text-emerald-300'}`}>
+                    {aiQuota?.calls_today ?? 0}/{aiQuota?.daily_cap ?? 90}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${healthMap['metaapi']?.ok !== false ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                  <span className="text-slate-400">MetaApi:</span>
+                  <span className={`font-bold ${healthMap['metaapi']?.ok !== false ? 'text-emerald-300' : 'text-amber-300'}`}>
+                    ONLINE
+                  </span>
+                </div>
+              </div>
+
+              {/* Tùy chỉnh: Tín hiệu, Canary, Cầu dao */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="px-3 py-1.5 rounded-xl border border-white/10 bg-black/40 text-xs font-mono flex items-center gap-1.5">
+                  <span className="text-[10px] text-slate-400 uppercase">Tín hiệu:</span>
+                  <span className="text-[#12B5A6] font-bold">
+                    {signalMode === 'EXTERNAL_FEED' ? 'Ngoại Vi' : signalMode === 'HYBRID_AGENT_SCORER' ? 'Mô Hình Lai' : 'Tự Trị 100%'}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={togglingAutoPromote}
+                  onClick={handleToggleAutoPromote}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-2 cursor-pointer border ${
+                    autoPromoteCanary
+                      ? 'border-[#12B5A6]/40 bg-[#12B5A6]/15 text-[#12B5A6] hover:bg-[#12B5A6]/25'
+                      : 'border-white/10 bg-black/40 text-slate-400 hover:text-white'
+                  }`}
+                  title="Tự động cho chiến lược WFO chạy Canary 7 ngày và promote lên LIVE nếu đạt chuẩn"
+                >
+                  <span className={`h-2 w-2 rounded-full ${autoPromoteCanary ? 'bg-[#12B5A6] animate-pulse' : 'bg-slate-500'}`} />
+                  <span>Autopilot Canary: {autoPromoteCanary ? 'BẬT' : 'TẮT'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={killSwitchLoading}
+                  onClick={() => handleToggleKillSwitch(isHalted)}
+                  className={`px-4 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-50 ${
+                    isHalted
+                      ? 'bg-rose-500 text-white hover:bg-rose-600 shadow-rose-500/20 animate-pulse'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${isHalted ? 'bg-white' : 'bg-emerald-400'}`} />
+                  <span>{isHalted ? 'CẦU DAO ĐANG NGẮT' : 'CẦU DAO BÌNH THƯỜNG'}</span>
+                </button>
+              </div>
+            </div>
+          </SpotlightBento>
+
+          {/* KHỐI 2: 4 THẺ KPI QUAN TRỌNG NHẤT */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <SpotlightBento className="p-5 space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 font-sans">
+                Tổng Vốn Quản Lý (AUM)
+              </div>
+              <div className="text-2xl sm:text-3xl font-bold text-white font-mono tabular-nums">
+                ${Math.round(totalAumUsd).toLocaleString('en-US')}
+              </div>
+              <div className="text-[11px] text-slate-400 font-sans">
+                Chuẩn hóa từ toàn bộ tài khoản MT5
+              </div>
+            </SpotlightBento>
+
+            <SpotlightBento className="p-5 space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 font-sans">
+                Tài Khoản MT5 Đang Chạy
+              </div>
+              <div className="text-2xl sm:text-3xl font-bold text-[#12B5A6] font-mono tabular-nums">
+                {activeAccountsCount} / {accounts.length}
+              </div>
+              <div className="text-[11px] text-slate-400 font-sans">
+                Auto-Trade: {accounts.length > 0 ? Math.round((activeAccountsCount / accounts.length) * 100) : 0}%
+              </div>
+            </SpotlightBento>
+
+            <SpotlightBento className="p-5 space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 font-sans">
+                Lệnh Khớp 24 Giờ
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl sm:text-3xl font-bold text-white font-mono tabular-nums">
+                  {ordersStats.total}
+                </span>
+                {ordersStats.error > 0 && (
+                  <span className="rounded-md bg-rose-500/20 px-2 py-0.5 font-mono text-xs font-bold text-rose-400 border border-rose-500/40">
+                    {ordersStats.error} lỗi
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-slate-400 font-sans">
+                {ordersStats.open} lệnh đang giữ vị thế
+              </div>
+            </SpotlightBento>
+
+            <SpotlightBento className="p-5 space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 font-sans">
+                Chiến Lược LIVE &amp; Canary
+              </div>
+              <div className="text-base font-bold text-white truncate font-sans" title={radar.active_strategy || radar.ai_strategy || 'Alpha Quant XAU M15'}>
+                {radar.active_strategy || radar.ai_strategy || 'Alpha Quant XAU M15'}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="rounded bg-[#12B5A6]/15 border border-[#12B5A6]/30 px-1.5 py-0.5 text-[#12B5A6] font-bold font-mono text-[10px]">
+                  LIVE
+                </span>
+                <span className="text-slate-400 font-sans truncate">
+                  {radar.canary_strategy ? (
+                    <span className="text-cyan-300 font-medium">Canary: {radar.canary_strategy}</span>
+                  ) : (
+                    'Rollback: 4 losses auto'
+                  )}
+                </span>
+              </div>
+            </SpotlightBento>
+          </div>
+
+          {/* KHỐI 3: NEEDS ME (TỐI GIẢN) */}
+          <SpotlightBento className="p-5 sm:p-6">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="font-mono text-xs uppercase tracking-wider text-[#F5B700] font-bold">
+                    TÁC VỤ CẦN XỬ LÝ (NEEDS ME)
+                  </div>
+                  {totalNeedsMeCount > 0 ? (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold font-mono">
+                      {totalNeedsMeCount} chờ duyệt
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold font-mono">
+                      0 PENDING
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSwitchViewMode('engineer')}
+                  className="text-xs text-[#12B5A6] hover:text-[#12B5A6]/80 font-sans transition cursor-pointer"
+                >
+                  Xem bảng kỹ thuật chi tiết →
+                </button>
+              </div>
+
+              {totalNeedsMeCount === 0 && !isHalted && ordersStats.error === 0 ? (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-5 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="h-3 w-3 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="text-sm text-emerald-200 font-sans font-medium">
+                      Hệ thống đang tự vận hành ổn định — Không có tác vụ cần xử lý.
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono text-emerald-400 font-bold">AUTOPILOT OK</span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {isHalted && (
+                    <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <IconAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span className="text-xs font-sans text-rose-200 font-bold">
+                          Cầu dao dừng sàn đang ngắt. Toàn bộ lệnh mới tạm dừng.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleKillSwitch(isHalted)}
+                        className="px-3 py-1.5 rounded-lg bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs font-sans transition cursor-pointer shrink-0"
+                      >
+                        Khôi Phục Sàn →
+                      </button>
+                    </div>
+                  )}
+
+                  {isQuotaWarning && (
+                    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 flex items-center justify-between gap-3">
+                      <div className="text-xs font-sans text-amber-200">
+                        <strong>Hạn mức Gemini:</strong> Đã chạm <strong className="text-white font-mono">{aiQuota?.usage_pct}%</strong> ({aiQuota?.calls_today}/{aiQuota?.daily_cap} calls).
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onNavigateTab('ai')}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-sans transition cursor-pointer shrink-0"
+                      >
+                        Quản lý Quota →
+                      </button>
+                    </div>
+                  )}
+
+                  {pendingBillingCount > 0 && (
+                    <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-3.5 flex items-center justify-between gap-3">
+                      <div className="text-xs font-sans text-cyan-200">
+                        Có <strong className="text-white font-mono">{pendingBillingCount}</strong> đơn SePay đang chờ duyệt.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onNavigateTab('business')}
+                        className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs font-sans transition cursor-pointer shrink-0"
+                      >
+                        Duyệt SePay →
+                      </button>
+                    </div>
+                  )}
+
+                  {reviewQueue.length > 0 && (
+                    <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 flex items-center justify-between gap-3">
+                      <div className="text-xs font-sans text-amber-200">
+                        Có <strong className="text-white font-mono">{reviewQueue.length}</strong> chiến lược WFO đang chờ duyệt lên LIVE.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSwitchViewMode('engineer')}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-sans transition cursor-pointer shrink-0"
+                      >
+                        Xem So Sánh &amp; Duyệt →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </SpotlightBento>
+        </div>
+      ) : (
+        /* =====================================================================
+           ENGINEER VIEW — HIỂN THỊ ĐẦY ĐỦ BẢNG KỸ THUẬT VẬN HÀNH
+           ===================================================================== */
+        <div className="space-y-6">
+          {/* TẦNG 1: STATE — HỆ THỐNG ĐANG DIỄN RA CHUYỆN GÌ (TOÀN BỘ SÀN) */}
+          <div className="space-y-4">
         {/* Top Control Bar: Mode Toggle + Session Badge + Dry-run + Kill Switch */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-[#050A18] border border-white/[0.08] rounded-2xl shadow-xl">
           <div className="flex flex-wrap items-center gap-3">
@@ -1238,5 +1578,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
         )}
       </SpotlightBento>
     </div>
-  );
+  )}
+</div>
+);
 };

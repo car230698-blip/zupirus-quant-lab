@@ -207,6 +207,14 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
                 "action_tab": "business",
             })
 
+        auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
+        auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
+        mode_row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
+        active_mode = str(mode_row[0]).upper() if mode_row and mode_row[0] else "EXTERNAL_FEED"
+
+        live_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY promoted_at DESC LIMIT 1").fetchone()
+        canary_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'CANARY_DEMO' ORDER BY canary_started_at DESC LIMIT 1").fetchone()
+
     health_cards = [
         {
             "key": "market_data",
@@ -240,6 +248,10 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         "timeline": timeline,
         "alerts": alerts,
         "server_time": now_ts,
+        "auto_promote": auto_promote,
+        "signal_mode": active_mode,
+        "active_strategy": live_strat[0] if live_strat else "Alpha Quant XAU M15",
+        "canary_strategy": canary_strat[0] if canary_strat else None,
     }
 
 

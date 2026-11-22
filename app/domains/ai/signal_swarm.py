@@ -105,7 +105,7 @@ def run_sentinel_cycle(c) -> Dict[str, Any]:
     if upcoming_events:
         event_names = ", ".join(e["title"] for e in upcoming_events)
         prompt = f"Phân tích nhanh rủi ro biến động cho vàng XAUUSD trước các tin tức: {event_names}. Đưa ra khuyến nghị 1 câu ngắn gọn."
-        gem_res, _ = call_gemini(prompt, c=c)
+        gem_res, _ = call_gemini(prompt, c=c, caller_agent="sentinel")
         if gem_res:
             macro_notes = gem_res[:160]
 
@@ -122,17 +122,9 @@ def run_sentinel_cycle(c) -> Dict[str, Any]:
 def run_alpha_cycle(c) -> Dict[str, Any]:
     """Alpha Agent: Tabula Rasa mode in Phase 1 (observing external feed),
     Autonomous strategy execution in Phase 2."""
-    from app.config import SIGNAL_SOURCE
+    from app.domains.signals.sources.curator import get_active_signal_mode
 
-    active_source = SIGNAL_SOURCE
-    try:
-        row = c.execute("SELECT value FROM kv WHERE key = 'signal_mode'").fetchone()
-        if not row:
-            row = c.execute("SELECT value FROM kv WHERE key = 'signal_source'").fetchone()
-        if row:
-            active_source = row["value"] if hasattr(row, 'keys') else row[0]
-    except Exception:
-        pass
+    active_source = get_active_signal_mode(c)
 
     if active_source == "EXTERNAL_FEED":
         # Check count of observed signals in signal_audit_logs
@@ -235,9 +227,42 @@ def trigger_swarm_cycle(c=None) -> Dict[str, Any]:
     _SWARM_STATE["last_cycle_ts"] = now
 
     def _execute_db(conn):
-        sentinel_res = run_sentinel_cycle(conn)
-        alpha_res = run_alpha_cycle(conn)
-        guardian_res = run_risk_guardian_cycle(conn)
+        # 1. Sentinel
+        t_sentinel = time.perf_counter()
+        if is_agent_paused(conn, "sentinel"):
+            _SWARM_STATE["agents"]["sentinel"].update({"state": "paused", "last_action": "Tạm dừng theo cấu hình quản trị viên"})
+            sentinel_res = {"status": "PAUSED", "paused": True}
+            record_agent_heartbeat(conn, "sentinel", (time.perf_counter() - t_sentinel) * 1000.0, "Tạm dừng theo cấu hình quản trị viên")
+        else:
+            sentinel_res = run_sentinel_cycle(conn)
+            dur_sentinel = (time.perf_counter() - t_sentinel) * 1000.0
+            sum_sentinel = _SWARM_STATE["agents"]["sentinel"].get("last_action", "Hoàn tất quét Sentinel macro")
+            record_agent_heartbeat(conn, "sentinel", dur_sentinel, sum_sentinel)
+
+        # 2. Alpha
+        t_alpha = time.perf_counter()
+        if is_agent_paused(conn, "alpha"):
+            _SWARM_STATE["agents"]["alpha"].update({"state": "paused", "last_action": "Tạm dừng theo cấu hình quản trị viên"})
+            alpha_res = {"status": "PAUSED", "paused": True}
+            record_agent_heartbeat(conn, "alpha", (time.perf_counter() - t_alpha) * 1000.0, "Tạm dừng theo cấu hình quản trị viên")
+        else:
+            alpha_res = run_alpha_cycle(conn)
+            dur_alpha = (time.perf_counter() - t_alpha) * 1000.0
+            sum_alpha = _SWARM_STATE["agents"]["alpha"].get("last_action", "Hoàn tất chu kỳ Alpha định lượng")
+            record_agent_heartbeat(conn, "alpha", dur_alpha, sum_alpha)
+
+        # 3. Risk Guardian
+        t_guardian = time.perf_counter()
+        if is_agent_paused(conn, "risk_guardian"):
+            _SWARM_STATE["agents"]["risk_guardian"].update({"state": "paused", "last_action": "Tạm dừng theo cấu hình quản trị viên"})
+            guardian_res = {"status": "PAUSED", "paused": True}
+            record_agent_heartbeat(conn, "risk_guardian", (time.perf_counter() - t_guardian) * 1000.0, "Tạm dừng theo cấu hình quản trị viên")
+        else:
+            guardian_res = run_risk_guardian_cycle(conn)
+            dur_guardian = (time.perf_counter() - t_guardian) * 1000.0
+            sum_guardian = _SWARM_STATE["agents"]["risk_guardian"].get("last_action", "Hoàn tất kiểm soát rủi ro VaR")
+            record_agent_heartbeat(conn, "risk_guardian", dur_guardian, sum_guardian)
+
         return sentinel_res, alpha_res, guardian_res
 
     if c:
@@ -375,6 +400,56 @@ def acquire_agent_wake_lock(agent_id: str, ttl: int = 60) -> bool:
         return False
     _IN_MEMORY_LOCKS[lock_key] = now + float(ttl)
     return True
+
+
+def is_agent_paused(c, agent_id: str) -> bool:
+    """Checks whether an agent is explicitly paused via kv table key agent_paused:{agent_id}."""
+    aid = (agent_id or "").strip().lower()
+    try:
+        p_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"agent_paused:{aid}",)).fetchone()
+        return bool(p_row and str(p_row["value"] if hasattr(p_row, "keys") else p_row[0]).strip() in ("1", "true", "True"))
+    except Exception:
+        return False
+
+
+def record_agent_heartbeat(c, agent_id: str, duration_ms: float, summary: str):
+    """Persists agent heartbeat timestamp, duration, and summary to kv table and local memory."""
+    now_ts = time.time()
+    aid = (agent_id or "system").strip().lower()
+    dur_ms = round(float(duration_ms), 1)
+    sum_str = str(summary or "")[:255]
+
+    if aid in _AGENT_EXEC_STATE:
+        _AGENT_EXEC_STATE[aid].update({
+            "last_run_at": now_ts,
+            "last_duration_ms": dur_ms,
+            "last_summary": sum_str,
+            "is_running": False,
+        })
+
+    def _persist(cursor):
+        cursor.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"agent_hb:{aid}:last_run_at", str(now_ts)),
+        )
+        cursor.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"agent_hb:{aid}:last_dur", str(dur_ms)),
+        )
+        cursor.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"agent_hb:{aid}:last_sum", sum_str),
+        )
+
+    if c:
+        _persist(c)
+    else:
+        try:
+            from app.db import tx
+            with tx() as conn:
+                _persist(conn)
+        except Exception:
+            pass
 
 
 def release_agent_wake_lock(agent_id: str):
@@ -578,36 +653,7 @@ def wake_agent(agent_id: str, c=None) -> Tuple[bool, str, Dict[str, Any]]:
 
         dur_ms = round((time.perf_counter() - t0) * 1000.0, 1)
         now_ts = time.time()
-
-        _AGENT_EXEC_STATE[aid].update({
-            "last_run_at": now_ts,
-            "last_duration_ms": dur_ms,
-            "last_summary": summary,
-            "is_running": False,
-        })
-
-        def _persist(cursor):
-            cursor.execute(
-                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (f"agent_hb:{aid}:last_run_at", str(now_ts)),
-            )
-            cursor.execute(
-                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (f"agent_hb:{aid}:last_dur", str(dur_ms)),
-            )
-            cursor.execute(
-                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (f"agent_hb:{aid}:last_sum", str(summary)[:255]),
-            )
-
-        if c:
-            _persist(c)
-        else:
-            try:
-                with tx() as conn:
-                    _persist(conn)
-            except Exception:
-                pass
+        record_agent_heartbeat(c, aid, dur_ms, summary)
 
         return True, "Chu kỳ Agent đã được kích hoạt thành công", {
             "agent_id": aid,

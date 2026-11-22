@@ -1,0 +1,50 @@
+# Standalone Operations & Self-Healing Compose Stack for ZUPIRUS Quant Lab
+# Run alongside production:
+#   docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml -f compose.ops.yaml up -d
+services:
+  autoheal:
+    image: willfarrell/docker-autoheal:latest
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: "all"
+      AUTOHEAL_INTERVAL: "15"
+      AUTOHEAL_START_PERIOD: "60"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - private
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+    networks:
+      - private
+
+  beszel:
+    image: henrygd/beszel:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - beszel_data:/beszel_data
+    networks:
+      - private
+
+  beszel-agent:
+    image: henrygd/beszel-agent:latest
+    restart: unless-stopped
+    environment:
+      PORT: "45876"
+      KEY: "${BESZEL_KEY:-}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - private
+
+volumes:
+  uptime_kuma_data:
+  beszel_data:

@@ -581,6 +581,7 @@ def ai_text(prompt, image=None):
                     system_instruction="Bạn là trợ lý AI định lượng ZUPIRUS Quant Lab. Phân tích thận trọng, bảo vệ an toàn tài khoản, trả lời súc tích bằng tiếng Việt.",
                     c=c,
                     image=image,
+                    caller_agent="research_wfo",
                 )
                 if gemini_ans:
                     used_model = used_key.split("·")[-1].strip() if (used_key and "·" in str(used_key)) else "gemini-3-flash-preview"
@@ -650,15 +651,19 @@ def run_periodic_calendar_sync():
 
 def run_autonomous_induction_and_wfo(force: bool = False):
     """Synthesize inductive rules from Hindsight Memory (PENDING_APPROVAL skills),
-    generate Strategy Candidates via Research Graph Walk-Forward, and optionally auto-promote
-    when `AUTO_PROMOTE_QUALIFIED_STRATEGIES` is enabled in `kv`."""
+    generate Strategy Candidates via Research Graph Walk-Forward, and safely promote
+    via 7-day CANARY_DEMO trial when `AUTO_PROMOTE_QUALIFIED_STRATEGIES` is enabled."""
     global _last_induction_ts
     now = time.time()
     if not force and now - _last_induction_ts < 1800.0:
         return
     _last_induction_ts = now
+    t_start_wfo = time.perf_counter()
+    summary_wfo = "Chu kỳ tự học Hindsight & Walk-Forward hoàn tất"
     try:
         from app.hindsight import synthesize_inductive_rules, CATEGORY_REFLECTIVE
+        from app.domains.notifications.service import emit_notification
+        from app.domains.ai.signal_swarm import record_agent_heartbeat
         with tx() as c:
             min_inductive_samples = int(os.getenv("MIN_INDUCTIVE_SAMPLES", "30").strip())
             synthesize_inductive_rules(c, min_samples=min_inductive_samples)
@@ -689,23 +694,44 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                     pf = float(rep.get("profit_factor") or 0.0)
                     trades_cnt = int(rep.get("trades") or 0)
                     obs_sz = int(cand.get("sample_size") or 0)
+                    max_dd = float(rep.get("max_drawdown_pct") or 0.0)
 
                     auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
                     auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
                     qualifies = bool(
                         rep.get("production_qualified")
                         and is_new_evidence
-                        and win_rate >= 0.52
-                        and pf >= 1.35
-                        and obs_sz >= 25
+                        and win_rate >= 0.55
+                        and pf >= 1.45
+                        and obs_sz >= 30
+                        and max_dd <= 10.0
                     )
 
-                    new_status = "APPROVED_FOR_PROD" if (auto_promote and qualifies) else "WAITING_APPROVAL"
+                    rules_dict = dict(rep.get("rules", {}))
                     if auto_promote and qualifies:
+                        new_status = "CANARY_DEMO"
+                        rules_dict["canary_started_at"] = now
                         c.execute(
                             "INSERT INTO kv (key, value) VALUES ('wfo:last_promoted_obs_fp', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                             (obs_fp,),
                         )
+                        c.execute(
+                            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            (f"canary_strat:{cand['id']}:started_at", str(now)),
+                        )
+                        emit_notification(
+                            c,
+                            role="admin",
+                            severity="INFO",
+                            title="Chiến Lược Vào Giai Đoạn Thử Việc",
+                            body=f"Chiến lược {cand['name']} (#{cand['id'][:8]}) đã vào giai đoạn thử việc CANARY_DEMO 7 ngày.",
+                            meta={"candidate_id": cand["id"], "canary_started_at": now},
+                        )
+                        summary_wfo = f"Chiến lược {cand['name']} đủ chuẩn và đã vào CANARY_DEMO 7 ngày"
+                    else:
+                        new_status = "WAITING_APPROVAL"
+                        summary_wfo = f"Chiến lược {cand['name']} WFO xong: {new_status}"
+
                     c.execute(
                         """
                         UPDATE strategy_candidates
@@ -715,7 +741,7 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                         """,
                         (
                             new_status,
-                            json.dumps(rep.get("rules", {})),
+                            json.dumps(rules_dict),
                             win_rate,
                             pf,
                             rep.get("sharpe_ratio"),
@@ -735,17 +761,112 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                         scope="system",
                     )
 
-                    if auto_promote and qualifies:
+            # Evaluate existing CANARY_DEMO candidates that have completed 7 days trial
+            canary_rows = c.execute(
+                "SELECT id, name, rules_json, updated_at FROM strategy_candidates WHERE status = 'CANARY_DEMO'"
+            ).fetchall()
+            for c_row in canary_rows:
+                c_id, c_name, c_rules_raw, c_upd = c_row[0], c_row[1], c_row[2], c_row[3]
+                c_rules = json.loads(c_rules_raw) if c_rules_raw else {}
+                c_start_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"canary_strat:{c_id}:started_at",)).fetchone()
+                if c_start_row and c_start_row[0]:
+                    try:
+                        c_started_at = float(c_start_row[0])
+                    except Exception:
+                        c_started_at = float(c_upd or now)
+                else:
+                    c_started_at = float(c_rules.get("canary_started_at") or c_upd or now)
+
+                canary_age = now - c_started_at
+                if canary_age >= 7 * 86400:
+                    logs_row = c.execute(
+                        """
+                        SELECT count(*), coalesce(avg(pnl), 0.0), coalesce(min(pnl), 0.0)
+                        FROM signal_audit_logs
+                        WHERE created_at >= ? AND pnl IS NOT NULL
+                        """,
+                        (c_started_at,),
+                    ).fetchone()
+                    closed_cnt = int(logs_row[0] or 0)
+                    expectancy = float(logs_row[1] or 0.0)
+                    min_pnl = float(logs_row[2] or 0.0)
+
+                    passed_canary = False
+                    if closed_cnt >= 10 and expectancy > 0 and min_pnl > -8.0:
+                        passed_canary = True
+                    else:
+                        recent_candle_rows = c.execute(
+                            "SELECT open, high, low, close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' AND time >= ? ORDER BY time ASC",
+                            (c_started_at,),
+                        ).fetchall()
+                        if len(recent_candle_rows) >= 40:
+                            p_recent = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3])} for r in recent_candle_rows]
+                            cand_obj = {"id": c_id, "rules": c_rules}
+                            rep_canary = walk_forward(p_recent, candidate=cand_obj)
+                            c_trades = int(rep_canary.get("trades") or 0)
+                            c_pf = float(rep_canary.get("profit_factor") or 0.0)
+                            c_dd = float(rep_canary.get("max_drawdown_pct") or 0.0)
+                            if c_trades >= 10 and c_pf > 1.0 and c_dd <= 8.0:
+                                passed_canary = True
+
+                    if passed_canary:
+                        c.execute("UPDATE strategy_candidates SET status = 'ARCHIVED_PROD', updated_at = ? WHERE status = 'APPROVED_FOR_PROD'", (now,))
+                        c.execute("UPDATE strategy_candidates SET status = 'APPROVED_FOR_PROD', updated_at = ? WHERE id = ?", (now, c_id))
                         from app.domains.signals.sources.curator import get_active_signal_mode, set_active_signal_mode
                         curr_mode = get_active_signal_mode(c)
                         next_mode = "HYBRID_AGENT_SCORER" if curr_mode == "EXTERNAL_FEED" else "ZUPIRUS_AGENT"
                         set_active_signal_mode(c, next_mode)
-                        audit(c, "research_worker", "auto_promoted_strategy_and_upgraded_mode", {
-                            "candidate_id": cand["id"],
-                            "win_rate": win_rate,
-                            "profit_factor": pf,
+                        audit(c, "research_worker", "canary_promoted_to_approved_prod", {
+                            "candidate_id": c_id,
+                            "name": c_name,
+                            "canary_duration_days": round(canary_age / 86400, 1),
+                            "closed_trades": closed_cnt,
+                            "expectancy": expectancy,
                             "next_signal_mode": next_mode,
                         })
+                        try:
+                            from app.core.mailer import send_admin_alert_email
+                            send_admin_alert_email(
+                                f"[ZUPIRUS] Chiến lược {c_name} đã hoàn tất 7 ngày thử việc Canary và được nâng lên LIVE",
+                                (
+                                    f"Chiến lược {c_name} (#{c_id[:8]}) đã hoàn tất 7 ngày thử việc CANARY_DEMO "
+                                    f"(Số lệnh: {closed_cnt}, Expectancy: {expectancy:+.2f}).\n"
+                                    f"Hệ thống đã tự động nâng chiến lược lên chạy LIVE chính thức.\n"
+                                    f"Nhắc nhở: Quản trị viên luôn có nút Rollback 1-Click trên Admin Portal "
+                                    f"và cơ chế Auto-Rollback (tự hoàn tác nếu thua 4 lệnh liên tiếp) để bảo toàn vốn."
+                                ),
+                            )
+                        except Exception as mail_err:
+                            logger.debug(f"Canary promotion email note: {mail_err}")
+                        emit_notification(
+                            c,
+                            role="admin",
+                            severity="INFO",
+                            title=f"Chiến Lược {c_name} Thăng Hạng LIVE",
+                            body=f"Chiến lược {c_name} hoàn tất 7 ngày thử việc Canary và đã được kích hoạt chạy LIVE.",
+                        )
+                    else:
+                        c.execute("UPDATE strategy_candidates SET status = 'CANARY_REJECTED', updated_at = ? WHERE id = ?", (now, c_id))
+                        store_memory(
+                            c,
+                            category=CATEGORY_REFLECTIVE,
+                            title=f"Canary Evaluation: {c_name} (CANARY_REJECTED)",
+                            content=f"Thử nghiệm 7 ngày không đạt chuẩn: trades={closed_cnt}, expectancy={expectancy:.2f}.",
+                            entity_id=c_id,
+                            tags=["canary", "canary_rejected"],
+                            scope="system",
+                        )
+                        emit_notification(
+                            c,
+                            role="admin",
+                            severity="WARNING",
+                            title=f"Chiến Lược Thử Việc {c_name} Bị Từ Chối",
+                            body=f"Chiến lược {c_name} không đạt chuẩn thực nghiệm sau 7 ngày thử việc và đã chuyển sang CANARY_REJECTED.",
+                        )
+
+            # Record heartbeat
+            dur_wfo = round((time.perf_counter() - t_start_wfo) * 1000.0, 1)
+            record_agent_heartbeat(c, "research_wfo", dur_wfo, summary_wfo)
     except Exception as e:
         logger.debug(f"Autonomous induction/WFO cycle note: {e}")
 
@@ -803,14 +924,32 @@ def run_periodic_source_discovery():
 
 def main():
     init()
+    from app.domains.ai.signal_swarm import is_agent_paused
+    from app.domains.execution.engine import is_weekend_market_closed
+    from app.domains.notifications.service import run_daily_executive_digest
     while True:
         try:
             process_once()
             run_periodic_calendar_sync()
             run_periodic_source_discovery()
             run_eod_shadow_evaluation_cycle()
-            run_autonomous_induction_and_wfo()
-        except Exception as e: print('research error', type(e).__name__, flush=True)
-        time.sleep(3)
+            try:
+                run_daily_executive_digest()
+            except Exception as e:
+                logger.debug(f"Daily executive digest note: {e}")
+
+            paused = False
+            try:
+                with tx() as c:
+                    paused = is_agent_paused(c, "research_wfo")
+            except Exception:
+                pass
+            if not paused:
+                run_autonomous_induction_and_wfo()
+        except Exception as e:
+            print('research error', type(e).__name__, flush=True)
+
+        sleep_sec = 20 if is_weekend_market_closed() else 3
+        time.sleep(sleep_sec)
 
 if __name__ == '__main__': main()

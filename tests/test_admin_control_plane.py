@@ -18,7 +18,11 @@ from app.domains.ai.signal_swarm import (
     toggle_pause_agent,
     wake_agent,
     release_agent_wake_lock,
+    is_agent_paused,
+    record_agent_heartbeat,
 )
+from app.domains.notifications.service import run_daily_executive_digest
+from app.domains.ai.research_graph import run_autonomous_induction_and_wfo
 
 
 def login_admin(client):
@@ -214,3 +218,141 @@ def test_admin_agents_heartbeat_api(client):
     assert toggle_back.status_code == 200
     assert toggle_back.json()["is_paused"] is False
     assert toggle_back.json()["status"] == "IDLE"
+
+
+def test_is_agent_paused_blocks_swarm_and_wfo():
+    """Verify that pausing an agent via kv blocks trigger_swarm_cycle and WFO loop."""
+    with tx() as c:
+        c.execute("INSERT INTO kv (key, value) VALUES ('agent_paused:sentinel', '1') ON CONFLICT(key) DO UPDATE SET value = '1'")
+        assert is_agent_paused(c, "sentinel") is True
+        c.execute("INSERT INTO kv (key, value) VALUES ('agent_paused:sentinel', '0') ON CONFLICT(key) DO UPDATE SET value = '0'")
+        assert is_agent_paused(c, "sentinel") is False
+
+        # Pause research_wfo
+        c.execute("INSERT INTO kv (key, value) VALUES ('agent_paused:research_wfo', '1') ON CONFLICT(key) DO UPDATE SET value = '1'")
+        assert is_agent_paused(c, "research_wfo") is True
+        c.execute("DELETE FROM kv WHERE key = 'agent_paused:research_wfo'")
+        assert is_agent_paused(c, "research_wfo") is False
+
+
+def test_caller_agent_quota_breakdown():
+    """Verify that record_ai_call attributes calls to specific agents in quota breakdown."""
+    update_ai_quota_config(daily_cap=144, reset_today=True, override_minutes=0)
+    record_ai_call(caller_agent="sentinel")
+    record_ai_call(caller_agent="research_wfo")
+    record_ai_call(caller_agent="admin_chat")
+    record_ai_call(caller_agent="alpha")
+
+    stats = get_daily_quota_stats()
+    assert stats["calls_today"] >= 4
+    bd = stats.get("breakdown", {})
+    assert bd.get("sentinel", 0) >= 1
+    assert bd.get("research_wfo", 0) >= 1
+    assert bd.get("admin_chat", 0) >= 1
+    assert bd.get("alpha", 0) >= 1
+
+
+def test_canary_demo_and_7_day_promotion():
+    """Verify:
+    1. Canary evaluation promotes qualified strategies (WR >= 52% and PF >= 1.25) to APPROVED_FOR_PROD.
+    2. Disqualified canary strategies (< 52% or < 1.25) are demoted to CANARY_REJECTED with hindsight entry.
+    """
+    now = time.time()
+    cand_win_id = f"canary_win_{int(now)}"
+    cand_loss_id = f"canary_loss_{int(now) + 1}"
+    prev_live_id = f"prev_live_{int(now)}"
+
+    with tx() as c:
+        # Clear existing live and older signals for clean test isolation
+        c.execute("UPDATE strategy_candidates SET status = 'ARCHIVED_PROD' WHERE status = 'APPROVED_FOR_PROD'")
+        c.execute("DELETE FROM signal_audit_logs WHERE created_at >= ?", (now - 86400 * 9,))
+
+        # Insert previous live
+        c.execute(
+            """
+            INSERT INTO strategy_candidates (id, name, status, rules_json, sample_size, win_rate, profit_factor, max_drawdown_pct, created_at, updated_at)
+            VALUES (?, 'Old Live Strat', 'APPROVED_FOR_PROD', '{}', 50, 0.55, 1.30, 4.0, ?, ?)
+            """,
+            (prev_live_id, now - 86400 * 10, now - 86400 * 10)
+        )
+        # Insert winning candidate that completed 7-day canary
+        c.execute(
+            """
+            INSERT INTO strategy_candidates (id, name, status, rules_json, sample_size, win_rate, profit_factor, max_drawdown_pct, created_at, updated_at)
+            VALUES (?, 'Winning Canary', 'CANARY_DEMO', ?, 60, 0.60, 1.80, 3.2, ?, ?)
+            """,
+            (cand_win_id, json.dumps({"canary_started_at": now - 86400 * 8}), now - 86400 * 8, now - 86400 * 8)
+        )
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"canary_strat:{cand_win_id}:started_at", str(now - 86400 * 8)),
+        )
+
+        # Seed 12 winning closed trades in canary period
+        for i in range(12):
+            c.execute(
+                """
+                INSERT INTO signal_audit_logs (id, signal_id, source_name, symbol, side, entry_price, status, pnl, created_at)
+                VALUES (?, ?, 'CANARY_AI', 'XAUUSD', 'BUY', 2680.0, 'APPROVED', 15.0, ?)
+                """,
+                (f"log_canary_win_{cand_win_id}_{i}", f"sig_canary_win_{cand_win_id}_{i}", now - 86400 * 3 + i * 60)
+            )
+
+        # Enable auto-promote
+        c.execute("INSERT INTO kv (key, value) VALUES ('AUTO_PROMOTE_QUALIFIED_STRATEGIES', 'true') ON CONFLICT(key) DO UPDATE SET value = 'true'")
+
+    # Run WFO evaluation cycle
+    run_autonomous_induction_and_wfo(force=True)
+
+    with tx() as c:
+        row_win = c.execute("SELECT status FROM strategy_candidates WHERE id = ?", (cand_win_id,)).fetchone()
+        row_prev = c.execute("SELECT status FROM strategy_candidates WHERE id = ?", (prev_live_id,)).fetchone()
+        assert row_win and row_win[0] == "APPROVED_FOR_PROD"
+        assert row_prev and row_prev[0] == "ARCHIVED_PROD"
+
+        # Now test rejection case: clean canary logs to isolate failing candidate
+        c.execute("DELETE FROM signal_audit_logs WHERE created_at >= ?", (now - 86400 * 9,))
+        c.execute(
+            """
+            INSERT INTO strategy_candidates (id, name, status, rules_json, sample_size, win_rate, profit_factor, max_drawdown_pct, created_at, updated_at)
+            VALUES (?, 'Failing Canary', 'CANARY_DEMO', ?, 40, 0.45, 0.90, 8.5, ?, ?)
+            """,
+            (cand_loss_id, json.dumps({"canary_started_at": now - 86400 * 8}), now - 86400 * 8, now - 86400 * 8)
+        )
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"canary_strat:{cand_loss_id}:started_at", str(now - 86400 * 8)),
+        )
+
+        # Seed 12 losing closed trades in canary period
+        for i in range(12):
+            c.execute(
+                """
+                INSERT INTO signal_audit_logs (id, signal_id, source_name, symbol, side, entry_price, status, pnl, created_at)
+                VALUES (?, ?, 'CANARY_AI', 'XAUUSD', 'BUY', 2680.0, 'APPROVED', -10.0, ?)
+                """,
+                (f"log_canary_loss_{cand_loss_id}_{i}", f"sig_canary_loss_{cand_loss_id}_{i}", now - 86400 * 2 + i * 60)
+            )
+
+    run_autonomous_induction_and_wfo(force=True)
+
+    with tx() as c:
+        row_loss = c.execute("SELECT status FROM strategy_candidates WHERE id = ?", (cand_loss_id,)).fetchone()
+        assert row_loss and row_loss[0] == "CANARY_REJECTED"
+
+
+def test_run_daily_executive_digest_idempotent():
+    """Verify daily executive digest dispatches once per day and remains idempotent."""
+    with tx() as c:
+        c.execute("DELETE FROM kv WHERE key = 'daily_digest_last_date'")
+
+    # First dispatch forced
+    res1 = run_daily_executive_digest(force=True)
+    assert res1.get("ok") is True
+    assert res1.get("status") == "sent"
+
+    # Second dispatch without force on same day must be idempotent
+    res2 = run_daily_executive_digest(force=False)
+    assert res2.get("ok") is True
+    assert res2.get("status") == "already_sent"
+

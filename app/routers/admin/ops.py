@@ -412,7 +412,8 @@ def test_gemini(p: TestGeminiPrompt, u=Depends(get_current_admin)):
         ans, kid = call_gemini(
             p.prompt,
             system_instruction="Bạn là AI Quản trị viên ZUPIRUS Quant Lab. Trả lời súc tích bằng tiếng Việt.",
-            c=c
+            c=c,
+            caller_agent="admin_chat",
         )
     latency_ms = (time.perf_counter() - t0) * 1000
     if not ans:

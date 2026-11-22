@@ -289,6 +289,7 @@ async def test_ai_connection(req: TestAIRequest, _admin=Depends(get_current_admi
                         timeout=8.0,
                         max_tries=5,
                         model=eff_gem_model,
+                        caller_agent="admin_chat",
                     )
             gem_res, used_k = await asyncio.to_thread(_run_gem)
             if gem_res:

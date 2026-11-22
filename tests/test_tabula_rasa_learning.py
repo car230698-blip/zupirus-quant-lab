@@ -62,6 +62,12 @@ def test_market_context_snapshot_capture():
 
 def test_four_guards_priority_and_snapshot_logging():
     """Verify 4 mandatory guards enforce priority order and snapshot market state."""
+    # Ensure no conflicting news event within ±15m for the normal trade test
+    now_ts = time.time()
+    with tx() as c:
+        c.execute("DELETE FROM news WHERE abs(ts - ?) <= 1800", (now_ts,))
+        c.execute("DELETE FROM signal_audit_logs WHERE signal_id IN ('sig_test_tabula_1', 'sig_test_tabula_dup')")
+
     sig = NormalizedSignalSchema(
         id="sig_test_tabula_1",
         source="TRADINGVIEW",
