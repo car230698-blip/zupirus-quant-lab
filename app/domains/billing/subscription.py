@@ -134,6 +134,7 @@ async def run_subscription_lifecycle_cycle(
 
                 is_read_ok = False
                 open_positions = []
+                open_orders = []
                 sync_meta = {}
                 try:
                     if hasattr(meta_client, "get_positions_verified"):
@@ -141,8 +142,10 @@ async def run_subscription_lifecycle_cycle(
                     else:
                         open_positions = await meta_client.get_open_positions(meta_id) or []
                         is_read_ok = True
+                    if hasattr(meta_client, "get_open_orders"):
+                        open_orders = await meta_client.get_open_orders(meta_id) or []
                 except Exception as e:
-                    logger.debug(f"Could not check positions before undeploy for {acc['id']}: {e}")
+                    logger.debug(f"Could not check positions/orders before undeploy for {acc['id']}: {e}")
                     is_read_ok = False
 
                 with tx() as c:
@@ -160,7 +163,7 @@ async def run_subscription_lifecycle_cycle(
                     last_ver_row = c.execute("SELECT last_verified_at FROM trading_accounts WHERE id = ?", (acc["id"],)).fetchone()
                     last_verified_ts = (last_ver_row[0] if last_ver_row and last_ver_row[0] else None) or 0
 
-                has_blocking_items = bool(unverified_reqs) or bool(open_positions) or (not is_read_ok)
+                has_blocking_items = bool(unverified_reqs) or bool(open_positions) or bool(open_orders) or (not is_read_ok)
                 is_24h_expired = (now - exp) >= 86400
 
                 if has_blocking_items and not is_24h_expired:
@@ -171,22 +174,6 @@ async def run_subscription_lifecycle_cycle(
                         )
                     stats["protecting_open"] += 1
                     continue
-
-                if has_blocking_items and is_24h_expired:
-                    logger.warning(
-                        f"24H EXPIRED LIMIT: Undeploying account {acc['id']} after 24h expired protecting. "
-                        f"Sending handover alert to user and admin."
-                    )
-                    try:
-                        from app.core.mailer import send_admin_alert_email
-                        send_admin_alert_email(
-                            f"[ZUPIRUS] Bàn giao tài khoản hết hạn 24h: {acc['id']}",
-                            f"Tài khoản {acc['id']} đã hết hạn > 24 giờ. Còn các mục chưa xác minh hoặc vị thế bot đang mở. "
-                            f"Trạng thái kết nối: {'ĐỒNG BỘ' if is_read_ok else 'MẤT KẾT NỐI'}. Mốc xác minh gần nhất: {last_verified_ts}. "
-                            f"Hệ thống đã thu hồi trạm và bàn giao cho khách hàng tự quản lý."
-                        )
-                    except Exception as he:
-                        logger.debug(f"Handover email note: {he}")
 
                 undeploy_ok = True
                 try:
@@ -206,6 +193,37 @@ async def run_subscription_lifecycle_cycle(
                             "account_id": acc["id"], "user_id": user_id, "forced_24h": is_24h_expired
                         })
                         stats["undeployed_idle"] += 1
+
+                        if is_24h_expired and has_blocking_items:
+                            logger.warning(
+                                f"24H EXPIRED LIMIT: Account {acc['id']} undeployed after 24h expired protecting. "
+                                f"Sending handover alert to user and admin."
+                            )
+                            try:
+                                from app.core.mailer import send_admin_alert_email
+                                from app.mailer import send_email_template
+                                u_row = c.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
+                                user_email = u_row["email"] if u_row and hasattr(u_row, "keys") else (u_row[0] if u_row else None)
+                                send_admin_alert_email(
+                                    f"[ZUPIRUS] Bàn giao tài khoản hết hạn 24h: {acc['id']}",
+                                    f"Tài khoản {acc['id']} (User: {user_email or user_id}) đã hết hạn > 24 giờ. "
+                                    f"Trạng thái kết nối: {'ĐỒNG BỘ' if is_read_ok else 'MẤT KẾT NỐI'}. Mốc xác minh gần nhất: {last_verified_ts}. "
+                                    f"Hệ thống đã thu hồi trạm thành công sau 24h bảo vệ và bàn giao cho khách hàng tự quản lý."
+                                )
+                                if user_email:
+                                    send_email_template(
+                                        to=user_email,
+                                        subject="[ZUPIRUS] Bàn giao tài khoản Cloud MT5 sau thời gian bảo vệ",
+                                        body_text=(
+                                            f"Kính gửi Quý khách,\n\n"
+                                            f"Gói dịch vụ ZUPIRUS Cloud MT5 cho tài khoản {acc['id']} đã hết hạn quá 24 giờ.\n"
+                                            f"Hệ thống đã hoàn tất thời gian bảo vệ và chính thức thu hồi trạm Cloud MT5 để bàn giao quyền quản lý trực tiếp cho bạn.\n"
+                                            f"Vui lòng kiểm tra tài khoản trên ứng dụng MT5 của sàn để quản lý các lệnh còn lại (nếu có).\n\n"
+                                            f"Trân trọng,\nĐội ngũ ZUPIRUS Quant Lab"
+                                        )
+                                    )
+                            except Exception as he:
+                                logger.debug(f"Handover email note: {he}")
                     else:
                         c.execute(
                             "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",

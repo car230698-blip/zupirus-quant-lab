@@ -321,14 +321,26 @@ async def test_a4_atomic_2pct_risk_reservation_multi_worker_shared_db(tmp_path, 
 
     accounts = [{"id": "acc_4", "metaapi_account_id": "meta_4", "risk_percent": 1.0, "is_prop_firm_mode": 1, "prop_stage": "LIVE", "balance": 10000.0, "equity": 10000.0}]
 
-    # Fire two 1.0% orders:
-    res1 = await execute_fan_out_for_signal(signal_1, accounts, mock_client)
-    res2 = await execute_fan_out_for_signal(signal_2, accounts, mock_client)
-    assert res1["executed"] + res2["executed"] == 2, "Two 1.0% orders within 2.0% risk cap must succeed"
+    # Fire concurrent orders simultaneously across simulated workers:
+    res_pair = await asyncio.gather(
+        execute_fan_out_for_signal(signal_1, accounts, mock_client),
+        execute_fan_out_for_signal(signal_2, accounts, mock_client),
+    )
+    total_executed = sum(r["executed"] for r in res_pair)
+    assert total_executed == 2, "Two concurrent 1.0% orders within 2.0% risk cap must succeed"
 
-    # Fire third order: total risk is now 2.0% (and USD Correlation Cap has 2 BUY XAUUSD orders), so third order must be SKIPPED
-    res3 = await execute_fan_out_for_signal(signal_3, accounts, mock_client)
-    assert res3["executed"] == 0, "Third order exceeding 2.0% risk cap must be skipped"
+    # Fire concurrent third and fourth orders: both must be blocked because in-flight risk is already 2.0%
+    res_excess = await asyncio.gather(
+        execute_fan_out_for_signal(signal_3, accounts, mock_client),
+        execute_fan_out_for_signal({"id": "sig_a4_4", "symbol": "XAUUSD", "action": "BUY", "entry_price": 2000.0, "sl": 1980.0, "tp": 2040.0}, accounts, mock_client),
+    )
+    assert sum(r["executed"] for r in res_excess) == 0, "Concurrent orders exceeding 2.0% risk cap must be skipped"
+
+    with tx() as c:
+        total_reserved = c.execute(
+            "SELECT sum(reserved_risk_pct) FROM metaapi_trade_executions WHERE account_id = 'acc_4' AND status IN ('PENDING_SUBMIT', 'FILLED')"
+        ).fetchone()[0]
+        assert float(total_reserved or 0.0) <= 2.001, f"Total reserved risk {total_reserved}% must never exceed 2.0%"
 
 
 @pytest.mark.asyncio

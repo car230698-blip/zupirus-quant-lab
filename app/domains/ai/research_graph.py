@@ -784,10 +784,10 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                         """
                         SELECT pnl
                         FROM signal_audit_logs
-                        WHERE (strategy_id = ? OR source_name = ? OR signal_id LIKE ?) AND created_at >= ? AND pnl IS NOT NULL
+                        WHERE (strategy_id = ? OR source_name = ? OR signal_id = ? OR signal_id LIKE ?) AND created_at >= ? AND pnl IS NOT NULL
                         ORDER BY created_at ASC
                         """,
-                        (c_id, c_id, f"%{c_id}%", c_started_at),
+                        (c_id, c_id, c_id, f"{c_id}:%", c_started_at),
                     ).fetchall()
                     pnls = [float(r[0]) for r in log_rows]
                     closed_cnt = len(pnls)

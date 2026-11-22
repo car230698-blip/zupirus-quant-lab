@@ -584,8 +584,16 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
               }`}>
                 Thị trường: {radar.regime || 'RANGING'}
               </span>
-              <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold">
-                Router: {radar.meta_router_scale ? `${radar.meta_router_scale}x` : '1.0x'}
+              <span className={`px-2 py-0.5 rounded-md font-bold ${
+                radar.meta_router_scale === 0 ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' :
+                (typeof radar.meta_router_scale === 'number' && radar.meta_router_scale > 0) ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30' :
+                'bg-slate-700/30 text-slate-400 border border-slate-600/30'
+              }`}>
+                Router: {
+                  radar.meta_router_scale === 0 ? '0.0x (Đứng ngoài)' :
+                  (typeof radar.meta_router_scale === 'number' && radar.meta_router_scale > 0) ? `${radar.meta_router_scale}x` :
+                  'Chưa có dữ liệu'
+                }
               </span>
               <span className="px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/30">
                 Macro: {radar.dxy_trend ? `DXY ${radar.dxy_trend}` : 'DXY FLAT'}

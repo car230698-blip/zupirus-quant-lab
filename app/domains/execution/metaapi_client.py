@@ -287,7 +287,8 @@ class MetaApiClient:
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, list):
-                        synced = resp.headers.get("metaapi-synchronized", "true").lower() in ("true", "1")
+                        synced_hdr = resp.headers.get("metaapi-synchronized")
+                        synced = bool(synced_hdr and synced_hdr.lower() in ("true", "1"))
                         return synced, data, {"synchronized": synced, "status_code": 200}
                     return False, [], {"synchronized": False, "status_code": 200, "error": "Non-list response"}
                 return False, [], {"synchronized": False, "status_code": resp.status_code, "error": resp.text[:160]}
@@ -301,6 +302,22 @@ class MetaApiClient:
         if not ok and raise_on_error:
             raise RuntimeError(f"MetaApi get_open_positions unverified: {meta}")
         return positions
+
+    async def get_open_orders(self, metaapi_account_id: str) -> List[Dict[str, Any]]:
+        """Retrieve pending orders on MT5 via MetaApi."""
+        if self._is_mock_account(metaapi_account_id):
+            return []
+        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/orders"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, headers=self._headers())
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data if isinstance(data, list) else []
+                return []
+        except Exception as e:
+            logger.debug(f"get_open_orders error for {metaapi_account_id}: {e}")
+            return []
 
     async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
         """Retrieve closed execution deals from MetaApi history for real PnL reflection."""
