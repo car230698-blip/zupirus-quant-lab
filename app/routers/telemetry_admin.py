@@ -289,6 +289,7 @@ async def retry_pending_cloud_deploys(_admin=Depends(get_current_admin)):
     return {"ok": True, "redeployed": res.get("pending_redeployed", 0), "message": f"Đã thử lại kích hoạt {res.get('pending_redeployed', 0)} tài khoản MT5."}
 
 
+@router.post("/dry-run")
 @router.post("/admin-radar/dry-run")
 def run_system_dry_run_test(_admin=Depends(get_current_admin)):
     """Run an end-to-end Dry-Run Test (Data -> AI Swarm -> 4-Layer Shield -> MetaApi Readiness)

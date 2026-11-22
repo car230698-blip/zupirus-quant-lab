@@ -998,3 +998,46 @@ def test_regression_telemetry_admin_macro_degraded_over_2h(tmp_path, monkeypatch
     radar = get_admin_command_radar(_admin={"id": "adm_1", "role": "admin"})
     assert radar.get("macro_degraded") is True, f"Admin telemetry radar must return macro_degraded=True, got {radar}"
 
+
+def test_admin_radar_dry_run_endpoints(tmp_path, monkeypatch):
+    """Test both /api/v1/telemetry/dry-run and /api/v1/telemetry/admin-radar/dry-run routes return 200."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.core import db as core_db
+    from app import db
+    from app.security import digest
+
+    db_file = tmp_path / "test_dry_run.sqlite3"
+    monkeypatch.setattr(db, "DB", db_file)
+    monkeypatch.setattr(core_db, "DB", db_file)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(core_db, "DATABASE_URL", "")
+
+    now = time.time()
+    with tx() as c:
+        run_all_migrations(c, is_pg=False)
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('adm_dry', 'admin@example.com', 'x', 'admin') ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO sessions (token, user_id, expires) VALUES (?, 'adm_dry', ?)", (digest("admin_dry_run_token"), now + 3600))
+
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer admin_dry_run_token"}
+
+    # 1. Test /api/v1/telemetry/dry-run
+    res1 = client.post("/api/v1/telemetry/dry-run", headers=headers)
+    assert res1.status_code == 200, f"Expected 200, got {res1.status_code}: {res1.text}"
+    data1 = res1.json()
+    assert "steps" in data1
+    assert len(data1["steps"]) >= 4
+
+    # 2. Test /api/v1/telemetry/admin-radar/dry-run
+    res2 = client.post("/api/v1/telemetry/admin-radar/dry-run", headers=headers)
+    assert res2.status_code == 200, f"Expected 200, got {res2.status_code}: {res2.text}"
+    data2 = res2.json()
+    assert "steps" in data2
+    assert len(data2["steps"]) >= 4
+
+    # 3. Test unauthorized request is rejected
+    res3 = client.post("/api/v1/telemetry/dry-run")
+    assert res3.status_code in (401, 403)
+
+
