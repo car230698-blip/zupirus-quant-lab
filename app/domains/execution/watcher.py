@@ -213,7 +213,7 @@ def reconcile_account_positions(
     # 1. Reconcile OPEN / FILLED executions
     open_db_rows = c.execute(
         """
-        SELECT id, position_id, ticket, client_order_id, symbol, action, volume, closed_volume, sl_confirmed, origin
+        SELECT id, position_id, ticket, client_order_id, symbol, action, volume, closed_volume, sl_confirmed, origin, evidence_json
         FROM metaapi_trade_executions
         WHERE account_id = ? AND status IN ('FILLED', 'OPEN')
         """,
@@ -246,21 +246,20 @@ def reconcile_account_positions(
             # Position missing from live MT5 positions: verify via deals history
             matching_deals = deals_by_pos.get(pos_id) or deals_by_pos.get(t_id) or []
             if matching_deals:
-                dl_ids = [str(dl.get("id") or "") for dl in matching_deals]
-                deal_vol_sum = sum(float(dl.get("volume") or 0.0) for dl in matching_deals)
+                dl_ids = [str(dl.get("id") or "") for dl in matching_deals if dl.get("id")]
                 prev_ev = {}
-                ev_str = str(row.get("evidence_json") or (r[9] if len(r) > 9 and r[9] else "") or "")
+                ev_str = str(row.get("evidence_json") or (r[10] if len(r) > 10 and r[10] else "") or "")
                 if ev_str:
                     try:
                         prev_ev = json.loads(ev_str)
                     except Exception:
                         pass
-                prev_ids = set(prev_ev.get("partial_deals", []) + prev_ev.get("deal_ids", []))
-                has_overlap = bool(prev_ids.intersection(set(dl_ids)))
-                if has_overlap:
-                    total_closed = round(min(total_vol, deal_vol_sum), 4)
-                else:
-                    total_closed = round(min(total_vol, cur_closed_vol + deal_vol_sum), 4)
+                prev_ids = set(str(x) for x in (prev_ev.get("partial_deals", []) + prev_ev.get("deal_ids", [])))
+
+                # Strictly deduplicate: only count volume from new deals not already accounted for
+                new_deals = [dl for dl in matching_deals if str(dl.get("id") or "") not in prev_ids]
+                new_deal_vol = sum(float(dl.get("volume") or 0.0) for dl in new_deals)
+                total_closed = round(min(total_vol, cur_closed_vol + new_deal_vol), 4)
                 all_dl_ids = list(prev_ids.union(set(dl_ids)))
 
                 if total_closed >= total_vol - 0.001:
@@ -342,7 +341,6 @@ def reconcile_account_positions(
                 """,
                 (pid, pid, sl_c, now_ts, json.dumps({"matched_live_ticket": pid, "ts": now_ts}), uexec_id)
             )
-            setkv(c, f"account_locked:{acc_id}", "")
         elif len(matched_live) > 1:
             c.execute(
                 "UPDATE metaapi_trade_executions SET status = 'AMBIGUOUS_LOCKED', last_verified_at = ? WHERE id = ?",
@@ -350,26 +348,84 @@ def reconcile_account_positions(
             )
             setkv(c, f"account_locked:{acc_id}", "AMBIGUOUS_LOCKED")
         else:
+            # Position not yet in live positions list: check deals history
             matched_deals = [
                 dl for dl in (deals or [])
                 if ucid in str(dl.get("clientId") or "") or ucid in str(dl.get("comment") or "")
             ]
             if len(matched_deals) == 1:
-                c.execute(
-                    """
-                    UPDATE metaapi_trade_executions
-                    SET status = 'CLOSED', closed_at = ?, last_verified_at = ?, evidence_json = ?
-                    WHERE id = ?
-                    """,
-                    (now_ts, now_ts, json.dumps({"matched_deal": matched_deals[0].get("id")}), uexec_id)
-                )
-                setkv(c, f"account_locked:{acc_id}", "")
+                dl = matched_deals[0]
+                entry_type = str(dl.get("entryType") or "").upper()
+                pos_id = str(dl.get("positionId") or dl.get("orderId") or "")
+
+                if entry_type in ("DEAL_ENTRY_IN", "0", ""):
+                    # Opening deal: order executed into an open position
+                    matching_live_pos = live_pos_map.get(pos_id)
+                    sl_c = 0
+                    if matching_live_pos:
+                        sl_val = float(matching_live_pos.get("stopLoss") or 0.0)
+                        sl_c = 1 if sl_val > 0 else 0
+
+                    c.execute(
+                        """
+                        UPDATE metaapi_trade_executions
+                        SET status = 'FILLED', position_id = ?, ticket = ?, sl_confirmed = ?, last_verified_at = ?, evidence_json = ?
+                        WHERE id = ?
+                        """,
+                        (pos_id, pos_id, sl_c, now_ts, json.dumps({"matched_entry_deal": dl.get("id"), "entryType": entry_type}), uexec_id)
+                    )
+                elif entry_type in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2"):
+                    # Closing deal: broker executed exit
+                    deal_vol = float(dl.get("volume") or 0.0)
+                    c.execute(
+                        """
+                        UPDATE metaapi_trade_executions
+                        SET status = 'CLOSED', closed_at = ?, closed_volume = ?, last_verified_at = ?, evidence_json = ?
+                        WHERE id = ?
+                        """,
+                        (now_ts, deal_vol, now_ts, json.dumps({"matched_closing_deal": dl.get("id"), "entryType": entry_type}), uexec_id)
+                    )
+                else:
+                    c.execute(
+                        "UPDATE metaapi_trade_executions SET status = 'AMBIGUOUS_LOCKED', last_verified_at = ? WHERE id = ?",
+                        (now_ts, uexec_id)
+                    )
+                    setkv(c, f"account_locked:{acc_id}", "AMBIGUOUS_LOCKED")
             elif len(matched_deals) > 1:
-                c.execute(
-                    "UPDATE metaapi_trade_executions SET status = 'AMBIGUOUS_LOCKED', last_verified_at = ? WHERE id = ?",
-                    (now_ts, uexec_id)
-                )
-                setkv(c, f"account_locked:{acc_id}", "AMBIGUOUS_LOCKED")
+                has_in = any(str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_IN", "0", "") for dl in matched_deals)
+                out_deals = [dl for dl in matched_deals if str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2")]
+                if has_in and out_deals:
+                    total_out_vol = sum(float(dl.get("volume") or 0.0) for dl in out_deals)
+                    c.execute(
+                        """
+                        UPDATE metaapi_trade_executions
+                        SET status = 'CLOSED', closed_at = ?, closed_volume = ?, last_verified_at = ?, evidence_json = ?
+                        WHERE id = ?
+                        """,
+                        (now_ts, total_out_vol, now_ts, json.dumps({"deal_cycle": [dl.get("id") for dl in matched_deals]}), uexec_id)
+                    )
+                else:
+                    c.execute(
+                        "UPDATE metaapi_trade_executions SET status = 'AMBIGUOUS_LOCKED', last_verified_at = ? WHERE id = ?",
+                        (now_ts, uexec_id)
+                    )
+                    setkv(c, f"account_locked:{acc_id}", "AMBIGUOUS_LOCKED")
+
+    # Lock invariant: only unlock account if ZERO unverified/ambiguous executions remain
+    remaining_unverified = c.execute(
+        """
+        SELECT count(*) FROM metaapi_trade_executions
+        WHERE account_id = ? AND (
+            status IN ('UNKNOWN_EXECUTION', 'PENDING_SUBMIT', 'AMBIGUOUS_LOCKED')
+            OR (origin = 'BOT' AND status IN ('OPEN', 'FILLED') AND sl_confirmed = 0)
+        )
+        """,
+        (acc_id,)
+    ).fetchone()[0]
+    if remaining_unverified == 0:
+        setkv(c, f"account_locked:{acc_id}", "")
+    else:
+        setkv(c, f"account_locked:{acc_id}", "UNVERIFIED_PENDING")
 
     return {"account_id": acc_id, "orphans_closed": orphans_closed, "status": "RECONCILED"}
 

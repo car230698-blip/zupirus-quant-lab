@@ -84,24 +84,39 @@ async def test_a1_position_ownership_migration_netting(tmp_path, monkeypatch):
         orig_net, row_net = verify_position_ownership(c, "acc_1", pos_netting)
         assert orig_net == "NETTING_MIXED", "Volume mismatch on bot position must be flagged NETTING_MIXED"
 
-    # Test that close_bot_positions_only closes ONLY bot positions and preserves manual ones
-    mock_client = MagicMock(spec=MetaApiClient)
-    mock_client.get_positions_verified = AsyncMock(return_value=(
+    # Test that close_bot_positions_only closes ONLY bot positions using REAL MetaApiClient
+    real_client = MetaApiClient(token="live_token_for_test")
+    captured_payloads = []
+
+    async def mock_http_post(url, *args, **kwargs):
+        payload = kwargs.get("json", {})
+        captured_payloads.append((url, payload))
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json = MagicMock(return_value={"numericCode": 10009, "stringCode": "TRADE_RETCODE_DONE"})
+        return mock_resp
+
+    monkeypatch.setattr(real_client, "get_positions_verified", AsyncMock(return_value=(
         True,
         [
             {"id": "pos_man", "volume": 0.50, "type": "POSITION_TYPE_BUY"},
             {"id": "pos_bot", "volume": 0.10, "type": "POSITION_TYPE_BUY", "clientId": "ZV2_12345678"}
         ],
         {"synchronized": True}
-    ))
-    mock_client.close_position = AsyncMock(return_value={"numericCode": 10009, "stringCode": "TRADE_RETCODE_DONE"})
+    )))
+    monkeypatch.setattr("httpx.AsyncClient.post", mock_http_post)
 
-    watcher = PositionWatcher(metaapi_client=mock_client)
-    res = await watcher.close_bot_positions_only("meta_1", "acc_1")
+    watcher = PositionWatcher(metaapi_client=real_client)
+    res = await watcher.close_bot_positions_only("srv_acc_1", "acc_1")
 
     assert res["closed_count"] == 1, "Only bot position should be closed"
     assert res["non_bot_count"] == 1, "Manual position must be left untouched"
-    mock_client.close_position.assert_called_once_with("meta_1", "pos_bot")
+    assert len(captured_payloads) == 1, "HTTP POST must be called exactly once for bot position"
+    assert captured_payloads[0][1]["positionId"] == "pos_bot", "Payload must target pos_bot only"
+    with tx() as c:
+        row_b = c.execute("SELECT status, closed_volume FROM metaapi_trade_executions WHERE position_id = 'pos_bot'").fetchone()
+        assert row_b[0] == "CLOSED"
+        assert abs(row_b[1] - 0.10) < 0.001
 
 
 @pytest.mark.asyncio
@@ -160,10 +175,17 @@ async def test_a2_api_read_errors_no_false_closed_partial_close(tmp_path, monkey
         assert row[0] == "OPEN", "Partially closed position must remain OPEN"
         assert abs(row[1] - 0.40) < 0.001, "closed_volume must be updated to 0.40"
 
+    # 3b. Replay exact same deal over subsequent cycle (e.g. after restart) -> must NOT double count!
+    with tx() as c:
+        reconcile_account_positions(c, "acc_2", "meta_2", ok=True, live_positions=[], deals=deals, now_ts=time.time() + 10)
+        row_rep = c.execute("SELECT status, closed_volume FROM metaapi_trade_executions WHERE id = 'ex_2'").fetchone()
+        assert row_rep[0] == "OPEN", "Position must stay OPEN when same deal is replayed"
+        assert abs(row_rep[1] - 0.40) < 0.001, "closed_volume must remain 0.40 without double counting"
+
     # 4. Full close: second deal closes remaining 0.60 lot
     deals.append({"id": "deal_p2", "positionId": "pos_2", "volume": 0.60, "entryType": "DEAL_ENTRY_OUT"})
     with tx() as c:
-        reconcile_account_positions(c, "acc_2", "meta_2", ok=True, live_positions=[], deals=deals, now_ts=time.time())
+        reconcile_account_positions(c, "acc_2", "meta_2", ok=True, live_positions=[], deals=deals, now_ts=time.time() + 20)
         row = c.execute("SELECT status, closed_volume, evidence_json FROM metaapi_trade_executions WHERE id = 'ex_2'").fetchone()
         assert row[0] == "CLOSED", "Fully closed position must be marked CLOSED"
         assert abs(row[1] - 1.0) < 0.001
@@ -218,16 +240,31 @@ async def test_a3_non_speculative_reconciliation_sl_confirmed_expiry_undeploy(tm
         assert row[0] == "EXPIRED_PROTECTING", "Must hold EXPIRED_PROTECTING while UNKNOWN_EXECUTION is unresolved"
         assert row[1] == 0, "auto_trade must be turned off immediately upon expiry"
 
-    # Now simulate 3rd cycle: MT5 returns the position with protective SL
+    # Simulate cycle where broker opening deal (DEAL_ENTRY_IN) arrives in deals history BEFORE live position list updates
+    opening_deals = [
+        {"id": "deal_entry_333", "clientId": "ZV2_abcdef12", "positionId": "ticket_333", "volume": 0.10, "entryType": "DEAL_ENTRY_IN"}
+    ]
+    with tx() as c:
+        setkv(c, "account_locked:acc_3", "UNKNOWN_PENDING")
+        reconcile_account_positions(c, "acc_3", "meta_3", ok=True, live_positions=[], deals=opening_deals, now_ts=time.time())
+        ex_row = c.execute("SELECT status, ticket, position_id, closed_volume FROM metaapi_trade_executions WHERE id = 'ex_3'").fetchone()
+        assert ex_row[0] == "FILLED", "DEAL_ENTRY_IN must transition execution to FILLED, NEVER CLOSED"
+        assert ex_row[1] == "ticket_333", "Ticket must be recorded from positionId in opening deal"
+        assert ex_row[2] == "ticket_333"
+        assert float(ex_row[3] or 0.0) == 0.0, "closed_volume must be 0 for opening deal"
+        assert getkv(c, "account_locked:acc_3") != "", "Account must remain locked until live position confirms SL"
+
+    # Now simulate subsequent cycle: MT5 live positions returns the position with protective SL
     live_pos = [
         {"id": "ticket_333", "clientId": "ZV2_abcdef12", "volume": 0.10, "openPrice": 2000.0, "stopLoss": 1980.0, "type": "POSITION_TYPE_BUY"}
     ]
     with tx() as c:
-        reconcile_account_positions(c, "acc_3", "meta_3", ok=True, live_positions=live_pos, deals=[], now_ts=time.time())
+        reconcile_account_positions(c, "acc_3", "meta_3", ok=True, live_positions=live_pos, deals=[], now_ts=time.time() + 10)
         ex_row = c.execute("SELECT status, ticket, sl_confirmed FROM metaapi_trade_executions WHERE id = 'ex_3'").fetchone()
-        assert ex_row[0] == "FILLED", "Position must be deterministically taken over and marked FILLED"
+        assert ex_row[0] == "FILLED", "Position must remain FILLED and active"
         assert ex_row[1] == "ticket_333"
         assert ex_row[2] == 1, "sl_confirmed must become 1 since protective SL is active on broker"
+        assert getkv(c, "account_locked:acc_3") == "", "Account lock must be released once all unverified orders are verified"
 
 
 @pytest.mark.asyncio

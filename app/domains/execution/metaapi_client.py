@@ -377,6 +377,60 @@ class MetaApiClient:
                 "latency_ms": int((time.time() - start_ts) * 1000),
             }
 
+    async def close_position(
+        self,
+        metaapi_account_id: str,
+        position_id: str,
+    ) -> Dict[str, Any]:
+        """Close an entire position by ID via MetaApi Cloud."""
+        start_ts = time.time()
+        if self._is_mock_account(metaapi_account_id):
+            return {
+                "numericCode": 10009,
+                "stringCode": "TRADE_RETCODE_DONE",
+                "positionId": position_id,
+                "latency_ms": int((time.time() - start_ts) * 1000),
+                "simulated": True,
+            }
+
+        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+        payload = {
+            "actionType": "POSITION_CLOSE_ID",
+            "positionId": position_id,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, headers=self._headers(), json=payload)
+                lat = int((time.time() - start_ts) * 1000)
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    data["latency_ms"] = lat
+                    return data
+                # Fallback to POSITION_CLOSE with positionId
+                fallback_payload = {
+                    "actionType": "POSITION_CLOSE",
+                    "positionId": position_id,
+                }
+                resp2 = await client.post(url, headers=self._headers(), json=fallback_payload)
+                if resp2.status_code in (200, 201):
+                    data = resp2.json()
+                    data["latency_ms"] = int((time.time() - start_ts) * 1000)
+                    return data
+                return {
+                    "numericCode": resp.status_code,
+                    "stringCode": "CLOSE_POSITION_ERROR",
+                    "message": resp.text,
+                    "latency_ms": lat,
+                }
+        except Exception as e:
+            logger.error(f"close_position network/timeout error for {metaapi_account_id}/{position_id}: {e}")
+            return {
+                "numericCode": 504,
+                "stringCode": "CLOSE_POSITION_TIMEOUT_OR_ERROR",
+                "message": str(e),
+                "latency_ms": int((time.time() - start_ts) * 1000),
+            }
+
     async def close_partial_position(
         self,
         metaapi_account_id: str,
