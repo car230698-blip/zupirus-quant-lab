@@ -203,6 +203,121 @@ GUIDES: List[Dict[str, object]] = [
             ),
         ],
     },
+    {
+        "slug": "bot-pass-quy-ftmo-the5ers-tu-dong",
+        "title": "Bot Pass Quỹ FTMO, The5ers & FundedNext Tự Động 2026 | ZUPIRUS",
+        "meta_description": "Giải pháp bot pass quỹ FTMO, The5ers, FundedNext tự động trên Cloud MT5. Tự động chốt lời bảo vệ chỉ tiêu, khóa rủi ro Daily Drawdown 4.0% và chống vi phạm tin đỏ.",
+        "keywords": "bot pass quỹ ftmo, bot pass quỹ the5ers, bot pass quỹ fundednext, ea pass quỹ tự động, pass quỹ prop firm bằng bot, bot trade vàng chuẩn quỹ",
+        "h1": "Bot Pass Quỹ FTMO, The5ers & FundedNext Tự Động: Giải Pháp Định Lượng Chuẩn Quỹ 2026",
+        "read_time": "9 phút đọc",
+        "badge": "PASS QUỸ · PROP AUTOMATION",
+        "sections": [
+            (
+                "1. Nghịch lý của việc tự trade tay khi thi quỹ Prop Firm",
+                "Hơn 90% trader trượt vòng Challenge của FTMO, The5ers hay FundedNext không phải do thiếu kiến thức phân tích kỹ thuật, mà do rào cản tâm lý khi đối diện với các giới hạn khắc nghiệt: Daily Drawdown 5.0%, Max Drawdown 10.0% và áp lực thời gian/chỉ tiêu lợi nhuận 8-10%. Sau 2 lệnh thua liên tiếp, trader thường mất bình tĩnh, tăng khối lượng lot (revenge trading) và làm bốc hơi tài khoản chỉ trong một phiên Âu hoặc Mỹ. Sử dụng bot định lượng loại bỏ 100% cảm xúc, thực thi kỷ luật cơ học từng pip."
+            ),
+            (
+                "2. Cơ chế bảo vệ 3 giai đoạn: Challenge, Verification và Cấp Vốn LIVE",
+                "Hệ thống ZUPIRUS phân định rạch ròi 3 trạng thái vận hành: (1) Tại Phase 1 (Mục tiêu 8-10%), bot duy trì rủi ro 0.75%/lệnh với tỷ lệ R:R >= 1.5; khi đạt 80% chỉ tiêu, hệ thống tự động giảm rủi ro về 0.35%/lệnh để về đích an toàn nhất mà không bị kéo ngược. (2) Tại Phase 2 (Mục tiêu 5%), rủi ro giữ ở 0.50%/lệnh. (3) Khi tài khoản lên LIVE (Funded), ZUPIRUS kích hoạt trần rủi ro nghiêm ngặt tối đa 1.0%/ngày nhằm mục tiêu bảo toàn tài khoản và rút lợi nhuận đều đặn hàng kỳ."
+            ),
+            (
+                "3. Lớp khóa cứng Daily Drawdown 4.0% và News Shield ±15 Phút",
+                "Luật các quỹ thường đánh rớt tài khoản nếu lỗ trong ngày chạm 5.0% Equity đầu ngày. ZUPIRUS đặt chốt chặn an toàn tại 4.0% (trước khi sàn kịp can thiệp). Khi chạm mức này, cụm máy chủ London G2 lập tức đóng toàn bộ lệnh mở, hủy lệnh chờ và ngắt quyền giao dịch của trạm cho tới hết ngày. Đồng thời, bộ lọc tin tức News Shield tự động đóng băng giao dịch trước và sau 15 phút quanh các sự kiện kinh tế đỏ USD (CPI, NFP, FOMC), đảm bảo tài khoản không bao giờ dính trượt giá hay vi phạm chính sách giao dịch tin."
+            ),
+        ],
+    },
+    {
+        "slug": "copy-trade-vang-mt5-exness-khong-can-vps",
+        "title": "Copy Trade Vàng XAU/USD Trên MT5 Exness Không Cần VPS | ZUPIRUS",
+        "meta_description": "Hướng dẫn copy trade vàng XAU/USD tự động trên MT5 Exness bằng hạ tầng Cloud London G2. Không cần máy tính, không tốn tiền thuê VPS, khớp lệnh độ trễ cực thấp.",
+        "keywords": "copy trade vàng exness, bot trade vàng exness không cần vps, copy trade xauusd mt5, bot tự động exness, ea vàng exness",
+        "h1": "Copy Trade Vàng XAU/USD Trên MT5 Exness Không Cần VPS: Kết Nối Siêu Tốc London G2",
+        "read_time": "7 phút đọc",
+        "badge": "COPY TRADE · EXNESS CLOUD",
+        "sections": [
+            (
+                "1. Tại sao không nên chạy Copy Trade qua VPS Windows truyền thống?",
+                "Chạy EA hoặc bot copy trade thủ công bằng VPS Windows thường phát sinh chi phí từ $10-$25 mỗi tháng, cấu hình RAM/CPU yếu dẫn tới đơ máy, mất kết nối mạng đột ngột hoặc tự khởi động lại khi cập nhật Windows đúng lúc thị trường biến động mạnh. Với ZUPIRUS, người dùng không cần thuê VPS riêng: tài khoản MT5 Exness của bạn được kết nối trực tiếp lên cụm Cloud Container tại trung tâm dữ liệu London G2, chỉ cách máy chủ Exness dưới 3ms."
+            ),
+            (
+                "2. Tương thích hoàn hảo với tài khoản Exness Standard, Raw Spread và Cent (USC)",
+                "ZUPIRUS tự động nhận diện loại tài khoản Exness và điều chỉnh logic khớp lệnh. Nếu bạn dùng tài khoản Standard hoặc Raw Spread, hệ thống khớp lệnh theo đơn vị Lot chuẩn. Nếu bạn dùng tài khoản Cent (USC) với số vốn nhỏ $50-$100, hệ thống tự động quy đổi tỷ lệ khối lượng 1:100, đảm bảo mỗi lệnh chỉ chịu rủi ro vài chục cent tiền thật, an toàn tuyệt đối cho người mới bắt đầu trải nghiệm."
+            ),
+            (
+                "3. Ba bước kích hoạt kết nối Exness chỉ trong 60 giây",
+                "Bước 1: Đăng nhập vào ZUPIRUS Hub tại https://app.zupirus.com/. Bước 2: Chọn 'Thêm Tài Khoản MT5', nhập số tài khoản MT5 Exness, mật khẩu Master/Investor và chọn Server (ví dụ: Exness-MT5Real, Exness-MT5Real9...). Bước 3: Bật công tắc Auto-Trade. Toàn bộ tín hiệu định lượng XAU/USD từ mô hình Alpha Quant sẽ được đồng bộ theo thời gian thực 24/5."
+            ),
+        ],
+    },
+    {
+        "slug": "kinh-nghiem-thi-quy-fundednext-stellar",
+        "title": "Kinh Nghiệm Thi Quỹ FundedNext Stellar 2-Step Bằng Bot XAU/USD | ZUPIRUS",
+        "meta_description": "Bí quyết vượt qua gói FundedNext Stellar 2-Step và nhận 15% chia sẻ lợi nhuận ngay từ vòng thi. Quy tắc giao dịch tin tức, quản lý drawdown và tối ưu lot size.",
+        "keywords": "thi quỹ fundednext stellar, kinh nghiệm thi fundednext, bot trade fundednext, quỹ fundednext việt nam, fundednext stellar 2 step xauusd",
+        "h1": "Kinh Nghiệm Thi Quỹ FundedNext Stellar 2-Step: Tận Dụng Bot Định Lượng & Nhận 15% Profit Share",
+        "read_time": "8 phút đọc",
+        "badge": "FUNDEDNEXT · STELLAR STRATEGY",
+        "sections": [
+            (
+                "1. Điểm đặc sắc nhất của gói FundedNext Stellar 2-Step",
+                "Trong số các quỹ Prop Firm hiện nay, gói Stellar của FundedNext có ưu thế vượt trội: Không giới hạn thời gian thi (No Time Limit), chia sẻ 15% lợi nhuận ngay từ giai đoạn Challenge và Verification khi bạn vượt qua các vòng, đồng thời đòn bẩy lên tới 1:100. Mục tiêu Phase 1 là 8% và Phase 2 là 5%, Daily Drawdown tối đa 5% và Max Drawdown 10% (dựa trên Balance)."
+            ),
+            (
+                "2. Cấu hình rủi ro và khối lượng Lot tối ưu cho FundedNext Stellar",
+                "Do luật Daily Drawdown tính trên Balance đầu ngày (hoặc Equity nếu Equity cao hơn Balance), chiến lược an toàn nhất trên cặp XAU/USD là đặt Stop Loss cố định 35-50 pips với rủi ro 0.6% mỗi lệnh. Với tài khoản $50,000, 0.6% rủi ro tương ứng $300. Nếu Stop Loss là 40 pips ($4/oz), khối lượng vào lệnh chuẩn là 0.75 lot. Nếu thua 2 lệnh liên tiếp trong ngày (-1.2%), hệ thống tự ngắt giao dịch để bảo toàn 3.8% Daily DD còn lại."
+            ),
+            (
+                "3. Xử lý quy định tin tức và giữ lệnh qua đêm (Overnight/Weekend)",
+                "FundedNext Stellar cho phép giữ lệnh qua đêm và qua tuần, tuy nhiên tài khoản LIVE có kiểm soát việc khớp lệnh trong cửa sổ tin tức kinh tế quan trọng. ZUPIRUS tự động kích hoạt News Shield để tránh vào lệnh mới trong khoảng ±15 phút quanh tin CPI/NFP. Nhờ đó, tài khoản của bạn luôn giữ được lịch sử sạch và đủ điều kiện rút tiền nhanh chóng qua cổng Crypto hoặc chuyển khoản ngân hàng."
+            ),
+        ],
+    },
+    {
+        "slug": "top-5-sai-lam-chay-tai-khoan-quy-prop-firm",
+        "title": "Top 5 Sai Lầm Khiến 90% Trader Cháy Quỹ Prop Firm & Cách Khắc Phục",
+        "meta_description": "Phân tích 5 nguyên nhân phổ biến khiến trader mất tài khoản FTMO, The5ers: nhồi lệnh Martingale, không cắt lỗ, giao dịch tin NFP/CPI và vượt Daily Loss.",
+        "keywords": "sai lầm thi quỹ prop firm, tại sao cháy quỹ ftmo, kinh nghiệm giữ quỹ the5ers, mẹo pass quỹ prop firm, quản lý vốn prop firm",
+        "h1": "Top 5 Sai Lầm Khiến 90% Trader Cháy Tài Khoản Quỹ Prop Firm & Cách Khắc Phục Triệt Để",
+        "read_time": "8 phút đọc",
+        "badge": "CẢNH BÁO · RISK MANAGEMENT",
+        "sections": [
+            (
+                "1. Sai lầm #1: Nhồi lệnh âm (Martingale) và không đặt Stop Loss cứng",
+                "Nhiều trader có thói quen khi lệnh vàng đi ngược hướng 50 pips sẽ mở thêm lệnh gấp đôi lot với hy vọng giá hồi lại hòa vốn. Trên tài khoản quỹ với mức sụt giảm tối đa chỉ 10%, chỉ một cú giật 150-200 pips là tài khoản bị đóng băng ngay lập tức. Quy tắc bất biến: Mọi lệnh phải có Stop Loss ngay thời điểm mở lệnh và tuyệt đối không bao giờ nhồi lệnh âm."
+            ),
+            (
+                "2. Sai lầm #2: Đánh cược tài sản vào giờ tin tức lớn (Gambling News)",
+                "Các khung giờ công bố Non-Farm Payrolls (NFP) hay CPI của Mỹ thường có spread vàng giãn từ 1.5 pip lên 15-20 pips và trượt giá (slippage) nghiêm trọng. Nhiều trader hy vọng 'ăn đậm' bằng lệnh lớn trước tin, dẫn tới việc bị quét Stop Loss ở cả hai đầu hoặc vi phạm quy định cấm giao dịch tin tức của quỹ FTMO/The5ers. Giải pháp của ZUPIRUS là cơ chế News Shield tự động ngắt lệnh trước tin 15 phút."
+            ),
+            (
+                "3. Sai lầm #3: Giao dịch quá mức (Overtrading) sau chuỗi thua & Không tính Daily DD",
+                "Khi bị lỗ 2% trong ngày, tâm lý gỡ gạc khiến trader mở 5-10 lệnh tiếp theo liên tục trong trạng thái ức chế. Đến khi nhận thông báo từ quỹ thì tài khoản đã chạm ngưỡng Daily Drawdown 5.0%. Để khắc phục, hệ thống ZUPIRUS áp dụng khóa cơ học tại 4.0% Daily Loss — một khi đã chạm, máy tính sẽ cắt toàn bộ quyền can thiệp cho đến 00:00 GMT ngày hôm sau, bảo vệ 100% tài khoản sống sót đường dài."
+            ),
+        ],
+    },
+    {
+        "slug": "chay-bot-vang-tai-khoan-cent-exness",
+        "title": "Chạy Bot Vàng XAU/USD Trên Tài Khoản Cent Exness Vốn $50 - $100 | ZUPIRUS",
+        "meta_description": "Cách chạy bot giao dịch vàng XAU/USD an toàn trên tài khoản Cent (USC) Exness chỉ từ $50-$100 vốn thực. Chia nhỏ rủi ro 100 lần, học tập và kiểm nghiệm an toàn.",
+        "keywords": "bot vàng tài khoản cent exness, chạy ea tài khoản cent, bot xauusd vốn nhỏ, trade vàng cent exness, copy trade tài khoản cent",
+        "h1": "Hướng Dẫn Chạy Bot Vàng XAU/USD Trên Tài Khoản Cent Exness: Vốn $50 Vẫn Chạy Chuẩn Định Lượng",
+        "read_time": "7 phút đọc",
+        "badge": "VỐN NHỎ · EXNESS CENT (USC)",
+        "sections": [
+            (
+                "1. Tài khoản Cent (USC) là gì và vì sao là bước đệm lý tưởng?",
+                "Tài khoản Standard Cent của Exness quy đổi 1 USD = 100 USC (Cent). Khi bạn nạp $50 vốn thật, số dư hiển thị trên MT5 là 5,000 USC. Điều này cho phép bạn giao dịch khối lượng siêu nhỏ: 1.00 Lot Cent tương đương 1 oz vàng (thay vì 100 oz như Standard), tức là biến động $1 trên giá vàng chỉ tương ứng $0.10 rủi ro thực tế. Đây là môi trường hoàn hảo để kiểm chứng độ ổn định của bot định lượng mà không lo áp lực tài chính."
+            ),
+            (
+                "2. Thuật toán ZUPIRUS tự động nhận diện Contract Size tài khoản Cent",
+                "Khi kết nối tài khoản MT5 Exness vào ZUPIRUS, hệ thống tự động đọc thông số Contract Size của mã vàng (XAUUSDm hoặc XAUUSDc). Nếu phát hiện tài khoản Cent, thuật toán Fanout Engine tự động điều chỉnh hệ số tính Lot để rủi ro trên mỗi lệnh đúng bằng 0.5% - 1.0% của 5,000 USC ($0.25 - $0.50 tiền thật). Bạn được trải nghiệm hệ thống quản trị rủi ro chuyên nghiệp như tài khoản quỹ $100,000."
+            ),
+            (
+                "3. Lộ trình từ $50 Cent đến tài khoản Quỹ $100,000",
+                "Lộ trình tối ưu cho mọi nhà đầu tư: Tháng 1 chạy tài khoản Cent với $50-$100 để quan sát cách bot xử lý phiên London, phiên New York và tự động khóa lệnh khi có tin tức. Khi đã hiểu rõ cách vận hành của hệ thống và thấy hiệu suất thực tế tăng trưởng ổn định, bạn có thể tự tin đầu tư gói thi quỹ FTMO/The5ers $50,000 - $100,000 để gia tăng thu nhập quy mô lớn."
+            ),
+        ],
+    },
 ]
 
 GUIDE_BY_SLUG = {str(g["slug"]): g for g in GUIDES}
@@ -291,6 +406,7 @@ def _render_shell(
       <div class="nav-links">
         <a href="https://zupirus.com/#track-record">Hiệu Suất Thực Tế</a>
         <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a>
+        <a href="/cong-cu/tinh-drawdown-quy-prop-firm">Tính Drawdown Quỹ</a>
         <a href="/huong-dan">Kiến Thức &amp; Hướng Dẫn</a>
         <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a>
         <a href="https://discord.gg/yxCx3dVe34" target="_blank" rel="noopener noreferrer">Discord</a>
@@ -301,7 +417,7 @@ def _render_shell(
   <main>{body_html}</main>
   <footer>
     © 2026 ZUPIRUS Quant Lab · Hạ tầng Cloud MT5 XAU/USD Zero-VPS &amp; Prop Firm Guard ·
-    <a href="https://zupirus.com/">Trang Chủ</a> · <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a> · <a href="/huong-dan">Hướng Dẫn</a> · <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a> · <a href="https://app.zupirus.com/">Đăng Nhập</a>
+    <a href="https://zupirus.com/">Trang Chủ</a> · <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a> · <a href="/cong-cu/tinh-drawdown-quy-prop-firm">Tính Drawdown Quỹ</a> · <a href="/huong-dan">Hướng Dẫn</a> · <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a> · <a href="https://app.zupirus.com/">Đăng Nhập</a>
   </footer>
 </body>
 </html>"""
@@ -489,6 +605,297 @@ def seo_lot_calculator_page() -> HTMLResponse:
         <div>
           <strong style="color:#fff;font-size:17px">Để hệ thống Cloud MT5 tự tính Lot &amp; khóa Daily DD 4.0% cho bạn 24/7</strong>
           <p style="margin:4px 0 0;font-size:13.5px">Không cần tính tay, không cần thuê VPS · 4 lớp giáp Fail-Closed tự động trên cụm London G2.</p>
+        </div>
+        <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
+      </div>
+    """
+    return HTMLResponse(
+        _render_shell(
+            title,
+            desc,
+            canonical,
+            keywords,
+            json_ld,
+            body,
+            extra_head_html="",
+        )
+    )
+
+
+@router.get("/cong-cu/tinh-drawdown-quy-prop-firm", response_class=HTMLResponse)
+def seo_drawdown_calculator_page() -> HTMLResponse:
+    canonical = "https://zupirus.com/cong-cu/tinh-drawdown-quy-prop-firm"
+    title = "Bảng Tính Daily Drawdown & Phân Bổ Rủi Ro Quỹ Prop Firm | ZUPIRUS"
+    desc = "Công cụ tính Daily Loss và Max Drawdown trực tuyến cho tài khoản quỹ FTMO, The5ers, FundedNext. Tự động tính ngưỡng dừng lỗ an toàn và số lệnh thua tối đa."
+    keywords = "tính drawdown quỹ prop firm, tính daily loss FTMO, tính sụt giảm tài khoản quỹ, quản lý vốn FTMO The5ers, drawdown calculator prop firm"
+    json_ld = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "WebApplication",
+                "name": "Bảng Tính Daily Drawdown & Phân Bổ Rủi Ro Quỹ Prop Firm",
+                "url": canonical,
+                "applicationCategory": "FinanceApplication",
+                "operatingSystem": "Web",
+                "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+                "publisher": {"@type": "Organization", "name": "ZUPIRUS Quant Lab", "url": "https://zupirus.com/"},
+            },
+            {
+                "@type": "FAQPage",
+                "mainEntity": [
+                    {
+                        "@type": "Question",
+                        "name": "Daily Drawdown của quỹ FTMO được tính như thế nào?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "FTMO tính Daily Drawdown dựa trên Equity (hoặc Balance) tại thời điểm 00:00 CE(S)T của ngày hôm đó. Mức sụt giảm trong ngày không được vượt quá 5.0% mốc bắt đầu ngày, bao gồm cả các lệnh đang mở (floating loss).",
+                        },
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Tại sao ZUPIRUS lại khóa tài khoản ở mốc 4.0% thay vì 5.0%?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "ZUPIRUS áp dụng vùng đệm an toàn 1.0% (Fail-Closed Buffer). Khi tài khoản chạm mức lỗ 4.0%, hệ thống tự động đóng lệnh và ngắt kết nối để chống trượt giá (slippage) và phí swap/commission làm tài khoản vô tình chạm ngưỡng 5.0% của quỹ.",
+                        },
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "Nên chia rủi ro bao nhiêu % mỗi lệnh để không bị vi phạm Daily Drawdown?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Khuyến nghị chuẩn định lượng là 0.50% đến 0.75% mỗi lệnh. Với mức rủi ro này, tài khoản có thể chịu được liên tiếp 5-8 lệnh thua mà vẫn nằm trong vùng an toàn dưới ngưỡng 4.0% khóa tự động.",
+                        },
+                    },
+                ],
+            },
+            {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Trang chủ", "item": "https://zupirus.com/"},
+                    {"@type": "ListItem", "position": 2, "name": "Tính Drawdown Quỹ Prop Firm", "item": canonical},
+                ],
+            },
+        ],
+    }
+
+    guide_links = "".join(
+        f'<li><a href="/huong-dan/{g["slug"]}">{html.escape(str(g["h1"]))}</a></li>'
+        for g in GUIDES[:6]
+    )
+
+    body = f"""
+      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / Tính Drawdown Quỹ Prop Firm</div>
+      <span class="badge">PROP FIRM CALCULATOR · DAILY &amp; MAX DRAWDOWN</span>
+      <h1>Bảng Tính Daily Drawdown &amp; Phân Bổ Rủi Ro Quỹ FTMO, The5ers &amp; FundedNext</h1>
+      <p>Tính toán chính xác giới hạn lỗ trong ngày (Daily Loss Limit), ngưỡng vi phạm tối đa (Max Drawdown Breach) và vùng đệm an toàn tự động đóng lệnh (4.0% Safe Buffer) theo chuẩn định lượng ZUPIRUS.</p>
+
+      <section class="card" aria-label="Máy tính Drawdown Quỹ Prop Firm">
+        <div class="calc-grid">
+          <div class="field">
+            <label for="dd-preset-firm">Chọn Quy Định Quỹ Phổ Biến</label>
+            <select id="dd-preset-firm">
+              <option value="FTMO_100K">FTMO — Tài khoản $100,000 (Daily 5% / Max 10%)</option>
+              <option value="FTMO_50K">FTMO — Tài khoản $50,000 (Daily 5% / Max 10%)</option>
+              <option value="FTMO_200K">FTMO — Tài khoản $200,000 (Daily 5% / Max 10%)</option>
+              <option value="THE5ERS_100K">The5ers High Stakes — $100,000 (Daily 5% / Max 10%)</option>
+              <option value="THE5ERS_60K">The5ers High Stakes — $60,000 (Daily 5% / Max 10%)</option>
+              <option value="FUNDEDNEXT_100K">FundedNext Stellar — $100,000 (Daily 5% / Max 10%)</option>
+              <option value="FUNDEDNEXT_50K">FundedNext Stellar — $50,000 (Daily 5% / Max 10%)</option>
+              <option value="CUSTOM">Tùy Chỉnh Thông Số Riêng</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="dd-starting-equity">Số dư / Equity đầu ngày ($ USD)</label>
+            <input id="dd-starting-equity" type="number" min="1000" step="5000" value="100000" />
+            <div class="presets">
+              <button type="button" class="preset-btn" data-preset-eq="10000">$10K</button>
+              <button type="button" class="preset-btn" data-preset-eq="25000">$25K</button>
+              <button type="button" class="preset-btn" data-preset-eq="50000">$50K</button>
+              <button type="button" class="preset-btn" data-preset-eq="100000">$100K</button>
+              <button type="button" class="preset-btn" data-preset-eq="200000">$200K</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="dd-daily-limit">Hạn mức Daily Drawdown của Quỹ (%)</label>
+            <input id="dd-daily-limit" type="number" min="1.0" max="15.0" step="0.5" value="5.0" />
+          </div>
+          <div class="field">
+            <label for="dd-safe-buffer">Khóa an toàn ZUPIRUS Guard (%)</label>
+            <input id="dd-safe-buffer" type="number" min="1.0" max="10.0" step="0.5" value="4.0" />
+          </div>
+          <div class="field">
+            <label for="dd-risk-per-trade">Rủi ro định lượng mỗi lệnh (% Vốn)</label>
+            <input id="dd-risk-per-trade" type="number" min="0.1" max="5.0" step="0.05" value="0.75" />
+            <div class="presets">
+              <button type="button" class="preset-btn" data-preset-trade-risk="0.5">0.5%</button>
+              <button type="button" class="preset-btn" data-preset-trade-risk="0.75">0.75%</button>
+              <button type="button" class="preset-btn" data-preset-trade-risk="1.0">1.0%</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi kpi-primary">
+            <div class="kpi-label">Ngưỡng Khóa An Toàn ZUPIRUS</div>
+            <div class="kpi-val" id="res-safe-loss">-$4,000 USD</div>
+            <div class="kpi-sub" id="res-safe-equity">Dừng bot khi Equity &lt; $96,000</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Ngưỡng Vi Phạm Quỹ (Cháy)</div>
+            <div class="kpi-val" style="color:#ef4444" id="res-firm-breach">-$5,000 USD</div>
+            <div class="kpi-sub" id="res-firm-equity">Tài khoản bị tịch thu tại $95,000</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Vùng Đệm Trượt Giá (Slippage Shield)</div>
+            <div class="kpi-val" style="color:#38bdf8" id="res-buffer-dollars">$1,000 USD</div>
+            <div class="kpi-sub">Bảo toàn 1.0% đệm an toàn</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Số Lệnh Thua Cho Phép / Ngày</div>
+            <div class="kpi-val" style="color:#a7f3d0" id="res-max-losses">5 Lệnh</div>
+            <div class="kpi-sub" id="res-loss-per-trade">Mỗi lệnh -$750 USD (0.75%)</div>
+          </div>
+        </div>
+      </section>
+
+      <script>
+        (function() {{
+          function recalcDD() {{
+            const startingEq = Math.max(100, parseFloat(document.getElementById('dd-starting-equity').value) || 100000);
+            const dailyPct = Math.max(0.5, parseFloat(document.getElementById('dd-daily-limit').value) || 5.0);
+            const safePct = Math.min(dailyPct - 0.1, Math.max(0.5, parseFloat(document.getElementById('dd-safe-buffer').value) || 4.0));
+            const riskPct = Math.max(0.05, parseFloat(document.getElementById('dd-risk-per-trade').value) || 0.75);
+
+            const firmBreachLoss = startingEq * (dailyPct / 100);
+            const firmBreachEq = startingEq - firmBreachLoss;
+
+            const safeLoss = startingEq * (safePct / 100);
+            const safeEq = startingEq - safeLoss;
+
+            const bufferDollars = firmBreachLoss - safeLoss;
+            const lossPerTrade = startingEq * (riskPct / 100);
+            const maxLosses = Math.floor(safeLoss / lossPerTrade);
+
+            document.getElementById('res-safe-loss').textContent = '-$' + Math.round(safeLoss).toLocaleString('en-US') + ' USD';
+            document.getElementById('res-safe-equity').textContent = 'Tự động dừng khi Equity < $' + Math.round(safeEq).toLocaleString('en-US');
+
+            document.getElementById('res-firm-breach').textContent = '-$' + Math.round(firmBreachLoss).toLocaleString('en-US') + ' USD';
+            document.getElementById('res-firm-equity').textContent = 'Quỹ tịch thu tại Equity $' + Math.round(firmBreachEq).toLocaleString('en-US');
+
+            document.getElementById('res-buffer-dollars').textContent = '$' + Math.round(bufferDollars).toLocaleString('en-US') + ' USD';
+            document.getElementById('res-max-losses').textContent = maxLosses + ' Lệnh Liên Tiếp';
+            document.getElementById('res-loss-per-trade').textContent = 'Mỗi lệnh -$' + Math.round(lossPerTrade).toLocaleString('en-US') + ' (' + riskPct + '%)';
+          }}
+
+          document.getElementById('dd-preset-firm').addEventListener('change', function(e) {{
+            const val = e.target.value;
+            if (val === 'FTMO_100K') {{
+              document.getElementById('dd-starting-equity').value = 100000;
+              document.getElementById('dd-daily-limit').value = 5.0;
+              document.getElementById('dd-safe-buffer').value = 4.0;
+              document.getElementById('dd-risk-per-trade').value = 0.75;
+            }} else if (val === 'FTMO_50K') {{
+              document.getElementById('dd-starting-equity').value = 50000;
+              document.getElementById('dd-daily-limit').value = 5.0;
+              document.getElementById('dd-safe-buffer').value = 4.0;
+              document.getElementById('dd-risk-per-trade').value = 0.75;
+            }} else if (val === 'FTMO_200K') {{
+              document.getElementById('dd-starting-equity').value = 200000;
+              document.getElementById('dd-daily-limit').value = 5.0;
+              document.getElementById('dd-safe-buffer').value = 4.0;
+              document.getElementById('dd-risk-per-trade').value = 0.75;
+            }} else if (val === 'THE5ERS_100K') {{
+              document.getElementById('dd-starting-equity').value = 100000;
+              document.getElementById('dd-daily-limit').value = 5.0;
+              document.getElementById('dd-safe-buffer').value = 4.0;
+              document.getElementById('dd-risk-per-trade').value = 0.60;
+            }} else if (val === 'THE5ERS_60K') {{
+              document.getElementById('dd-starting-equity').value = 60000;
+              document.getElementById('dd-daily-limit').value = 5.0;
+              document.getElementById('dd-safe-buffer').value = 4.0;
+              document.getElementById('dd-risk-per-trade').value = 0.60;
+            }} else if (val === 'FUNDEDNEXT_100K') {{
+              document.getElementById('dd-starting-equity').value = 100000;
+              document.getElementById('dd-daily-limit').value = 5.0;
+              document.getElementById('dd-safe-buffer').value = 4.0;
+              document.getElementById('dd-risk-per-trade').value = 0.70;
+            }} else if (val === 'FUNDEDNEXT_50K') {{
+              document.getElementById('dd-starting-equity').value = 50000;
+              document.getElementById('dd-daily-limit').value = 5.0;
+              document.getElementById('dd-safe-buffer').value = 4.0;
+              document.getElementById('dd-risk-per-trade').value = 0.70;
+            }}
+            recalcDD();
+          }});
+
+          ['dd-starting-equity', 'dd-daily-limit', 'dd-safe-buffer', 'dd-risk-per-trade'].forEach(function(id) {{
+            document.getElementById(id).addEventListener('input', recalcDD);
+          }});
+
+          document.querySelectorAll('[data-preset-eq]').forEach(function(btn) {{
+            btn.addEventListener('click', function() {{
+              document.getElementById('dd-starting-equity').value = this.dataset.presetEq;
+              recalcDD();
+            }});
+          }});
+
+          document.querySelectorAll('[data-preset-trade-risk]').forEach(function(btn) {{
+            btn.addEventListener('click', function() {{
+              document.getElementById('dd-risk-per-trade').value = this.dataset.presetTradeRisk;
+              recalcDD();
+            }});
+          }});
+
+          recalcDD();
+        }})();
+      </script>
+
+      <article class="card">
+        <h2>Bảng So Sánh Cơ Chế Daily Drawdown Các Quỹ Prop Firm 2026</h2>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Quỹ Prop Firm</th>
+                <th>Daily Drawdown</th>
+                <th>Cách Tính Daily Loss</th>
+                <th>Cơ Chế Safe Guard ZUPIRUS</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>FTMO</strong></td>
+                <td>5.0%</td>
+                <td>Dựa trên Equity lúc 00:00 CE(S)T (bao gồm Floating Loss)</td>
+                <td>Tự động ngắt tại 4.0% Daily Loss (bảo toàn 1.0% đệm trượt giá)</td>
+              </tr>
+              <tr>
+                <td><strong>The5ers (High Stakes)</strong></td>
+                <td>5.0%</td>
+                <td>Dựa trên Balance hoặc Equity đầu ngày (theo mốc cao hơn)</td>
+                <td>Khóa rủi ro ở 4.0%, tự giảm lot khi đạt 80% lợi nhuận mục tiêu</td>
+              </tr>
+              <tr>
+                <td><strong>FundedNext (Stellar)</strong></td>
+                <td>5.0%</td>
+                <td>Dựa trên Balance khởi đầu ngày giao dịch</td>
+                <td>News Shield đóng băng lệnh ±15 phút quanh tin CPI/NFP</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <div class="card">
+        <h2 style="margin-top:0;font-size:17px">Hướng dẫn &amp; Tài liệu liên quan</h2>
+        <ul style="margin:8px 0 0;padding-left:20px;line-height:2">{guide_links}</ul>
+      </div>
+
+      <div class="cta-box">
+        <div>
+          <strong style="color:#fff;font-size:17px">Kích hoạt bảo vệ 4 lớp giáp Fail-Closed trên Cloud MT5 ngay hôm nay</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Không cần tự canh lệnh, không lo chạm Daily Drawdown · Kết nối 60 giây.</p>
         </div>
         <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
       </div>
