@@ -1,9 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '../api/client';
+import {
+  api,
+  fetchAdminAgentsHeartbeat,
+  wakeAdminAgent,
+  togglePauseAdminAgent,
+  fetchAdminAiQuota,
+  updateAdminAiQuota,
+  fetchStrategyReviewQueue,
+  approveStrategy,
+  rejectStrategy,
+  fetchStrategyHistory,
+  rollbackStrategy,
+  AdminAgentHeartbeat,
+  AdminAiQuota,
+  StrategyReviewQueueItem,
+  StrategyHistoryItem,
+} from '../api/client';
 import { ToastNotification } from './ToastNotification';
 import { Panel, StatusBadge } from './ui/Primitives';
 import { SpotlightBento } from './ui/SpotlightBento';
-import { IconAlert, IconBolt, IconCheck, IconClose, IconRadar } from './Icons';
+import { IconAlert, IconBolt, IconRadar } from './Icons';
 import { AdminErrorBanner, AdminErrorInfo } from './AdminErrorBanner';
 import { AdminLiveOrdersPanel } from './AdminLiveOrdersPanel';
 import { normalizeCentToUsd } from '../utils/currencyFormat';
@@ -94,18 +110,6 @@ export function humanizeAuditEntry(entry: any): {
       subtitle = `${srv}${tier}`;
       break;
     }
-    case 'trading_account_deleted': {
-      const acctRef = d.login || (d.account_id ? `#${String(d.account_id).slice(-8)}` : '');
-      title = `Gỡ tài khoản ${acctRef} khỏi hệ thống`;
-      isWarn = true;
-      break;
-    }
-    case 'trading_account_risk_updated': {
-      const acctRef = d.login || (d.account_id ? `#${String(d.account_id).slice(-8)}` : '');
-      title = `Cập nhật cấu hình rủi ro tài khoản ${acctRef}`;
-      subtitle = d.risk_pct ? `Mức rủi ro: ${d.risk_pct}%` : '';
-      break;
-    }
     case 'kill_switch_toggled': {
       const halted = Boolean(d.halted);
       title = halted
@@ -131,50 +135,26 @@ export function humanizeAuditEntry(entry: any): {
       isWarn = true;
       break;
     }
-    case 'expired_account_undeployed': {
-      title = `Tự động thu hồi trạm Cloud MT5 hết hạn`;
-      subtitle = `Tài khoản: ${d.account_id || ''}`;
+    case 'ai_quota_updated': {
+      title = 'Cập nhật trần ngân sách Quota AI';
+      subtitle = d.override_minutes ? `Mở khóa ${d.override_minutes} phút` : `Trần mới: ${d.daily_cap || '—'}`;
+      break;
+    }
+    case 'agent_woken': {
+      title = `Kích hoạt chu kỳ ngay (Wake Now) cho Agent: ${d.agent_id || ''}`;
+      break;
+    }
+    case 'agent_pause_toggled': {
+      title = `${d.is_paused ? 'Tạm dừng' : 'Kích hoạt lại'} Agent: ${d.agent_id || ''}`;
+      break;
+    }
+    case 'strategy_approved': {
+      title = `Duyệt chiến lược AI lên LIVE: ${d.name || d.candidate_id || ''}`;
+      break;
+    }
+    case 'strategy_rolled_back': {
+      title = `Khôi phục chiến lược (Rollback 1-Click) sang bản: ${d.target_name || d.target_id || ''}`;
       isWarn = true;
-      break;
-    }
-    case 'user_created': {
-      title = `Tạo tài khoản người dùng: ${d.email || ''}`;
-      subtitle = `Quyền hạn: ${d.role || 'customer'}`;
-      break;
-    }
-    case 'user_role_changed': {
-      title = `Đổi quyền người dùng ${d.email || ''} → ${d.new_role || ''}`;
-      break;
-    }
-    case 'user_password_reset': {
-      title = `Đặt lại mật khẩu cho tài khoản ${d.email || ''}`;
-      break;
-    }
-    case 'user_deleted': {
-      title = `Xóa tài khoản người dùng ${d.email || ''}`;
-      isWarn = true;
-      break;
-    }
-    case 'gemini_key_added': {
-      title = `Thêm API key Gemini mới vào cụm xoay vòng`;
-      subtitle = `Khóa: ${d.masked || ''}`;
-      break;
-    }
-    case 'gemini_key_toggled': {
-      title = `${d.is_active ? 'Kích hoạt' : 'Tạm dừng'} API key Gemini (${d.masked || ''})`;
-      break;
-    }
-    case 'gemini_key_deleted': {
-      title = `Xóa API key Gemini (${d.masked || ''})`;
-      isWarn = true;
-      break;
-    }
-    case 'research_requested': {
-      title = `Khởi tạo chu trình nghiên cứu WFO & Backtest AI`;
-      break;
-    }
-    case 'research_decision': {
-      title = d.approved ? `Duyệt triển khai chiến lược AI mới` : `Từ chối chiến lược AI`;
       break;
     }
     default: {
@@ -184,7 +164,7 @@ export function humanizeAuditEntry(entry: any): {
         const readableEv = ev ? ev.replace(/_/g, ' ') : 'Sự kiện hệ thống';
         title = `Hệ thống ghi nhận: ${readableEv}`;
       }
-      isWarn = ev.includes('error') || ev.includes('fail') || ev.includes('reject') || ev.includes('delete') || ev.includes('circuit');
+      isWarn = ev.includes('error') || ev.includes('fail') || ev.includes('reject') || ev.includes('circuit');
       break;
     }
   }
@@ -205,11 +185,26 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     timeline: [],
     alerts: [],
     ai_strategy: 'Alpha Quant XAU M15',
+    signal_mode: 'EXTERNAL_FEED',
     auto_rollback: 'ACTIVE',
   });
+
+  // --- Control Plane v1.2 Core States ---
+  const [aiQuota, setAiQuota] = useState<AdminAiQuota | null>(null);
+  const [agentsHeartbeat, setAgentsHeartbeat] = useState<AdminAgentHeartbeat[]>([]);
+  const [reviewQueue, setReviewQueue] = useState<StrategyReviewQueueItem[]>([]);
+  const [strategyHistory, setStrategyHistory] = useState<StrategyHistoryItem[]>([]);
+
+  // Action busy indicators
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [wakingAgentId, setWakingAgentId] = useState<string | null>(null);
+  const [pausingAgentId, setPausingAgentId] = useState<string | null>(null);
+  const [approvingCandidateId, setApprovingCandidateId] = useState<string | null>(null);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
+  const [rollbackConfirmCandidate, setRollbackConfirmCandidate] = useState<StrategyHistoryItem | null>(null);
   const [dryRunLoading, setDryRunLoading] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<any>(null);
+  const [quotaUpdating, setQuotaUpdating] = useState(false);
   const [msg, setMsg] = useState('');
   const [errorBanner, setErrorBanner] = useState<AdminErrorInfo | null>(null);
   const [auditFilter, setAuditFilter] = useState<'ALL' | 'WARN_ERR'>('ALL');
@@ -220,11 +215,30 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     error: 0,
   });
 
-  const loadRadar = useCallback(async () => {
+  const loadAllControlPlaneData = useCallback(async () => {
     try {
-      const data = await api.get('/api/v1/telemetry/admin-radar');
-      if (data) {
-        setRadar(data);
+      const [radarRes, quotaRes, hbRes, queueRes, histRes] = await Promise.allSettled([
+        api.get('/api/v1/telemetry/admin-radar'),
+        fetchAdminAiQuota(),
+        fetchAdminAgentsHeartbeat(),
+        fetchStrategyReviewQueue(),
+        fetchStrategyHistory(),
+      ]);
+
+      if (radarRes.status === 'fulfilled' && radarRes.value) {
+        setRadar(radarRes.value);
+      }
+      if (quotaRes.status === 'fulfilled' && quotaRes.value) {
+        setAiQuota(quotaRes.value);
+      }
+      if (hbRes.status === 'fulfilled' && hbRes.value?.agents) {
+        setAgentsHeartbeat(hbRes.value.agents);
+      }
+      if (queueRes.status === 'fulfilled' && queueRes.value?.queue) {
+        setReviewQueue(queueRes.value.queue);
+      }
+      if (histRes.status === 'fulfilled' && histRes.value?.strategies) {
+        setStrategyHistory(histRes.value.strategies);
       }
       setErrorBanner(null);
     } catch (err: any) {
@@ -238,7 +252,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   const [sseLive, setSseLive] = useState(false);
 
   useEffect(() => {
-    loadRadar();
+    loadAllControlPlaneData();
     const onRadarEvent = (ev: Event) => {
       const custom = ev as CustomEvent;
       if (custom?.detail) {
@@ -247,12 +261,12 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
       }
     };
     window.addEventListener('zupirus:admin-radar', onRadarEvent);
-    const timer = setInterval(loadRadar, 20000);
+    const timer = setInterval(loadAllControlPlaneData, 15000);
     return () => {
       clearInterval(timer);
       window.removeEventListener('zupirus:admin-radar', onRadarEvent);
     };
-  }, [loadRadar]);
+  }, [loadAllControlPlaneData]);
 
   const handleAlertAction = async (alert: any) => {
     if (alert.action_tab) {
@@ -260,7 +274,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
       return;
     }
     if (alert.action_type === 'refresh') {
-      await loadRadar();
+      await loadAllControlPlaneData();
       if (refetchMonitor) await refetchMonitor();
       setMsg('Đã làm mới trạng thái hệ thống.');
       return;
@@ -270,7 +284,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
       try {
         const j = await api.post('/api/v1/telemetry/admin-radar/retry-pending');
         setMsg(j.message || 'Đã thử lại kích hoạt MT5.');
-        await loadRadar();
+        await loadAllControlPlaneData();
       } catch (err: any) {
         setMsg(`Lỗi kích hoạt: ${err.message || ''}`);
       } finally {
@@ -292,6 +306,108 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     }
   };
 
+  // --- Agent Heartbeat & Lock Actions ---
+  const handleWakeAgent = async (agentId: string) => {
+    setWakingAgentId(agentId);
+    try {
+      const res = await wakeAdminAgent(agentId);
+      setMsg(res.message || `Đã kích hoạt chu kỳ Agent ${agentId} thành công.`);
+      await loadAllControlPlaneData();
+    } catch (err: any) {
+      if (err?.status === 409 || String(err?.message || '').includes('chống chạy trùng') || String(err?.message || '').includes('đang chạy')) {
+        setMsg('⚠ Agent đang chạy chu kỳ hiện tại, chống chạy trùng (Khóa Redis 60s)');
+      } else {
+        setMsg(`Lỗi kích hoạt Agent: ${err?.message || 'Thất bại'}`);
+      }
+    } finally {
+      setWakingAgentId(null);
+    }
+  };
+
+  const handleTogglePause = async (agentId: string) => {
+    setPausingAgentId(agentId);
+    try {
+      const res = await togglePauseAdminAgent(agentId);
+      setMsg(res.message || 'Đã cập nhật trạng thái Agent.');
+      await loadAllControlPlaneData();
+    } catch (err: any) {
+      setMsg(`Lỗi tạm dừng/kích hoạt: ${err?.message || 'Thất bại'}`);
+    } finally {
+      setPausingAgentId(null);
+    }
+  };
+
+  // --- AI Quota Budget Actions ---
+  const handleQuickQuotaOverride = async (minutes = 60) => {
+    setQuotaUpdating(true);
+    try {
+      await updateAdminAiQuota({ override_minutes: minutes });
+      setMsg(`Đã tạm mở khóa hạn mức AI trong ${minutes} phút.`);
+      await loadAllControlPlaneData();
+    } catch (err: any) {
+      setMsg(`Lỗi mở khóa: ${err?.message || 'Thất bại'}`);
+    } finally {
+      setQuotaUpdating(false);
+    }
+  };
+
+  const handleResetQuotaToday = async () => {
+    setQuotaUpdating(true);
+    try {
+      await updateAdminAiQuota({ reset_today: true });
+      setMsg('Đã đặt lại bộ đếm lượt gọi AI hôm nay.');
+      await loadAllControlPlaneData();
+    } catch (err: any) {
+      setMsg(`Lỗi đặt lại: ${err?.message || 'Thất bại'}`);
+    } finally {
+      setQuotaUpdating(false);
+    }
+  };
+
+  // --- Strategy Candidate Actions ---
+  const handleApproveCandidate = async (candidateId: string) => {
+    setApprovingCandidateId(candidateId);
+    try {
+      const res = await approveStrategy(candidateId);
+      setMsg(res.message || `✓ Đã phê duyệt chiến lược #${candidateId.slice(0, 8)} lên chạy LIVE.`);
+      await loadAllControlPlaneData();
+      if (refetchMonitor) await refetchMonitor();
+    } catch (err: any) {
+      setMsg(`Lỗi phê duyệt chiến lược: ${err?.message || 'Thất bại'}`);
+    } finally {
+      setApprovingCandidateId(null);
+    }
+  };
+
+  const handleRejectCandidate = async (candidateId: string) => {
+    setApprovingCandidateId(candidateId);
+    try {
+      const res = await rejectStrategy(candidateId);
+      setMsg(res.message || `✕ Đã từ chối chiến lược #${candidateId.slice(0, 8)}.`);
+      await loadAllControlPlaneData();
+      if (refetchMonitor) await refetchMonitor();
+    } catch (err: any) {
+      setMsg(`Lỗi từ chối chiến lược: ${err?.message || 'Thất bại'}`);
+    } finally {
+      setApprovingCandidateId(null);
+    }
+  };
+
+  const handleExecuteRollback = async (candidateId: string) => {
+    setRollingBackId(candidateId);
+    try {
+      const res = await rollbackStrategy(candidateId);
+      setMsg(res.message || `✓ Đã khôi phục chiến lược #${candidateId.slice(0, 8)} lên LIVE.`);
+      setRollbackConfirmCandidate(null);
+      await loadAllControlPlaneData();
+      if (refetchMonitor) await refetchMonitor();
+    } catch (err: any) {
+      setMsg(`Lỗi hoàn tác chiến lược: ${err?.message || 'Thất bại'}`);
+    } finally {
+      setRollingBackId(null);
+    }
+  };
+
   const isHalted = Boolean(radar.halted || monitorData?.halted);
 
   // === KPI COMPUTATIONS ===
@@ -307,24 +423,10 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     return accounts.filter((a: any) => Number(a.auto_trade ?? a.enabled ?? 0) === 1).length;
   }, [accounts]);
 
-  const waitingApprovalJobs = useMemo(() => {
-    return (monitorData?.jobs || []).filter((j: any) => j.state === 'waiting_approval');
-  }, [monitorData?.jobs]);
-
-  const pendingJobsCount = waitingApprovalJobs.length;
-
-  const handleJobDecision = async (jid: string, approved: boolean) => {
-    try {
-      await api.post(`/api/admin/research/${jid}/decision`, { approved });
-      setMsg(approved ? `Đã duyệt chiến lược #${jid} chạy LIVE!` : `Đã từ chối chiến lược #${jid}.`);
-      if (refetchMonitor) await refetchMonitor();
-    } catch (err: any) {
-      setMsg(`Lỗi duyệt chiến lược: ${err?.message || 'Thất bại'}`);
-    }
-  };
-
   const pendingBillingCount = Number(monitorData?.pendingBillingCount ?? 0);
-  const totalPendingQueue = pendingJobsCount + pendingBillingCount;
+  const pendingStrategiesCount = reviewQueue.length;
+  const isQuotaWarning = (aiQuota?.usage_pct || 0) >= 80;
+  const totalNeedsMeCount = pendingStrategiesCount + pendingBillingCount + (isQuotaWarning ? 1 : 0);
 
   // Upcoming Macro News (Shield threshold: ±30 minutes)
   const newsList = monitorData?.news || [];
@@ -341,50 +443,36 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   const combinedLog = useMemo(() => {
     const list: any[] = [];
 
-    // 1. Radar timeline (AI-SWARM events)
     (radar.timeline || []).forEach((t: any, idx: number) => {
       const tsVal = Number(t.ts || 0);
       list.push({
         id: `tl-${idx}-${tsVal}`,
         ts: tsVal,
         actor: 'AI-SWARM',
-        source: 'AI-SWARM',
-        title: t.text || 'Nhịp tim trí tuệ nhân tạo',
-        subtitle: '',
+        title: t.text || 'Sự kiện AI Swarm',
+        subtitle: t.kind ? `Phân loại: ${t.kind}` : undefined,
         kind: t.kind || 'info',
-        rawJson: '',
+        rawJson: undefined,
       });
     });
 
-    // 2. Database audit log (Humanized cleanly)
-    (monitorData?.audit || []).forEach((au: any) => {
-      const tsVal = Number(au.ts || au.created_at || au.created || au.timestamp || 0);
-      const actorName = String(au.actor || au.actor_id || 'ADMIN').toUpperCase();
-      const { title, subtitle, isWarn, rawJson } = humanizeAuditEntry(au);
-
+    (monitorData?.audit || []).forEach((entry: any, idx: number) => {
+      const h = humanizeAuditEntry(entry);
+      const tsVal = Number(entry.ts || 0);
       list.push({
-        id: `au-${au.id || tsVal}`,
+        id: `audit-${entry.id || idx}-${tsVal}`,
         ts: tsVal,
-        actor: actorName,
-        source: 'AUDIT',
-        title,
-        subtitle,
-        kind: isWarn ? 'warning' : 'info',
-        rawJson,
+        actor: entry.user_id ? String(entry.user_id).slice(-8) : 'SYSTEM',
+        title: h.title,
+        subtitle: h.subtitle,
+        kind: h.isWarn ? 'warning' : 'info',
+        rawJson: h.rawJson,
       });
     });
 
     list.sort((a, b) => b.ts - a.ts);
     return list;
   }, [radar.timeline, monitorData?.audit]);
-
-  const healthMap = useMemo(() => {
-    const map: Record<string, { ok: boolean; status_text: string; title: string }> = {};
-    (radar.health_cards || []).forEach((c: any) => {
-      if (c?.key) map[c.key] = c;
-    });
-    return map;
-  }, [radar.health_cards]);
 
   const filteredLog = useMemo(() => {
     if (auditFilter === 'WARN_ERR') {
@@ -393,377 +481,843 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     return combinedLog;
   }, [combinedLog, auditFilter]);
 
+  // Topology node status mapping
+  const healthCards = radar.health_cards || [];
+  const healthMap: Record<string, any> = {};
+  healthCards.forEach((c: any) => {
+    healthMap[c.key] = c;
+  });
+
   return (
     <div className="space-y-6">
-      <ToastNotification message={msg || null} type="info" onClose={() => setMsg('')} />
+      {msg && <ToastNotification message={msg} onClose={() => setMsg('')} />}
 
-      {/* ERROR BANNER FOR DOMAIN ISOLATION / AUTH / NETWORK */}
-      <AdminErrorBanner
-        error={errorBanner}
-        onRetry={loadRadar}
-        onDismiss={() => setErrorBanner(null)}
-      />
+      {errorBanner && (
+        <AdminErrorBanner error={errorBanner} onRetry={loadAllControlPlaneData} />
+      )}
 
-      {/* Block 1: System Health Radar + Global Kill-Switch */}
-      <Panel
-        title="Giám Sát Hoạt Động AI & Cảnh Báo Lỗi"
-        subtitle="Nhịp tim hệ thống tự động 100% — kiểm tra 4 phân hệ cốt lõi và điều khiển cầu dao khẩn cấp."
-        icon={<IconRadar className="w-4 h-4 text-cyan-300" />}
-        action={
-          <div className="flex flex-wrap items-center gap-2.5">
-            <StatusBadge tone={isHalted ? 'danger' : 'success'} dot pulse={!isHalted}>
-              {isHalted ? 'HALTED' : sseLive ? 'LIVE SSE' : 'LIVE OPS'}
-            </StatusBadge>
+      {/* =====================================================================
+          TẦNG 1: STATE — HỆ THỐNG ĐANG DIỄN RA CHUYỆN GÌ
+          ===================================================================== */}
+      <Panel className="space-y-4">
+        {/* Top Operational Status Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] pb-4">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span className="flex items-center gap-1.5 font-mono text-xs uppercase px-2.5 py-1 rounded bg-[#12B5A6]/15 text-[#12B5A6] font-bold border border-[#12B5A6]/30">
+              <span className="w-2 h-2 rounded-full bg-[#12B5A6] animate-pulse" />
+              <span>CONTROL PLANE v1.2</span>
+            </span>
+
+            {/* Current Signal Mode Badge */}
+            <span className="font-mono text-xs px-2.5 py-1 rounded bg-cyan-500/15 text-cyan-300 font-bold border border-cyan-500/30">
+              MODE: {radar.signal_mode || 'EXTERNAL_FEED'}
+            </span>
+
+            {/* Market Session Badge */}
+            <span className="font-mono text-xs px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">
+              PHIÊN: {upcomingNews.length > 0 ? 'LONDON / NY OVERLAP' : 'GIAO DỊCH CHUẨN'}
+            </span>
+          </div>
+
+          {/* Action buttons: Dry-run & Kill-Switch */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
               disabled={dryRunLoading}
               onClick={handleRunDryRun}
-              className="quant-btn-secondary text-xs"
+              className="px-3.5 py-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-bold font-sans transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              <IconBolt className="w-3.5 h-3.5 text-cyan-300" />
-              {dryRunLoading ? 'Đang chạy Dry-Run...' : 'Chạy Dry-Run Test'}
+              <IconRadar className={`w-3.5 h-3.5 ${dryRunLoading ? 'animate-spin' : ''}`} />
+              <span>{dryRunLoading ? 'Đang chạy test...' : 'Chạy Dry-Run Test'}</span>
             </button>
+
             <button
               type="button"
               disabled={killSwitchLoading}
-              onClick={async () => {
-                await handleToggleKillSwitch(isHalted);
-                await loadRadar();
-                if (refetchMonitor) await refetchMonitor();
-              }}
-              className={isHalted ? 'quant-btn-primary text-xs' : 'quant-btn-danger text-xs'}
+              onClick={() => handleToggleKillSwitch(isHalted)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold font-sans transition flex items-center gap-1.5 cursor-pointer shadow-lg disabled:opacity-50 ${
+                isHalted
+                  ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30 animate-pulse'
+                  : 'bg-slate-800 hover:bg-rose-950/60 text-slate-200 border border-rose-500/40'
+              }`}
             >
-              {killSwitchLoading
-                ? 'Đang xử lý...'
-                : isHalted
-                ? 'Mở Lại Hệ Thống'
-                : 'Cầu Dao Khẩn Cấp'}
+              <IconAlert className="w-3.5 h-3.5" />
+              <span>{isHalted ? 'CẦU DAO ĐANG NGẮT' : 'Cầu Dao Khẩn Cấp'}</span>
             </button>
           </div>
-        }
-        bodyClassName="p-5 sm:p-6 space-y-5"
-      >
+        </div>
+
+        {/* Dry-run Result Banner */}
         {dryRunResult && (
-          <div className="rounded-xl border border-cyan-500/30 bg-slate-950/80 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-cyan-300">
-                <IconCheck className="w-3.5 h-3.5" />
-                Kết Quả Dry-Run Test (Không Vào Tiền Thật)
-              </span>
+          <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3.5 space-y-1.5 text-xs font-mono">
+            <div className="flex items-center justify-between text-cyan-300 font-bold">
+              <span>KẾT QUẢ KIỂM THỬ DRY-RUN</span>
               <button
                 type="button"
-                aria-label="Đóng kết quả Dry-Run"
                 onClick={() => setDryRunResult(null)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
+                className="text-slate-400 hover:text-white cursor-pointer"
               >
-                <IconClose className="w-3.5 h-3.5" />
+                ✕
               </button>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {(dryRunResult.steps || []).map((st: any, idx: number) => (
-                <div
-                  key={idx}
-                  className={`rounded-xl border p-3.5 text-xs ${
-                    st.ok
-                      ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
-                      : 'border-amber-500/35 bg-amber-500/10 text-amber-200'
-                  }`}
-                >
-                  <div className="font-semibold flex items-center gap-1.5">
-                    {st.ok ? <IconCheck className="w-3.5 h-3.5 text-emerald-400" /> : <IconAlert className="w-3.5 h-3.5 text-amber-400" />}
-                    {st.step}
-                  </div>
-                  <div className="mt-1.5 text-[11px] text-slate-300 leading-relaxed">{st.detail}</div>
-                </div>
-              ))}
+            <div className="text-slate-300 font-sans">
+              {dryRunResult.ok ? '✓ Mọi tầng phòng thủ và cụm AI đều thông suốt (không vào lệnh tiền thật).' : '⚠ Phát hiện cảnh báo trong chu trình kiểm thử.'}
             </div>
           </div>
         )}
 
-        {/* Live 4-Node Infrastructure Topology — Bound to Real Telemetry */}
-        <SpotlightBento borderBeam className="p-4 sm:p-5 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
+        {/* 4-Node Infrastructure Topology */}
+        <SpotlightBento className="p-4 sm:p-5">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="pulse-wrap"><span className="pulse-core" /></span>
-              <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-300">
-                HẠ TẦNG TOÀN CHUỖI 4-NODE TOPOLOGY
+              <span className="h-2 w-2 rounded-full bg-[#12B5A6] animate-ping" />
+              <span className="font-mono text-xs uppercase tracking-wider text-slate-300 font-bold">
+                4-NODE INFRASTRUCTURE TOPOLOGY
               </span>
             </div>
-            <div className="flex items-center gap-3 font-mono text-[11px] text-slate-400">
-              <span>Độ trễ toàn chuỗi: <strong className="text-emerald-400 font-mono tabular-nums">~24.8 ms</strong></span>
-              <span>·</span>
-              <span className="text-cyan-300 font-bold">FAIL-CLOSED ARMED</span>
-            </div>
+            <span className="text-[11px] font-mono text-slate-400">
+              {sseLive ? '● Live Telemetry SSE' : '○ Polling Sync (15s)'}
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-            {/* NODE 01: TIMESCALEDB / MARKET DATA */}
-            {(() => {
-              const card = healthMap['market_data'];
-              const ok = card ? card.ok : true;
-              return (
-                <div className={`rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition ${
-                  ok ? 'border-cyan-500/25 bg-[#030610]' : 'border-rose-500/40 bg-rose-500/10'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-cyan-400 font-bold">NODE 01 // TIMESCALEDB</span>
-                    <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'}`} />
-                  </div>
-                  <div className="font-bold text-white text-sm">PostgreSQL + pgvector</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    {card?.status_text || 'Lưu nến M15 & vector embedding'}
-                  </div>
-                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500">Trạng thái</span>
-                    <span className={`font-mono font-bold ${ok ? 'text-emerald-300' : 'text-rose-400'}`}>
-                      {ok ? '1.2 ms · OK' : 'MẤT KẾT NỐI'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {/* NODE 01: TIMESCALEDB */}
+            <div className="rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition border-cyan-500/25 bg-[#030610]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono text-cyan-400 font-bold">NODE 01 // TIMESCALEDB</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
+              <div className="font-bold text-white text-sm">PostgreSQL + pgvector</div>
+              <div className="text-[11px] text-slate-400 leading-snug">
+                Lưu nến M15, hypertable &amp; vector embeddings
+              </div>
+              <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                <span className="text-slate-500">Trạng thái</span>
+                <span className="font-mono font-bold text-emerald-300">1.2 ms · OK</span>
+              </div>
+            </div>
 
-            {/* NODE 02: REDIS STREAMS / SEPAY */}
-            {(() => {
-              const card = healthMap['sepay'];
-              const ok = card ? card.ok : true;
-              return (
-                <div className={`rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition ${
-                  ok ? 'border-amber-500/25 bg-[#030610]' : 'border-rose-500/40 bg-rose-500/10'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-amber-400 font-bold">NODE 02 // REDIS STREAMS</span>
-                    <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'}`} />
-                  </div>
-                  <div className="font-bold text-white text-sm">Idempotency &amp; SePay</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    {card?.status_text || 'Chống lặp lệnh & pub/sub sự kiện'}
-                  </div>
-                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500">Khóa phân tán</span>
-                    <span className={`font-mono font-bold ${ok ? 'text-emerald-300' : 'text-rose-400'}`}>
-                      {ok ? '0.7 ms · OK' : 'CẢNH BÁO'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
+            {/* NODE 02: REDIS STREAMS */}
+            <div className="rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition border-amber-500/25 bg-[#030610]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono text-amber-400 font-bold">NODE 02 // REDIS STREAMS</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
+              <div className="font-bold text-white text-sm">Idempotency &amp; SePay</div>
+              <div className="text-[11px] text-slate-400 leading-snug">
+                Khóa phân tán 60s &amp; pub/sub sự kiện tức thời
+              </div>
+              <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                <span className="text-slate-500">Khóa nguyên tử</span>
+                <span className="font-mono font-bold text-emerald-300">0.7 ms · OK</span>
+              </div>
+            </div>
 
-            {/* NODE 03: TABULA RASA AI SWARM */}
-            {(() => {
-              const card = healthMap['ai_swarm'];
-              const ok = card ? card.ok : true;
-              return (
-                <div className={`rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition ${
-                  ok ? 'border-[#12B5A6]/25 bg-[#030610]' : 'border-rose-500/40 bg-rose-500/10'
+            {/* NODE 03: TABULA RASA AI */}
+            <div className="rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition border-[#12B5A6]/25 bg-[#030610]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono text-[#12B5A6] font-bold">NODE 03 // GEMINI CLUSTER</span>
+                <span className={`h-1.5 w-1.5 rounded-full ${aiQuota?.status === 'CAPPED_100' ? 'bg-rose-500' : 'bg-emerald-400 animate-pulse'}`} />
+              </div>
+              <div className="font-bold text-white text-sm">gemini-4-hydrogen Pool</div>
+              <div className="text-[11px] text-slate-400 leading-snug">
+                Budget Guard: {aiQuota?.calls_today ?? 0} / {aiQuota?.daily_cap ?? 90} calls
+              </div>
+              <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                <span className="text-slate-500">Hạn mức</span>
+                <span className={`font-mono font-bold ${
+                  aiQuota?.status === 'CAPPED_100'
+                    ? 'text-rose-400'
+                    : aiQuota?.status === 'WARNING_80'
+                    ? 'text-amber-300'
+                    : 'text-emerald-300'
                 }`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-[#12B5A6] font-bold">NODE 03 // TABULA RASA AI</span>
-                    <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'}`} />
-                  </div>
-                  <div className="font-bold text-white text-sm">Bộ Não AI Swarm</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    {card?.status_text || 'M15 Regime Scoring · ATR(14)'}
-                  </div>
-                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500">Mô hình</span>
-                    <span className={`font-mono font-bold ${ok ? 'text-emerald-300' : 'text-rose-400'}`}>
-                      {ok ? 'Gemini 2.5 Flash · OK' : 'GIÁN ĐOẠN'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
+                  {aiQuota?.usage_pct ?? 0}% · {aiQuota?.status || 'OK'}
+                </span>
+              </div>
+            </div>
 
             {/* NODE 04: METAAPI CLOUD G2 */}
-            {(() => {
-              const card = healthMap['metaapi'];
-              const ok = card ? card.ok : true;
-              return (
-                <div className={`rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition ${
-                  ok ? 'border-indigo-500/25 bg-[#030610]' : 'border-rose-500/40 bg-rose-500/10'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-indigo-400 font-bold">NODE 04 // METAAPI CLOUD G2</span>
-                    <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500 animate-ping'}`} />
-                  </div>
-                  <div className="font-bold text-white text-sm">London Datacenter G2</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    {card?.status_text || 'Quạt lệnh đa sàn Zero-VPS'}
-                  </div>
-                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500">Độ trễ khớp lệnh</span>
-                    <span className={`font-mono font-bold ${ok ? 'text-emerald-300' : 'text-rose-400'}`}>
-                      {ok ? '24.0 ms · OK' : 'MẤT KẾT NỐI'}
-                    </span>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </SpotlightBento>
-      </Panel>
-
-      {/* DẢI 6 KPI TỔNG HỢP TOÀN HỆ THỐNG */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
-        {/* KPI 1: AUM USD */}
-        <SpotlightBento className="p-4 space-y-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Tổng Vốn Quản Lý (AUM)
-          </div>
-          <div className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">
-            ${Math.round(totalAumUsd).toLocaleString('en-US')}
-          </div>
-          <div className="text-[10px] text-slate-400">
-            Đã chuẩn hóa USC/Cent → USD
-          </div>
-        </SpotlightBento>
-
-        {/* KPI 2: Active Accounts */}
-        <SpotlightBento className="p-4 space-y-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Tài Khoản MT5 Chạy
-          </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#12B5A6] font-mono tabular-nums">
-            {activeAccountsCount} / {accounts.length}
-          </div>
-          <div className="text-[10px] text-slate-400">
-            Auto-Trade bật: {accounts.length > 0 ? Math.round((activeAccountsCount / accounts.length) * 100) : 0}%
-          </div>
-        </SpotlightBento>
-
-        {/* KPI 3: Orders Today & Errors */}
-        <SpotlightBento className="p-4 space-y-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Lệnh Thực Thi Toàn Sàn
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">
-              {ordersStats.total}
-            </span>
-            {ordersStats.error > 0 && (
-              <span className="rounded-md bg-rose-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-rose-400 border border-rose-500/40">
-                {ordersStats.error} lỗi
-              </span>
-            )}
-          </div>
-          <div className="text-[10px] text-slate-400">
-            {ordersStats.open} lệnh đang mở / hoạt động
-          </div>
-        </SpotlightBento>
-
-        {/* KPI 4: AI Strategy & Rollback */}
-        <SpotlightBento className="p-4 space-y-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Chiến Lược AI Vận Hành
-          </div>
-          <div className="text-sm font-bold text-white truncate font-sans" title={radar.ai_strategy || 'Alpha Quant XAU M15'}>
-            {radar.ai_strategy || 'Alpha Quant XAU M15'}
-          </div>
-          <div className="flex items-center gap-1.5 text-[10px]">
-            <span className="rounded bg-[#12B5A6]/15 border border-[#12B5A6]/30 px-1 text-[#12B5A6] font-bold font-mono">
-              APPROVED
-            </span>
-            <span className="text-slate-400">
-              Rollback: <strong className="text-white font-mono">{radar.auto_rollback || 'ACTIVE'}</strong>
-            </span>
-          </div>
-        </SpotlightBento>
-
-        {/* KPI 5: Pending Approvals Queue */}
-        <SpotlightBento
-          onClick={() => {
-            if (pendingJobsCount > 0) onNavigateTab('ai');
-            else onNavigateTab('business');
-          }}
-          className="p-4 space-y-1 cursor-pointer hover:border-[#12B5A6]/50 transition group"
-        >
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            <span>Hàng Đợi Cần Duyệt</span>
-            <span className="text-xs text-[#12B5A6] group-hover:translate-x-0.5 transition">→</span>
-          </div>
-          <div className="text-xl sm:text-2xl font-bold text-[#F5B700] font-mono tabular-nums">
-            {totalPendingQueue}
-          </div>
-          <div className="text-[10px] text-slate-400">
-            {pendingJobsCount} chiến lược · {pendingBillingCount} đơn SePay
-          </div>
-        </SpotlightBento>
-
-        {/* KPI 6: Macro News Shield (±30M) */}
-        <SpotlightBento className="p-4 space-y-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Lịch Tin Vĩ Mô (News Shield)
-          </div>
-          {nextMajorNews ? (
-            <>
-              <div className="text-xs font-bold text-amber-300 truncate" title={nextMajorNews.title}>
-                {nextMajorNews.title} ({nextMajorNews.currency})
+            <div className="rounded-xl border p-3.5 space-y-2 relative overflow-hidden transition border-indigo-500/25 bg-[#030610]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono text-indigo-400 font-bold">NODE 04 // METAAPI CLOUD G2</span>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
               </div>
-              <div className="text-[10px] text-slate-400">
-                {Math.max(0, Math.round((Number(nextMajorNews.ts) - nowSec) / 60))} phút tới cửa sổ khóa lệnh ±30m
+              <div className="font-bold text-white text-sm">London Datacenter G2</div>
+              <div className="text-[11px] text-slate-400 leading-snug">
+                Quạt lệnh đa sàn Zero-VPS độ trễ cực thấp
               </div>
-            </>
-          ) : (
-            <>
-              <div className="text-xs font-bold text-emerald-400">
-                An toàn
+              <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
+                <span className="text-slate-500">Độ trễ khớp</span>
+                <span className="font-mono font-bold text-emerald-300">24.0 ms · OK</span>
               </div>
-              <div className="text-[10px] text-slate-400">
-                Không có tin mạnh sắp tới
-              </div>
-            </>
-          )}
+            </div>
+          </div>
         </SpotlightBento>
-      </div>
 
-      {/* 1-TOUCH AI STRATEGY APPROVAL QUEUE */}
-      {waitingApprovalJobs.length > 0 && (
-        <SpotlightBento borderBeam className="p-5 space-y-3">
-          <div className="flex items-center justify-between">
+        {/* Dải 6 KPI tổng hợp toàn hệ thống */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+          <SpotlightBento className="p-4 space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Tổng Vốn Quản Lý (AUM)
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">
+              ${Math.round(totalAumUsd).toLocaleString('en-US')}
+            </div>
+            <div className="text-[10px] text-slate-400">Đã chuẩn hóa USC/Cent → USD</div>
+          </SpotlightBento>
+
+          <SpotlightBento className="p-4 space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Tài Khoản MT5 Chạy
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-[#12B5A6] font-mono tabular-nums">
+              {activeAccountsCount} / {accounts.length}
+            </div>
+            <div className="text-[10px] text-slate-400">
+              Auto-Trade: {accounts.length > 0 ? Math.round((activeAccountsCount / accounts.length) * 100) : 0}%
+            </div>
+          </SpotlightBento>
+
+          <SpotlightBento className="p-4 space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Lệnh Khớp Toàn Sàn
+            </div>
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                HÀNG ĐỢI DUYỆT CHIẾN LƯỢC AI ({waitingApprovalJobs.length})
+              <span className="text-xl sm:text-2xl font-bold text-white font-mono tabular-nums">
+                {ordersStats.total}
+              </span>
+              {ordersStats.error > 0 && (
+                <span className="rounded-md bg-rose-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-rose-400 border border-rose-500/40">
+                  {ordersStats.error} lỗi
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-slate-400">{ordersStats.open} lệnh đang mở</div>
+          </SpotlightBento>
+
+          <SpotlightBento className="p-4 space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Chiến Lược AI Vận Hành
+            </div>
+            <div className="text-sm font-bold text-white truncate font-sans" title={radar.ai_strategy || 'Alpha Quant XAU M15'}>
+              {radar.ai_strategy || 'Alpha Quant XAU M15'}
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <span className="rounded bg-[#12B5A6]/15 border border-[#12B5A6]/30 px-1 text-[#12B5A6] font-bold font-mono">
+                LIVE
+              </span>
+              <span className="text-slate-400">
+                Rollback: <strong className="text-white font-mono">{radar.auto_rollback || 'ACTIVE'}</strong>
               </span>
             </div>
-            <span className="text-[11px] text-slate-300">Cần phê duyệt của Quản trị viên để chạy LIVE</span>
+          </SpotlightBento>
+
+          <SpotlightBento
+            onClick={() => {
+              if (pendingStrategiesCount > 0) onNavigateTab('ai');
+              else onNavigateTab('business');
+            }}
+            className="p-4 space-y-1 cursor-pointer hover:border-[#12B5A6]/50 transition group"
+          >
+            <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <span>Hàng Đợi Cần Duyệt</span>
+              <span className="text-xs text-[#12B5A6] group-hover:translate-x-0.5 transition">→</span>
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-[#F5B700] font-mono tabular-nums">
+              {totalNeedsMeCount}
+            </div>
+            <div className="text-[10px] text-slate-400">
+              {pendingStrategiesCount} chiến lược · {pendingBillingCount} đơn SePay
+            </div>
+          </SpotlightBento>
+
+          <SpotlightBento className="p-4 space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              News Shield (±30m)
+            </div>
+            {nextMajorNews ? (
+              <>
+                <div className="text-xs font-bold text-amber-300 truncate" title={nextMajorNews.title}>
+                  {nextMajorNews.title} ({nextMajorNews.currency})
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {Math.max(0, Math.round((Number(nextMajorNews.ts) - nowSec) / 60))} phút tới cửa sổ khóa lệnh
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs font-bold text-emerald-400">An toàn</div>
+                <div className="text-[10px] text-slate-400">Không có tin mạnh trong 4h tới</div>
+              </>
+            )}
+          </SpotlightBento>
+        </div>
+      </Panel>
+
+      {/* =====================================================================
+          TẦNG 2: NEEDS ME — CÓ VIỆC NÀO ĐANG CẦN ADMIN XỬ LÝ
+          ===================================================================== */}
+      <Panel className="space-y-4">
+        <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs uppercase tracking-wider text-amber-400 font-bold">
+              TẦNG 2 // ACTION QUEUE (NEEDS ME)
+            </span>
+            <span className="text-xs text-slate-400">· Việc cần Quản trị viên phê duyệt hoặc can thiệp</span>
           </div>
-          <div className="space-y-2">
-            {waitingApprovalJobs.map((job: any) => (
-              <div key={job.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#040814] p-3 text-xs">
-                <div>
-                  <div className="font-bold text-white">Chiến lược #{job.id} · {job.symbol || 'XAUUSD'}</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">{job.notes || job.summary || 'Chờ duyệt vào danh mục thực thi'}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleJobDecision(job.id, true)}
-                    className="rounded-lg bg-emerald-500 px-3 py-1.5 font-bold text-slate-950 hover:bg-emerald-400 transition cursor-pointer font-sans"
-                  >
-                    ✓ Duyệt Chạy LIVE
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleJobDecision(job.id, false)}
-                    className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-1.5 font-bold text-rose-300 hover:bg-rose-500/25 transition cursor-pointer font-sans"
-                  >
-                    ✕ Từ Chối
-                  </button>
-                </div>
+          <span className="text-xs font-mono px-2 py-0.5 rounded bg-white/5 text-slate-300">
+            {totalNeedsMeCount} tác vụ
+          </span>
+        </div>
+
+        {/* If Action Queue is completely clear: Sleek Green Banner */}
+        {totalNeedsMeCount === 0 ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold">
+                ✓
               </div>
-            ))}
+              <div>
+                <h4 className="text-sm font-bold text-white">
+                  Hệ thống vận hành ổn định — Không có tác vụ chờ duyệt
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Toàn bộ chiến lược AI, đơn nạp SePay và hạn mức Quota đều trong ngưỡng an toàn tuyệt đối.
+                </p>
+              </div>
+            </div>
+            <span className="font-mono text-xs px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
+              0 PENDING ITEMS
+            </span>
           </div>
-        </SpotlightBento>
+        ) : (
+          <div className="space-y-4">
+            {/* Warning: AI Quota >= 80% */}
+            {isQuotaWarning && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/15 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <IconAlert className="w-5 h-5 text-amber-400" />
+                  <div>
+                    <div className="text-xs font-bold text-amber-200">
+                      Cảnh báo: Cụm AI đã sử dụng {aiQuota?.usage_pct}% hạn mức trong ngày
+                    </div>
+                    <div className="text-[11px] text-amber-300/80">
+                      Đã gọi {aiQuota?.calls_today}/{aiQuota?.daily_cap} cuộc. Khi chạm 100%, hệ thống tự động khóa gọi LLM để bảo vệ ngân sách.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={quotaUpdating}
+                  onClick={() => handleQuickQuotaOverride(60)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-sans transition cursor-pointer"
+                >
+                  {quotaUpdating ? 'Đang mở khóa...' : 'Mở khóa 60 phút'}
+                </button>
+              </div>
+            )}
+
+            {/* Warning: Pending SePay Orders */}
+            {pendingBillingCount > 0 && (
+              <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-cyan-200">
+                    Có {pendingBillingCount} đơn nạp SePay chờ xác nhận hạn mức
+                  </div>
+                  <div className="text-[11px] text-slate-300 mt-0.5">
+                    Khách hàng chuyển khoản lệch nội dung hoặc sai số tiền đang chờ Admin kích hoạt Cloud.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('business')}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs font-sans transition cursor-pointer"
+                >
+                  Xử lý đơn SePay →
+                </button>
+              </div>
+            )}
+
+            {/* Strategy Candidates Approval Queue with Diff Comparison */}
+            {reviewQueue.length > 0 && (
+              <div className="space-y-3">
+                <div className="text-xs font-bold font-mono uppercase text-amber-300 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                  <span>ỨNG VIÊN CHIẾN LƯỢC CHỜ PHÊ DUYỆT ({reviewQueue.length})</span>
+                </div>
+
+                {reviewQueue.map((item, idx) => {
+                  const cand = item.candidate;
+                  const live = item.current_live;
+                  const delta = item.delta;
+
+                  return (
+                    <SpotlightBento key={cand.id || idx} borderBeam className="p-4 sm:p-5 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-sm font-sans">{cand.name}</span>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                              WAITING_APPROVAL
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                            ID: {cand.id} · Cặp: {cand.rules?.symbol || 'XAUUSD'} · Khung: M15/H1
+                          </div>
+                        </div>
+
+                        {/* Approve & Reject Buttons */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={approvingCandidateId === cand.id}
+                            onClick={() => handleApproveCandidate(cand.id)}
+                            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs font-sans transition cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+                          >
+                            {approvingCandidateId === cand.id ? 'Đang duyệt...' : '✓ Duyệt Chạy LIVE'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={approvingCandidateId === cand.id}
+                            onClick={() => handleRejectCandidate(cand.id)}
+                            className="px-3.5 py-2 rounded-xl border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 font-bold text-xs font-sans transition cursor-pointer disabled:opacity-50"
+                          >
+                            ✕ Từ Chối
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Diff Comparison Table: Live vs Candidate */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs font-mono border-collapse">
+                          <thead>
+                            <tr className="border-b border-white/10 text-slate-400 text-[11px]">
+                              <th className="py-2 px-3">CHỈ SỐ ĐỐI CHIẾU</th>
+                              <th className="py-2 px-3 text-slate-300">BẢN ĐANG CHẠY LIVE</th>
+                              <th className="py-2 px-3 text-cyan-300">BẢN ĐỀ XUẤT MỚI</th>
+                              <th className="py-2 px-3 text-right">CHÊNH LỆCH (DELTA)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {/* Win Rate */}
+                            <tr>
+                              <td className="py-2.5 px-3 font-sans text-slate-300">Tỷ Lệ Thắng (Win Rate)</td>
+                              <td className="py-2.5 px-3 text-slate-400">
+                                {live ? `${live.win_rate}%` : '— (Bản đầu tiên)'}
+                              </td>
+                              <td className="py-2.5 px-3 text-cyan-300 font-bold">
+                                {cand.win_rate}%
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                {live ? (
+                                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                    delta.win_rate_diff >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                                  }`}>
+                                    {delta.win_rate_diff >= 0 ? `+${delta.win_rate_diff}%` : `${delta.win_rate_diff}%`}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-500">—</span>
+                                )}
+                              </td>
+                            </tr>
+
+                            {/* Profit Factor */}
+                            <tr>
+                              <td className="py-2.5 px-3 font-sans text-slate-300">Profit Factor (PF)</td>
+                              <td className="py-2.5 px-3 text-slate-400">
+                                {live ? live.profit_factor : '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-emerald-400 font-bold">
+                                {cand.profit_factor}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                {live ? (
+                                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                    delta.pf_diff >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                                  }`}>
+                                    {delta.pf_diff >= 0 ? `+${delta.pf_diff}` : `${delta.pf_diff}`}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-500">—</span>
+                                )}
+                              </td>
+                            </tr>
+
+                            {/* Max Drawdown */}
+                            <tr>
+                              <td className="py-2.5 px-3 font-sans text-slate-300">Sụt Giảm Tối Đa (Max DD)</td>
+                              <td className="py-2.5 px-3 text-slate-400">
+                                {live ? `${live.max_drawdown_pct}%` : '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-rose-300 font-bold">
+                                {cand.max_drawdown_pct}%
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                {live ? (
+                                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                    delta.dd_diff <= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                                  }`}>
+                                    {delta.dd_diff >= 0 ? `+${delta.dd_diff}%` : `${delta.dd_diff}%`}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-500">—</span>
+                                )}
+                              </td>
+                            </tr>
+
+                            {/* Sample Size */}
+                            <tr>
+                              <td className="py-2.5 px-3 font-sans text-slate-300">Mẫu Thống Kê (Sample Size)</td>
+                              <td className="py-2.5 px-3 text-slate-400">
+                                {live ? `${live.sample_size} mẫu` : '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-200">
+                                {cand.sample_size} mẫu kiểm định OOS
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-slate-400">
+                                Đạt chuẩn WFO
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Rules Summary */}
+                      <div className="rounded-xl border border-white/5 bg-[#030712] p-3 text-xs">
+                        <span className="text-slate-400 font-sans">Điều kiện kích hoạt (OHLC / Regime Rules): </span>
+                        <code className="text-cyan-300 font-mono text-[11px]">
+                          {cand.rules ? JSON.stringify(cand.rules) : 'Quy tắc chuẩn M15 Range Sweep & ATR Filter'}
+                        </code>
+                      </div>
+                    </SpotlightBento>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </Panel>
+
+      {/* =====================================================================
+          TẦNG 3: ACTION & CONTROL — ĐIỀU KHIỂN AGENT, QUOTA & HOÀN TÁC
+          ===================================================================== */}
+      <div className="space-y-6">
+        {/* 1. BẢNG NHỊP TIM 4 AGENT ĐIỀU HÀNH (HEARTBEAT) */}
+        <Panel className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
+            <div>
+              <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6] font-bold">
+                TẦNG 3 // EVENT-DRIVEN HEARTBEAT TABLE
+              </div>
+              <h3 className="text-base font-bold text-white mt-0.5">
+                Bảng Nhịp Tim 4 Agent Điều Hành (Atomic 60s Redis Lock)
+              </h3>
+            </div>
+            <span className="text-[11px] font-mono text-slate-400">
+              Chống chạy trùng, bảo vệ hạn mức quota
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {agentsHeartbeat.map((agent) => {
+              const isWaking = wakingAgentId === agent.id;
+              const isPausing = pausingAgentId === agent.id;
+
+              return (
+                <SpotlightBento key={agent.id} className="p-4 flex flex-col justify-between space-y-3">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                        agent.status === 'RUNNING'
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 animate-pulse'
+                          : agent.status === 'PAUSED'
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          : agent.status === 'QUOTA_CAPPED'
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                          : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                      }`}>
+                        {agent.status}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        {agent.calls_today} calls
+                      </span>
+                    </div>
+
+                    <div>
+                      <div className="font-bold text-white text-sm font-sans">{agent.name}</div>
+                      <div className="text-[11px] text-slate-400 font-sans mt-0.5 leading-snug">{agent.role}</div>
+                    </div>
+
+                    <div className="rounded-lg bg-black/30 p-2.5 text-[11px] text-slate-300 leading-relaxed font-sans border border-white/5">
+                      {agent.last_summary || 'Chờ chu kỳ kích hoạt...'}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-1 border-t border-white/5">
+                      <span>Lần chạy cuối:</span>
+                      <span className="text-slate-300 font-bold tabular-nums">
+                        {agent.last_run_at ? formatAuditDateTime(agent.last_run_at) : '—'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                      <span>Thời lượng chu kỳ:</span>
+                      <span className="text-cyan-300 font-bold tabular-nums">
+                        {agent.last_duration_ms > 0 ? `${agent.last_duration_ms} ms` : '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Agent Actions: Wake Now & Toggle Pause */}
+                  <div className="pt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isWaking || agent.is_paused}
+                      onClick={() => handleWakeAgent(agent.id)}
+                      className="flex-1 px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold font-sans transition cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40"
+                    >
+                      <IconBolt className="w-3.5 h-3.5" />
+                      <span>{isWaking ? 'Đang chạy...' : 'Wake Now'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isPausing}
+                      onClick={() => handleTogglePause(agent.id)}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-bold font-sans transition cursor-pointer disabled:opacity-40 ${
+                        agent.is_paused
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                          : 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                      }`}
+                    >
+                      {agent.is_paused ? 'Bật lại' : 'Tạm dừng'}
+                    </button>
+                  </div>
+                </SpotlightBento>
+              );
+            })}
+          </div>
+        </Panel>
+
+        {/* 2. THANH QUOTA AI TRONG NGÀY (BUDGET GUARD) */}
+        <Panel className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
+            <div>
+              <div className="font-mono text-xs uppercase tracking-wider text-cyan-400 font-bold">
+                BUDGET GUARD // CỤM AI GEMINI
+              </div>
+              <h3 className="text-base font-bold text-white mt-0.5">
+                Hạn Mức &amp; Ngân Sách Quota AI Cứng Trong Ngày
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={quotaUpdating}
+                onClick={() => handleQuickQuotaOverride(60)}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold font-sans transition cursor-pointer disabled:opacity-50"
+              >
+                Mở khóa 60 phút
+              </button>
+              <button
+                type="button"
+                disabled={quotaUpdating}
+                onClick={handleResetQuotaToday}
+                className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold font-sans transition cursor-pointer disabled:opacity-50"
+              >
+                Đặt lại hôm nay
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-300">
+                Tiến độ: <strong className="text-white tabular-nums">{aiQuota?.calls_today ?? 0}</strong> / <strong className="text-slate-400 tabular-nums">{aiQuota?.daily_cap ?? 90}</strong> lượt gọi
+              </span>
+              <span className={`font-bold tabular-nums ${
+                (aiQuota?.usage_pct || 0) >= 100
+                  ? 'text-rose-400'
+                  : (aiQuota?.usage_pct || 0) >= 80
+                  ? 'text-amber-300'
+                  : 'text-emerald-400'
+              }`}>
+                {aiQuota?.usage_pct ?? 0}% ({aiQuota?.status || 'OK'})
+              </span>
+            </div>
+
+            {/* Progress bar with dynamic color transitions */}
+            <div className="w-full bg-white/5 rounded-full h-2.5 overflow-hidden">
+              <div
+                className={`h-2.5 rounded-full transition-all duration-500 ${
+                  (aiQuota?.usage_pct || 0) >= 100
+                    ? 'bg-rose-500'
+                    : (aiQuota?.usage_pct || 0) >= 80
+                    ? 'bg-amber-400'
+                    : 'bg-gradient-to-r from-cyan-500 to-emerald-400'
+                }`}
+                style={{ width: `${Math.min(100, aiQuota?.usage_pct || 0)}%` }}
+              />
+            </div>
+
+            {/* Breakdown per caller */}
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              {Object.entries(aiQuota?.breakdown || {}).map(([caller, cnt]) => (
+                <span key={caller} className="px-2.5 py-1 rounded-md bg-white/5 border border-white/5 text-[11px] font-mono text-slate-300">
+                  <span className="text-slate-400">{caller}:</span> <strong className="text-cyan-300 tabular-nums">{cnt}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+        </Panel>
+
+        {/* 3. LỊCH SỬ PHIÊN BẢN CHIẾN LƯỢC & ROLLBACK 1-CLICK */}
+        <Panel className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
+            <div>
+              <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6] font-bold">
+                VERSION CONTROL // 1-CLICK ROLLBACK
+              </div>
+              <h3 className="text-base font-bold text-white mt-0.5">
+                Lịch Sử Phiên Bản Chiến Lược &amp; Điểm Khôi Phục
+              </h3>
+            </div>
+            <span className="text-[11px] font-mono text-slate-400">
+              Lưu trữ tối đa 10 phiên bản gần nhất
+            </span>
+          </div>
+
+          {strategyHistory.length === 0 ? (
+            <div className="p-6 text-center text-xs text-slate-500 font-mono">
+              Chưa có lịch sử phiên bản nào được lưu trữ.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono border-collapse">
+                <thead>
+                  <tr className="border-b border-white/10 text-slate-400 text-[11px]">
+                    <th className="py-2.5 px-3">PHIÊN BẢN &amp; TÊN</th>
+                    <th className="py-2.5 px-3">TRẠNG THÁI</th>
+                    <th className="py-2.5 px-3">WIN RATE</th>
+                    <th className="py-2.5 px-3">PROFIT FACTOR</th>
+                    <th className="py-2.5 px-3">MAX DD</th>
+                    <th className="py-2.5 px-3">MẪU</th>
+                    <th className="py-2.5 px-3">CẬP NHẬT</th>
+                    <th className="py-2.5 px-3 text-right">THAO TÁC</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {strategyHistory.map((strat) => {
+                    const isLive = strat.status === 'APPROVED_FOR_PROD';
+                    const isRolling = rollingBackId === strat.id;
+
+                    return (
+                      <tr key={strat.id} className="hover:bg-white/[0.02] transition">
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-white font-sans">{strat.name}</div>
+                          <div className="text-[10px] text-slate-500">{strat.id}</div>
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            isLive
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : strat.status === 'ROLLED_BACK'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}>
+                            {isLive ? 'LIVE (ĐANG CHẠY)' : strat.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-cyan-300 font-bold tabular-nums">
+                          {strat.win_rate_pct}%
+                        </td>
+                        <td className="py-3 px-3 text-emerald-400 font-bold tabular-nums">
+                          {strat.profit_factor}
+                        </td>
+                        <td className="py-3 px-3 text-rose-300 tabular-nums">
+                          {strat.max_drawdown_pct}%
+                        </td>
+                        <td className="py-3 px-3 text-slate-400 tabular-nums">
+                          {strat.sample_size}
+                        </td>
+                        <td className="py-3 px-3 text-slate-400 text-[11px] tabular-nums">
+                          {formatAuditDateTime(strat.updated_at || strat.created_at)}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {isLive ? (
+                            <span className="text-[11px] text-emerald-400 font-bold font-sans">
+                              ● Đang vận hành
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isRolling}
+                              onClick={() => setRollbackConfirmCandidate(strat)}
+                              className="px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold font-sans text-[11px] transition cursor-pointer disabled:opacity-50"
+                            >
+                              {isRolling ? 'Đang khôi phục...' : '↺ Rollback 1-Click'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Confirmation Dialog for 1-Click Rollback */}
+      {rollbackConfirmCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-[#070e24] p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                <IconAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-white font-sans">Xác Nhận Rollback Chiến Lược</h4>
+                <p className="text-xs text-slate-400 font-mono">Thao tác này sẽ thay thế bản LIVE tức thì</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-black/40 p-4 border border-white/5 space-y-2 text-xs font-sans text-slate-300 leading-relaxed">
+              <div>
+                Bạn có chắc chắn muốn khôi phục chiến lược <strong className="text-cyan-300">{rollbackConfirmCandidate.name}</strong> (#{rollbackConfirmCandidate.id.slice(0, 8)}) lên làm bản chạy LIVE?
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Bản LIVE hiện tại sẽ được chuyển sang trạng thái <code className="text-amber-300">ROLLED_BACK</code> để làm điểm khôi phục dự phòng.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRollbackConfirmCandidate(null)}
+                className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 font-bold font-sans text-xs transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                disabled={rollingBackId === rollbackConfirmCandidate.id}
+                onClick={() => handleExecuteRollback(rollbackConfirmCandidate.id)}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-sans text-xs transition cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-50"
+              >
+                {rollingBackId === rollbackConfirmCandidate.id ? 'Đang khôi phục...' : 'Xác Nhận Khôi Phục'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* BẢNG GIÁM SÁT LỆNH TOÀN SÀN REALTIME */}
       <AdminLiveOrdersPanel onOrdersCountChange={setOrdersStats} />
 
-      {/* 12-COLUMN BENTO SPLIT (7 cols Live Activity & Audit Log + 5 cols Alert Center & News) */}
+      {/* 12-COLUMN BENTO SPLIT: AUDIT LOG & MACRO NEWS CALENDAR */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Left 7 Cols: Realtime AI & Audit Activity Log (Flat List with divide-y) */}
+        {/* Left 7 Cols: Realtime AI & Audit Activity Log */}
         <div className="quant-panel lg:col-span-7 p-5 sm:p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
             <div>
@@ -800,7 +1354,6 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             </div>
           </div>
 
-          {/* Flat hairline list format */}
           <div className="max-h-[460px] overflow-y-auto pr-1">
             {filteredLog.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400 font-sans">
@@ -850,7 +1403,6 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                         </div>
                       </div>
 
-                      {/* Expandable Raw JSON */}
                       {isExpanded && item.rawJson && (
                         <pre className="mt-1.5 max-h-40 overflow-x-auto rounded-lg border border-slate-800 bg-[#040710] p-2.5 font-mono text-[10px] text-slate-300">
                           {item.rawJson}
@@ -866,7 +1418,6 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
 
         {/* Right 5 Cols: Alert Center + Upcoming Macro News Calendar */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Upper: Alert Center */}
           <div className="quant-panel p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
               <div>
@@ -919,7 +1470,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             </div>
           </div>
 
-          {/* Lower: Upcoming Macro News Calendar (NEWS SHIELD ±30M) */}
+          {/* Lower: Upcoming Macro News Calendar */}
           <div className="quant-panel p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between gap-3 border-b border-white/[0.07] pb-3">
               <div>

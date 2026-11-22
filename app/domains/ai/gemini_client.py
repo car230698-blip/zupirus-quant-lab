@@ -116,6 +116,140 @@ GEMINI_FALLBACK_MODELS = [
 ]
 
 
+def _increment_kv(cursor, key: str):
+    """Safely increments an integer value stored in kv table across SQLite and Postgres."""
+    row = cursor.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
+    if row and row[0]:
+        try:
+            curr = int(row["value"] if hasattr(row, "keys") else row[0])
+        except Exception:
+            curr = 0
+        new_val = str(curr + 1)
+        cursor.execute("UPDATE kv SET value = ? WHERE key = ?", (new_val, key))
+    else:
+        cursor.execute("INSERT INTO kv (key, value) VALUES (?, '1')", (key,))
+
+
+def get_daily_quota_stats(c=None) -> Dict[str, Any]:
+    """Retrieves current daily LLM call statistics, daily cap, and usage status."""
+    day_str = time.strftime("%Y-%m-%d", time.gmtime())
+
+    def _read(cursor):
+        total_row = cursor.execute("SELECT value FROM kv WHERE key = ?", (f"ai_quota:{day_str}:calls_total",)).fetchone()
+        calls_today = int(total_row["value"] if hasattr(total_row, "keys") else total_row[0]) if total_row and total_row[0] else 0
+
+        cap_row = cursor.execute("SELECT value FROM kv WHERE key = 'ai_daily_call_cap'").fetchone()
+        if cap_row and cap_row[0]:
+            try:
+                daily_cap = max(1, int(cap_row["value"] if hasattr(cap_row, "keys") else cap_row[0]))
+            except Exception:
+                daily_cap = 90
+        else:
+            try:
+                keys = get_active_keys(cursor)
+                daily_cap = max(1, len(keys) * 18)
+            except Exception:
+                daily_cap = 90
+
+        ov_row = cursor.execute("SELECT value FROM kv WHERE key = 'ai_quota_override_until'").fetchone()
+        override_until = float(ov_row["value"] if hasattr(ov_row, "keys") else ov_row[0]) if ov_row and ov_row[0] else 0.0
+
+        known_callers = ["sentinel", "alpha", "risk_guardian", "research", "research_wfo", "ingest", "admin_chat", "system"]
+        breakdown: Dict[str, int] = {}
+        for ag in known_callers:
+            r = cursor.execute("SELECT value FROM kv WHERE key = ?", (f"ai_quota:{day_str}:agent:{ag}",)).fetchone()
+            val = int(r["value"] if hasattr(r, "keys") else r[0]) if r and r[0] else 0
+            breakdown[ag] = val
+
+        return calls_today, daily_cap, override_until, breakdown
+
+    if c:
+        calls_today, daily_cap, override_until, breakdown = _read(c)
+    else:
+        try:
+            from app.db import tx
+            with tx() as conn:
+                calls_today, daily_cap, override_until, breakdown = _read(conn)
+        except Exception:
+            calls_today, daily_cap, override_until, breakdown = 0, 90, 0.0, {}
+
+    usage_pct = round((calls_today / max(1, daily_cap)) * 100.0, 1)
+    is_overridden = bool(override_until > time.time())
+    if usage_pct >= 100.0 and not is_overridden:
+        status = "CAPPED_100"
+    elif usage_pct >= 80.0:
+        status = "WARNING_80"
+    else:
+        status = "OK"
+
+    return {
+        "calls_today": calls_today,
+        "daily_cap": daily_cap,
+        "usage_pct": usage_pct,
+        "status": status,
+        "is_overridden": is_overridden,
+        "override_until": override_until,
+        "breakdown": breakdown,
+    }
+
+
+def record_ai_call(caller_agent: str = "system", c=None):
+    """Increments the daily AI call counters in kv for both total and per-agent caller."""
+    day_str = time.strftime("%Y-%m-%d", time.gmtime())
+    norm_agent = (caller_agent or "system").strip().lower()
+
+    def _do_write(cursor):
+        _increment_kv(cursor, f"ai_quota:{day_str}:calls_total")
+        _increment_kv(cursor, f"ai_quota:{day_str}:agent:{norm_agent}")
+
+    if c:
+        _do_write(c)
+    else:
+        try:
+            from app.db import tx
+            with tx() as conn:
+                _do_write(conn)
+        except Exception as e:
+            logger.debug(f"record_ai_call error: {e}")
+
+
+def update_ai_quota_config(
+    daily_cap: Optional[int] = None,
+    reset_today: bool = False,
+    override_minutes: Optional[int] = None,
+    c=None,
+) -> Dict[str, Any]:
+    """Updates AI daily quota settings, resets daily usage, or activates a manual override window."""
+    day_str = time.strftime("%Y-%m-%d", time.gmtime())
+    now = time.time()
+
+    def _apply(cursor):
+        if daily_cap is not None and daily_cap > 0:
+            row = cursor.execute("SELECT value FROM kv WHERE key = 'ai_daily_call_cap'").fetchone()
+            if row:
+                cursor.execute("UPDATE kv SET value = ? WHERE key = 'ai_daily_call_cap'", (str(daily_cap),))
+            else:
+                cursor.execute("INSERT INTO kv (key, value) VALUES ('ai_daily_call_cap', ?)", (str(daily_cap),))
+        if reset_today:
+            cursor.execute("DELETE FROM kv WHERE key LIKE ?", (f"ai_quota:{day_str}:%",))
+        if override_minutes is not None and override_minutes > 0:
+            until_ts = now + (override_minutes * 60.0)
+            row = cursor.execute("SELECT value FROM kv WHERE key = 'ai_quota_override_until'").fetchone()
+            if row:
+                cursor.execute("UPDATE kv SET value = ? WHERE key = 'ai_quota_override_until'", (str(until_ts),))
+            else:
+                cursor.execute("INSERT INTO kv (key, value) VALUES ('ai_quota_override_until', ?)", (str(until_ts),))
+
+    if c:
+        _apply(c)
+    else:
+        from app.db import tx
+        with tx() as conn:
+            _apply(conn)
+
+    return get_daily_quota_stats(c=c)
+
+
 def call_gemini(
     prompt: str,
     system_instruction: Optional[str] = None,
@@ -125,9 +259,70 @@ def call_gemini(
     max_tries: int = 5,
     model: Optional[str] = None,
     image: Optional[str] = None,
+    caller_agent: str = "system",
 ) -> Tuple[Optional[str], Optional[str]]:
     """Calls Google Gemini API with multi-key AND multi-model failover across the configured pool.
+    Guarded by daily quota cap (80% warning, 100% hard block returning (None, 'QUOTA_CAP_REACHED')).
     Returns (response_text, used_key_id)."""
+    # 1. Budget Guard & Daily Quota Pre-Check
+    quota_stats = get_daily_quota_stats(c=c)
+    usage_pct = quota_stats.get("usage_pct", 0.0)
+    calls_today = quota_stats.get("calls_today", 0)
+    daily_cap = quota_stats.get("daily_cap", 90)
+    is_overridden = quota_stats.get("is_overridden", False)
+
+    if usage_pct >= 80.0 and usage_pct < 100.0:
+        try:
+            from app.domains.notifications.service import emit_notification
+            def _emit_80(conn):
+                emit_notification(
+                    conn,
+                    role="admin",
+                    severity="WARNING",
+                    title="Cảnh Báo Quota AI Đạt 80%",
+                    body=f"Cụm AI đã sử dụng {calls_today}/{daily_cap} lượt gọi ({usage_pct}%).",
+                    cooldown_key="ai_quota_80",
+                    cooldown_sec=3600,
+                )
+            if c:
+                _emit_80(c)
+            else:
+                from app.db import tx
+                with tx() as conn:
+                    _emit_80(conn)
+        except Exception as e:
+            logger.debug(f"Quota 80% notification note: {e}")
+
+    if usage_pct >= 100.0 and not is_overridden:
+        try:
+            from app.domains.notifications.service import emit_notification
+            def _emit_100(conn):
+                emit_notification(
+                    conn,
+                    role="admin",
+                    severity="CRITICAL",
+                    title="Quota AI Đã Chạm Trần 100%",
+                    body=f"Cụm AI đã chạm trần {calls_today}/{daily_cap} lượt gọi (100%). Chặn toàn bộ cuộc gọi LLM không bắt buộc.",
+                    cooldown_key="ai_quota_100",
+                    cooldown_sec=1800,
+                    send_email=True,
+                )
+            if c:
+                _emit_100(c)
+            else:
+                from app.db import tx
+                with tx() as conn:
+                    _emit_100(conn)
+        except Exception as e:
+            logger.debug(f"Quota 100% notification note: {e}")
+
+        try:
+            from app.domains.ai.signal_swarm import mark_agent_quota_capped
+            mark_agent_quota_capped(caller_agent)
+        except Exception:
+            pass
+
+        return None, "QUOTA_CAP_REACHED"
     keys = active_keys or []
     if not keys:
         if c:
@@ -219,6 +414,7 @@ def call_gemini(
                             text = parts[0]["text"]
                             if c:
                                 update_key_usage(c, kid, success=True)
+                            record_ai_call(caller_agent=caller_agent, c=c)
                             return text, f"{kid} · {target_model}"
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode("utf-8", errors="ignore")
@@ -240,6 +436,7 @@ def call_gemini(
                         break
                 continue
 
+    record_ai_call(caller_agent=caller_agent, c=c)
     logger.info(f"Gemini pool exhausted or offline, returning fallback. Last err: {last_error}")
     return None, None
 

@@ -190,10 +190,25 @@ def start_research(u=Depends(get_current_admin)):
 class Decision(Model): approved: bool
 @router.post('/api/admin/research/{jid}/decision', tags=["admin-core"])
 def decision(jid: str, p: Decision, u=Depends(get_current_admin)):
+    now = time.time()
     with tx() as c:
         row = c.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
-        if not row or row['state'] != 'waiting_approval': fail(409, 'Job not waiting for approval')
-        c.execute("UPDATE jobs SET state='resume',decision=? WHERE id=?", (int(p.approved), jid))
+        if row:
+            if row['state'] != 'waiting_approval':
+                fail(409, 'Job not waiting for approval')
+            c.execute("UPDATE jobs SET state='resume',decision=? WHERE id=?", (int(p.approved), jid))
+
+        # Check if jid matches a strategy candidate
+        cand = c.execute("SELECT id, name FROM strategy_candidates WHERE id=?", (jid,)).fetchone()
+        if cand:
+            if p.approved:
+                c.execute("UPDATE strategy_candidates SET status = 'ARCHIVED_PROD', updated_at = ? WHERE status = 'APPROVED_FOR_PROD'", (now,))
+                c.execute("UPDATE strategy_candidates SET status = 'APPROVED_FOR_PROD', updated_at = ? WHERE id = ?", (now, jid))
+            else:
+                c.execute("UPDATE strategy_candidates SET status = 'REJECTED', updated_at = ? WHERE id = ?", (now, jid))
+        elif not row:
+            fail(404, 'Job or strategy not found')
+
         audit(c, u['id'], 'research_decision', {'job': jid, 'approved': p.approved})
     return {'ok': True}
 
@@ -531,5 +546,307 @@ def get_prometheus_metrics(_admin=Depends(get_current_admin)):
         f"zupirus_active_drawdown_halts {int(dd_halts)}",
     ]
     return PlainTextResponse(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Admin Control Plane v1.2 — AI Quota, 4-Agent Heartbeat & Strategy Gate
+# ---------------------------------------------------------------------------
+
+class AiQuotaUpdatePayload(BaseModel):
+    daily_cap: Optional[int] = None
+    reset_today: Optional[bool] = False
+    override_minutes: Optional[int] = None
+
+
+@router.get('/api/admin/ai/quota', tags=["admin-ai"])
+def get_ai_quota_api(_admin=Depends(get_current_admin)):
+    """Returns AI cluster daily call metrics, daily cap, usage status and caller breakdown."""
+    from app.domains.ai.gemini_client import get_daily_quota_stats
+    return get_daily_quota_stats()
+
+
+@router.put('/api/admin/ai/quota', tags=["admin-ai"])
+def update_ai_quota_api(p: AiQuotaUpdatePayload, u=Depends(get_current_admin)):
+    """Updates AI daily cap, resets daily usage, or activates manual override."""
+    from app.domains.ai.gemini_client import update_ai_quota_config
+    with tx() as c:
+        res = update_ai_quota_config(
+            daily_cap=p.daily_cap,
+            reset_today=bool(p.reset_today),
+            override_minutes=p.override_minutes,
+            c=c,
+        )
+        audit(c, u['id'], 'ai_quota_updated', {
+            'daily_cap': p.daily_cap,
+            'reset_today': p.reset_today,
+            'override_minutes': p.override_minutes,
+        })
+    return res
+
+
+@router.get('/api/admin/agents/heartbeat', tags=["admin-swarm"])
+def get_agents_heartbeat_api(_admin=Depends(get_current_admin)):
+    """Returns standardized heartbeat status for all 4 operational agents."""
+    from app.domains.ai.signal_swarm import get_agents_heartbeat
+    with tx() as c:
+        agents = get_agents_heartbeat(c=c)
+    return {"total": len(agents), "agents": agents}
+
+
+@router.post('/api/admin/agents/{agent_id}/toggle-pause', tags=["admin-swarm"])
+def toggle_pause_agent_api(agent_id: str, u=Depends(get_current_admin)):
+    """Toggles pause/resume state for a specific operational agent."""
+    from app.domains.ai.signal_swarm import toggle_pause_agent
+    with tx() as c:
+        res = toggle_pause_agent(agent_id=agent_id, c=c)
+        if not res.get("ok"):
+            fail(400, res.get("message", "Thao tác không thành công"))
+        audit(c, u['id'], 'agent_pause_toggled', {'agent_id': agent_id, 'is_paused': res.get('is_paused')})
+    return res
+
+
+@router.post('/api/admin/agents/{agent_id}/wake', tags=["admin-swarm"])
+def wake_agent_api(agent_id: str, u=Depends(get_current_admin)):
+    """Immediately triggers an operational cycle for the agent with 60s Atomic Redis Lock.
+    Returns 409 Conflict if an active cycle is currently holding the lock."""
+    from app.domains.ai.signal_swarm import wake_agent
+    ok, msg, data = wake_agent(agent_id=agent_id)
+    if not ok:
+        if "chống chạy trùng" in msg or "đang chạy" in msg:
+            fail(409, msg)
+        fail(400, msg)
+    with tx() as c:
+        audit(c, u['id'], 'agent_woken', {'agent_id': agent_id, 'result': data})
+    return {"ok": True, "message": msg, "data": data}
+
+
+@router.get('/api/admin/strategies/review-queue', tags=["admin-strategy"])
+def get_strategy_review_queue(_admin=Depends(get_current_admin)):
+    """Returns all WAITING_APPROVAL candidates with side-by-side diff comparison against current LIVE strategy."""
+    import json
+    with tx() as c:
+        waiting_rows = c.execute(
+            """
+            SELECT id, name, status, rules_json, sample_size, win_rate, profit_factor,
+                   sharpe_ratio, max_drawdown_pct, oos_net_units, created_at, updated_at
+            FROM strategy_candidates
+            WHERE status = 'WAITING_APPROVAL'
+            ORDER BY updated_at DESC LIMIT 20
+            """
+        ).fetchall()
+
+        live_row = c.execute(
+            """
+            SELECT id, name, status, rules_json, sample_size, win_rate, profit_factor,
+                   sharpe_ratio, max_drawdown_pct, oos_net_units, created_at, updated_at
+            FROM strategy_candidates
+            WHERE status = 'APPROVED_FOR_PROD'
+            ORDER BY updated_at DESC LIMIT 1
+            """
+        ).fetchone()
+
+        current_live = None
+        if live_row:
+            ld = dict(live_row) if hasattr(live_row, "keys") else {
+                "id": live_row[0], "name": live_row[1], "status": live_row[2], "rules_json": live_row[3],
+                "sample_size": live_row[4], "win_rate": live_row[5], "profit_factor": live_row[6],
+                "sharpe_ratio": live_row[7], "max_drawdown_pct": live_row[8], "oos_net_units": live_row[9],
+                "created_at": live_row[10], "updated_at": live_row[11]
+            }
+            try:
+                lr_rules = json.loads(ld.get("rules_json") or "{}")
+            except Exception:
+                lr_rules = {}
+            l_wr = float(ld.get("win_rate") or 0.0)
+            current_live = {
+                "id": ld.get("id"),
+                "name": ld.get("name"),
+                "win_rate": round(l_wr * 100.0 if l_wr <= 1.0 else l_wr, 1),
+                "profit_factor": round(float(ld.get("profit_factor") or 0.0), 2),
+                "max_drawdown_pct": round(float(ld.get("max_drawdown_pct") or 0.0), 2),
+                "sample_size": int(ld.get("sample_size") or 0),
+                "rules": lr_rules,
+            }
+
+        queue = []
+        for wr in waiting_rows:
+            cd = dict(wr) if hasattr(wr, "keys") else {
+                "id": wr[0], "name": wr[1], "status": wr[2], "rules_json": wr[3],
+                "sample_size": wr[4], "win_rate": wr[5], "profit_factor": wr[6],
+                "sharpe_ratio": wr[7], "max_drawdown_pct": wr[8], "oos_net_units": wr[9],
+                "created_at": wr[10], "updated_at": wr[11]
+            }
+            try:
+                c_rules = json.loads(cd.get("rules_json") or "{}")
+            except Exception:
+                c_rules = {}
+            c_wr = float(cd.get("win_rate") or 0.0)
+            c_wr_pct = round(c_wr * 100.0 if c_wr <= 1.0 else c_wr, 1)
+            c_pf = round(float(cd.get("profit_factor") or 0.0), 2)
+            c_dd = round(float(cd.get("max_drawdown_pct") or 0.0), 2)
+
+            cand_obj = {
+                "id": cd.get("id"),
+                "name": cd.get("name"),
+                "win_rate": c_wr_pct,
+                "profit_factor": c_pf,
+                "max_drawdown_pct": c_dd,
+                "sample_size": int(cd.get("sample_size") or 0),
+                "rules": c_rules,
+            }
+
+            if current_live:
+                delta = {
+                    "win_rate_diff": round(c_wr_pct - current_live["win_rate"], 1),
+                    "pf_diff": round(c_pf - current_live["profit_factor"], 2),
+                    "dd_diff": round(c_dd - current_live["max_drawdown_pct"], 2),
+                }
+            else:
+                delta = {
+                    "win_rate_diff": 0.0,
+                    "pf_diff": 0.0,
+                    "dd_diff": 0.0,
+                }
+
+            queue.append({
+                "candidate": cand_obj,
+                "current_live": current_live,
+                "delta": delta,
+            })
+
+    return {"total": len(queue), "queue": queue}
+
+
+@router.post('/api/admin/strategies/{candidate_id}/approve', tags=["admin-strategy"])
+def approve_strategy_candidate(candidate_id: str, u=Depends(get_current_admin)):
+    """Approves a strategy candidate to APPROVED_FOR_PROD, archiving any previous live strategy."""
+    now = time.time()
+    with tx() as c:
+        cand = c.execute("SELECT id, name FROM strategy_candidates WHERE id = ?", (candidate_id,)).fetchone()
+        if not cand:
+            fail(404, f"Không tìm thấy chiến lược: {candidate_id}")
+        cand_name = cand["name"] if hasattr(cand, "keys") else cand[1]
+
+        # 1. Archive previous APPROVED_FOR_PROD
+        c.execute("UPDATE strategy_candidates SET status = 'ARCHIVED_PROD', updated_at = ? WHERE status = 'APPROVED_FOR_PROD'", (now,))
+
+        # 2. Promote candidate to APPROVED_FOR_PROD
+        c.execute("UPDATE strategy_candidates SET status = 'APPROVED_FOR_PROD', updated_at = ? WHERE id = ?", (now, candidate_id))
+
+        audit(c, u['id'], 'strategy_approved', {'candidate_id': candidate_id, 'name': cand_name})
+        try:
+            from app.domains.notifications.service import emit_notification
+            emit_notification(
+                c,
+                role="admin",
+                severity="INFO",
+                title="Chiến Lược AI Đã Được Duyệt Chạy LIVE",
+                body=f"Chiến lược {cand_name} (#{candidate_id[:8]}) đã được thăng hạng lên APPROVED_FOR_PROD.",
+            )
+        except Exception:
+            pass
+
+    return {"ok": True, "message": f"Chiến lược {cand_name} đã được duyệt chạy LIVE."}
+
+
+@router.post('/api/admin/strategies/{candidate_id}/reject', tags=["admin-strategy"])
+def reject_strategy_candidate(candidate_id: str, u=Depends(get_current_admin)):
+    """Rejects a strategy candidate."""
+    now = time.time()
+    with tx() as c:
+        cand = c.execute("SELECT id, name FROM strategy_candidates WHERE id = ?", (candidate_id,)).fetchone()
+        if not cand:
+            fail(404, f"Không tìm thấy chiến lược: {candidate_id}")
+        cand_name = cand["name"] if hasattr(cand, "keys") else cand[1]
+
+        c.execute("UPDATE strategy_candidates SET status = 'REJECTED', updated_at = ? WHERE id = ?", (now, candidate_id))
+        audit(c, u['id'], 'strategy_rejected', {'candidate_id': candidate_id, 'name': cand_name})
+
+    return {"ok": True, "message": f"Đã từ chối chiến lược {cand_name}."}
+
+
+@router.get('/api/admin/strategies/history', tags=["admin-strategy"])
+def get_strategy_history(_admin=Depends(get_current_admin)):
+    """Returns the last 10 strategy versions (APPROVED_FOR_PROD, ARCHIVED_PROD, PAUSED_DRAWDOWN_GUARD, ROLLED_BACK)."""
+    import json
+    with tx() as c:
+        rows = c.execute(
+            """
+            SELECT id, name, status, rules_json, sample_size, win_rate, profit_factor,
+                   sharpe_ratio, max_drawdown_pct, oos_net_units, created_at, updated_at
+            FROM strategy_candidates
+            WHERE status IN ('APPROVED_FOR_PROD', 'ARCHIVED_PROD', 'PAUSED_DRAWDOWN_GUARD', 'ROLLED_BACK')
+            ORDER BY updated_at DESC LIMIT 10
+            """
+        ).fetchall()
+
+        strategies = []
+        for r in rows:
+            rd = dict(r) if hasattr(r, "keys") else {
+                "id": r[0], "name": r[1], "status": r[2], "rules_json": r[3],
+                "sample_size": r[4], "win_rate": r[5], "profit_factor": r[6],
+                "sharpe_ratio": r[7], "max_drawdown_pct": r[8], "oos_net_units": r[9],
+                "created_at": r[10], "updated_at": r[11]
+            }
+            try:
+                rules = json.loads(rd.get("rules_json") or "{}")
+            except Exception:
+                rules = {}
+            w_rate = float(rd.get("win_rate") or 0.0)
+            strategies.append({
+                "id": rd.get("id"),
+                "name": rd.get("name"),
+                "status": rd.get("status"),
+                "win_rate_pct": round(w_rate * 100.0 if w_rate <= 1.0 else w_rate, 1),
+                "profit_factor": round(float(rd.get("profit_factor") or 0.0), 2),
+                "sharpe_ratio": round(float(rd.get("sharpe_ratio") or 0.0), 2),
+                "max_drawdown_pct": round(float(rd.get("max_drawdown_pct") or 0.0), 2),
+                "sample_size": int(rd.get("sample_size") or 0),
+                "rules": rules,
+                "created_at": rd.get("created_at"),
+                "updated_at": rd.get("updated_at"),
+            })
+
+    return {"total": len(strategies), "strategies": strategies}
+
+
+@router.post('/api/admin/strategies/{candidate_id}/rollback', tags=["admin-strategy"])
+def rollback_strategy(candidate_id: str, u=Depends(get_current_admin)):
+    """1-Click Rollback: demotes current live strategy to ROLLED_BACK and restores target version to APPROVED_FOR_PROD."""
+    now = time.time()
+    with tx() as c:
+        target = c.execute("SELECT id, name, status FROM strategy_candidates WHERE id = ?", (candidate_id,)).fetchone()
+        if not target:
+            fail(404, f"Không tìm thấy phiên bản chiến lược mục tiêu: {candidate_id}")
+        target_name = target["name"] if hasattr(target, "keys") else target[1]
+
+        curr = c.execute("SELECT id, name FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD'").fetchone()
+        prev_id = None
+        if curr:
+            prev_id = curr["id"] if hasattr(curr, "keys") else curr[0]
+            c.execute("UPDATE strategy_candidates SET status = 'ROLLED_BACK', updated_at = ? WHERE id = ?", (now, prev_id))
+
+        c.execute("UPDATE strategy_candidates SET status = 'APPROVED_FOR_PROD', updated_at = ? WHERE id = ?", (now, candidate_id))
+
+        audit(c, u['id'], 'strategy_rolled_back', {
+            'target_id': candidate_id,
+            'target_name': target_name,
+            'previous_active_id': prev_id,
+        })
+
+        try:
+            from app.domains.notifications.service import emit_notification
+            emit_notification(
+                c,
+                role="admin",
+                severity="WARNING",
+                title="Khôi Phục Chiến Lược Thành Công (Rollback)",
+                body=f"Đã khôi phục chiến lược {target_name} (#{candidate_id[:8]}) lên LIVE.",
+            )
+        except Exception:
+            pass
+
+    return {"ok": True, "message": f"Chiến lược #{candidate_id[:8]} ({target_name}) đã được khôi phục lên LIVE."}
+
 
 

@@ -6,7 +6,7 @@ Coordinates 3 specialized autonomous agents:
 """
 import time
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Tuple
 from app.db import tx
 from app.portfolio import run_monte_carlo_simulation
 from app.hindsight import store_memory, CATEGORY_REFLECTIVE
@@ -41,6 +41,13 @@ _SWARM_STATE = {
             "state": "idle",
             "last_action": "Bảo vệ vốn & đòn bẩy danh mục an toàn",
             "var_99_pct": 2.8,
+            "status": "active",
+        },
+        "research_wfo": {
+            "name": "Research WFO Worker",
+            "role": "Hindsight Induction & Out-of-Sample Walk-Forward",
+            "state": "idle",
+            "last_action": "Tự học quy tắc phản tư & kiểm định Walk-Forward OOS",
             "status": "active",
         },
     },
@@ -304,3 +311,316 @@ def trigger_swarm_cycle(c=None) -> Dict[str, Any]:
         "skills_telemetry": skills_telemetry,
         "cross_asset": cross_asset,
     }
+
+
+# ---------------------------------------------------------------------------
+# Admin Control Plane v1.2 — 4-Agent Heartbeat, Toggle-Pause & Atomic Wake
+# ---------------------------------------------------------------------------
+
+OPERATIONAL_AGENTS = {
+    "sentinel": {
+        "id": "sentinel",
+        "name": "Sentinel Agent",
+        "role": "Giám sát tin vĩ mô & News Shield",
+        "default_summary": "Giám sát lịch tin kinh tế vĩ mô & bảo vệ cửa sổ tin ±30 phút",
+    },
+    "alpha": {
+        "id": "alpha",
+        "name": "Alpha Agent",
+        "role": "Đánh giá cấu trúc M15/H1 & Regime",
+        "default_summary": "Đánh giá cấu trúc giá M15, nhận diện Regime & kiểm chứng tín hiệu",
+    },
+    "risk_guardian": {
+        "id": "risk_guardian",
+        "name": "Risk Guardian",
+        "role": "Giám sát Drawdown & Auto-Rollback",
+        "default_summary": "Giám sát rủi ro VaR 99%, lá chắn sụt giảm & đòn bẩy danh mục",
+    },
+    "research_wfo": {
+        "id": "research_wfo",
+        "name": "Research WFO Worker",
+        "role": "Tự học Hindsight & Kiểm định Out-of-Sample",
+        "default_summary": "Tự học bài học Hindsight & kiểm định Walk-Forward OOS",
+    },
+}
+
+_AGENT_EXEC_STATE: Dict[str, Dict[str, Any]] = {}
+_IN_MEMORY_LOCKS: Dict[str, float] = {}
+
+
+def mark_agent_quota_capped(agent_id: str):
+    """Flags an agent as quota-capped when daily LLM budget is exhausted."""
+    aid = (agent_id or "system").strip().lower()
+    _AGENT_EXEC_STATE.setdefault(aid, {})["is_quota_capped"] = True
+
+
+def acquire_agent_wake_lock(agent_id: str, ttl: int = 60) -> bool:
+    """Acquires an atomic lock for agent execution with TTL 60s.
+    Uses Redis lock when available; falls back to monotonic in-memory lock."""
+    lock_key = f"lock:agent_wake:{agent_id}"
+    try:
+        from app.redis_client import get_redis_client
+        rc = get_redis_client()
+        if rc:
+            acquired = rc.set(lock_key, "1", nx=True, ex=ttl)
+            if acquired:
+                return True
+            return False
+    except Exception as e:
+        logger.debug(f"Redis agent wake lock check note: {e}")
+
+    now = time.time()
+    exp = _IN_MEMORY_LOCKS.get(lock_key, 0.0)
+    if exp > now:
+        return False
+    _IN_MEMORY_LOCKS[lock_key] = now + float(ttl)
+    return True
+
+
+def release_agent_wake_lock(agent_id: str):
+    """Releases an agent wake lock early if needed."""
+    lock_key = f"lock:agent_wake:{agent_id}"
+    try:
+        from app.redis_client import get_redis_client
+        rc = get_redis_client()
+        if rc:
+            rc.delete(lock_key)
+    except Exception:
+        pass
+    _IN_MEMORY_LOCKS.pop(lock_key, None)
+
+
+def get_agents_heartbeat(c=None) -> List[Dict[str, Any]]:
+    """Returns standardized heartbeat telemetry for all 4 operational agents."""
+    from app.domains.ai.gemini_client import get_daily_quota_stats
+    quota = get_daily_quota_stats(c=c)
+    quota_capped = (quota.get("status") == "CAPPED_100")
+    breakdown = quota.get("breakdown", {})
+
+    def _read_kv(cursor):
+        res = []
+        for aid, meta in OPERATIONAL_AGENTS.items():
+            # 1. Check paused state
+            p_row = cursor.execute("SELECT value FROM kv WHERE key = ?", (f"agent_paused:{aid}",)).fetchone()
+            is_paused = bool(p_row and str(p_row["value"] if hasattr(p_row, "keys") else p_row[0]).strip() in ("1", "true", "True"))
+
+            # 2. Check execution status
+            st_mem = _AGENT_EXEC_STATE.get(aid, {})
+            is_running = bool(st_mem.get("is_running", False))
+
+            if is_paused:
+                status = "PAUSED"
+            elif is_running:
+                status = "RUNNING"
+            elif quota_capped or st_mem.get("is_quota_capped", False):
+                status = "QUOTA_CAPPED"
+            else:
+                status = "IDLE"
+
+            # 3. Read last run info (memory first, fallback to kv)
+            last_run_at = st_mem.get("last_run_at")
+            if last_run_at is None:
+                lr_row = cursor.execute("SELECT value FROM kv WHERE key = ?", (f"agent_hb:{aid}:last_run_at",)).fetchone()
+                if lr_row and lr_row[0]:
+                    try:
+                        last_run_at = float(lr_row["value"] if hasattr(lr_row, "keys") else lr_row[0])
+                    except Exception:
+                        pass
+
+            last_dur = st_mem.get("last_duration_ms")
+            if last_dur is None:
+                ld_row = cursor.execute("SELECT value FROM kv WHERE key = ?", (f"agent_hb:{aid}:last_dur",)).fetchone()
+                if ld_row and ld_row[0]:
+                    try:
+                        last_dur = float(ld_row["value"] if hasattr(ld_row, "keys") else ld_row[0])
+                    except Exception:
+                        pass
+                else:
+                    last_dur = 0.0
+
+            last_sum = st_mem.get("last_summary")
+            if not last_sum:
+                ls_row = cursor.execute("SELECT value FROM kv WHERE key = ?", (f"agent_hb:{aid}:last_sum",)).fetchone()
+                if ls_row and ls_row[0]:
+                    last_sum = str(ls_row["value"] if hasattr(ls_row, "keys") else ls_row[0])
+                else:
+                    last_sum = meta["default_summary"]
+
+            # Quota calls today for this agent
+            calls_today = int(breakdown.get(aid, 0))
+
+            res.append({
+                "id": aid,
+                "name": meta["name"],
+                "role": meta["role"],
+                "status": status,
+                "trigger_mode": "EVENT_DRIVEN",
+                "last_run_at": last_run_at,
+                "last_duration_ms": last_dur or 0.0,
+                "last_summary": last_sum,
+                "calls_today": calls_today,
+                "is_paused": is_paused,
+            })
+        return res
+
+    if c:
+        return _read_kv(c)
+    else:
+        try:
+            from app.db import tx
+            with tx() as conn:
+                return _read_kv(conn)
+        except Exception as e:
+            logger.debug(f"get_agents_heartbeat error: {e}")
+            return [
+                {
+                    "id": aid,
+                    "name": meta["name"],
+                    "role": meta["role"],
+                    "status": "IDLE",
+                    "trigger_mode": "EVENT_DRIVEN",
+                    "last_run_at": None,
+                    "last_duration_ms": 0.0,
+                    "last_summary": meta["default_summary"],
+                    "calls_today": 0,
+                    "is_paused": False,
+                }
+                for aid, meta in OPERATIONAL_AGENTS.items()
+            ]
+
+
+def toggle_pause_agent(agent_id: str, c=None) -> Dict[str, Any]:
+    """Toggles pause status for a specific operational agent."""
+    aid = (agent_id or "").strip().lower()
+    if aid not in OPERATIONAL_AGENTS:
+        return {"ok": False, "message": f"Agent không hợp lệ: {aid}"}
+
+    def _apply(cursor):
+        p_row = cursor.execute("SELECT value FROM kv WHERE key = ?", (f"agent_paused:{aid}",)).fetchone()
+        current = bool(p_row and str(p_row["value"] if hasattr(p_row, "keys") else p_row[0]).strip() in ("1", "true", "True"))
+        next_val = not current
+        val_str = "1" if next_val else "0"
+        cursor.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"agent_paused:{aid}", val_str),
+        )
+        return next_val
+
+    if c:
+        is_paused = _apply(c)
+    else:
+        from app.db import tx
+        with tx() as conn:
+            is_paused = _apply(conn)
+
+    status = "PAUSED" if is_paused else "IDLE"
+    _AGENT_EXEC_STATE.setdefault(aid, {})["is_paused"] = is_paused
+    return {
+        "ok": True,
+        "agent_id": aid,
+        "name": OPERATIONAL_AGENTS[aid]["name"],
+        "is_paused": is_paused,
+        "status": status,
+        "message": f"Agent {OPERATIONAL_AGENTS[aid]['name']} đã {'tạm dừng' if is_paused else 'kích hoạt lại'}.",
+    }
+
+
+def wake_agent(agent_id: str, c=None) -> Tuple[bool, str, Dict[str, Any]]:
+    """Wakes an agent for one immediate cycle protected by Atomic 60s Redis Lock.
+    Returns (success, message, result_dict). If lock held, returns False with 409 conflict message."""
+    aid = (agent_id or "").strip().lower()
+    if aid not in OPERATIONAL_AGENTS:
+        return False, f"Agent không hợp lệ: {aid}", {}
+
+    # 1. Acquire atomic 60s lock
+    if not acquire_agent_wake_lock(aid, ttl=60):
+        return False, "Agent đang chạy chu kỳ hiện tại, chống chạy trùng", {}
+
+    # 2. Execute cycle
+    _AGENT_EXEC_STATE.setdefault(aid, {})["is_running"] = True
+    t0 = time.perf_counter()
+    summary = ""
+    try:
+        if aid == "sentinel":
+            def _run_s(conn):
+                return run_sentinel_cycle(conn)
+            if c:
+                _run_s(c)
+            else:
+                with tx() as conn:
+                    _run_s(conn)
+            summary = _SWARM_STATE["agents"]["sentinel"].get("last_action", "Quét lịch tin hoàn tất")
+
+        elif aid == "alpha":
+            def _run_a(conn):
+                return run_alpha_cycle(conn)
+            if c:
+                _run_a(c)
+            else:
+                with tx() as conn:
+                    _run_a(conn)
+            summary = _SWARM_STATE["agents"]["alpha"].get("last_action", "Quét cấu trúc Alpha hoàn tất")
+
+        elif aid == "risk_guardian":
+            def _run_r(conn):
+                return run_risk_guardian_cycle(conn)
+            if c:
+                _run_r(c)
+            else:
+                with tx() as conn:
+                    _run_r(conn)
+            summary = _SWARM_STATE["agents"]["risk_guardian"].get("last_action", "Giám sát rủi ro hoàn tất")
+
+        elif aid == "research_wfo":
+            from app.domains.ai.research_graph import run_autonomous_induction_and_wfo
+            run_autonomous_induction_and_wfo(force=True)
+            summary = "Chu kỳ tự học Hindsight & Walk-Forward hoàn tất thành công"
+
+        dur_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+        now_ts = time.time()
+
+        _AGENT_EXEC_STATE[aid].update({
+            "last_run_at": now_ts,
+            "last_duration_ms": dur_ms,
+            "last_summary": summary,
+            "is_running": False,
+        })
+
+        def _persist(cursor):
+            cursor.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"agent_hb:{aid}:last_run_at", str(now_ts)),
+            )
+            cursor.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"agent_hb:{aid}:last_dur", str(dur_ms)),
+            )
+            cursor.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"agent_hb:{aid}:last_sum", str(summary)[:255]),
+            )
+
+        if c:
+            _persist(c)
+        else:
+            try:
+                with tx() as conn:
+                    _persist(conn)
+            except Exception:
+                pass
+
+        return True, "Chu kỳ Agent đã được kích hoạt thành công", {
+            "agent_id": aid,
+            "name": OPERATIONAL_AGENTS[aid]["name"],
+            "last_run_at": now_ts,
+            "last_duration_ms": dur_ms,
+            "last_summary": summary,
+        }
+
+    except Exception as exc:
+        dur_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+        logger.warning(f"Error waking agent {aid}: {exc}")
+        return False, f"Lỗi chạy chu kỳ Agent: {str(exc)}", {}
+    finally:
+        _AGENT_EXEC_STATE.setdefault(aid, {})["is_running"] = False
+
