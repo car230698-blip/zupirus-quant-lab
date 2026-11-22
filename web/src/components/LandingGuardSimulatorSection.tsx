@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { GUARD_LAYERS } from '../data/landingData';
+import { getGuardLayers } from '../data/landingData';
 import { GuardTopologyDiagram } from './GuardTopologyDiagram';
 import { SpotlightBento } from './ui/SpotlightBento';
 import { ShieldCheck, AlertTriangle, XCircle, CheckCircle2 } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface LandingGuardSimulatorSectionProps {
   selectedGuardIdx: number;
@@ -13,8 +14,10 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
   selectedGuardIdx,
   setSelectedGuardIdx,
 }) => {
+  const { lang, t } = useLanguage();
   const [scenario, setScenario] = useState<'BUY' | 'NO_SL' | 'PROP_OVER'>('BUY');
-  const activeGuard = GUARD_LAYERS[selectedGuardIdx] || GUARD_LAYERS[0];
+  const guardLayers = getGuardLayers(lang);
+  const activeGuard = guardLayers[selectedGuardIdx] || guardLayers[0];
 
   return (
     <section
@@ -27,20 +30,20 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
         <div>
           <div className="inline-flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-[0.2em] text-[#12B5A6]">
             <ShieldCheck className="w-4 h-4 text-[#12B5A6]" strokeWidth={2} />
-            <span>4-LAYER FAIL-CLOSED CAPITAL PROTECTION</span>
+            <span>{t.simulator.badge}</span>
           </div>
           <h2 className="mt-1 font-display text-2xl sm:text-3xl font-bold text-white tracking-tight">
-            Kiến Trúc 4 Lớp Giáp Bảo Vệ Vốn Bắt Buộc
+            {t.simulator.title}
           </h2>
           <p className="mt-2 text-sm text-slate-300 leading-relaxed">
-            Quy tắc kiểm toán nguyên tử được thực thi tự động trên Cloud trước khi bất kỳ lệnh nào chạm tới tài khoản MT5.
+            {t.simulator.subtitle}
           </p>
         </div>
 
         {/* 3 Scenario Testing Buttons */}
         <div className="space-y-2">
           <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
-            Kịch Bản Thử Nghiệm Phản Ứng Giáp:
+            {t.simulator.scenarioLabel}
           </span>
           <div className="grid grid-cols-3 gap-2">
             <button
@@ -56,7 +59,7 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
               }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Tín hiệu chuẩn</span>
+              <span>{t.simulator.scenarioStandard}</span>
             </button>
             <button
               type="button"
@@ -71,7 +74,7 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
               }`}
             >
               <XCircle className="w-3.5 h-3.5" />
-              <span>Thiếu SL</span>
+              <span>{t.simulator.scenarioMissingSl}</span>
             </button>
             <button
               type="button"
@@ -86,14 +89,14 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
               }`}
             >
               <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Vượt trần 1%</span>
+              <span>{t.simulator.scenarioCapBreach}</span>
             </button>
           </div>
         </div>
 
         {/* 4 Guard Layers Selector */}
         <div className="space-y-2 pt-1">
-          {GUARD_LAYERS.map((g, idx) => {
+          {guardLayers.map((g, idx) => {
             const active = idx === selectedGuardIdx;
             return (
               <button
@@ -108,7 +111,7 @@ export const LandingGuardSimulatorSection: React.FC<LandingGuardSimulatorSection
               >
                 <div className="flex items-center justify-between font-mono text-xs">
                   <span className={`font-bold ${active ? 'text-[#12B5A6]' : 'text-slate-400'}`}>
-                    LỚP {g.id} // {g.code}
+                    {lang === 'en' ? `LAYER ${g.id}` : `LỚP ${g.id}`} // {g.code}
                   </span>
                   <span className="text-[#12B5A6] font-bold tabular-nums">{g.metric}</span>
                 </div>

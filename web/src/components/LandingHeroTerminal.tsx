@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'motion/react';
 import { SpotlightBento } from './ui/SpotlightBento';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface LandingHeroTerminalProps {
   spotPrice?: number;
@@ -13,6 +14,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
   spotPrice = 0,
   onEnterPortal,
 }) => {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -52,7 +54,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
                   onClick={onEnterPortal}
                   className="hidden sm:inline-flex items-center gap-1 font-mono text-xs font-bold text-amber-300 hover:text-white transition-colors cursor-pointer ml-2"
                 >
-                  Vào Cổng App ↗
+                  {t.terminal.enterApp}
                 </button>
               )}
             </div>
@@ -61,37 +63,37 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
           {/* 4 KPIs Row */}
           <div className="grid grid-cols-2 lg:grid-cols-4 border-b border-white/[0.08] text-left">
             <div className="p-4 sm:p-5 border-r border-b sm:border-b-0 border-white/[0.08] hover:bg-white/[0.02] transition-colors">
-              <div className="text-xs text-slate-400 mb-1.5 font-medium">Tổng Tài Sản Quy Đổi</div>
+              <div className="text-xs text-slate-400 mb-1.5 font-medium">{t.terminal.totalAum}</div>
               <div className="font-mono text-xl sm:text-2xl font-bold text-white tracking-tight tabular-nums">
                 $128,450.00
               </div>
               <div className="mt-1 font-mono text-xs text-[#12B5A6]">
-                +6.4% · 30 ngày
+                {t.terminal.thirtyDays}
               </div>
             </div>
 
             <div className="p-4 sm:p-5 border-b sm:border-b-0 lg:border-r border-white/[0.08] hover:bg-white/[0.02] transition-colors">
-              <div className="text-xs text-slate-400 mb-1.5 font-medium">Sụt Giảm Ngày (Daily DD)</div>
+              <div className="text-xs text-slate-400 mb-1.5 font-medium">{t.terminal.dailyDd}</div>
               <div className="font-mono text-xl sm:text-2xl font-bold text-white tracking-tight tabular-nums">
                 0.42% <span className="text-sm font-normal text-slate-400">/ 4.0%</span>
               </div>
               <div className="mt-1 text-xs text-slate-300">
-                Trạng thái an toàn
+                {t.terminal.safeState}
               </div>
             </div>
 
             <div className="p-4 sm:p-5 border-r border-white/[0.08] hover:bg-white/[0.02] transition-colors">
-              <div className="text-xs text-slate-400 mb-1.5 font-medium">Khiên Prop Firm Live</div>
+              <div className="text-xs text-slate-400 mb-1.5 font-medium">{t.terminal.propShield}</div>
               <div className="font-mono text-xl sm:text-2xl font-bold text-[#12B5A6] tracking-tight tabular-nums">
                 1.0% CAP
               </div>
               <div className="mt-1 text-xs text-slate-300">
-                Tối đa 2.0% toàn danh mục
+                {t.terminal.portfolioMax}
               </div>
             </div>
 
             <div className="p-4 sm:p-5 hover:bg-white/[0.02] transition-colors">
-              <div className="text-xs text-slate-400 mb-1.5 font-medium">Cặp Chính Đang Quét</div>
+              <div className="text-xs text-slate-400 mb-1.5 font-medium">{t.terminal.scanningAsset}</div>
               <div className="font-mono text-xl sm:text-2xl font-bold text-amber-300 tracking-tight tabular-nums">
                 {livePriceStr}
               </div>
@@ -106,7 +108,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
             {/* Left Column: SVG Equity Growth Curve */}
             <div className="lg:col-span-7 p-5 sm:p-6 lg:border-r border-b lg:border-b-0 border-white/[0.08]">
               <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-semibold text-white">Đường Cong Tăng Trưởng Thực Chiến</span>
+                <span className="text-sm font-semibold text-white">{t.terminal.equityGrowth}</span>
                 <span className="font-mono text-xs text-[#12B5A6] font-bold">TABULA RASA · APPROVED</span>
               </div>
 
@@ -115,7 +117,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
                   viewBox="0 0 560 205"
                   className="w-full h-44 sm:h-52"
                   role="img"
-                  aria-label="Biểu đồ tăng trưởng equity"
+                  aria-label={t.terminal.svgAria}
                 >
                   <defs>
                     <linearGradient id="heroEqGrad" x1="0" y1="0" x2="0" y2="1">
@@ -159,7 +161,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
             {/* Right Column: 3 Synced Cloud MT5 Accounts */}
             <div className="lg:col-span-5 p-5 sm:p-6 flex flex-col justify-between gap-3">
               <div className="flex items-center justify-between pb-1">
-                <span className="text-sm font-semibold text-white">Tài Khoản Đồng Bộ (3/3)</span>
+                <span className="text-sm font-semibold text-white">{t.terminal.syncedAccounts}</span>
                 <span className="font-mono text-xs text-slate-400">FAIL-CLOSED</span>
               </div>
 
@@ -170,7 +172,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
                       FTMO $100K · Prop Live
                     </div>
                     <div className="font-mono text-[11px] text-slate-400 mt-0.5">
-                      Trần 1.0% / ý tưởng · SL cứng
+                      {t.terminal.ftmoRisk}
                     </div>
                   </div>
                   <div className="text-right">
@@ -185,7 +187,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
                       Exness Raw · Standard
                     </div>
                     <div className="font-mono text-[11px] text-slate-400 mt-0.5">
-                      $27,950.00 · Auto-Trade ON
+                      {t.terminal.exnessStatus}
                     </div>
                   </div>
                   <div className="text-right">
@@ -200,7 +202,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
                       IC Markets · Cent (USC)
                     </div>
                     <div className="font-mono text-[11px] text-slate-400 mt-0.5">
-                      50,000 USC (≈ $500.00)
+                      {t.terminal.icMarketsSub}
                     </div>
                   </div>
                   <div className="text-right">

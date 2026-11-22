@@ -319,10 +319,20 @@ async def spa_fallback(request: Request, full_path: str):
         if resp is not None:
             if is_admin_host:
                 resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
+            # GeoIP & Accept-Language auto-detection for international visitors
+            if not full_path or full_path.endswith('.html') or '.' not in full_path:
+                cf_country = (request.headers.get("cf-ipcountry") or "").upper()
+                accept_lang = (request.headers.get("accept-language") or "").lower()
+                is_foreign = bool((cf_country and cf_country != "VN") or ("vi" not in accept_lang and cf_country != "VN"))
+                resp.set_cookie("zupirus_geo_lang", "en" if is_foreign else "vi", max_age=86400 * 30, path="/", httponly=False, samesite="lax")
             return resp
     if (ROOT / 'index.html').exists():
         resp = FileResponse(ROOT / 'index.html', headers=_NO_CACHE_HEADERS)
         if is_admin_host:
             resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
+        cf_country = (request.headers.get("cf-ipcountry") or "").upper()
+        accept_lang = (request.headers.get("accept-language") or "").lower()
+        is_foreign = bool((cf_country and cf_country != "VN") or ("vi" not in accept_lang and cf_country != "VN"))
+        resp.set_cookie("zupirus_geo_lang", "en" if is_foreign else "vi", max_age=86400 * 30, path="/", httponly=False, samesite="lax")
         return resp
     return JSONResponse({'detail': 'Not Found'}, status_code=404)

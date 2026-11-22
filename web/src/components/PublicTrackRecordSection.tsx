@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiGet } from '../api/client.ts';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface TrackRecordPayload {
   verified: boolean;
@@ -29,6 +30,7 @@ interface TrackRecordPayload {
 }
 
 export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> = ({ onEnterPortal }) => {
+  const { lang, t } = useLanguage();
   const [data, setData] = useState<TrackRecordPayload | null>(null);
 
   useEffect(() => {
@@ -50,10 +52,10 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
           <div>
             <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-[#12B5A6]">
               <span className="h-2 w-2 rounded-full bg-[#12B5A6] animate-pulse" />
-              VERIFIED LIVE TRACK RECORD · ẨN DANH 100%
+              {t.trackRecord.badge}
             </span>
             <h2 className="mt-1 font-display text-xl sm:text-2xl font-extrabold text-white">
-              Hiệu Suất Thực Tế Đã Kiểm Chứng (XAU/USD)
+              {t.trackRecord.title}
             </h2>
           </div>
           <button
@@ -61,21 +63,21 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
             onClick={onEnterPortal}
             className="quant-btn-primary px-4 py-2 text-xs whitespace-nowrap shrink-0"
           >
-            Kết Nối Tài Khoản Ngay →
+            {t.trackRecord.connectBtn}
           </button>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#070D18]/90 p-5 text-center sm:text-left flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="font-mono text-sm font-bold text-[#F5B700]">
-              Hệ thống đang tích lũy dữ liệu thực chiến đã xác minh
+              {t.trackRecord.accumulatingTitle}
             </div>
             <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
-              Mọi lệnh giao dịch đóng từ các tài khoản kết nối Cloud MT5 (Quỹ Prop &amp; Live cá nhân) sẽ được tổng hợp, kiểm toán độc lập và hiển thị minh bạch 100% tại bảng ghi chép này sau khi hoàn tất chu kỳ lệnh đầu tiên.
+              {t.trackRecord.accumulatingDesc}
             </p>
           </div>
           <div className="flex items-center gap-2 font-mono text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-lg shrink-0">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            MetaApi Cloud Verified
+            {t.trackRecord.verifiedTag}
           </div>
         </div>
       </section>
@@ -101,10 +103,10 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
         <div>
           <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-300">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            VERIFIED LIVE TRACK RECORD · ẨN DANH 100%
+            {lang === 'en' ? 'VERIFIED LIVE TRACK RECORD · 100% ANONYMOUS' : 'VERIFIED LIVE TRACK RECORD · ẨN DANH 100%'}
           </span>
           <h2 className="mt-1 font-display text-2xl sm:text-3xl font-extrabold text-white">
-            Hiệu Suất Thực Tế Đã Kiểm Chứng (XAU/USD)
+            {lang === 'en' ? 'Verified Real-World Performance (XAU/USD)' : 'Hiệu Suất Thực Tế Đã Kiểm Chứng (XAU/USD)'}
           </h2>
         </div>
         <button
@@ -112,20 +114,20 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
           onClick={onEnterPortal}
           className="quant-btn-primary px-4 py-2 text-xs whitespace-nowrap shrink-0"
         >
-          Kết Nối Tài Khoản Ngay →
+          {lang === 'en' ? 'Connect MT5 Account Now →' : 'Kết Nối Tài Khoản Ngay →'}
         </button>
       </div>
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 font-mono tabular-nums">
         <div className="rounded-xl border border-emerald-500/25 bg-[#040814] p-3.5">
-          <div className="text-[10px] text-slate-400">LỢI NHUẬN RÒNG</div>
+          <div className="text-[10px] text-slate-400">{lang === 'en' ? 'NET PROFIT' : 'LỢI NHUẬN RÒNG'}</div>
           <div className="mt-1 text-lg font-extrabold text-emerald-400">
             +${Number(summary.net_pnl_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#040814] p-3.5">
-          <div className="text-[10px] text-slate-400">TỶ LỆ THẮNG (WR)</div>
+          <div className="text-[10px] text-slate-400">{lang === 'en' ? 'WIN RATE (WR)' : 'TỶ LỆ THẮNG (WR)'}</div>
           <div className="mt-1 text-lg font-extrabold text-white">{Number(summary.win_rate_pct ?? 0).toFixed(1)}%</div>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#040814] p-3.5">
@@ -133,7 +135,7 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
           <div className="mt-1 text-lg font-extrabold text-amber-300">{Number(summary.profit_factor ?? 0).toFixed(2)}</div>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#040814] p-3.5">
-          <div className="text-[10px] text-slate-400">TỔNG LỆNH ĐÓNG</div>
+          <div className="text-[10px] text-slate-400">{lang === 'en' ? 'CLOSED TRADES' : 'TỔNG LỆNH ĐÓNG'}</div>
           <div className="mt-1 text-lg font-extrabold text-cyan-300">
             {summary.total_trades ?? 0}{' '}
             <span className="text-xs font-normal text-slate-400">({summary.wins ?? 0}W/{summary.losses ?? 0}L)</span>
@@ -144,7 +146,7 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
           <div className="mt-1 text-lg font-extrabold text-emerald-300">{Number(summary.max_dd_pct ?? 0).toFixed(1)}%</div>
         </div>
         <div className="rounded-xl border border-amber-500/25 bg-[#040814] p-3.5">
-          <div className="text-[10px] text-slate-400">VỐN QUỸ LIVE</div>
+          <div className="text-[10px] text-slate-400">{lang === 'en' ? 'LIVE PROP EQUITY' : 'VỐN QUỸ LIVE'}</div>
           <div className="mt-1 text-lg font-extrabold text-amber-300">
             ${Math.round(Number(summary.total_live_equity_usd ?? 0)).toLocaleString('en-US')}
           </div>
@@ -155,7 +157,9 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
         <div className="lg:col-span-6 rounded-xl border border-white/10 bg-[#040710]/90 p-4 space-y-2">
           <div className="flex items-center justify-between font-mono text-xs">
-            <span className="text-slate-300 font-bold">Đường Cong Lợi Nhuận Tích Lũy (USD)</span>
+            <span className="text-slate-300 font-bold">
+              {lang === 'en' ? 'Cumulative Profit Curve (USD)' : 'Đường Cong Lợi Nhuận Tích Lũy (USD)'}
+            </span>
             <span className="text-emerald-400 font-bold">+{Number(summary.roi_pct ?? 0).toFixed(1)}% ROI</span>
           </div>
           <svg viewBox="0 0 600 165" className="w-full h-44 select-none">
@@ -175,7 +179,9 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
         </div>
 
         <div className="lg:col-span-6 rounded-xl border border-white/10 bg-[#040710]/90 p-4 space-y-2">
-          <div className="font-mono text-xs font-bold text-slate-300">Lệnh XAU/USD Xác Thực Gần Nhất</div>
+          <div className="font-mono text-xs font-bold text-slate-300">
+            {lang === 'en' ? 'Latest Verified XAU/USD Trades' : 'Lệnh XAU/USD Xác Thực Gần Nhất'}
+          </div>
           <div className="max-h-44 overflow-y-auto space-y-1.5 font-mono text-xs tabular-nums">
             {(recent_trades || []).slice(0, 8).map((t, i) => {
               const win = (t?.profit ?? 0) >= 0;

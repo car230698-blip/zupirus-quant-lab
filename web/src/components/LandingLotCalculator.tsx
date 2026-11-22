@@ -1,5 +1,6 @@
 import React from 'react';
 import { type AccountKind, type LotCalculationResult } from '../utils/quantMath';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface LandingLotCalculatorProps {
   calcAccountKind: AccountKind;
@@ -23,20 +24,23 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
   calcSlPips,
   setCalcSlPips,
   lotCalc,
-}) => (
+}) => {
+  const { t } = useLanguage();
+
+  return (
   <section id="lot-calculator" className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-6 sm:p-10 space-y-8">
     <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 items-center">
       {/* Left (7 Cols): Controls */}
       <div className="space-y-6 lg:col-span-7">
         <div>
           <span className="font-mono text-xs font-semibold uppercase tracking-wider text-[#12B5A6]">
-            DYNAMIC LOT SIZING &amp; PROP FIRM GUARD
+            {t.calculator.badge}
           </span>
           <h2 className="mt-1 text-2xl sm:text-3xl font-bold text-white">
-            Máy Tính Khối Lượng Vào Lệnh &amp; Quản Trị Rủi Ro
+            {t.calculator.title}
           </h2>
           <p className="mt-1.5 text-xs text-[#94A3B8]">
-            Tự động chia Lot chính xác theo số dư và khoảng Stop Loss thực tế, bảo vệ quy tắc sụt giảm vốn nghiêm ngặt.
+            {t.calculator.subtitle}
           </p>
         </div>
 
@@ -53,10 +57,10 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
               }`}
             >
               {kind === 'STANDARD'
-                ? 'Tài Khoản Standard'
+                ? t.calculator.accountStandard
                 : kind === 'PROP'
-                ? 'Quỹ Prop (FTMO / The5ers 1% Cap)'
-                : 'Tài Khoản Cent (USC)'}
+                ? t.calculator.accountProp
+                : t.calculator.accountCent}
             </button>
           ))}
         </div>
@@ -64,7 +68,7 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 font-mono">
           <div className="rounded-xl border border-slate-800/80 bg-[#080E1A] p-4">
             <div className="flex justify-between text-xs text-slate-400">
-              <span>Vốn Tài Khoản</span>
+              <span>{t.calculator.balanceLabel}</span>
               <strong className="text-white tabular-nums">${calcBalance.toLocaleString('en-US')}</strong>
             </div>
             <input
@@ -80,7 +84,7 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
 
           <div className="rounded-xl border border-slate-800/80 bg-[#080E1A] p-4">
             <div className="flex justify-between text-xs text-slate-400">
-              <span>Rủi Ro / Lệnh</span>
+              <span>{t.calculator.riskLabel}</span>
               <strong className="text-[#12B5A6] tabular-nums">{calcRiskPct.toFixed(1)}%</strong>
             </div>
             <input
@@ -96,7 +100,7 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
 
           <div className="rounded-xl border border-slate-800/80 bg-[#080E1A] p-4">
             <div className="flex justify-between text-xs text-slate-400">
-              <span>Khoảng SL</span>
+              <span>{t.calculator.slLabel}</span>
               <strong className="text-[#F5B700] tabular-nums">{calcSlPips} pips</strong>
             </div>
             <input
@@ -116,20 +120,20 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
       <div className="lg:col-span-5">
         <div className="rounded-2xl border border-slate-800 bg-[#080E1A] p-6 space-y-5 font-mono tabular-nums">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3 text-xs">
-            <span className="text-slate-400 font-medium">PHÂN BỔ KHỐI LƯỢNG AN TOÀN</span>
+            <span className="text-slate-400 font-medium">{t.calculator.safeAllocation}</span>
             {lotCalc.propFirmSafe ? (
               <span className="rounded-md border border-[#12B5A6]/40 bg-[#12B5A6]/10 px-2 py-0.5 text-[11px] font-bold text-[#12B5A6]">
-                An Toàn Quỹ Prop ✓
+                {t.calculator.propSafe}
               </span>
             ) : (
               <span className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-[11px] font-bold text-rose-400">
-                0.00 Lot · Vượt Trần
+                {t.calculator.propBreach}
               </span>
             )}
           </div>
 
           <div>
-            <div className="text-[11px] text-slate-400 uppercase">Khối Lượng Khuyến Nghị</div>
+            <div className="text-[11px] text-slate-400 uppercase">{t.calculator.recommendedVolume}</div>
             <div className="mt-1 flex items-baseline gap-2">
               <span className="text-5xl font-extrabold text-white font-mono tracking-tight leading-none">
                 {lotCalc.displayLots.toFixed(2)}
@@ -140,21 +144,22 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
 
           <div className="grid grid-cols-2 gap-4 border-t border-slate-800/80 pt-4">
             <div>
-              <div className="text-[10px] text-slate-500 uppercase">RỦI RO TUYỆT ĐỐI (1R)</div>
+              <div className="text-[10px] text-slate-500 uppercase">{t.calculator.risk1R}</div>
               <div className="mt-1 text-lg font-bold text-[#F5B700]">${lotCalc.riskUsd.toFixed(2)}</div>
             </div>
             <div>
-              <div className="text-[10px] text-slate-500 uppercase">MỤC TIÊU 2R (TP)</div>
+              <div className="text-[10px] text-slate-500 uppercase">{t.calculator.reward2R}</div>
               <div className="mt-1 text-lg font-bold text-[#12B5A6]">+${lotCalc.rewardAt2RUsd.toFixed(2)}</div>
             </div>
           </div>
 
           <div className="rounded-xl border border-slate-800/70 bg-[#10192B]/80 p-3 text-xs text-slate-400 flex items-center justify-between">
-            <span>Giới hạn chuỗi lệnh tối đa:</span>
-            <strong className="text-slate-200">{lotCalc.maxConsecutiveLossesBeforeDailyCap} lệnh trước chạm ngưỡng DD</strong>
+            <span>{t.calculator.maxStreak}</span>
+            <strong className="text-slate-200">{lotCalc.maxConsecutiveLossesBeforeDailyCap} {t.calculator.maxStreakSuffix}</strong>
           </div>
         </div>
       </div>
     </div>
   </section>
-);
+  );
+};

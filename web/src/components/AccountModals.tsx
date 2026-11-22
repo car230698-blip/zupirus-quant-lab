@@ -1,5 +1,6 @@
 import React from 'react';
 import { IconClose } from './Icons';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface AccountModalsProps {
   disclaimerModalOpen: boolean;
@@ -29,7 +30,10 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
   setCheckoutModalOpen,
   checkoutOrder,
   pollingPaid,
-}) => (
+}) => {
+  const { lang } = useLanguage();
+
+  return (
   <>
       {/* Disclaimer Modal */}
       {disclaimerModalOpen && (
@@ -221,53 +225,53 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
 
                   <div className="space-y-2 rounded-xl border border-white/[0.07] bg-[#040710] p-3.5 text-left font-mono text-xs">
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-400">Mã đơn hàng:</span>
+                      <span className="text-slate-400">{lang === 'en' ? 'Order ID:' : 'Mã đơn hàng:'}</span>
                       <strong className="text-cyan-300 select-all">{displayOrderId}</strong>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-400">Số tiền thanh toán:</span>
+                      <span className="text-slate-400">{lang === 'en' ? 'Payment Amount:' : 'Số tiền thanh toán:'}</span>
                       <strong className="text-emerald-400 tabular-nums font-bold">
                         {displayAmountVnd.toLocaleString('vi-VN')} VND
                       </strong>
                     </div>
                     <div className="flex justify-between items-center border-t border-white/[0.05] pt-1.5">
-                      <span className="text-slate-400">Ngân hàng:</span>
+                      <span className="text-slate-400">{lang === 'en' ? 'Bank:' : 'Ngân hàng:'}</span>
                       <span className="text-white font-bold">{displayBank}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-400">Số tài khoản:</span>
+                      <span className="text-slate-400">{lang === 'en' ? 'Account Number:' : 'Số tài khoản:'}</span>
                       <span className="text-amber-300 font-bold select-all flex items-center gap-1.5">
                         {displayAccNum}
                         <button
                           type="button"
                           onClick={() => navigator.clipboard.writeText(displayAccNum)}
                           className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-slate-300 hover:text-white"
-                          title="Sao chép số tài khoản"
+                          title="Copy"
                         >
                           Copy
                         </button>
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-400">Chủ tài khoản:</span>
+                      <span className="text-slate-400">{lang === 'en' ? 'Account Holder:' : 'Chủ tài khoản:'}</span>
                       <span className="text-slate-200">{displayHolder}</span>
                     </div>
                     <div className="flex justify-between items-center border-t border-white/[0.05] pt-1.5">
-                      <span className="text-slate-400">Nội dung CK:</span>
+                      <span className="text-slate-400">{lang === 'en' ? 'Transfer Memo:' : 'Nội dung CK:'}</span>
                       <span className="text-cyan-300 font-bold select-all flex items-center gap-1.5">
                         {displayMemo}
                         <button
                           type="button"
                           onClick={() => navigator.clipboard.writeText(displayMemo)}
                           className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] text-slate-300 hover:text-white"
-                          title="Sao chép nội dung"
+                          title="Copy"
                         >
                           Copy
                         </button>
                       </span>
                     </div>
                     <div className="flex justify-between items-center border-t border-white/[0.05] pt-1.5">
-                      <span className="text-slate-400">Trạng thái:</span>
+                      <span className="text-slate-400">{lang === 'en' ? 'Status:' : 'Trạng thái:'}</span>
                       <strong
                         className={
                           checkoutOrder.status === 'PAID'
@@ -278,34 +282,35 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                         }
                       >
                         {checkoutOrder.status === 'PAID'
-                          ? '✓ ĐÃ THANH TOÁN (KÍCH HOẠT CLOUD)'
+                          ? (lang === 'en' ? '✓ PAID (CLOUD ACTIVATED)' : '✓ ĐÃ THANH TOÁN (KÍCH HOẠT CLOUD)')
                           : checkoutOrder.status === 'UNDERPAID'
-                          ? '⚠ CHUYỂN THIẾU TIỀN (CHỜ BÙ)'
+                          ? (lang === 'en' ? '⚠ UNDERPAID (AWAITING BALANCE)' : '⚠ CHUYỂN THIẾU TIỀN (CHỜ BÙ)')
                           : checkoutOrder.status === 'EXPIRED'
-                          ? '✕ ĐƠN HÀNG ĐÃ HẾT HẠN'
-                          : '⏳ ĐANG CHỜ WEBHOOK SEPAY...'}
+                          ? (lang === 'en' ? '✕ ORDER EXPIRED' : '✕ ĐƠN HÀNG ĐÃ HẾT HẠN')
+                          : (lang === 'en' ? '⏳ AWAITING PAYMENT...' : '⏳ ĐANG CHỜ WEBHOOK SEPAY...')}
                       </strong>
                     </div>
                     {checkoutOrder.status === 'UNDERPAID' && (
                       <div className="mt-2 rounded-lg border border-rose-500/40 bg-rose-950/30 p-2.5 text-[11px] text-rose-200">
-                        Đã nhận:{' '}
-                        <strong>{Number(checkoutOrder.paid_amount_vnd || 0).toLocaleString('vi-VN')} VND</strong>. Vui lòng chuyển khoản bù thêm{' '}
-                        <strong className="text-amber-300">
-                          {Math.max(0, displayAmountVnd - Number(checkoutOrder.paid_amount_vnd || 0)).toLocaleString('vi-VN')} VND
-                        </strong>{' '}
-                        với cùng nội dung <strong className="text-cyan-300">{displayMemo}</strong> để hệ thống tự động kích hoạt.
+                        {lang === 'en'
+                          ? `Received: ${Number(checkoutOrder.paid_amount_vnd || 0).toLocaleString('vi-VN')} VND. Please transfer the remaining ${Math.max(0, displayAmountVnd - Number(checkoutOrder.paid_amount_vnd || 0)).toLocaleString('vi-VN')} VND with the same memo ${displayMemo}.`
+                          : `Đã nhận: ${Number(checkoutOrder.paid_amount_vnd || 0).toLocaleString('vi-VN')} VND. Vui lòng chuyển khoản bù thêm ${Math.max(0, displayAmountVnd - Number(checkoutOrder.paid_amount_vnd || 0)).toLocaleString('vi-VN')} VND với cùng nội dung ${displayMemo} để hệ thống tự động kích hoạt.`}
                       </div>
                     )}
                     {checkoutOrder.status === 'EXPIRED' && (
                       <div className="mt-2 rounded-lg border border-rose-500/40 bg-rose-950/30 p-2.5 text-[11px] text-rose-200">
-                        Đơn thanh toán đã quá thời hạn giữ tỷ giá (15 phút). Vui lòng đóng cửa sổ này và bấm Tạo Mã QR SePay mới.
+                        {lang === 'en'
+                          ? 'This order has expired. Please close this modal and create a new order.'
+                          : 'Đơn thanh toán đã quá thời hạn giữ tỷ giá (15 phút). Vui lòng đóng cửa sổ này và bấm Tạo Mã QR SePay mới.'}
                       </div>
                     )}
                   </div>
 
                   {pollingPaid && checkoutOrder.status !== 'PAID' && checkoutOrder.status !== 'EXPIRED' && (
                     <div className="pt-1 text-[11px] font-mono text-slate-400">
-                      Hệ thống tự động kiểm tra giao dịch SePay mỗi 3 giây...
+                      {lang === 'en'
+                        ? 'Checking payment status every 3s automatically...'
+                        : 'Hệ thống tự động kiểm tra giao dịch SePay mỗi 3 giây...'}
                     </div>
                   )}
                 </>
@@ -315,4 +320,5 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
         </div>
       )}
   </>
-);
+  );
+};

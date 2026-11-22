@@ -1,5 +1,6 @@
 import React from 'react';
 import { IconBan, IconBolt } from './Icons';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface LandingPipelineSimulationSectionProps {
   spotPrice: number;
@@ -16,6 +17,7 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
   simRunning,
   triggerSimulation,
 }) => {
+  const { lang } = useLanguage();
   const displayPrice = spotPrice > 0 ? spotPrice.toFixed(2) : '3538.86';
 
   return (
@@ -27,10 +29,14 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
             QUANTUM EXECUTION PIPELINE SIMULATOR
           </div>
           <h2 className="mt-1 font-display text-2xl sm:text-3xl font-extrabold text-white leading-tight">
-            Mô Phỏng Luồng Quạt Lệnh Đa Sàn (Multi-Broker Fan-Out)
+            {lang === 'en'
+              ? 'Multi-Broker Fan-Out Execution Simulator'
+              : 'Mô Phỏng Luồng Quạt Lệnh Đa Sàn (Multi-Broker Fan-Out)'}
           </h2>
           <p className="mt-1.5 max-w-2xl text-xs sm:text-sm text-slate-300">
-            Kiểm nghiệm trực tiếp cách ZUPIRUS xử lý một tín hiệu XAU/USD từ lúc tiếp nhận đến khi khớp lệnh đồng thời trên nhiều tài khoản.
+            {lang === 'en'
+              ? 'Experience how ZUPIRUS ingests, filters, and executes XAU/USD signals simultaneously across multiple broker accounts.'
+              : 'Kiểm nghiệm trực tiếp cách ZUPIRUS xử lý một tín hiệu XAU/USD từ lúc tiếp nhận đến khi khớp lệnh đồng thời trên nhiều tài khoản.'}
           </p>
         </div>
 
@@ -47,7 +53,7 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
             }`}
           >
             <IconBolt className="w-3.5 h-3.5" />
-            <span>⚡ Bắn Thử BUY XAU/USD</span>
+            <span>{lang === 'en' ? '⚡ Test BUY XAU/USD' : '⚡ Bắn Thử BUY XAU/USD'}</span>
           </button>
           <button
             type="button"
@@ -60,7 +66,7 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
             }`}
           >
             <IconBolt className="w-3.5 h-3.5" />
-            <span>⚡ Bắn Thử SELL XAU/USD</span>
+            <span>{lang === 'en' ? '⚡ Test SELL XAU/USD' : '⚡ Bắn Thử SELL XAU/USD'}</span>
           </button>
           <button
             type="button"
@@ -73,7 +79,7 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
             }`}
           >
             <IconBan className="w-3.5 h-3.5" />
-            <span>⊘ Thử Kịch Bản Thiếu SL (Fail-Closed)</span>
+            <span>{lang === 'en' ? '⊘ Test Missing SL (Fail-Closed)' : '⊘ Thử Kịch Bản Thiếu SL (Fail-Closed)'}</span>
           </button>
         </div>
       </div>
@@ -84,38 +90,50 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
           {
             step: 1,
             code: 'STAGE 01 // INGEST',
-            title: 'Thu Thập & Chuẩn Hóa',
+            title: lang === 'en' ? 'Ingest & Normalize' : 'Thu Thập & Chuẩn Hóa',
             detail:
               simSide === 'NO_SL'
-                ? 'Nhận tín hiệu: BUY GOLD NOW (Không có SL)'
-                : `Chuẩn hóa: ${simSide} XAUUSD @ $${displayPrice}`,
+                ? lang === 'en'
+                  ? 'Signal received: BUY GOLD NOW (No Stop Loss)'
+                  : 'Nhận tín hiệu: BUY GOLD NOW (Không có SL)'
+                : lang === 'en'
+                  ? `Normalized: ${simSide} XAUUSD @ $${displayPrice}`
+                  : `Chuẩn hóa: ${simSide} XAUUSD @ $${displayPrice}`,
             latency: '1.2 ms',
           },
           {
             step: 2,
             code: 'STAGE 02 // TABULA RASA AI',
-            title: 'Chấm Điểm Bối Cảnh M15',
-            detail: 'Kiểm tra ATR(14)=4.50, Phiên London-NY Overlap, Trust Score 91.4/100',
+            title: lang === 'en' ? 'M15 Context Scoring' : 'Chấm Điểm Bối Cảnh M15',
+            detail: lang === 'en'
+              ? 'Checks ATR(14)=4.50, London-NY Overlap, Trust Score 91.4/100'
+              : 'Kiểm tra ATR(14)=4.50, Phiên London-NY Overlap, Trust Score 91.4/100',
             latency: '4.6 ms',
           },
           {
             step: 3,
             code: 'STAGE 03 // 4-LAYER SHIELD',
-            title: 'Kiểm Toán 4 Lớp Giáp Vốn',
+            title: lang === 'en' ? '4-Layer Shield Audit' : 'Kiểm Toán 4 Lớp Giáp Vốn',
             detail:
               simSide === 'NO_SL'
-                ? 'CHẶN TẠI LỚP #02: Tín hiệu thiếu Hard Stop-Loss!'
+                ? lang === 'en'
+                  ? 'HALTED AT LAYER #02: Signal missing Hard Stop-Loss!'
+                  : 'CHẶN TẠI LỚP #02: Tín hiệu thiếu Hard Stop-Loss!'
                 : 'PASS: Redis Lock OK · Hard SL OK · News Shield CLEAR · Spread 1.8p',
             latency: '0.8 ms',
           },
           {
             step: 4,
             code: 'STAGE 04 // CLOUD FAN-OUT',
-            title: 'Quạt Lệnh Đa Tài Khoản MT5',
+            title: lang === 'en' ? 'Multi-Account Cloud Fan-Out' : 'Quạt Lệnh Đa Tài Khoản MT5',
             detail:
               simSide === 'NO_SL'
-                ? '0 lệnh được gửi đi — Bảo toàn 100% vốn tài khoản.'
-                : 'Khớp lệnh đồng thời trên Exness, FTMO Prop và ICMarkets.',
+                ? lang === 'en'
+                  ? '0 orders dispatched — 100% capital protected.'
+                  : '0 lệnh được gửi đi — Bảo toàn 100% vốn tài khoản.'
+                : lang === 'en'
+                  ? 'Simultaneous fill on Exness, FTMO Prop, and ICMarkets.'
+                  : 'Khớp lệnh đồng thời trên Exness, FTMO Prop và ICMarkets.',
             latency: simSide === 'NO_SL' ? 'HALTED' : '24.0 ms',
           },
         ].map((st) => {
@@ -178,7 +196,7 @@ export const LandingPipelineSimulationSection: React.FC<LandingPipelineSimulatio
               <div className="text-[10px] text-amber-400 font-bold tracking-wider">{node.type}</div>
               <div className="mt-0.5 font-bold text-white text-sm">{node.broker}</div>
               <div className="mt-1 text-slate-400 text-xs">
-                Symbol: <strong className="text-slate-200 font-semibold">{node.symbol}</strong> · Khối lượng:{' '}
+                Symbol: <strong className="text-slate-200 font-semibold">{node.symbol}</strong> · {lang === 'en' ? 'Volume' : 'Khối lượng'}:{' '}
                 <strong className="text-slate-200 font-semibold">{node.lots}</strong>
               </div>
             </div>

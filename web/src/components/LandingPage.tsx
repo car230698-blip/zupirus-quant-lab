@@ -6,7 +6,7 @@ import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
 import { LandingFooter } from './LandingFooter';
 import { PublicTrackRecordSection } from './PublicTrackRecordSection';
 import { LandingLotCalculator } from './LandingLotCalculator';
-import { PRICING_TIERS } from '../data/landingData';
+import { PRICING_TIERS, getPricingTiers } from '../data/landingData';
 import { LandingHeader } from './LandingHeader';
 import { LandingComparisonSection } from './LandingComparisonSection';
 import { LandingGuardSimulatorSection } from './LandingGuardSimulatorSection';
@@ -182,7 +182,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
         {/* SECTION 8: PRICING & FAQ */}
         <LandingPricingAndFaqSection
-          tiers={PRICING_TIERS}
+          tiers={getPricingTiers(lang)}
           billingCycle={billingCycle}
           setBillingCycle={setBillingCycle}
           currencyMode={currencyMode}

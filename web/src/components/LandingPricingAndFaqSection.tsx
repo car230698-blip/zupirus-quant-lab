@@ -25,7 +25,7 @@ export interface LandingPricingAndFaqSectionProps {
   onEnterPortal: () => void;
 }
 
-const FAQ_ITEMS = [
+const FAQ_ITEMS_VI = [
   {
     q: 'ZUPIRUS có giữ tiền nạp của tôi không?',
     a: 'Tuyệt đối không. Toàn bộ tiền giao dịch nằm 100% trong tài khoản MT5 tại sàn của bạn (Exness, ICMarkets, FTMO...). ZUPIRUS chỉ là hạ tầng đám mây kết nối MetaApi để truyền tín hiệu và kiểm soát rủi ro.',
@@ -48,6 +48,29 @@ const FAQ_ITEMS = [
   },
 ];
 
+const FAQ_ITEMS_EN = [
+  {
+    q: 'Does ZUPIRUS take custody of my deposit funds?',
+    a: 'Never. 100% of your trading capital remains in your own regulated MT5 broker account (Exness, ICMarkets, FTMO, etc.). ZUPIRUS operates solely as low-latency London G2 cloud automation and risk firewall.',
+  },
+  {
+    q: 'Are my MT5 trading credentials secure?',
+    a: 'Your broker passwords are encrypted via AES-256 before storage and are never exposed in plain text within the UI or system logs.',
+  },
+  {
+    q: 'Can I trade with a Cent account ($50-$100 balance)?',
+    a: 'Yes. The system automatically detects Cent accounts, normalizes contract size (1.0 vs 100.0), and accurately computes lots according to your balance risk percentage.',
+  },
+  {
+    q: 'What happens during extreme volatility or broker disconnections?',
+    a: 'Every executed order is submitted with a broker-enforced hard Stop Loss. If daily drawdown reaches your threshold (4% Prop / 5% Standard), the system automatically liquidates and halts new orders for the day.',
+  },
+  {
+    q: 'How does instant payment activation work?',
+    a: 'Once you scan VietQR (VND) or complete USDT transfer, the automated webhook credits your account within 3 seconds. Cloud MT5 slots are provisioned 24/7 without manual intervention.',
+  },
+];
+
 export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionProps> = ({
   tiers,
   billingCycle,
@@ -67,13 +90,15 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
       <section id="pricing" className="space-y-10">
         <div className="flex flex-col items-center text-center space-y-4">
           <span className="font-mono text-xs font-semibold uppercase tracking-wider text-[#12B5A6]">
-            BẢNG PHÍ MINH BẠCH · KHÔNG ẨN PHÍ
+            {lang === 'en' ? 'TRANSPARENT PRICING · NO HIDDEN FEES' : 'BẢNG PHÍ MINH BẠCH · KHÔNG ẨN PHÍ'}
           </span>
           <h2 className="text-3xl lg:text-4xl font-bold text-white tracking-tight">
-            Biểu Phí Hạ Tầng Đám Mây Cloud MT5
+            {lang === 'en' ? 'Cloud MT5 Infrastructure Pricing' : 'Biểu Phí Hạ Tầng Đám Mây Cloud MT5'}
           </h2>
           <p className="text-xs sm:text-sm text-[#94A3B8] max-w-xl">
-            Tự động kích hoạt sau 3 giây quét mã SePay VietQR. Nâng/hạ gói linh hoạt theo nhu cầu quy mô tài khoản.
+            {lang === 'en'
+              ? 'Instant 3-second activation via VietQR or USDT. Scale or adjust tiers flexibly as your trading grows.'
+              : 'Tự động kích hoạt sau 3 giây quét mã SePay VietQR. Nâng/hạ gói linh hoạt theo nhu cầu quy mô tài khoản.'}
           </p>
 
           {/* Billing Cycle & Currency Switcher */}
@@ -177,7 +202,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                     onClick={() => setQrPreviewTier(tier)}
                     className="rounded-xl border border-slate-700 hover:border-slate-500 bg-[#080E1A] py-2.5 text-xs font-medium text-slate-300 hover:text-white transition cursor-pointer"
                   >
-                    Xem VietQR
+                    {lang === 'en' ? 'Payment Preview' : 'Xem VietQR'}
                   </button>
                   <button
                     type="button"
@@ -188,7 +213,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                         : 'border border-[#12B5A6]/50 bg-[#12B5A6]/10 text-[#12B5A6] hover:bg-[#12B5A6]/20'
                     }`}
                   >
-                    Kích Hoạt →
+                    {lang === 'en' ? 'Activate Now →' : 'Kích Hoạt →'}
                   </button>
                 </div>
               </SpotlightBento>
@@ -201,14 +226,20 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
       <section className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-6 sm:p-10 space-y-8 max-w-3xl mx-auto">
         <div className="text-center space-y-2">
           <span className="font-mono text-xs font-semibold uppercase tracking-wider text-[#12B5A6]">
-            MINH BẠCH &amp; BẢO MẬT
+            {lang === 'en' ? 'TRANSPARENCY & SECURITY' : 'MINH BẠCH & BẢO MẬT'}
           </span>
-          <h2 className="text-2xl font-bold text-white">Câu Hỏi Thường Gặp</h2>
-          <p className="text-xs text-slate-400">Tiền luôn nằm trên sàn MT5 của riêng bạn.</p>
+          <h2 className="text-2xl font-bold text-white">
+            {lang === 'en' ? 'Frequently Asked Questions' : 'Câu Hỏi Thường Gặp'}
+          </h2>
+          <p className="text-xs text-slate-400">
+            {lang === 'en'
+              ? 'Your funds remain 100% inside your own broker MT5 account.'
+              : 'Tiền luôn nằm trên sàn MT5 của riêng bạn.'}
+          </p>
         </div>
 
         <div className="divide-y divide-slate-800 border-t border-b border-slate-800">
-          {FAQ_ITEMS.map((item, idx) => {
+          {(lang === 'en' ? FAQ_ITEMS_EN : FAQ_ITEMS_VI).map((item, idx) => {
             const isOpen = openFaqIdx === idx;
             return (
               <div key={idx} className="py-4">

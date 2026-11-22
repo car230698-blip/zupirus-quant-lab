@@ -1,10 +1,13 @@
 import React from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface LandingFooterProps {
   onEnterPortal?: () => void;
 }
 
 export const LandingFooter: React.FC<LandingFooterProps> = ({ onEnterPortal }) => {
+  const { t } = useLanguage();
+
   return (
     <>
       {/* Institutional Fintech Footer with Discord Community Links */}
@@ -24,26 +27,26 @@ export const LandingFooter: React.FC<LandingFooterProps> = ({ onEnterPortal }) =
                 rel="noopener noreferrer"
                 className="text-[#8EA1FF] hover:underline flex items-center gap-1 font-bold"
               >
-                <span>Cộng Đồng Discord</span>
+                <span>{t.footer.discordLink}</span>
                 <span>↗</span>
               </a>
-              <a href="#pipeline" className="hover:text-white transition">4 Lớp Giáp</a>
-              <a href="#track-record" className="hover:text-white transition">Hiệu Suất</a>
-              <a href="#lot-calculator" className="hover:text-white transition">Tính Lot</a>
-              <a href="#pricing" className="hover:text-white transition">Bảng Giá</a>
+              <a href="#pipeline" className="hover:text-white transition">{t.footer.shieldsLink}</a>
+              <a href="#track-record" className="hover:text-white transition">{t.footer.perfLink}</a>
+              <a href="#lot-calculator" className="hover:text-white transition">{t.footer.calcLink}</a>
+              <a href="#pricing" className="hover:text-white transition">{t.footer.pricingLink}</a>
               {onEnterPortal && (
                 <button type="button" onClick={onEnterPortal} className="text-[#12B5A6] hover:underline cursor-pointer">
-                  Cổng Giao Dịch →
+                  {t.footer.portalLink}
                 </button>
               )}
             </div>
           </div>
           <div className="border-t border-slate-800/60 pt-6 text-[11px] leading-relaxed text-slate-500">
-            <strong className="text-slate-400">Tuyên bố miễn trừ rủi ro:</strong> Giao dịch ngoại hối (Forex) và Vàng (XAU/USD) sử dụng đòn bẩy tài chính có rủi ro cao đối với vốn đầu tư. ZUPIRUS cung cấp công nghệ hạ tầng tự động hóa đám mây và các lớp giáp quản trị rủi ro kỹ thuật, không phải là đơn vị huy động vốn hay quản lý ủy thác đầu tư. Tiền và vị thế giao dịch nằm 100% tại sàn giao dịch MT5 của người dùng.
+            <strong className="text-slate-400">{t.footer.disclaimerTitle}</strong> {t.footer.disclaimerContent}
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-600 pt-2">
-            <span>© 2026 ZUPIRUS. Mọi quyền được bảo lưu.</span>
-            <span>Hạ tầng MetaApi London G2 · SePay VietQR Automated · Discord Community</span>
+            <span>{t.footer.copyright}</span>
+            <span>{t.footer.subnote}</span>
           </div>
         </div>
       </footer>
@@ -68,7 +71,7 @@ export const LandingFooter: React.FC<LandingFooterProps> = ({ onEnterPortal }) =
           }}
           className="flex items-center gap-1 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-mono font-bold text-emerald-300 whitespace-nowrap cursor-pointer"
         >
-          <span>⚡ Bắn Thử</span>
+          <span>{t.footer.mobileSimulate}</span>
         </button>
 
         {onEnterPortal && (
@@ -77,7 +80,7 @@ export const LandingFooter: React.FC<LandingFooterProps> = ({ onEnterPortal }) =
             onClick={onEnterPortal}
             className="flex-1 flex items-center justify-center rounded-xl bg-[#12B5A6] px-3 py-2 text-xs font-bold text-[#042F2E] whitespace-nowrap shadow-sm cursor-pointer"
           >
-            <span>Vào Cổng App →</span>
+            <span>{t.footer.mobileLaunch}</span>
           </button>
         )}
       </div>
