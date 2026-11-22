@@ -98,6 +98,31 @@ async def execute_fan_out_for_signal(
 
     strat_name = str(signal.get("strategy_id") or signal.get("source") or "strat_trend_breakout")
     macro_eval = evaluate_macro_filter(symbol=symbol, side=action, now_ts=now_init)
+    if not macro_eval.get("permitted", True) or macro_eval.get("shock") == "DANGER_FREEZE":
+        logger.warning(f"execute_fan_out_for_signal blocked by Macro Shield: {macro_eval.get('reason', 'DANGER_FREEZE')}")
+        return {
+            "signal_id": signal_id,
+            "total_accounts": len(accounts),
+            "executed": 0,
+            "failed": 0,
+            "skipped": len(accounts),
+            "executions": [],
+            "error": "MACRO_SHOCK_FREEZE",
+        }
+
+    macro_scale = float(macro_eval.get("final_scale", 1.0))
+    if macro_scale <= 0.0:
+        logger.warning(f"execute_fan_out_for_signal skipped: Macro scale is 0.0 ({macro_eval.get('reason')}).")
+        return {
+            "signal_id": signal_id,
+            "total_accounts": len(accounts),
+            "executed": 0,
+            "failed": 0,
+            "skipped": len(accounts),
+            "executions": [],
+            "error": "MACRO_SCALE_ZERO",
+        }
+
     curr_regime = macro_eval.get("regime", "RANGING")
     meta_router = RegimeMetaRouter()
     meta_scale = meta_router.get_strategy_scale(strat_name, curr_regime)
@@ -268,7 +293,7 @@ async def execute_fan_out_for_signal(
 
         is_prop_mode = bool(acc.get("is_prop_firm_mode"))
         prop_stage = str(acc.get("prop_stage") or "CHALLENGE").upper()
-        effective_risk_pct = risk_pct
+        effective_risk_pct = risk_pct * meta_scale * macro_scale
         effective_mult = mult
         total_open_portfolio_risk_pct = 0.0
         max_portfolio_risk_pct = float(os.getenv("PROP_LIVE_MAX_PORTFOLIO_RISK_PCT", "2.0").strip())
@@ -322,6 +347,39 @@ async def execute_fan_out_for_signal(
                 logger.warning(f"Account {acc_id} skipped fail-closed on position check error: {pos_err}")
                 continue
 
+        # --- B0: Compute total open portfolio risk on MT5 across all accounts ---
+        if open_positions_cache:
+            try:
+                from app.services.symbol_precision import contract_size_for_symbol, quote_to_usd_rate
+                unprotected_any_pos = False
+                for pos in open_positions_cache:
+                    p_sym = str(pos.get("symbol") or "").upper()
+                    p_type = str(pos.get("type") or "").upper()
+                    p_side = "BUY" if "BUY" in p_type else ("SELL" if "SELL" in p_type else "")
+                    p_open = float(pos.get("openPrice") or 0.0)
+                    p_sl = float(pos.get("stopLoss") or 0.0)
+                    p_vol = float(pos.get("volume") or 0.0)
+                    if p_open <= 0 or p_vol <= 0:
+                        continue
+                    if p_sl <= 0:
+                        unprotected_any_pos = True
+                        break
+
+                    is_p_buy = (p_side == "BUY")
+                    p_at_risk = (is_p_buy and p_sl < p_open) or (not is_p_buy and p_sl > p_open)
+                    if p_at_risk:
+                        p_contract = contract_size_for_symbol(p_sym, is_cent=is_cent_acc, account_contract_size=c_size)
+                        p_risk_usd = abs(p_open - p_sl) * p_vol * p_contract * quote_to_usd_rate(p_sym, p_open)
+                        base_cap_usd = (base_capital / 100.0) if is_cent_acc else base_capital
+                        if base_cap_usd > 0:
+                            total_open_portfolio_risk_pct += (p_risk_usd / base_cap_usd) * 100.0
+
+                if unprotected_any_pos and is_prop_mode and prop_stage == "LIVE":
+                    logger.warning(f"Account {acc_id} (PROP LIVE) skipped fail-closed: open position on account has no SL.")
+                    continue
+            except Exception as pos_calc_err:
+                logger.warning(f"Account {acc_id} open portfolio risk calculation error: {pos_calc_err}")
+
         if is_prop_mode and prop_stage == "LIVE" and metaapi_client:
             try:
                 from app.services.symbol_precision import contract_size_for_symbol, quote_to_usd_rate
@@ -372,37 +430,7 @@ async def execute_fan_out_for_signal(
                 effective_risk_pct = capped_risk
                 effective_mult = 1.0
 
-                # --- B2: Portfolio Correlation & Total Risk Cap (Max 2.0%) ---
-                max_portfolio_risk_pct = float(os.getenv("PROP_LIVE_MAX_PORTFOLIO_RISK_PCT", "2.0").strip())
-                total_open_portfolio_risk_pct = 0.0
-                unprotected_any_position = False
-
-                for pos in open_positions:
-                    p_sym = str(pos.get("symbol") or "").upper()
-                    p_type = str(pos.get("type") or "").upper()
-                    p_side = "BUY" if "BUY" in p_type else ("SELL" if "SELL" in p_type else "")
-                    p_open = float(pos.get("openPrice") or 0.0)
-                    p_sl = float(pos.get("stopLoss") or 0.0)
-                    p_vol = float(pos.get("volume") or 0.0)
-                    if p_open <= 0 or p_vol <= 0:
-                        continue
-                    if p_sl <= 0:
-                        unprotected_any_position = True
-                        break
-
-                    is_p_buy = (p_side == "BUY")
-                    p_at_risk = (is_p_buy and p_sl < p_open) or (not is_p_buy and p_sl > p_open)
-                    if p_at_risk:
-                        p_contract = contract_size_for_symbol(p_sym, is_cent=is_cent_acc, account_contract_size=c_size)
-                        p_risk_usd = abs(p_open - p_sl) * p_vol * p_contract * quote_to_usd_rate(p_sym, p_open)
-                        base_cap_usd = (base_capital / 100.0) if is_cent_acc else base_capital
-                        if base_cap_usd > 0:
-                            total_open_portfolio_risk_pct += (p_risk_usd / base_cap_usd) * 100.0
-
-                if unprotected_any_position:
-                    logger.warning(f"Account {acc_id} (PROP LIVE) skipped fail-closed: open position on account has no SL.")
-                    continue
-
+                # --- B2: Portfolio Correlation & Total Risk Cap for Prop LIVE ---
                 remaining_portfolio_risk_pct = max(0.0, max_portfolio_risk_pct - total_open_portfolio_risk_pct)
                 if remaining_portfolio_risk_pct <= 0.05:
                     logger.info(

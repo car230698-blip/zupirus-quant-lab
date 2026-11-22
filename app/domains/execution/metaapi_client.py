@@ -315,8 +315,9 @@ class MetaApiClient:
                 resp = await client.get(url, headers=self._headers())
                 if resp.status_code == 200:
                     data = resp.json()
-                    orders = data if isinstance(data, list) else []
-                    return True, orders, {"status_code": 200}
+                    if isinstance(data, list):
+                        return True, data, {"status_code": 200}
+                    return False, [], {"status_code": 200, "error": f"Invalid response type: expected list, got {type(data).__name__}"}
                 return False, [], {"status_code": resp.status_code, "error": resp.text}
         except Exception as e:
             logger.debug(f"get_open_orders_verified error for {metaapi_account_id}: {e}")

@@ -201,4 +201,5 @@ def evaluate_macro_filter(
         "dxy_trend": dxy_trend,
         "us10y_trend": state.get("us10y_trend", "FLAT"),
         "shock": shock,
+        "regime": state.get("regime", "RANGING"),
     }

@@ -591,3 +591,232 @@ async def test_a6_operational_invariants_and_edge_cases(tmp_path, monkeypatch):
     }]
     res_cb = await execute_fan_out_for_signal(signal, peer_accounts, mock_client)
     assert res_cb["executed"] == 0 and res_cb["skipped"] == 1, "Account sharing failing broker_server must be skipped by Circuit Breaker"
+
+
+@pytest.mark.asyncio
+async def test_a7_production_hardening_and_edge_cases(monkeypatch):
+    """Verify:
+    1. Deal deduplication across cycles (UNKNOWN_EXECUTION -> FILLED -> transient missing does not double-count).
+    2. Personal account open MT5 portfolio risk cap (2.0%) enforcement.
+    3. MetaApiClient.get_open_orders_verified fails closed on non-list HTTP 200 payload.
+    4. Macro Shield stand-aside (DANGER_FREEZE blocks all, gold BUY with DXY UP scales risk to 0.5x).
+    5. Payment webhook preserves customer auto_trade preference and EXPIRED_PROTECTING state.
+    """
+    now = time.time()
+    mock_client = AsyncMock()
+
+    # --- 1. Deal Deduplication Across Cycles ---
+    cyc_login = f"701_{int(now * 1000) % 100000}"
+    with tx() as c:
+        c.execute("DELETE FROM metaapi_trade_executions WHERE account_id = 'acc_cycle'")
+        c.execute("DELETE FROM metaapi_cloud_accounts WHERE id = 'acc_cycle'")
+        c.execute("DELETE FROM trading_accounts WHERE id = 'acc_cycle'")
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_cyc', 'u_cyc@test.com', 'pass_123', 'customer') ON CONFLICT DO NOTHING")
+        c.execute("""
+            INSERT INTO trading_accounts (
+                id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server,
+                auto_trade, balance, equity, deployment_state, created_at
+            ) VALUES (
+                'acc_cycle', 'u_cyc', 'meta_cyc', ?, 'enc_pass', 'CycleServer',
+                1, 10000.0, 10000.0, 'DEPLOYED', ?
+            )
+        """, (cyc_login, now))
+        c.execute("INSERT INTO metaapi_cloud_accounts (id, user_id, login, server, metaapi_account_id, created_at) VALUES ('acc_cycle', 'u_cyc', '7001', 'CycleServer', 'meta_cyc', ?)", (now,))
+        c.execute("""
+            INSERT INTO metaapi_trade_executions (
+                id, signal_id, account_id, metaapi_account_id, client_order_id, symbol, action, volume,
+                entry_price, status, origin, executed_at
+            ) VALUES (
+                'ex_cycle_1', 'sig_c1', 'acc_cycle', 'meta_cyc', 'cid_cycle_1', 'XAUUSD', 'BUY', 1.0,
+                2000.0, 'UNKNOWN_EXECUTION', 'BOT', ?
+            )
+        """, (now,))
+        setkv(c, "account_locked:acc_cycle", "UNKNOWN_EXECUTION_PENDING")
+
+    # Cycle 1: 0.50 partial close deal observed, 0.50 volume position still open on MT5
+    c1_positions = [{"id": "pos_cyc_1", "clientId": "cid_cycle_1", "symbol": "XAUUSD", "type": "POSITION_TYPE_BUY", "volume": 0.50, "openPrice": 2000.0, "stopLoss": 1980.0}]
+    c1_deals = [{"id": "deal_cyc_out_1", "positionId": "pos_cyc_1", "entryType": "DEAL_ENTRY_OUT", "volume": 0.50}]
+
+    mock_client.get_positions_verified = AsyncMock(return_value=(True, c1_positions, {"synchronized": True}))
+    mock_client.get_closed_deals = AsyncMock(return_value=c1_deals)
+
+    with tx() as c:
+        reconcile_account_positions(c, "acc_cycle", "meta_cyc", ok=True, live_positions=c1_positions, deals=c1_deals, now_ts=now)
+        row1 = c.execute("SELECT status, closed_volume, evidence_json FROM metaapi_trade_executions WHERE id = 'ex_cycle_1'").fetchone()
+        assert row1[0] == "FILLED", "Must transition from UNKNOWN_EXECUTION to FILLED"
+        assert row1[1] == 0.5, "Closed volume must reflect 0.50 partial close"
+        ev1 = json.loads(row1[2])
+        assert "deal_cyc_out_1" in ev1.get("deal_ids", [])
+        assert "deal_cyc_out_1" in ev1.get("partial_deals", [])
+
+    # Cycle 2: live_positions temporarily empty (e.g. broker blip), deals still return deal_cyc_out_1
+    with tx() as c:
+        reconcile_account_positions(c, "acc_cycle", "meta_cyc", ok=True, live_positions=[], deals=c1_deals, now_ts=now + 10)
+        row2 = c.execute("SELECT status, closed_volume FROM metaapi_trade_executions WHERE id = 'ex_cycle_1'").fetchone()
+        assert row2[0] == "FILLED", "Cycle 2 MUST NOT transition to CLOSED due to deal deduplication"
+        assert row2[1] == 0.5, "Closed volume MUST remain 0.50 and NOT be double-counted to 1.00"
+
+    # --- 2. Personal Account MT5 Portfolio Risk Cap (2.0%) ---
+    pers_login = f"702_{int(now * 1000) % 100000}"
+    with tx() as c:
+        c.execute("DELETE FROM metaapi_trade_executions WHERE account_id = 'acc_pers_cap'")
+        c.execute("DELETE FROM metaapi_cloud_accounts WHERE id = 'acc_pers_cap'")
+        c.execute("DELETE FROM trading_accounts WHERE id = 'acc_pers_cap'")
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_pers', 'u_pers@test.com', 'pass_123', 'customer') ON CONFLICT DO NOTHING")
+        c.execute("""
+            INSERT INTO trading_accounts (
+                id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server,
+                auto_trade, balance, equity, deployment_state, created_at
+            ) VALUES (
+                'acc_pers_cap', 'u_pers', 'meta_pers_cap', ?, 'enc_pass', 'PersServer',
+                1, 10000.0, 10000.0, 'DEPLOYED', ?
+            )
+        """, (pers_login, now))
+        c.execute("INSERT INTO metaapi_cloud_accounts (id, user_id, login, server, metaapi_account_id, created_at) VALUES ('acc_pers_cap', 'u_pers', '7002', 'PersServer', 'meta_pers_cap', ?)", (now,))
+
+    # Open broker position risking 1.8% ($180 risk on $10,000 capital: 0.09 lot XAUUSD with 2000 SL = $180)
+    # Open: 2000.0, SL: 1980.0 (20 pts) * 0.09 lot * 100 oz = $180 = 1.80%
+    existing_broker_positions = [{
+        "id": "pos_existing_pers",
+        "symbol": "XAUUSD",
+        "type": "POSITION_TYPE_BUY",
+        "openPrice": 2000.0,
+        "stopLoss": 1980.0,
+        "volume": 0.09,
+    }]
+    mock_client.get_open_positions = AsyncMock(return_value=existing_broker_positions)
+    mock_client.execute_order = AsyncMock(return_value={"numericCode": 10009, "stringCode": "TRADE_RETCODE_DONE", "positionId": "p_new", "orderId": "o_new"})
+
+    signal_pers = {"id": "sig_pers_risk", "symbol": "XAUUSD", "action": "BUY", "entry_price": 2000.0, "sl": 1980.0, "tp": 2040.0}
+    pers_acc_list = [{
+        "id": "acc_pers_cap", "metaapi_account_id": "meta_pers_cap", "broker_server": "PersServer",
+        "risk_percent": 0.5, "is_prop_firm_mode": 0, "balance": 10000.0, "equity": 10000.0,
+        "risk_config": '{"max_portfolio_risk_pct": 2.0}'
+    }]
+
+    fanout_cap_res = await execute_fan_out_for_signal(signal_pers, pers_acc_list, mock_client)
+    assert fanout_cap_res["executed"] == 0 and fanout_cap_res["skipped"] == 1, (
+        f"Personal account with 1.8% existing open risk + 0.5% new risk must exceed 2.0% cap and be skipped, got: {fanout_cap_res}"
+    )
+
+    # --- 3. MetaApiClient.get_open_orders_verified Fails Closed on Non-List HTTP 200 ---
+    from app.domains.execution.metaapi_client import MetaApiClient
+    real_meta_client = MetaApiClient(token="test_token")
+
+    class MockHttpxResponse:
+        def __init__(self, status_code, json_data):
+            self.status_code = status_code
+            self._json = json_data
+            self.text = json.dumps(json_data)
+        def json(self):
+            return self._json
+
+    class MockAsyncHttpxClient:
+        def __init__(self, resp):
+            self.resp = resp
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+        async def get(self, *args, **kwargs):
+            return self.resp
+
+    # Test HTTP 200 with dict instead of list
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kwargs: MockAsyncHttpxClient(MockHttpxResponse(200, {"error": "unexpected format"})))
+    ok, orders, meta = await real_meta_client.get_open_orders_verified("real_acc_123")
+    assert ok is False, "Must return ok=False when response body is not a list"
+    assert orders == []
+
+    # Test HTTP 200 with valid list
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kwargs: MockAsyncHttpxClient(MockHttpxResponse(200, [{"id": "ord_1"}])))
+    ok, orders, meta = await real_meta_client.get_open_orders_verified("real_acc_123")
+    assert ok is True, "Must return ok=True when response body is a valid list"
+    assert len(orders) == 1
+
+    # --- 4. Macro Filter Stand-Aside and Risk Scaling ---
+    from app.domains.ai.macro_station import save_macro_state
+    # 4a: DANGER_FREEZE blocks all fanout
+    save_macro_state({"shock": "DANGER_FREEZE", "dxy_trend": "FLAT", "us10y_trend": "FLAT", "updated_at": now})
+    res_freeze = await execute_fan_out_for_signal(signal_pers, pers_acc_list, mock_client)
+    assert res_freeze.get("error") == "MACRO_SHOCK_FREEZE", "DANGER_FREEZE must block fanout execution"
+    assert res_freeze["executed"] == 0
+
+    # 4b: Gold BUY with DXY UP scales risk to 0.5x
+    save_macro_state({"shock": "NONE", "dxy_trend": "UP", "us10y_trend": "FLAT", "updated_at": now})
+    mock_client.get_open_positions = AsyncMock(return_value=[])
+    recorded_exec = {}
+    async def capture_order(*args, **kwargs):
+        recorded_exec["volume"] = kwargs.get("volume")
+        return {"numericCode": 10009, "stringCode": "TRADE_RETCODE_DONE", "positionId": "pos_scaled", "orderId": "ord_scaled"}
+    mock_client.execute_order = capture_order
+
+    with tx() as c:
+        setkv(c, "account_locked:acc_pers_cap", "")
+    pers_acc_scaled = [{
+        "id": "acc_pers_cap", "metaapi_account_id": "meta_pers_cap", "broker_server": "PersServer",
+        "risk_percent": 1.0, "is_prop_firm_mode": 0, "balance": 20000.0, "equity": 20000.0,
+        "risk_config": '{"max_portfolio_risk_pct": 2.0}'
+    }]
+    res_scaled = await execute_fan_out_for_signal(signal_pers, pers_acc_scaled, mock_client)
+    assert res_scaled["executed"] == 1, f"Must execute with scaled risk, got: {res_scaled}"
+    # $20k equity * 1.0% base * 0.5 (macro_scale) * 0.5 (ranging meta_scale) = $50 risk -> 0.02 lot
+    captured_vol = recorded_exec.get("volume")
+    assert captured_vol == 0.02, f"Expected 0.02 lot for scaled risk on gold BUY with DXY UP, got {captured_vol}"
+
+    # Reset macro state
+    save_macro_state({"shock": "NONE", "dxy_trend": "FLAT", "us10y_trend": "FLAT", "updated_at": now})
+
+    # --- 5. Payment Webhook Safety: Preserve auto_trade preference and EXPIRED_PROTECTING state ---
+    from app.routers.webhooks import handle_sepay_webhook
+    from fastapi import Request
+
+    pay_login = f"703_{int(now * 1000) % 100000}"
+    with tx() as c:
+        c.execute("DELETE FROM payment_transactions WHERE id = 'sepay_tx_test_1'")
+        c.execute("DELETE FROM metaapi_trade_executions WHERE account_id = 'acc_pay'")
+        c.execute("DELETE FROM metaapi_cloud_accounts WHERE id = 'acc_pay'")
+        c.execute("DELETE FROM trading_accounts WHERE id = 'acc_pay'")
+        c.execute("""
+            INSERT INTO users (id, email, password, role)
+            VALUES ('u_pay', 'user_pay@zupirus.com', 'pass_123', 'customer')
+            ON CONFLICT DO NOTHING
+        """)
+        c.execute("""
+            INSERT INTO trading_accounts (
+                id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server,
+                auto_trade, balance, equity, deployment_state, created_at
+            ) VALUES (
+                'acc_pay', 'u_pay', 'meta_pay', ?, 'enc_pass', 'PayServer',
+                0, 5000.0, 5000.0, 'EXPIRED_PROTECTING', ?
+            )
+        """, (pay_login, now))
+
+    webhook_payload = {
+        "id": "sepay_tx_test_1",
+        "gateway": "vietcombank",
+        "transactionDate": "2026-11-22 12:00:00",
+        "accountNumber": "9999999",
+        "code": None,
+        "content": "ZUPIRUS SUB user_pay@zupirus.com",
+        "transferType": "in",
+        "transferAmount": 500000,
+        "accumulated": 500000,
+        "subAccount": None,
+        "referenceCode": "REF_TEST_1",
+        "description": "Payment test"
+    }
+
+    mock_req = AsyncMock(spec=Request)
+    mock_req.body = AsyncMock(return_value=json.dumps(webhook_payload).encode("utf-8"))
+    mock_req.headers = {"authorization": "Apikey test_key"}
+    mock_req.query_params = {}
+    monkeypatch.setenv("SEPAY_WEBHOOK_SECRET", "test_key")
+    monkeypatch.setattr("app.routers.webhooks.SEPAY_WEBHOOK_SECRET", "test_key")
+
+    webhook_res = await handle_sepay_webhook(mock_req, authorization="Apikey test_key")
+    assert webhook_res.get("success") is True, f"Webhook should record transaction successfully, got: {webhook_res}"
+
+    with tx() as c:
+        acc_state = c.execute("SELECT deployment_state, auto_trade FROM trading_accounts WHERE id = 'acc_pay'").fetchone()
+        assert acc_state[0] == "EXPIRED_PROTECTING", "Payment webhook must NOT forcefully mutate deployment_state"
+        assert acc_state[1] == 0, "Payment webhook must NOT forcefully override user's auto_trade preference"

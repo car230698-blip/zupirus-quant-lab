@@ -340,8 +340,22 @@ def reconcile_account_positions(
                 if (pid in (str(dl.get("positionId") or ""), str(dl.get("orderId") or "")) or ucid in str(dl.get("clientId") or ""))
                 and str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2")
             )
+            matched_deal_ids = [
+                str(dl.get("id"))
+                for dl in (deals or [])
+                if (pid in (str(dl.get("positionId") or ""), str(dl.get("orderId") or "")) or ucid in str(dl.get("clientId") or ""))
+                and str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2")
+                and dl.get("id")
+            ]
             if closed_v <= 0 and orig_vol > 0 and live_vol < orig_vol - 0.001:
                 closed_v = round(orig_vol - live_vol, 4)
+            ev_data = {
+                "matched_live_ticket": pid,
+                "ts": now_ts,
+                "partial": closed_v > 0,
+                "deal_ids": matched_deal_ids,
+                "partial_deals": matched_deal_ids,
+            }
             c.execute(
                 """
                 UPDATE metaapi_trade_executions
@@ -349,7 +363,7 @@ def reconcile_account_positions(
                     last_verified_at = ?, evidence_json = ?
                 WHERE id = ?
                 """,
-                (pid, pid, sl_c, closed_v, now_ts, json.dumps({"matched_live_ticket": pid, "ts": now_ts, "partial": closed_v > 0}), uexec_id)
+                (pid, pid, sl_c, closed_v, now_ts, json.dumps(ev_data), uexec_id)
             )
         elif len(matched_live) > 1:
             c.execute(
@@ -393,6 +407,7 @@ def reconcile_account_positions(
                         # Position is still open on broker (partial close): keep FILLED, retain account lock
                         sl_val = float(matching_live_pos.get("stopLoss") or 0.0)
                         sl_c = 1 if sl_val > 0 else 0
+                        dl_id_str = str(dl.get("id") or "")
                         c.execute(
                             """
                             UPDATE metaapi_trade_executions
@@ -400,29 +415,66 @@ def reconcile_account_positions(
                                 last_verified_at = ?, evidence_json = ?
                             WHERE id = ?
                             """,
-                            (pos_id, pos_id, sl_c, deal_vol, now_ts, json.dumps({"matched_closing_deal": dl.get("id"), "entryType": entry_type, "partial": True}), uexec_id)
+                            (
+                                pos_id,
+                                pos_id,
+                                sl_c,
+                                deal_vol,
+                                now_ts,
+                                json.dumps({
+                                    "matched_closing_deal": dl.get("id"),
+                                    "entryType": entry_type,
+                                    "partial": True,
+                                    "deal_ids": [dl_id_str] if dl_id_str else [],
+                                    "partial_deals": [dl_id_str] if dl_id_str else [],
+                                }),
+                                uexec_id,
+                            )
                         )
                     elif orig_vol > 0 and deal_vol < orig_vol - 0.001:
                         # Missing from live positions, but deal volume is strictly less than original volume:
                         # Mark AMBIGUOUS_LOCKED to prevent premature unlock
+                        dl_id_str = str(dl.get("id") or "")
                         c.execute(
                             """
                             UPDATE metaapi_trade_executions
                             SET status = 'AMBIGUOUS_LOCKED', closed_volume = ?, last_verified_at = ?, evidence_json = ?
                             WHERE id = ?
                             """,
-                            (deal_vol, now_ts, json.dumps({"matched_closing_deal": dl.get("id"), "entryType": entry_type, "partial_unaccounted": True}), uexec_id)
+                            (
+                                deal_vol,
+                                now_ts,
+                                json.dumps({
+                                    "matched_closing_deal": dl.get("id"),
+                                    "entryType": entry_type,
+                                    "partial_unaccounted": True,
+                                    "deal_ids": [dl_id_str] if dl_id_str else [],
+                                    "partial_deals": [dl_id_str] if dl_id_str else [],
+                                }),
+                                uexec_id,
+                            )
                         )
                         setkv(c, f"account_locked:{acc_id}", "AMBIGUOUS_LOCKED")
                     else:
                         # Fully closed on broker
+                        dl_id_str = str(dl.get("id") or "")
                         c.execute(
                             """
                             UPDATE metaapi_trade_executions
                             SET status = 'CLOSED', closed_at = ?, closed_volume = ?, last_verified_at = ?, evidence_json = ?
                             WHERE id = ?
                             """,
-                            (now_ts, deal_vol, now_ts, json.dumps({"matched_closing_deal": dl.get("id"), "entryType": entry_type}), uexec_id)
+                            (
+                                now_ts,
+                                deal_vol,
+                                now_ts,
+                                json.dumps({
+                                    "matched_closing_deal": dl.get("id"),
+                                    "entryType": entry_type,
+                                    "deal_ids": [dl_id_str] if dl_id_str else [],
+                                }),
+                                uexec_id,
+                            )
                         )
                 else:
                     c.execute(
