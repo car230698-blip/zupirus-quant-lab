@@ -27,10 +27,11 @@ def _get_reminder_sender():
 async def run_subscription_lifecycle_cycle(
     now_ts: Optional[float] = None,
     client: Optional[MetaApiClient] = None,
+    meta_client: Optional[MetaApiClient] = None,
 ) -> Dict[str, Any]:
     """Run one hourly subscription & Cloud lifecycle maintenance pass."""
     now = float(now_ts if now_ts is not None else time.time())
-    meta_client = client or MetaApiClient()
+    meta_client = client or meta_client or MetaApiClient()
     stats = {
         "reminded_3d": 0,
         "reminded_1d": 0,
@@ -131,44 +132,85 @@ async def run_subscription_lifecycle_cycle(
                     stats["undeployed_idle"] += 1
                     continue
 
+                is_read_ok = False
                 open_positions = []
+                sync_meta = {}
                 try:
-                    try:
-                        open_positions = await meta_client.get_open_positions(meta_id, raise_on_error=True) or []
-                    except TypeError:
+                    if hasattr(meta_client, "get_positions_verified"):
+                        is_read_ok, open_positions, sync_meta = await meta_client.get_positions_verified(meta_id)
+                    else:
                         open_positions = await meta_client.get_open_positions(meta_id) or []
+                        is_read_ok = True
                 except Exception as e:
                     logger.debug(f"Could not check positions before undeploy for {acc['id']}: {e}")
-                    open_positions = [{"id": "unknown_keep_safe"}]
+                    is_read_ok = False
 
-                if open_positions:
+                with tx() as c:
+                    unverified_reqs = c.execute(
+                        """
+                        SELECT id, status, client_order_id, origin
+                        FROM metaapi_trade_executions
+                        WHERE account_id = ? AND (
+                            status IN ('PENDING_SUBMIT', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED')
+                            OR (origin = 'BOT' AND status IN ('OPEN', 'FILLED'))
+                        )
+                        """,
+                        (acc["id"],)
+                    ).fetchall()
+                    last_ver_row = c.execute("SELECT last_verified_at FROM trading_accounts WHERE id = ?", (acc["id"],)).fetchone()
+                    last_verified_ts = (last_ver_row[0] if last_ver_row and last_ver_row[0] else None) or 0
+
+                has_blocking_items = bool(unverified_reqs) or bool(open_positions) or (not is_read_ok)
+                is_24h_expired = (now - exp) >= 86400
+
+                if has_blocking_items and not is_24h_expired:
                     with tx() as c:
                         c.execute(
                             "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
                             (acc["id"],),
                         )
                     stats["protecting_open"] += 1
-                else:
-                    undeploy_ok = True
+                    continue
+
+                if has_blocking_items and is_24h_expired:
+                    logger.warning(
+                        f"24H EXPIRED LIMIT: Undeploying account {acc['id']} after 24h expired protecting. "
+                        f"Sending handover alert to user and admin."
+                    )
                     try:
-                        if meta_id:
-                            undeploy_ok = bool(await meta_client.undeploy_account(meta_id))
-                    except Exception as e:
-                        logger.debug(f"Undeploy error for expired account {acc['id']}: {e}")
-                        undeploy_ok = False
-                    with tx() as c:
-                        if undeploy_ok:
-                            c.execute(
-                                "UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0 WHERE id = ?",
-                                (acc["id"],),
-                            )
-                            audit(c, "subscription_lifecycle", "expired_account_undeployed", {"account_id": acc["id"], "user_id": user_id})
-                        else:
-                            c.execute(
-                                "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
-                                (acc["id"],),
-                            )
+                        from app.core.mailer import send_admin_alert_email
+                        send_admin_alert_email(
+                            f"[ZUPIRUS] Bàn giao tài khoản hết hạn 24h: {acc['id']}",
+                            f"Tài khoản {acc['id']} đã hết hạn > 24 giờ. Còn các mục chưa xác minh hoặc vị thế bot đang mở. "
+                            f"Trạng thái kết nối: {'ĐỒNG BỘ' if is_read_ok else 'MẤT KẾT NỐI'}. Mốc xác minh gần nhất: {last_verified_ts}. "
+                            f"Hệ thống đã thu hồi trạm và bàn giao cho khách hàng tự quản lý."
+                        )
+                    except Exception as he:
+                        logger.debug(f"Handover email note: {he}")
+
+                undeploy_ok = True
+                try:
+                    if meta_id:
+                        undeploy_ok = bool(await meta_client.undeploy_account(meta_id))
+                except Exception as e:
+                    logger.debug(f"Undeploy error for expired account {acc['id']}: {e}")
+                    undeploy_ok = False
+
+                with tx() as c:
                     if undeploy_ok:
+                        c.execute(
+                            "UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0 WHERE id = ?",
+                            (acc["id"],),
+                        )
+                        audit(c, "subscription_lifecycle", "expired_account_undeployed", {
+                            "account_id": acc["id"], "user_id": user_id, "forced_24h": is_24h_expired
+                        })
                         stats["undeployed_idle"] += 1
+                    else:
+                        c.execute(
+                            "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
+                            (acc["id"],),
+                        )
+                        stats["protecting_open"] += 1
 
     return stats

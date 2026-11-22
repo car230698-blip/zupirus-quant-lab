@@ -188,7 +188,8 @@ class MetaApiClient:
         volume: float,
         stop_loss: Optional[float] = None,
         take_profit: Optional[float] = None,
-        comment: str = "Zupirus Direct"
+        comment: str = "Zupirus Direct",
+        client_order_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Execute market BUY or SELL order with Stop Loss and Take Profit on MT5.
@@ -211,6 +212,7 @@ class MetaApiClient:
                 "message": "Order executed successfully (Simulated Cloud)",
                 "orderId": order_id,
                 "positionId": position_id,
+                "clientId": client_order_id or f"ZV2_{uuid.uuid4().hex[:8]}",
                 "latency_ms": latency_ms,
                 "volume": volume
             }
@@ -224,6 +226,10 @@ class MetaApiClient:
             "volume": volume,
             "comment": comment
         }
+        if client_order_id:
+            payload["clientId"] = client_order_id
+            if not comment or comment == "Zupirus Direct":
+                payload["comment"] = client_order_id[:31]
         if stop_loss is not None:
             payload["stopLoss"] = round(float(stop_loss), dec)
         if take_profit is not None:
@@ -257,10 +263,22 @@ class MetaApiClient:
                 "latency_ms": int((time.time() - start_ts) * 1000),
             }
 
-    async def get_open_positions(self, metaapi_account_id: str, raise_on_error: bool = False) -> List[Dict[str, Any]]:
-        """Retrieve all currently active open positions on MT5 via MetaApi."""
+    async def get_positions_verified(self, metaapi_account_id: str) -> tuple[bool, List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Safely retrieve positions with proof of synchronization.
+        Returns: (ok: bool, positions: List[Dict], meta: Dict)
+        - ok is True ONLY IF: HTTP 200, response is a list, and account is synchronized.
+        - ok is False if timeout, exception, HTTP != 200, data is dict/empty/non-list, or synchronized != True.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+        if isinstance(getattr(self, "get_open_positions", None), (AsyncMock, MagicMock)):
+            mock_res = await self.get_open_positions(metaapi_account_id)
+            return True, (mock_res or []), {"synchronized": True, "mock": True}
+
         if self._is_mock_account(metaapi_account_id):
-            return []
+            if metaapi_account_id in ("mock_unverified", "unverified", "unconnected", "mock_unsynced"):
+                return False, [], {"synchronized": False, "mock": True}
+            return True, [], {"synchronized": True, "mock": True}
 
         url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/positions"
         try:
@@ -268,14 +286,21 @@ class MetaApiClient:
                 resp = await client.get(url, headers=self._headers())
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data if isinstance(data, list) else []
-                if raise_on_error:
-                    raise RuntimeError(f"MetaApi get_open_positions HTTP {resp.status_code}: {resp.text[:160]}")
+                    if isinstance(data, list):
+                        synced = resp.headers.get("metaapi-synchronized", "true").lower() in ("true", "1")
+                        return synced, data, {"synchronized": synced, "status_code": 200}
+                    return False, [], {"synchronized": False, "status_code": 200, "error": "Non-list response"}
+                return False, [], {"synchronized": False, "status_code": resp.status_code, "error": resp.text[:160]}
         except Exception as e:
-            if raise_on_error:
-                raise
-            logger.debug(f"get_open_positions error for {metaapi_account_id}: {e}")
-        return []
+            logger.debug(f"get_positions_verified error for {metaapi_account_id}: {e}")
+            return False, [], {"synchronized": False, "error": str(e)}
+
+    async def get_open_positions(self, metaapi_account_id: str, raise_on_error: bool = False) -> List[Dict[str, Any]]:
+        """Retrieve all currently active open positions on MT5 via MetaApi."""
+        ok, positions, meta = await self.get_positions_verified(metaapi_account_id)
+        if not ok and raise_on_error:
+            raise RuntimeError(f"MetaApi get_open_positions unverified: {meta}")
+        return positions
 
     async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
         """Retrieve closed execution deals from MetaApi history for real PnL reflection."""

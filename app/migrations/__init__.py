@@ -116,6 +116,11 @@ MIGRATIONS = [
         "version": 22,
         "name": "022_align_quotes_hypertable_unique_constraint",
         "description": "Align quotes hypertable unique constraint with (time, source, symbol, ts) for clean multi-symbol ON CONFLICT ingest"
+    },
+    {
+        "version": 23,
+        "name": "023_execution_safety_and_ownership",
+        "description": "Add origin, client_order_id, evidence_json, reserved_risk_pct, sl_confirmed, closed_volume to metaapi_trade_executions"
     }
 ]
 
@@ -133,7 +138,7 @@ from .seed_and_fixes import (
     apply_migration_013, apply_migration_014, apply_migration_015,
     apply_migration_016, apply_migration_017, apply_migration_018,
     apply_migration_019, apply_migration_020, apply_migration_021,
-    apply_migration_022,
+    apply_migration_022, apply_migration_023,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -164,6 +169,7 @@ def run_all_migrations(c, is_pg: bool):
         20: apply_migration_020,
         21: apply_migration_021,
         22: apply_migration_022,
+        23: apply_migration_023,
     }
 
     for m in MIGRATIONS:

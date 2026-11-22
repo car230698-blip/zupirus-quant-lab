@@ -227,6 +227,7 @@ async def test_end_to_end_autonomous_customer_and_ai_lifecycle(monkeypatch):
     # Expired while 1 open position exists -> auto_trade=0, EXPIRED_PROTECTING (NOT undeployed!)
     lifecycle_client = MetaApiClient()
     lifecycle_client.get_open_positions = AsyncMock(return_value=[{"id": "pos_still_open", "symbol": "XAUUSD"}])
+    lifecycle_client.get_positions_verified = AsyncMock(return_value=(True, [{"id": "pos_still_open", "symbol": "XAUUSD"}], {"synchronized": True}))
     lifecycle_client.undeploy_account = AsyncMock(return_value=True)
     rexp_open = await run_subscription_lifecycle_cycle(
         now_ts=float(sub_row["service_expires_at"]) + 60,
@@ -241,6 +242,9 @@ async def test_end_to_end_autonomous_customer_and_ai_lifecycle(monkeypatch):
 
     # Once open positions are closed -> undeploy_account() runs & state becomes UNDEPLOYED
     lifecycle_client.get_open_positions = AsyncMock(return_value=[])
+    lifecycle_client.get_positions_verified = AsyncMock(return_value=(True, [], {"synchronized": True}))
+    with tx() as c:
+        c.execute("UPDATE metaapi_trade_executions SET status = 'CLOSED' WHERE account_id = ?", (acc_id,))
     rexp_closed = await run_subscription_lifecycle_cycle(
         now_ts=float(sub_row["service_expires_at"]) + 120,
         client=lifecycle_client,

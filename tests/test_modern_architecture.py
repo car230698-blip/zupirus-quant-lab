@@ -440,15 +440,19 @@ def test_multi_strategy_coordinator():
 
     # 4. Phase 2 (ZUPIRUS_AGENT): Autonomous execution with approved policy
     with tx() as c:
+        c.execute("UPDATE strategy_candidates SET status = 'ARCHIVED_PROD' WHERE status = 'APPROVED_FOR_PROD'")
+        c.execute("UPDATE agent_skills SET enabled = 0 WHERE skill_id LIKE 'learned_%'")
         c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'ZUPIRUS_AGENT') ON CONFLICT(key) DO UPDATE SET value = 'ZUPIRUS_AGENT'")
         c.execute("INSERT INTO kv(key, value) VALUES('signal_mode', 'ZUPIRUS_AGENT') ON CONFLICT(key) DO UPDATE SET value = 'ZUPIRUS_AGENT'")
+        now_ts = time.time()
         c.execute(
             """
             INSERT INTO strategy_candidates (
                 id, name, status, rules_json, sample_size, win_rate, profit_factor, created_at, updated_at
-            ) VALUES ('cand_test_approved', 'TabulaRasa-Prod-Alpha', 'APPROVED_FOR_PROD', '{"action":"BUY","min_slope":0.10}', 50, 0.68, 1.85, 1.0, 1.0)
-            ON CONFLICT(id) DO UPDATE SET status = 'APPROVED_FOR_PROD'
-            """
+            ) VALUES ('cand_test_approved', 'TabulaRasa-Prod-Alpha', 'APPROVED_FOR_PROD', '{"action":"BUY","min_slope":0.10}', 50, 0.68, 1.85, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET status = 'APPROVED_FOR_PROD', updated_at = excluded.updated_at
+            """,
+            (now_ts, now_ts + 1000)
         )
 
     # Rising slope series triggers AUTONOMOUS_BUY

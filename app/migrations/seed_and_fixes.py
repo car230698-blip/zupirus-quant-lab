@@ -528,4 +528,60 @@ def apply_migration_022(c, is_pg: bool):
         """)
 
 
+def apply_migration_023(c, is_pg: bool):
+    """023_execution_safety_and_ownership: Add origin, client_order_id, evidence_json, reserved_risk_pct, sl_confirmed, closed_volume to metaapi_trade_executions and strategy_id to signal_audit_logs."""
+    if is_pg:
+        c.execute("""
+        ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'UNKNOWN';
+        ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS client_order_id TEXT;
+        ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS evidence_json TEXT;
+        ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS reserved_risk_pct DOUBLE PRECISION DEFAULT 0.0;
+        ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS sl_confirmed INTEGER DEFAULT 0;
+        ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS closed_volume DOUBLE PRECISION DEFAULT 0.0;
+        ALTER TABLE metaapi_trade_executions ADD COLUMN IF NOT EXISTS last_verified_at DOUBLE PRECISION;
+        ALTER TABLE trading_accounts ADD COLUMN IF NOT EXISTS last_verified_at DOUBLE PRECISION;
+        ALTER TABLE signal_audit_logs ADD COLUMN IF NOT EXISTS strategy_id TEXT;
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_acc_client_order ON metaapi_trade_executions(account_id, client_order_id);
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_origin ON metaapi_trade_executions(origin);
+        CREATE INDEX IF NOT EXISTS idx_sig_audit_strat ON signal_audit_logs(strategy_id);
+        """)
+    else:
+        cols = [r[1] for r in c.execute("PRAGMA table_info(metaapi_trade_executions)").fetchall()]
+        new_cols = [
+            ("origin", "TEXT NOT NULL DEFAULT 'UNKNOWN'"),
+            ("client_order_id", "TEXT"),
+            ("evidence_json", "TEXT"),
+            ("reserved_risk_pct", "REAL DEFAULT 0.0"),
+            ("sl_confirmed", "INTEGER DEFAULT 0"),
+            ("closed_volume", "REAL DEFAULT 0.0"),
+            ("last_verified_at", "REAL"),
+            ("ticket", "TEXT"),
+        ]
+        for col_name, col_def in new_cols:
+            if col_name not in cols:
+                try:
+                    c.execute(f"ALTER TABLE metaapi_trade_executions ADD COLUMN {col_name} {col_def}")
+                except Exception:
+                    pass
+        sig_cols = [r[1] for r in c.execute("PRAGMA table_info(signal_audit_logs)").fetchall()]
+        if "strategy_id" not in sig_cols:
+            try:
+                c.execute("ALTER TABLE signal_audit_logs ADD COLUMN strategy_id TEXT")
+            except Exception:
+                pass
+        t_cols = [r[1] for r in c.execute("PRAGMA table_info(trading_accounts)").fetchall()]
+        if "last_verified_at" not in t_cols:
+            try:
+                c.execute("ALTER TABLE trading_accounts ADD COLUMN last_verified_at REAL")
+            except Exception:
+                pass
+        try:
+            c.execute("CREATE INDEX IF NOT EXISTS idx_metaapi_exec_acc_client_order ON metaapi_trade_executions(account_id, client_order_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_metaapi_exec_origin ON metaapi_trade_executions(origin)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_sig_audit_strat ON signal_audit_logs(strategy_id)")
+        except Exception:
+            pass
+
+
+
 

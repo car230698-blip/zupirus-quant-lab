@@ -573,6 +573,43 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             </div>
           </SpotlightBento>
 
+          {/* THANH TRẠNG THÁI TRẠM TỰ HÀNH V2.0 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl border border-white/[0.06] bg-[#070D1F] text-xs font-mono">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Trạm Tự Hành v2.0:</span>
+              <span className={`px-2 py-0.5 rounded-md font-bold ${
+                radar.regime === 'TRENDING' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                radar.regime === 'CHAOTIC' ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' :
+                'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+              }`}>
+                Thị trường: {radar.regime || 'RANGING'}
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold">
+                Router: {radar.meta_router_scale ? `${radar.meta_router_scale}x` : '1.0x'}
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                Macro: {radar.dxy_trend ? `DXY ${radar.dxy_trend}` : 'DXY FLAT'}
+              </span>
+              {radar.macro_degraded && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+                  ⚠️ Macro Decay 0.5x
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`px-2 py-0.5 rounded-md text-[11px] ${
+                radar.circuit_breaker_active ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold' : 'text-slate-400'
+              }`}>
+                {radar.circuit_breaker_active ? '🚨 Circuit Breaker OPEN' : '✓ Circuit Breaker Normal'}
+              </span>
+              {Boolean(radar.unverified_count) && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold">
+                  ⚠️ {radar.unverified_count} Chờ xác minh
+                </span>
+              )}
+            </div>
+          </div>
+
           {/* KHỐI 2: 4 THẺ KPI QUAN TRỌNG NHẤT */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <SpotlightBento className="p-5 space-y-2">

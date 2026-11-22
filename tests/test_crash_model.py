@@ -29,6 +29,9 @@ def test_distributed_lock_idempotency():
 
 @pytest.mark.asyncio
 async def test_fanout_handles_network_hiccups_without_duplicate_orders():
+    from app.db import tx
+    with tx() as c:
+        c.execute("DELETE FROM metaapi_trade_executions WHERE account_id = 'acc_retry_1'")
     client = MetaApiClient()
     accounts = [
         {"id": "acc_retry_1", "metaapi_account_id": "meta_retry_1", "equity": 5000.0, "risk_percent": 1.0},

@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+import json
 import asyncio
 import logging
 import datetime
@@ -177,6 +178,18 @@ async def execute_fan_out_for_signal(
         except (ValueError, TypeError):
             equity = balance
         if equity <= 0:
+            try:
+                with tx() as c_acc:
+                    brow = c_acc.execute("SELECT balance, equity FROM trading_accounts WHERE id = ?", (acc_id,)).fetchone()
+                    if brow:
+                        b_val = float(brow[0] or 0.0)
+                        eq_val = float(brow[1] or 0.0)
+                        if eq_val > 0:
+                            equity = eq_val
+                            balance = b_val
+            except Exception:
+                pass
+        if equity <= 0:
             logger.warning(f"Account {acc_id} skipped: zero or negative equity ({equity}).")
             continue
 
@@ -214,6 +227,8 @@ async def execute_fan_out_for_signal(
         prop_stage = str(acc.get("prop_stage") or "CHALLENGE").upper()
         effective_risk_pct = risk_pct
         effective_mult = mult
+        total_open_portfolio_risk_pct = 0.0
+        max_portfolio_risk_pct = float(os.getenv("PROP_LIVE_MAX_PORTFOLIO_RISK_PCT", "2.0").strip())
 
         if is_prop_mode and prop_stage != "LIVE":
             # Check profit-target throttle flag (halve risk when >= 80% of prop profit target achieved in CHALLENGE)
@@ -374,39 +389,148 @@ async def execute_fan_out_for_signal(
             logger.info(f"Account {acc_id} skipped: calculated volume={volume} <= 0 (risk budget too small for min_lot).")
             continue
 
-        # Acquire Redis + DB idempotency lock only after all guards and sizing pass
-        redis_locked = False
-        if redis_client:
-            lock_key = f"zupirus:lock:signal:{signal_id}:{acc_id}"
-            try:
-                if not redis_client.set(lock_key, "1", ex=120, nx=True):
-                    logger.warning(f"Idempotency: Signal {signal_id} already locked in Redis for {acc_id}. Skipping.")
-                    continue
-                redis_locked = True
-            except Exception as e:
-                logger.error(f"Redis idempotency lock error: {e}")
+        # Acquire DB atomic risk reservation and idempotency lock
+        from app.services.symbol_precision import digits_for_symbol
+        dec_places = digits_for_symbol(broker_sym)
+        rounded_sl = round(sl, dec_places) if sl is not None else None
+        rounded_tp = round(tp, dec_places) if tp is not None else None
 
+        client_order_id = f"ZV2_{uuid.uuid4().hex[:8]}"
+        exec_id = f"exec_{uuid.uuid4().hex[:16]}"
+        now_ts = time.time()
+
+        # Helper for USD direction
+        def _get_usd_dir(s: str, act: str) -> str:
+            su = str(s).upper()
+            au = str(act).upper()
+            if any(k in su for k in ("XAU", "EUR", "GBP", "AUD", "NZD")):
+                return "USD_SHORT" if "BUY" in au else "USD_LONG"
+            elif any(k in su for k in ("JPY", "CAD", "CHF")):
+                return "USD_LONG" if "BUY" in au else "USD_SHORT"
+            return "NEUTRAL"
+
+        target_usd_dir = _get_usd_dir(symbol, action)
+
+        # Atomic reservation transaction on shared DB
+        reservation_ok = False
         try:
             from app.db import tx
             with tx() as c:
-                lock_cur = c.execute(
-                    "INSERT INTO signal_dispatch_locks (id, signal_fingerprint, account_id, worker_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (signal_fingerprint, account_id) DO NOTHING",
-                    (f"lck_{uuid.uuid4().hex[:12]}", str(signal_id), acc_id, str(os.getpid()), time.time())
-                )
-                if getattr(lock_cur, "rowcount", 1) == 0:
-                    logger.warning(f"Idempotency: Signal {signal_id} already locked in DB for {acc_id}. Skipping.")
-                    if redis_client and redis_locked:
-                        try:
-                            redis_client.delete(f"zupirus:lock:signal:{signal_id}:{acc_id}")
-                        except Exception as exc:
-                            logger.debug("Failed to release Redis lock for %s:%s: %s", signal_id, acc_id, exc)
+                # Row lock if Postgres
+                is_pg_conn = bool(getattr(c, "_is_pg", False))
+                if is_pg_conn:
+                    c.execute("SELECT 1 FROM trading_accounts WHERE id = ? FOR UPDATE", (acc_id,))
+
+                # Check account drawdown or safety halt
+                if is_account_drawdown_halted(c, acc_id):
+                    logger.warning(f"Account {acc_id} skipped: Account is halted/locked.")
                     continue
-        except Exception as db_lock_err:
-            if not redis_locked:
-                logger.error(f"Fail-Closed Idempotency: Both Redis and DB locks unavailable for {acc_id}: {db_lock_err}")
-                continue
+
+                # Query all active / unverified executions on this account
+                active_rows = c.execute(
+                    """
+                    SELECT symbol, action, reserved_risk_pct, status, position_id, ticket
+                    FROM metaapi_trade_executions
+                    WHERE account_id = ? AND status IN ('PENDING_SUBMIT', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED', 'FILLED')
+                    """,
+                    (acc_id,)
+                ).fetchall()
+
+                # 1. USD Correlation Cap check (Max 2 in same USD direction)
+                if target_usd_dir != "NEUTRAL":
+                    same_usd_count = 0
+                    for ar in active_rows:
+                        ar_row = dict(ar) if hasattr(ar, "keys") else {}
+                        ar_sym = ar_row.get("symbol") or ar[0]
+                        ar_act = ar_row.get("action") or ar[1]
+                        if _get_usd_dir(ar_sym, ar_act) == target_usd_dir:
+                            same_usd_count += 1
+                    if same_usd_count >= 2:
+                        logger.warning(f"Account {acc_id} skipped: USD Correlation Cap <= 2 reached ({same_usd_count} active in direction {target_usd_dir}).")
+                        continue
+
+                # 2. Atomic 2.0% Total Risk Cap calculation
+                # Unreflected risks in DB:
+                live_tickets = set()
+                if open_positions_cache:
+                    for p in open_positions_cache:
+                        p_t = str(p.get("id") or "")
+                        if p_t:
+                            live_tickets.add(p_t)
+
+                unreflected_risk_pct = 0.0
+                for ar in active_rows:
+                    ar_row = dict(ar) if hasattr(ar, "keys") else {}
+                    st = ar_row.get("status") or ar[3]
+                    p_id = str(ar_row.get("position_id") or ar[4] or "")
+                    t_id = str(ar_row.get("ticket") or (ar[5] if len(ar) > 5 else "") or "")
+                    r_pct = float(ar_row.get("reserved_risk_pct") or ar[2] or 0.0)
+
+                    if st in ('PENDING_SUBMIT', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED'):
+                        unreflected_risk_pct += r_pct
+                    elif st == 'FILLED' and p_id not in live_tickets and t_id not in live_tickets:
+                        unreflected_risk_pct += r_pct
+
+                total_in_flight_risk = total_open_portfolio_risk_pct + unreflected_risk_pct
+                if is_prop_mode and prop_stage == "LIVE" and (total_in_flight_risk + effective_risk_pct > max_portfolio_risk_pct + 0.001):
+                    logger.warning(
+                        f"Account {acc_id} skipped: Atomic {max_portfolio_risk_pct}% risk cap exceeded "
+                        f"(in_flight={total_in_flight_risk:.2f}%, new={effective_risk_pct:.2f}%)."
+                    )
+                    continue
+
+                # Ensure metaapi_cloud_accounts row exists for FK
+                if is_pg_conn:
+                    c.execute("SAVEPOINT sp_metaapi_fk")
+                try:
+                    has_cloud = c.execute("SELECT 1 FROM metaapi_cloud_accounts WHERE id = ?", (acc_id,)).fetchone()
+                    if not has_cloud:
+                        ta_u = c.execute("SELECT user_id FROM trading_accounts WHERE id = ?", (acc_id,)).fetchone()
+                        fallback_uid = (ta_u[0] if ta_u and ta_u[0] else None) or acc.get("user_id")
+                        if fallback_uid:
+                            has_u = c.execute("SELECT 1 FROM users WHERE id = ?", (fallback_uid,)).fetchone()
+                            if not has_u:
+                                fallback_uid = None
+                        c.execute(
+                            """
+                            INSERT INTO metaapi_cloud_accounts(
+                                id, user_id, login, server, platform, account_name,
+                                metaapi_account_id, metaapi_state, auto_trade, created_at
+                            ) VALUES(?, ?, ?, 'MT5-Cloud', 'mt5', ?, ?, 'DEPLOYED', 1, ?)
+                            ON CONFLICT (id) DO NOTHING
+                            """,
+                            (acc_id, fallback_uid, acc_id, acc_id, meta_id, now_ts)
+                        )
+                    if is_pg_conn:
+                        c.execute("RELEASE SAVEPOINT sp_metaapi_fk")
+                except Exception as fk_err:
+                    logger.debug(f"metaapi_cloud_accounts insert failed: {fk_err}")
+
+                # Insert durable PENDING_SUBMIT record BEFORE network call
+                c.execute(
+                    """
+                    INSERT INTO metaapi_trade_executions(
+                        id, signal_id, account_id, metaapi_account_id, symbol, action, volume,
+                        entry_price, sl, tp, status, origin, client_order_id, reserved_risk_pct,
+                        sl_confirmed, executed_at, evidence_json
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_SUBMIT', 'BOT', ?, ?, 0, ?, ?)
+                    """,
+                    (
+                        exec_id, signal_id, acc_id, meta_id, broker_sym, action, volume,
+                        entry_price, rounded_sl, rounded_tp, client_order_id, effective_risk_pct,
+                        now_ts, json.dumps({"state": "PENDING_SUBMIT", "ts": now_ts})
+                    )
+                )
+                reservation_ok = True
+        except Exception as res_err:
+            logger.error(f"Failed atomic reservation for account {acc_id}: {res_err}")
+            continue
+
+        if not reservation_ok:
+            continue
 
         account_metas.append({
+            "exec_id": exec_id,
             "account_id": acc_id,
             "metaapi_account_id": meta_id,
             "user_id": acc.get("user_id"),
@@ -415,13 +539,12 @@ async def execute_fan_out_for_signal(
             "is_compounding": is_comp,
             "multiplier": mult,
             "broker_symbol": broker_sym,
+            "client_order_id": client_order_id,
+            "rounded_sl": rounded_sl,
+            "rounded_tp": rounded_tp,
         })
 
-        # 5. Schedule concurrent execution task with normalized digits to prevent broker rejection
-        from app.services.symbol_precision import digits_for_symbol
-        dec_places = digits_for_symbol(broker_sym)
-        rounded_sl = round(sl, dec_places) if sl is not None else None
-        rounded_tp = round(tp, dec_places) if tp is not None else None
+        # 5. Schedule concurrent execution task
         tasks.append(
             metaapi_client.execute_order(
                 metaapi_account_id=meta_id,
@@ -430,7 +553,8 @@ async def execute_fan_out_for_signal(
                 volume=volume,
                 stop_loss=rounded_sl,
                 take_profit=rounded_tp,
-                comment=f"ZP-{signal_id[:6]}"
+                comment=client_order_id,
+                client_order_id=client_order_id
             )
         )
 
@@ -463,12 +587,28 @@ async def execute_fan_out_for_signal(
     now_ts = time.time()
 
     for meta, res in zip(account_metas, raw_results):
+        exec_id = meta["exec_id"]
+        acc_id_val = meta["account_id"]
+        meta_id_val = meta["metaapi_account_id"]
+        c_order_id = meta["client_order_id"]
+
         if isinstance(res, Exception):
             failed_count += 1
+            # Network exception -> UNKNOWN_EXECUTION + account lock
+            with tx() as c:
+                c.execute(
+                    """
+                    UPDATE metaapi_trade_executions
+                    SET status = 'UNKNOWN_EXECUTION', error_message = ?, last_verified_at = ?
+                    WHERE id = ?
+                    """,
+                    (str(res), now_ts, exec_id)
+                )
+                setkv(c, f"account_locked:{acc_id_val}", "UNKNOWN_EXECUTION")
             executions.append({
-                "account_id": meta["account_id"],
-                "metaapi_account_id": meta["metaapi_account_id"],
-                "status": "FAILED",
+                "account_id": acc_id_val,
+                "metaapi_account_id": meta_id_val,
+                "status": "UNKNOWN_EXECUTION",
                 "volume": meta["volume"],
                 "error": str(res),
                 "latency_ms": 0,
@@ -478,74 +618,81 @@ async def execute_fan_out_for_signal(
             lat = res.get("latency_ms", 0)
             latencies.append(lat)
             is_success = _is_metaapi_success(res)
-            if is_success:
-                executed_count += 1
-                status = "FILLED"
-            else:
+            msg = str(res.get("message") or "")
+            str_code = str(res.get("stringCode") or "")
+
+            if "NETWORK_TIMEOUT" in str_code or "TIMEOUT" in msg.upper() or res.get("numericCode") == 504:
+                # Network timeout -> UNKNOWN_EXECUTION + lock account
                 failed_count += 1
-                status = "REJECTED"
+                with tx() as c:
+                    c.execute(
+                        """
+                        UPDATE metaapi_trade_executions
+                        SET status = 'UNKNOWN_EXECUTION', error_message = ?, latency_ms = ?, last_verified_at = ?
+                        WHERE id = ?
+                        """,
+                        (msg or str_code, lat, now_ts, exec_id)
+                    )
+                    setkv(c, f"account_locked:{acc_id_val}", "UNKNOWN_EXECUTION")
+                executions.append({
+                    "account_id": acc_id_val,
+                    "metaapi_account_id": meta_id_val,
+                    "status": "UNKNOWN_EXECUTION",
+                    "volume": meta["volume"],
+                    "error": msg,
+                    "latency_ms": lat,
+                    "persisted": True
+                })
+            elif is_success:
+                executed_count += 1
+                pos_id = str(res.get("positionId") or res.get("orderId") or "")
+                ord_id = str(res.get("orderId") or pos_id)
+                filled_vol = float(res.get("volume") or meta["volume"])
+                # SL confirmation: only set sl_confirmed = 1 if verified
+                sl_confirmed = 1 if (meta["rounded_sl"] is not None and res.get("stopLoss") is not None) else 0
 
-            filled_vol = float(res.get("volume") or res.get("closedVolume") or meta["volume"])
-            executions.append({
-                "account_id": meta["account_id"],
-                "metaapi_account_id": meta["metaapi_account_id"],
-                "status": status,
-                "volume": filled_vol,
-                "order_id": res.get("orderId"),
-                "position_id": res.get("positionId"),
-                "latency_ms": lat,
-                "message": res.get("message"),
-                "persisted": True
-            })
-
-    # Persist all executions directly into metaapi_trade_executions
-    try:
-        with tx() as c:
-            for ex in executions:
-                exec_id = f"exec_{uuid.uuid4().hex[:16]}"
-                acc_id_val = ex["account_id"]
-                # Ensure metaapi_cloud_accounts has a row for acc_id_val so SQLite FK constraint on metaapi_trade_executions is satisfied
-                is_pg_conn = bool(getattr(c, "_is_pg", False))
-                if is_pg_conn:
-                    c.execute("SAVEPOINT sp_metaapi_fk")
-                try:
-                    has_cloud = c.execute("SELECT 1 FROM metaapi_cloud_accounts WHERE id = ?", (acc_id_val,)).fetchone()
-                    if not has_cloud:
-                        ta_u = c.execute("SELECT user_id FROM trading_accounts WHERE id = ?", (acc_id_val,)).fetchone()
-                        fallback_uid = (ta_u[0] if ta_u and ta_u[0] else None) or ex.get("user_id")
-                        if not fallback_uid:
-                            u_row = c.execute("SELECT id FROM users LIMIT 1").fetchone()
-                            fallback_uid = u_row[0] if u_row else "system"
-                        c.execute(
-                            """
-                            INSERT INTO metaapi_cloud_accounts(
-                                id, user_id, login, server, platform, account_name,
-                                metaapi_account_id, metaapi_state, auto_trade, created_at
-                            ) VALUES(?, ?, ?, 'MT5-Cloud', 'mt5', ?, ?, 'DEPLOYED', 1, ?)
-                            ON CONFLICT (id) DO NOTHING
-                            """,
-                            (acc_id_val, fallback_uid, acc_id_val, acc_id_val, ex.get("metaapi_account_id") or acc_id_val, now_ts)
-                        )
-                    if is_pg_conn:
-                        c.execute("RELEASE SAVEPOINT sp_metaapi_fk")
-                except Exception:
-                    if is_pg_conn:
-                        c.execute("ROLLBACK TO SAVEPOINT sp_metaapi_fk")
-                c.execute("""
-                    INSERT INTO metaapi_trade_executions(
-                        id, signal_id, account_id, metaapi_account_id, symbol,
-                        action, volume, entry_price, sl, tp, position_id,
-                        order_id, status, latency_ms, error_message, executed_at
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (
-                    exec_id, signal_id, acc_id_val, ex.get("metaapi_account_id"),
-                    symbol, action, ex["volume"], entry_price,
-                    sl, tp, ex.get("position_id"), ex.get("order_id"),
-                    ex["status"], ex.get("latency_ms", 0),
-                    ex.get("error") or ex.get("message"), now_ts
-                ))
-    except Exception as persist_err:
-        logger.error(f"Error persisting trade executions inside execute_fan_out_for_signal: {persist_err}")
+                with tx() as c:
+                    c.execute(
+                        """
+                        UPDATE metaapi_trade_executions
+                        SET status = 'FILLED', position_id = ?, ticket = ?, order_id = ?,
+                            volume = ?, latency_ms = ?, sl_confirmed = ?, executed_at = ?, last_verified_at = ?
+                        WHERE id = ?
+                        """,
+                        (pos_id, pos_id, ord_id, filled_vol, lat, sl_confirmed, now_ts, now_ts, exec_id)
+                    )
+                executions.append({
+                    "account_id": acc_id_val,
+                    "metaapi_account_id": meta_id_val,
+                    "status": "FILLED",
+                    "volume": filled_vol,
+                    "order_id": ord_id,
+                    "position_id": pos_id,
+                    "latency_ms": lat,
+                    "message": msg,
+                    "persisted": True
+                })
+            else:
+                # Sàn từ chối rõ ràng -> REJECTED, giải phóng reserved_risk_pct = 0.0
+                failed_count += 1
+                with tx() as c:
+                    c.execute(
+                        """
+                        UPDATE metaapi_trade_executions
+                        SET status = 'REJECTED', reserved_risk_pct = 0.0, error_message = ?, latency_ms = ?, last_verified_at = ?
+                        WHERE id = ?
+                        """,
+                        (msg or str_code, lat, now_ts, exec_id)
+                    )
+                executions.append({
+                    "account_id": acc_id_val,
+                    "metaapi_account_id": meta_id_val,
+                    "status": "REJECTED",
+                    "volume": meta["volume"],
+                    "latency_ms": lat,
+                    "message": msg,
+                    "persisted": True
+                })
 
     avg_lat = int(sum(latencies) / len(latencies)) if latencies else total_elapsed_ms
 

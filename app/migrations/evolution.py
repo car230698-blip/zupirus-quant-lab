@@ -115,6 +115,14 @@ def apply_migration_009(c, is_pg: bool):
             tp DOUBLE PRECISION,
             position_id TEXT,
             order_id TEXT,
+            ticket TEXT,
+            origin TEXT NOT NULL DEFAULT 'UNKNOWN',
+            client_order_id TEXT,
+            evidence_json TEXT,
+            reserved_risk_pct DOUBLE PRECISION DEFAULT 0.0,
+            sl_confirmed INTEGER DEFAULT 0,
+            closed_volume DOUBLE PRECISION DEFAULT 0.0,
+            last_verified_at DOUBLE PRECISION,
             status TEXT NOT NULL,
             latency_ms INTEGER NOT NULL DEFAULT 0,
             error_message TEXT,
@@ -125,6 +133,8 @@ def apply_migration_009(c, is_pg: bool):
         );
         CREATE INDEX IF NOT EXISTS idx_metaapi_exec_sig ON metaapi_trade_executions(signal_id);
         CREATE INDEX IF NOT EXISTS idx_metaapi_exec_acc ON metaapi_trade_executions(account_id);
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_client_order ON metaapi_trade_executions(account_id, client_order_id);
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_origin ON metaapi_trade_executions(origin);
         """)
     else:
         c.executescript("""
@@ -165,6 +175,14 @@ def apply_migration_009(c, is_pg: bool):
             tp REAL,
             position_id TEXT,
             order_id TEXT,
+            ticket TEXT,
+            origin TEXT NOT NULL DEFAULT 'UNKNOWN',
+            client_order_id TEXT,
+            evidence_json TEXT,
+            reserved_risk_pct REAL DEFAULT 0.0,
+            sl_confirmed INTEGER DEFAULT 0,
+            closed_volume REAL DEFAULT 0.0,
+            last_verified_at REAL,
             status TEXT NOT NULL,
             latency_ms INTEGER NOT NULL DEFAULT 0,
             error_message TEXT,
@@ -175,6 +193,8 @@ def apply_migration_009(c, is_pg: bool):
         );
         CREATE INDEX IF NOT EXISTS idx_metaapi_exec_sig ON metaapi_trade_executions(signal_id);
         CREATE INDEX IF NOT EXISTS idx_metaapi_exec_acc ON metaapi_trade_executions(account_id);
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_client_order ON metaapi_trade_executions(account_id, client_order_id);
+        CREATE INDEX IF NOT EXISTS idx_metaapi_exec_origin ON metaapi_trade_executions(origin);
         """)
 
 

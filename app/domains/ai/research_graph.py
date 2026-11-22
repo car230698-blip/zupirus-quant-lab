@@ -778,36 +778,40 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                     c_started_at = float(c_rules.get("canary_started_at") or c_upd or now)
 
                 canary_age = now - c_started_at
+                # Only evaluate after 7 days trial
                 if canary_age >= 7 * 86400:
-                    logs_row = c.execute(
+                    log_rows = c.execute(
                         """
-                        SELECT count(*), coalesce(avg(pnl), 0.0), coalesce(min(pnl), 0.0)
+                        SELECT pnl
                         FROM signal_audit_logs
-                        WHERE created_at >= ? AND pnl IS NOT NULL
+                        WHERE (strategy_id = ? OR source_name = ? OR signal_id LIKE ?) AND created_at >= ? AND pnl IS NOT NULL
+                        ORDER BY created_at ASC
                         """,
-                        (c_started_at,),
-                    ).fetchone()
-                    closed_cnt = int(logs_row[0] or 0)
-                    expectancy = float(logs_row[1] or 0.0)
-                    min_pnl = float(logs_row[2] or 0.0)
+                        (c_id, c_id, f"%{c_id}%", c_started_at),
+                    ).fetchall()
+                    pnls = [float(r[0]) for r in log_rows]
+                    closed_cnt = len(pnls)
+                    expectancy = (sum(pnls) / max(closed_cnt, 1)) if closed_cnt > 0 else 0.0
+
+                    # Peak-to-Trough Drawdown with peak[t] as denominator
+                    base_equity = 100.0
+                    eq = base_equity
+                    peak = base_equity
+                    max_dd_pct = 0.0
+                    for pnl in pnls:
+                        eq += pnl
+                        if eq > peak:
+                            peak = eq
+                        if peak > 0:
+                            dd = ((peak - eq) / peak) * 100.0
+                            if dd > max_dd_pct:
+                                max_dd_pct = dd
+                    max_dd_pct = round(max_dd_pct, 2)
 
                     passed_canary = False
-                    if closed_cnt >= 10 and expectancy > 0 and min_pnl > -8.0:
+                    # Strictly no fallback to historical candles; requires 10+ actual canary trades
+                    if closed_cnt >= 10 and expectancy > 0 and max_dd_pct <= 8.0:
                         passed_canary = True
-                    else:
-                        recent_candle_rows = c.execute(
-                            "SELECT open, high, low, close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' AND time >= ? ORDER BY time ASC",
-                            (c_started_at,),
-                        ).fetchall()
-                        if len(recent_candle_rows) >= 40:
-                            p_recent = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3])} for r in recent_candle_rows]
-                            cand_obj = {"id": c_id, "rules": c_rules}
-                            rep_canary = walk_forward(p_recent, candidate=cand_obj)
-                            c_trades = int(rep_canary.get("trades") or 0)
-                            c_pf = float(rep_canary.get("profit_factor") or 0.0)
-                            c_dd = float(rep_canary.get("max_drawdown_pct") or 0.0)
-                            if c_trades >= 10 and c_pf > 1.0 and c_dd <= 8.0:
-                                passed_canary = True
 
                     if passed_canary:
                         c.execute("UPDATE strategy_candidates SET status = 'ARCHIVED_PROD', updated_at = ? WHERE status = 'APPROVED_FOR_PROD'", (now,))

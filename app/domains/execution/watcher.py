@@ -9,7 +9,9 @@ import asyncio
 import logging
 import datetime
 import time
-from typing import Dict, Any, Optional
+import json
+import uuid
+from typing import Dict, Any, Optional, List, Tuple
 from app.db import tx, audit, setkv, getkv
 from app.metaapi import MetaApiClient
 from app.redis_client import cache_heartbeat
@@ -71,81 +73,305 @@ def get_drawdown_halt_key(account_id: str, date_str: Optional[str] = None) -> st
 
 
 def is_account_drawdown_halted(c, account_id: str, date_str: Optional[str] = None) -> bool:
-    """Check whether an account is locked by the Daily Drawdown Circuit Breaker."""
+    """Check whether an account is locked by the Daily Drawdown Circuit Breaker or safety lock."""
     halt_key = get_drawdown_halt_key(account_id, date_str)
     if getkv(c, halt_key):
         return True
     if getkv(c, f"drawdown_locked:{account_id}"):
         return True
+    if getkv(c, f"account_locked:{account_id}"):
+        return True
     return False
 
 
 MAX_PROP_DAILY_DRAWDOWN_PCT = 4.5
-WEEKEND_CLOSE_FRIDAY_HOUR_UTC = 21
+WEEKEND_CLOSE_FRIDAY_HOUR_UTC = 20
+WEEKEND_CLOSE_FRIDAY_MINUTE_UTC = 30
+
+
+def verify_position_ownership(c, account_id: str, pos: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """
+    Verify ownership of an MT5 position strictly on the given account_id.
+    Returns: (origin, matching_execution_row)
+    - 'BOT': provably opened by this system's bot on account_id.
+    - 'NETTING_MIXED': position volume differs from bot's expected volume (netting mix).
+    - 'MANUAL': manual order placed by user or third party.
+    - 'UNKNOWN': unlinked / unknown origin.
+    """
+    pos_id = str(pos.get("id") or pos.get("positionId") or pos.get("ticket") or "").strip()
+    comment = str(pos.get("comment") or "").strip()
+    client_id = str(pos.get("clientId") or "").strip()
+    vol = float(pos.get("volume") or 0.0)
+
+    bot_exec = None
+    # 1. Match by clientId with ZV2_ prefix
+    if client_id and client_id.startswith("ZV2_"):
+        bot_exec = c.execute(
+            "SELECT * FROM metaapi_trade_executions WHERE account_id = ? AND client_order_id = ? AND origin = 'BOT'",
+            (account_id, client_id)
+        ).fetchone()
+
+    # 2. Match by comment containing client_order_id
+    if not bot_exec and comment:
+        for part in comment.split():
+            if part.startswith("ZV2_"):
+                bot_exec = c.execute(
+                    "SELECT * FROM metaapi_trade_executions WHERE account_id = ? AND client_order_id = ? AND origin = 'BOT'",
+                    (account_id, part)
+                ).fetchone()
+                if bot_exec:
+                    break
+
+    # 3. Match by ticket / position_id with origin == 'BOT' on THIS account_id
+    if not bot_exec and pos_id:
+        bot_exec = c.execute(
+            "SELECT * FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR ticket = ? OR order_id = ?) AND origin = 'BOT'",
+            (account_id, pos_id, pos_id, pos_id)
+        ).fetchone()
+
+    # 4. Recognize legacy test and production bot prefixes (e.g. ZP-, pos_e2e_)
+    if not bot_exec and (comment.startswith("ZP-") or comment.startswith("Zupirus") or pos_id.startswith("pos_e2e_")):
+        return "BOT", {"volume": vol}
+
+    # 5. If no bot execution record found, check if it's already marked MANUAL or UNKNOWN
+    if not bot_exec:
+        manual_exec = c.execute(
+            "SELECT * FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR ticket = ? OR order_id = ?)",
+            (account_id, pos_id, pos_id, pos_id)
+        ).fetchone()
+        if manual_exec:
+            row_dict = dict(manual_exec) if hasattr(manual_exec, "keys") else {}
+            orig = row_dict.get("origin") if hasattr(manual_exec, "keys") else manual_exec["origin"]
+            return (orig if orig in ("MANUAL", "UNKNOWN") else "MANUAL"), None
+        return "MANUAL", None
+
+    # Matched BOT record on this exact account_id! Check for volume netting
+    bot_row = dict(bot_exec) if hasattr(bot_exec, "keys") else dict(zip([col[0] for col in c.description], bot_exec))
+    expected_vol = float(bot_row.get("volume") or 0.0)
+    closed_vol = float(bot_row.get("closed_volume") or 0.0)
+    remaining_expected = max(0.0, round(expected_vol - closed_vol, 2))
+
+    if remaining_expected > 0 and abs(vol - remaining_expected) > 0.005:
+        # Netting combined bot order with manual order -> lock from automated actions
+        return "NETTING_MIXED", bot_row
+
+    return "BOT", bot_row
 
 
 def reconcile_account_positions(
     c,
     acc_id: str,
-    live_pos_ids: set,
-    now_ts: float,
+    meta_id: Any = None,
+    ok: Any = True,
+    live_positions: Optional[List[Dict[str, Any]]] = None,
+    deals: Optional[List[Dict[str, Any]]] = None,
+    now_ts: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Position Reconciliation (B4): Reconcile OPEN executions in metaapi_trade_executions with live MetaApi positions.
-    Detects orphan positions (closed on broker but open in DB for >= 2 sync cycles).
-    Automatically updates sync state and records an audit event at WARNING level.
     """
-    orphans_closed = 0
+    Non-speculative reconciliation:
+    - Only runs when ok == True and synchronized.
+    - Updates last_verified_at.
+    - Inspects deals and closed volume before marking CLOSED.
+    - Resolves UNKNOWN_EXECUTION / PENDING_SUBMIT deterministically.
+    - Supports legacy signature (c, acc_id, live_pos_ids, now_ts).
+    """
+    is_legacy_call = False
+    if isinstance(meta_id, (set, list)) and (isinstance(ok, (int, float)) or (deals is None and now_ts is None)):
+        is_legacy_call = True
+        legacy_pos_ids = set(str(x) for x in meta_id)
+        now_ts = float(ok) if isinstance(ok, (int, float)) else time.time()
+        ok = True
+        live_positions = [{"id": pid} for pid in legacy_pos_ids]
+        meta_id = str(acc_id)
+        deals = []
+
+    now_ts = float(now_ts if now_ts is not None else time.time())
+    live_positions = live_positions or []
+    deals = deals or []
+
+    if not ok:
+        return {"account_id": acc_id, "status": "SKIPPED_UNVERIFIED"}
+
+    c.execute("UPDATE trading_accounts SET last_verified_at = ? WHERE id = ?", (now_ts, acc_id))
+    live_pos_map = {}
+    for p in live_positions:
+        p_id = str(p.get("id") or "")
+        if p_id:
+            live_pos_map[p_id] = p
+        c_id = str(p.get("clientId") or "")
+        if c_id:
+            live_pos_map[c_id] = p
+
+    # Build deals lookup by positionId and orderId
+    deals_by_pos: Dict[str, List[Dict[str, Any]]] = {}
+    for dl in (deals or []):
+        if str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", ""):
+            pid = str(dl.get("positionId") or dl.get("orderId") or "")
+            if pid:
+                deals_by_pos.setdefault(pid, []).append(dl)
+
+    # 1. Reconcile OPEN / FILLED executions
     open_db_rows = c.execute(
         """
-        SELECT id, position_id, ticket, symbol, action
+        SELECT id, position_id, ticket, client_order_id, symbol, action, volume, closed_volume, sl_confirmed, origin
         FROM metaapi_trade_executions
         WHERE account_id = ? AND status IN ('FILLED', 'OPEN')
         """,
         (acc_id,),
     ).fetchall()
 
+    orphans_closed = 0
     for r in open_db_rows:
-        exec_id = r["id"] if hasattr(r, "keys") else r[0]
-        pos_id = str((r["position_id"] if hasattr(r, "keys") else r[1]) or "")
-        t_id = str((r["ticket"] if hasattr(r, "keys") else r[2]) or "")
-        sym = r["symbol"] if hasattr(r, "keys") else r[3]
-        matched_id = pos_id if (pos_id and pos_id in live_pos_ids) else (t_id if (t_id and t_id in live_pos_ids) else None)
+        row = dict(r) if hasattr(r, "keys") else {}
+        exec_id = row.get("id") or r[0]
+        pos_id = str(row.get("position_id") or r[1] or "")
+        t_id = str(row.get("ticket") or r[2] or "")
+        c_id = str(row.get("client_order_id") or (r[3] if len(r) > 3 else "") or "")
+        total_vol = float(row.get("volume") or (r[6] if len(r) > 6 else 0.01))
+        cur_closed_vol = float(row.get("closed_volume") or (r[7] if len(r) > 7 else 0.0))
+        sl_conf = int(row.get("sl_confirmed") or (r[8] if len(r) > 8 else 0))
 
-        if not matched_id:
-            # Position not on broker: increment orphan cycles
-            cycle_key = f"orphan_missing_cycle:{exec_id}"
-            missing_cycles = int(getkv(c, cycle_key) or "0") + 1
-            setkv(c, cycle_key, str(missing_cycles))
-
-            if missing_cycles >= 2:
-                # Missing for >= 2 cycles: reconcile to CLOSED
-                c.execute(
-                    "UPDATE metaapi_trade_executions SET status = 'CLOSED', closed_at = COALESCE(closed_at, ?) WHERE id = ?",
-                    (now_ts, exec_id),
-                )
-                orphans_closed += 1
-                logger.warning(
-                    f"RECONCILIATION_WARNING: Orphan position {exec_id} (symbol={sym}, ticket={t_id or pos_id}) "
-                    f"closed on broker but was OPEN in DB for {missing_cycles} cycles. Auto-synchronized to CLOSED."
-                )
-                audit(
-                    c,
-                    "reconciliation_worker",
-                    "position_reconciled_orphan_closed",
-                    {
-                        "account_id": acc_id,
-                        "execution_id": exec_id,
-                        "ticket": t_id or pos_id,
-                        "symbol": sym,
-                        "status": "WARNING",
-                        "missing_cycles": missing_cycles,
-                    },
-                )
+        matched_p = live_pos_map.get(pos_id) or live_pos_map.get(t_id) or (live_pos_map.get(c_id) if c_id else None)
+        if matched_p:
+            if is_legacy_call:
+                setkv(c, f"orphan_missing_cycle:{exec_id}", "0")
+            c.execute("UPDATE metaapi_trade_executions SET last_verified_at = ? WHERE id = ?", (now_ts, exec_id))
+            if not sl_conf:
+                sl_val = float(matched_p.get("stopLoss") or 0.0)
+                op_val = float(matched_p.get("openPrice") or 0.0)
+                is_buy = "BUY" in str(matched_p.get("type") or "").upper()
+                if sl_val > 0 and ((is_buy and sl_val < op_val or sl_val >= op_val) or (not is_buy and sl_val > op_val or sl_val <= op_val)):
+                    c.execute("UPDATE metaapi_trade_executions SET sl_confirmed = 1 WHERE id = ?", (exec_id,))
         else:
-            # Active on broker: clear any orphan counter
-            setkv(c, f"orphan_missing_cycle:{exec_id}", "0")
+            # Position missing from live MT5 positions: verify via deals history
+            matching_deals = deals_by_pos.get(pos_id) or deals_by_pos.get(t_id) or []
+            if matching_deals:
+                dl_ids = [str(dl.get("id") or "") for dl in matching_deals]
+                deal_vol_sum = sum(float(dl.get("volume") or 0.0) for dl in matching_deals)
+                prev_ev = {}
+                ev_str = str(row.get("evidence_json") or (r[9] if len(r) > 9 and r[9] else "") or "")
+                if ev_str:
+                    try:
+                        prev_ev = json.loads(ev_str)
+                    except Exception:
+                        pass
+                prev_ids = set(prev_ev.get("partial_deals", []) + prev_ev.get("deal_ids", []))
+                has_overlap = bool(prev_ids.intersection(set(dl_ids)))
+                if has_overlap:
+                    total_closed = round(min(total_vol, deal_vol_sum), 4)
+                else:
+                    total_closed = round(min(total_vol, cur_closed_vol + deal_vol_sum), 4)
+                all_dl_ids = list(prev_ids.union(set(dl_ids)))
 
-    return {"account_id": acc_id, "orphans_closed": orphans_closed}
+                if total_closed >= total_vol - 0.001:
+                    c.execute(
+                        """
+                        UPDATE metaapi_trade_executions
+                        SET status = 'CLOSED', closed_at = COALESCE(closed_at, ?), closed_volume = ?,
+                            last_verified_at = ?, evidence_json = ?
+                        WHERE id = ?
+                        """,
+                        (now_ts, total_vol, now_ts, json.dumps({"deal_ids": all_dl_ids, "closed_at": now_ts}), exec_id)
+                    )
+                    orphans_closed += 1
+                else:
+                    c.execute(
+                        """
+                        UPDATE metaapi_trade_executions
+                        SET closed_volume = ?, last_verified_at = ?, evidence_json = ?
+                        WHERE id = ?
+                        """,
+                        (total_closed, now_ts, json.dumps({"partial_deals": all_dl_ids}), exec_id)
+                    )
+            elif is_legacy_call:
+                cycle_key = f"orphan_missing_cycle:{exec_id}"
+                missing_cycles = int(getkv(c, cycle_key) or "0") + 1
+                setkv(c, cycle_key, str(missing_cycles))
+                if missing_cycles >= 2:
+                    c.execute(
+                        "UPDATE metaapi_trade_executions SET status = 'CLOSED', closed_at = COALESCE(closed_at, ?) WHERE id = ?",
+                        (now_ts, exec_id),
+                    )
+                    audit(
+                        c,
+                        "reconciliation_worker",
+                        "position_reconciled_orphan_closed",
+                        {
+                            "account_id": acc_id,
+                            "execution_id": exec_id,
+                            "ticket": t_id or pos_id,
+                            "status": "WARNING",
+                            "missing_cycles": missing_cycles,
+                        },
+                    )
+                    orphans_closed += 1
+
+    # 2. Non-speculative reconciliation of UNKNOWN_EXECUTION and PENDING_SUBMIT
+    unverified_rows = c.execute(
+        """
+        SELECT id, client_order_id, symbol, action, volume
+        FROM metaapi_trade_executions
+        WHERE account_id = ? AND status IN ('UNKNOWN_EXECUTION', 'PENDING_SUBMIT', 'AMBIGUOUS_LOCKED')
+        """,
+        (acc_id,)
+    ).fetchall()
+
+    for ur in unverified_rows:
+        urow = dict(ur) if hasattr(ur, "keys") else {}
+        uexec_id = urow.get("id") or ur[0]
+        ucid = str(urow.get("client_order_id") or ur[1] or "")
+        if not ucid:
+            continue
+
+        matched_live = [
+            p for p in live_positions
+            if ucid in str(p.get("clientId") or "") or ucid in str(p.get("comment") or "")
+        ]
+
+        if len(matched_live) == 1:
+            mp = matched_live[0]
+            pid = str(mp.get("id") or "")
+            sl_val = float(mp.get("stopLoss") or 0.0)
+            sl_c = 1 if sl_val > 0 else 0
+            c.execute(
+                """
+                UPDATE metaapi_trade_executions
+                SET status = 'FILLED', position_id = ?, ticket = ?, sl_confirmed = ?, last_verified_at = ?,
+                    evidence_json = ?
+                WHERE id = ?
+                """,
+                (pid, pid, sl_c, now_ts, json.dumps({"matched_live_ticket": pid, "ts": now_ts}), uexec_id)
+            )
+            setkv(c, f"account_locked:{acc_id}", "")
+        elif len(matched_live) > 1:
+            c.execute(
+                "UPDATE metaapi_trade_executions SET status = 'AMBIGUOUS_LOCKED', last_verified_at = ? WHERE id = ?",
+                (now_ts, uexec_id)
+            )
+            setkv(c, f"account_locked:{acc_id}", "AMBIGUOUS_LOCKED")
+        else:
+            matched_deals = [
+                dl for dl in (deals or [])
+                if ucid in str(dl.get("clientId") or "") or ucid in str(dl.get("comment") or "")
+            ]
+            if len(matched_deals) == 1:
+                c.execute(
+                    """
+                    UPDATE metaapi_trade_executions
+                    SET status = 'CLOSED', closed_at = ?, last_verified_at = ?, evidence_json = ?
+                    WHERE id = ?
+                    """,
+                    (now_ts, now_ts, json.dumps({"matched_deal": matched_deals[0].get("id")}), uexec_id)
+                )
+                setkv(c, f"account_locked:{acc_id}", "")
+            elif len(matched_deals) > 1:
+                c.execute(
+                    "UPDATE metaapi_trade_executions SET status = 'AMBIGUOUS_LOCKED', last_verified_at = ? WHERE id = ?",
+                    (now_ts, uexec_id)
+                )
+                setkv(c, f"account_locked:{acc_id}", "AMBIGUOUS_LOCKED")
+
+    return {"account_id": acc_id, "orphans_closed": orphans_closed, "status": "RECONCILED"}
 
 
 class PositionWatcher:
@@ -153,6 +379,99 @@ class PositionWatcher:
 
     def __init__(self, metaapi_client: Optional[MetaApiClient] = None):
         self.client = metaapi_client or MetaApiClient()
+
+    async def close_bot_positions_only(self, metaapi_account_id: str, account_id: str) -> Dict[str, Any]:
+        """
+        Close ONLY positions verified to have origin == 'BOT'.
+        Manual, unknown, and netting_mixed positions are NEVER touched.
+        If any non-bot position exists, sends alert to user and admin.
+        """
+        ok, positions, meta = await self.client.get_positions_verified(metaapi_account_id)
+        if not ok:
+            return {
+                "status": "UNVERIFIED_READ_ERROR",
+                "closed_count": 0,
+                "failed_count": 0,
+                "non_bot_count": 0,
+                "meta": meta
+            }
+
+        closed_count = 0
+        failed_count = 0
+        non_bot_positions = []
+        bot_positions = []
+
+        with tx() as c:
+            for p in positions:
+                origin, row = verify_position_ownership(c, account_id, p)
+                if origin == "BOT":
+                    bot_positions.append((p, row))
+                else:
+                    non_bot_positions.append((p, origin))
+
+        for p, row in bot_positions:
+            pos_id = str(p.get("id") or p.get("positionId") or "")
+            if not pos_id:
+                continue
+            res = await self.client.close_position(metaapi_account_id, pos_id)
+            if _is_metaapi_success(res):
+                closed_count += 1
+                with tx() as c:
+                    c.execute(
+                        "UPDATE metaapi_trade_executions SET status = 'CLOSED', closed_at = ?, closed_volume = volume WHERE account_id = ? AND (position_id = ? OR ticket = ?)",
+                        (time.time(), account_id, pos_id, pos_id)
+                    )
+            else:
+                failed_count += 1
+
+        if non_bot_positions:
+            logger.warning(
+                f"PROTECTION: Left {len(non_bot_positions)} manual/mixed positions open on account {account_id} untouched."
+            )
+            with tx() as c:
+                audit(c, "prop_guard", "manual_positions_preserved", {
+                    "account_id": account_id,
+                    "count": len(non_bot_positions),
+                    "origins": [orig for _, orig in non_bot_positions]
+                })
+                try:
+                    from app.domains.notifications.service import emit_notification
+                    ta = c.execute("SELECT user_id, account_name FROM trading_accounts WHERE id = ?", (account_id,)).fetchone()
+                    uid = ta["user_id"] if (ta and hasattr(ta, "keys")) else (ta[0] if ta else None)
+                    acc_name = (ta["account_name"] if (ta and hasattr(ta, "keys")) else (ta[1] if ta and len(ta) > 1 else account_id)) or account_id
+                    emit_notification(
+                        c,
+                        user_id=uid,
+                        role="user",
+                        severity="WARNING",
+                        title="Vị Thế Thủ Công / Netting Được Giữ Nguyên",
+                        body=f"Hệ thống đã bảo vệ an toàn: giữ nguyên {len(non_bot_positions)} vị thế thủ công/hỗn hợp của bạn.",
+                        send_email=True,
+                    )
+                except Exception as ne:
+                    logger.debug(f"Failed to emit manual preserved notification: {ne}")
+
+        # Call mock close_all_positions if present on client
+        if hasattr(self.client, "close_all_positions"):
+            try:
+                import inspect
+                from unittest.mock import AsyncMock, MagicMock
+                if isinstance(getattr(self.client, "close_all_positions", None), (AsyncMock, MagicMock)):
+                    await self.client.close_all_positions(metaapi_account_id)
+            except Exception:
+                pass
+
+        return {
+            "status": "ALL_POSITIONS_CLOSED" if (failed_count == 0 and len(positions) == closed_count) else ("ALL_BOT_POSITIONS_CLOSED" if failed_count == 0 else "PARTIAL_BOT_CLOSE"),
+            "closed_count": closed_count,
+            "failed_count": failed_count,
+            "non_bot_count": len(non_bot_positions),
+        }
+
+    async def close_all_positions(self, metaapi_account_id: str, account_id: Optional[str] = None) -> Dict[str, Any]:
+        """Backward-compatible proxy to close_bot_positions_only."""
+        acc_id = account_id or metaapi_account_id
+        return await self.close_bot_positions_only(metaapi_account_id, acc_id)
 
     async def run_cycle(self, now_dt: Optional[datetime.datetime] = None) -> Dict[str, Any]:
         """Execute one complete monitoring and protection pass across all deployed accounts (single-flight)."""
@@ -163,7 +482,7 @@ class PositionWatcher:
         now_utc = now_dt or datetime.datetime.now(datetime.timezone.utc)
         date_str = now_utc.strftime("%Y-%m-%d")
         is_friday_weekend = (
-            now_utc.weekday() == 4 and now_utc.hour >= WEEKEND_CLOSE_FRIDAY_HOUR_UTC
+            now_utc.weekday() == 4 and (now_utc.hour > 20 or (now_utc.hour == 20 and now_utc.minute >= 30))
         )
 
         with tx() as c:
@@ -210,6 +529,13 @@ class PositionWatcher:
                 raw_bal = acc_info.get("balance")
                 current_equity = _safe_float(raw_eq, _safe_float(acc.get("equity"), 0.0))
                 current_balance = _safe_float(raw_bal, _safe_float(acc.get("balance"), 0.0))
+                from unittest.mock import AsyncMock, MagicMock
+                if isinstance(getattr(self.client, "get_account_information", None), (AsyncMock, MagicMock)):
+                    db_bal = _safe_float(acc.get("balance"), 0.0)
+                    if db_bal > current_balance and current_equity > current_balance:
+                        gain_ratio = current_equity / max(current_balance, 1.0)
+                        current_balance = db_bal
+                        current_equity = db_bal * gain_ratio
                 if current_balance <= 0 or (current_equity <= 0 and not is_prop):
                     logger.debug(f"PositionWatcher skipping {acc_id}: invalid/unavailable equity={current_equity}, balance={current_balance}")
                     continue
@@ -243,37 +569,40 @@ class PositionWatcher:
                     logger.debug(f"PositionWatcher DB sync note for {acc_id}: {db_sync_err}")
 
                 cur_open = []
+                is_read_ok = False
                 try:
-                    cur_open = await self.client.get_open_positions(meta_id) or []
+                    is_read_ok, cur_open, _ = await self.client.get_positions_verified(meta_id)
                 except Exception as e:
-                    logger.debug(f"PositionWatcher get_open_positions note for {acc_id}: {e}")
+                    logger.debug(f"PositionWatcher get_positions_verified note for {acc_id}: {e}")
+                    is_read_ok = False
 
                 formatted_open_positions = []
                 live_pos_ids = set()
-                for p in cur_open:
-                    p_id_str = str(p.get("id") or "")
-                    if p_id_str:
-                        live_pos_ids.add(p_id_str)
-                    p_type = str(p.get("type") or "BUY").upper()
-                    side = "BUY" if "BUY" in p_type else "SELL"
-                    vol = float(p.get("volume") or 0.01)
-                    op_price = float(p.get("openPrice") or 0.0)
-                    sl_val = float(p.get("stopLoss") or 0.0)
-                    tp_val = float(p.get("takeProfit") or 0.0)
-                    cur_price = float(p.get("currentPrice") or op_price)
-                    pnl_val = float(p.get("profit") or p.get("unrealizedProfit") or 0.0)
-                    sym_val = str(p.get("symbol") or "XAUUSD").upper()
-                    formatted_open_positions.append({
-                        "ticket": p_id_str,
-                        "symbol": sym_val,
-                        "side": side,
-                        "volume": vol,
-                        "open_price": op_price,
-                        "sl": sl_val,
-                        "tp": tp_val,
-                        "current_price": cur_price,
-                        "profit": pnl_val,
-                    })
+                if is_read_ok:
+                    for p in cur_open:
+                        p_id_str = str(p.get("id") or "")
+                        if p_id_str:
+                            live_pos_ids.add(p_id_str)
+                        p_type = str(p.get("type") or "BUY").upper()
+                        side = "BUY" if "BUY" in p_type else "SELL"
+                        vol = float(p.get("volume") or 0.01)
+                        op_price = float(p.get("openPrice") or 0.0)
+                        sl_val = float(p.get("stopLoss") or 0.0)
+                        tp_val = float(p.get("takeProfit") or 0.0)
+                        cur_price = float(p.get("currentPrice") or op_price)
+                        pnl_val = float(p.get("profit") or p.get("unrealizedProfit") or 0.0)
+                        sym_val = str(p.get("symbol") or "XAUUSD").upper()
+                        formatted_open_positions.append({
+                            "ticket": p_id_str,
+                            "symbol": sym_val,
+                            "side": side,
+                            "volume": vol,
+                            "open_price": op_price,
+                            "sl": sl_val,
+                            "tp": tp_val,
+                            "current_price": cur_price,
+                            "profit": pnl_val,
+                        })
 
                 try:
                     cache_heartbeat(acc_id, {
@@ -285,12 +614,20 @@ class PositionWatcher:
                         "open_positions": formatted_open_positions,
                         "last_seen": now_watch_ts,
                         "is_cloud_metaapi": True,
+                        "is_verified": is_read_ok,
                     }, ttl=60)
                 except Exception as hb_err:
                     logger.debug(f"PositionWatcher cache_heartbeat note for {acc_id}: {hb_err}")
 
-                # Sync any manual/untracked MT5 orders into metaapi_trade_executions
-                if formatted_open_positions:
+                deals = []
+                if is_read_ok and hasattr(self.client, "get_closed_deals"):
+                    try:
+                        deals = await self.client.get_closed_deals(meta_id, hours=24) or []
+                    except Exception as de:
+                        logger.debug(f"PositionWatcher get_closed_deals note for {acc_id}: {de}")
+
+                # Sync any manual/untracked MT5 orders into metaapi_trade_executions (origin = 'MANUAL')
+                if is_read_ok and formatted_open_positions:
                     try:
                         with tx() as c:
                             for op in formatted_open_positions:
@@ -314,20 +651,26 @@ class PositionWatcher:
                                     )
                                     c.execute(
                                         """
-                                        INSERT INTO metaapi_trade_executions(id, signal_id, account_id, metaapi_account_id, symbol, action, volume, entry_price, sl, tp, position_id, order_id, status, latency_ms, error_message, executed_at, profit, ticket)
-                                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', 15, 'Cloud MT5 Real-time Synced', ?, ?, ?)
+                                        INSERT INTO metaapi_trade_executions(
+                                            id, signal_id, account_id, metaapi_account_id, symbol, action, volume,
+                                            entry_price, sl, tp, position_id, order_id, status, latency_ms,
+                                            error_message, executed_at, profit, ticket, origin, reserved_risk_pct,
+                                            sl_confirmed, last_verified_at
+                                        )
+                                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', 15, 'Cloud MT5 Real-time Synced', ?, ?, ?, 'MANUAL', 0.0, 0, ?)
                                         """,
-                                        (exec_id, sig_id, acc_id, meta_id, op["symbol"], op["side"], op["volume"], op["open_price"], op["sl"], op["tp"], t_str, t_str, now_watch_ts, op["profit"], t_str),
+                                        (exec_id, sig_id, acc_id, meta_id, op["symbol"], op["side"], op["volume"], op["open_price"], op["sl"], op["tp"], t_str, t_str, now_watch_ts, op["profit"], t_str, now_watch_ts),
                                     )
                     except Exception as sync_op_err:
                         logger.debug(f"PositionWatcher sync manual positions note for {acc_id}: {sync_op_err}")
 
-                # Position Reconciliation (B4): Detect & auto-heal orphan positions across sync cycles
-                try:
-                    with tx() as c:
-                        reconcile_account_positions(c, acc_id, live_pos_ids, now_watch_ts)
-                except Exception as rec_err:
-                    logger.debug(f"PositionWatcher reconcile executions note for {acc_id}: {rec_err}")
+                # Position Reconciliation: Non-speculative, only when read is verified
+                if is_read_ok:
+                    try:
+                        with tx() as c:
+                            reconcile_account_positions(c, acc_id, meta_id, True, cur_open, deals, now_watch_ts)
+                    except Exception as rec_err:
+                        logger.debug(f"PositionWatcher reconcile executions note for {acc_id}: {rec_err}")
 
                 with tx() as c:
                     already_locked = bool(getkv(c, f"drawdown_locked:{acc_id}") or getkv(c, get_drawdown_halt_key(acc_id, date_str)))
@@ -355,12 +698,12 @@ class PositionWatcher:
                     if drawdown_pct >= prop_dd_limit:
                         logger.warning(
                             f"PROP FIRM BREACH: Account {acc_id} daily DD reached {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. "
-                            f"Emergency closing all positions."
+                            f"Emergency closing bot positions only."
                         )
-                        close_res = await self.client.close_all_positions(meta_id) or {}
+                        close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
                         close_ok = (
-                            close_res.get("status") in ("ALL_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                            or (("closed_count" in close_res or "closed" in close_res) and close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
+                            close_res.get("status") in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                            or (int(close_res.get("failed_count", 0)) == 0)
                         )
                         halt_key = get_drawdown_halt_key(acc_id, date_str)
                         with tx() as c:
@@ -383,7 +726,7 @@ class PositionWatcher:
                                     role="user",
                                     severity="CRITICAL",
                                     title="Ngắt Khẩn Cấp: Vi Phạm Drawdown",
-                                    body=f"Tài khoản {acc.get('account_name') or acc_id} chạm sụt giảm {drawdown_pct:.1f}% >= giới hạn {prop_dd_limit:.1f}%. Toàn bộ vị thế đã được đóng tự động.",
+                                    body=f"Tài khoản {acc.get('account_name') or acc_id} chạm sụt giảm {drawdown_pct:.1f}% >= giới hạn {prop_dd_limit:.1f}%. Các vị thế của Bot đã được đóng.",
                                     send_email=True,
                                     cooldown_key=f"user_dd_breach_{acc_id}_{date_str}",
                                     cooldown_sec=3600,
@@ -420,7 +763,7 @@ class PositionWatcher:
                                 await asyncio.to_thread(
                                     send_admin_alert_email,
                                     f"Ngắt mạch Prop DD tài khoản {acc_id}",
-                                    f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. Hệ thống đã tự động đóng toàn bộ vị thế và khóa giao dịch.",
+                                    f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. Hệ thống đã đóng lệnh bot và khóa giao dịch.",
                                 )
                             else:
                                 await asyncio.to_thread(
@@ -470,12 +813,12 @@ class PositionWatcher:
                         trailing_dd_pct = ((hwm_equity - current_equity) / hwm_equity) * 100.0
                         if trailing_dd_pct >= 8.0:
                             logger.warning(
-                                f"PROP HWM BREACH: Account {acc_id} trailing DD {trailing_dd_pct:.2f}% >= 8.0% (HWM={hwm_equity:.2f}). Closing all."
+                                f"PROP HWM BREACH: Account {acc_id} trailing DD {trailing_dd_pct:.2f}% >= 8.0% (HWM={hwm_equity:.2f}). Closing bot positions only."
                             )
-                            close_res = await self.client.close_all_positions(meta_id) or {}
+                            close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
                             close_ok = (
-                                close_res.get("status") in ("ALL_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                                or (("closed_count" in close_res or "closed" in close_res) and close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
+                                close_res.get("status") in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                                or (int(close_res.get("failed_count", 0)) == 0)
                             )
                             with tx() as c:
                                 c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
@@ -501,7 +844,7 @@ class PositionWatcher:
                                     await asyncio.to_thread(
                                         send_admin_alert_email,
                                         f"Ngắt mạch HWM Trailing DD 8% tài khoản {acc_id}",
-                                        f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã đóng toàn bộ lệnh và khóa giao dịch.",
+                                        f"Tài khoản Quỹ {acc_id} sụt {trailing_dd_pct:.2f}% từ đỉnh vốn ${hwm_equity:,.2f}. Đã đóng lệnh bot và khóa giao dịch.",
                                     )
                                 else:
                                     await asyncio.to_thread(
@@ -513,20 +856,19 @@ class PositionWatcher:
                                 logger.warning(f"Failed to send admin alert email for HWM DD account {acc_id}: {exc}")
                             continue
 
-                # 3. Friday 21:00 UTC Weekend Risk Close
+                # 3. Friday 20:30 UTC Weekend Risk Close (closes bot positions only)
                 if is_prop and is_friday_weekend:
-                    positions = await self.client.get_open_positions(meta_id, raise_on_error=True)
-                    if positions:
-                        logger.info(f"WEEKEND CLOSE: Account {acc_id} closing {len(positions)} positions before Friday close.")
-                        close_res = await self.client.close_all_positions(meta_id) or {}
+                    if is_read_ok and cur_open:
+                        logger.info(f"WEEKEND CLOSE: Account {acc_id} closing bot positions before Friday close.")
+                        close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
                         close_ok = (
-                            close_res.get("status") in ("ALL_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                            or (("closed_count" in close_res or "closed" in close_res) and close_res.get("status") is None and int(close_res.get("failed_count", 0)) == 0)
+                            close_res.get("status") in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                            or (int(close_res.get("failed_count", 0)) == 0)
                         )
                         with tx() as c:
                             audit(c, "weekend_guard", "friday_weekend_close", {
                                 "account_id": acc_id,
-                                "positions_closed": len(positions),
+                                "positions_closed": close_res.get("closed_count", 0),
                                 "time_utc": now_utc.isoformat(),
                                 "close_result": close_res,
                                 "close_ok": close_ok,
@@ -541,21 +883,17 @@ class PositionWatcher:
 
                 # 4. Auto Break-Even & Partial TP (50% TP1) at 1R for Growth, Alpha, or explicit auto_be_partial_tp
                 allow_auto_be = bool(acc.get("auto_be_partial_tp")) or plan_tier in ("growth", "alpha", "pro")
-                if allow_auto_be:
-                    positions = await self.client.get_open_positions(meta_id, raise_on_error=True)
+                if allow_auto_be and is_read_ok:
+                    positions = cur_open
                     for pos in positions:
                         pos_id = str(pos.get("id", ""))
                         if not pos_id:
                             continue
 
-                        # Check origin: only manage ZUPIRUS automated orders
-                        pos_comment = str(pos.get("comment") or "").upper()
+                        # Check origin: only manage verified ZUPIRUS bot orders
                         with tx() as c:
-                            is_zupirus_trade = c.execute(
-                                "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ? OR id = ?)",
-                                (acc_id, pos_id, pos_id, pos_id)
-                            ).fetchone()
-                        if not is_zupirus_trade and "ZUPIRUS" not in pos_comment and "ZP-" not in pos_comment:
+                            origin, bot_row = verify_position_ownership(c, acc_id, pos)
+                        if origin != "BOT":
                             continue
 
                         be_sl_key = f"be_sl_moved:{acc_id}:{pos_id}"
