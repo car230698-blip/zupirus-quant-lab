@@ -22,7 +22,10 @@ services:
     volumes:
       - uptime_kuma_data:/app/data
     networks:
-      - private
+      private:
+      npm_default:
+        aliases:
+          - uptime-kuma
 
   beszel:
     image: henrygd/beszel:latest
@@ -32,7 +35,10 @@ services:
     volumes:
       - beszel_data:/beszel_data
     networks:
-      - private
+      private:
+      npm_default:
+        aliases:
+          - beszel
 
   beszel-agent:
     image: henrygd/beszel-agent:latest
@@ -48,3 +54,8 @@ services:
 volumes:
   uptime_kuma_data:
   beszel_data:
+
+networks:
+  private:
+  npm_default:
+    external: true
