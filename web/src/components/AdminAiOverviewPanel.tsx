@@ -1,5 +1,12 @@
-import React, { useState } from 'react';
-import { apiPost } from '../api/client';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  apiPost,
+  fetchStrategyHistory,
+  rollbackStrategy,
+  StrategyHistoryItem,
+} from '../api/client';
+import { SpotlightBento } from './ui/SpotlightBento';
+import { IconAlert } from './Icons';
 
 export interface AdminAiOverviewPanelProps {
   evo: any;
@@ -8,13 +15,34 @@ export interface AdminAiOverviewPanelProps {
   setMsg: (msg: string) => void;
 }
 
+function formatDateTime(rawTs: any): string {
+  if (!rawTs) return '--:--:--';
+  const num = Number(rawTs);
+  if (isNaN(num) || num <= 0) return '--:--:--';
+  const millis = num > 1e11 ? num : num * 1000;
+  const d = new Date(millis);
+  if (isNaN(d.getTime())) return '--:--:--';
+  return d.toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour12: false,
+  });
+}
+
 export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
   evo,
   geminiPool,
   onRefresh,
   setMsg,
 }) => {
-  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [strategyHistory, setStrategyHistory] = useState<StrategyHistoryItem[]>([]);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
+  const [rollbackConfirmCandidate, setRollbackConfirmCandidate] = useState<StrategyHistoryItem | null>(null);
 
   const activeKeysCount = geminiPool.filter((k) => k.is_active && k.status !== 'error').length;
   const autoPromote = Boolean(evo?.stage?.auto_promote);
@@ -24,6 +52,19 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
   const shadowWinRate = evo?.shadow_summary?.overall_win_rate_pct || 0;
   const learnedSkillsCount = evo?.skills_learned?.length || 0;
   const builtinSkillsCount = evo?.skills_builtin?.length || 0;
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await fetchStrategyHistory();
+      setStrategyHistory(res.strategies || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   const handleToggleAutoPromote = async () => {
     try {
@@ -36,16 +77,18 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
     }
   };
 
-  const handleDecision = async (jobId: string, approved: boolean) => {
-    setApprovingId(jobId);
+  const handleExecuteRollback = async (candidateId: string) => {
+    setRollingBackId(candidateId);
     try {
-      await apiPost(`/api/admin/research/${encodeURIComponent(jobId)}/decision`, { approved });
-      setMsg(approved ? `✓ Đã phê duyệt chiến lược #${jobId.slice(0, 8)} chạy tiền thật.` : `✗ Đã từ chối chiến lược #${jobId.slice(0, 8)}.`);
+      const res = await rollbackStrategy(candidateId);
+      setMsg(res.message || `✓ Đã khôi phục chiến lược #${candidateId.slice(0, 8)} lên LIVE.`);
+      setRollbackConfirmCandidate(null);
+      await loadHistory();
       onRefresh();
     } catch (err: any) {
-      setMsg(`Lỗi duyệt chiến lược: ${err.message || ''}`);
+      setMsg(`Lỗi hoàn tác chiến lược: ${err?.message || 'Thất bại'}`);
     } finally {
-      setApprovingId(null);
+      setRollingBackId(null);
     }
   };
 
@@ -56,7 +99,7 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
       {/* 1. GIÁM SÁT TRẠNG THÁI TỰ HỌC (READ-ONLY TELEMETRY) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {/* Chu kỳ & Chế độ vận hành */}
-        <div className="quant-panel p-4 bg-[#060c1e] border border-white/10 rounded-2xl flex flex-col justify-between">
+        <SpotlightBento className="p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>CHẾ ĐỘ TỰ HỌC</span>
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -75,10 +118,10 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
               style={{ width: `${Math.min(100, evo?.stage?.readiness_pct || 0)}%` }}
             />
           </div>
-        </div>
+        </SpotlightBento>
 
         {/* Số mẫu Shadow Signals & Win Rate */}
-        <div className="quant-panel p-4 bg-[#060c1e] border border-white/10 rounded-2xl flex flex-col justify-between">
+        <SpotlightBento className="p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>SHADOW SIGNALS</span>
             <span className="text-cyan-400 font-mono">{shadowOpen} đang mở</span>
@@ -94,10 +137,10 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
           <div className="text-[11px] text-slate-500 font-mono">
             Tổng mẫu tích lũy: {samplesLearned}
           </div>
-        </div>
+        </SpotlightBento>
 
         {/* Kỹ năng đang hoạt động (Learned Skills) */}
-        <div className="quant-panel p-4 bg-[#060c1e] border border-white/10 rounded-2xl flex flex-col justify-between">
+        <SpotlightBento className="p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>BỘ QUY TẮC & KỸ NĂNG</span>
             <span className="text-amber-400 font-mono">app/skills/learned</span>
@@ -106,17 +149,17 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
             <div className="text-xl font-black text-amber-300 font-mono">
               {learnedSkillsCount} <span className="text-xs font-normal text-slate-400">tự học</span> + {builtinSkillsCount} <span className="text-xs font-normal text-slate-400">cốt lõi</span>
             </div>
-            <div className="text-xs text-slate-400 mt-1">
-              Quy nạp từ phản tư Hindsight & lệnh thực tế
+            <div className="text-xs text-slate-400 mt-1 font-sans">
+              Quy nạp từ phản tư Hindsight &amp; lệnh thực tế
             </div>
           </div>
           <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-1">
             <span>✓ Auto-synthesized</span>
           </div>
-        </div>
+        </SpotlightBento>
 
         {/* Trạng thái Sức Khỏe Gemini Key Pool */}
-        <div className="quant-panel p-4 bg-[#060c1e] border border-white/10 rounded-2xl flex flex-col justify-between">
+        <SpotlightBento className="p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
             <span>GEMINI KEY POOL</span>
             <span className={`w-2 h-2 rounded-full ${activeKeysCount > 0 ? 'bg-emerald-400' : 'bg-rose-400'}`} />
@@ -125,30 +168,30 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
             <div className="text-xl font-black text-white font-mono">
               <span className="text-emerald-400">{activeKeysCount}</span> / {geminiPool.length} <span className="text-xs font-normal text-slate-400">Khả dụng</span>
             </div>
-            <div className="text-xs text-slate-400 mt-1">
+            <div className="text-xs text-slate-400 mt-1 font-sans">
               {geminiPool.filter((k) => k.status === 'exhausted' || k.status === 'rate_limited').length > 0
                 ? 'Có key đang hạ nhiệt'
                 : '100% Pool hoạt động ổn định'}
             </div>
           </div>
           <div className="text-[11px] text-slate-500 font-mono">
-            Tự động xoay vòng & phục hồi nền
+            Tự động xoay vòng &amp; phục hồi nền
           </div>
-        </div>
+        </SpotlightBento>
       </div>
 
-      {/* 2. CÔNG TẮC AUTO-PROMOTE CỐT LÕI */}
-      <div className="quant-panel p-5 bg-[#070e24] border border-cyan-500/30 rounded-2xl flex flex-wrap items-center justify-between gap-4">
+      {/* 2. CÔNG TẮC AUTO-PROMOTE CỐT LÕI (2026 SPOTLIGHT BENTO) */}
+      <SpotlightBento className="p-5 flex flex-wrap items-center justify-between gap-4 border-cyan-500/30">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs uppercase px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40">
               CÔNG TẮC ĐỘC LẬP
             </span>
-            <h4 className="text-sm font-bold text-white">
-              Tự Động Thăng Hạng Nguồn Tín Hiệu & Chiến Lược Đạt Chuẩn (Auto-Promote)
+            <h4 className="text-sm font-bold text-white font-sans">
+              Tự Động Thăng Hạng Nguồn Tín Hiệu &amp; Chiến Lược Đạt Chuẩn (Auto-Promote)
             </h4>
           </div>
-          <p className="text-xs text-slate-400 max-w-2xl">
+          <p className="text-xs text-slate-300/80 max-w-2xl font-sans leading-relaxed">
             Khi bật, AI Agent sẽ tự động nâng nguồn từ <code className="text-cyan-300">SHADOW_ONLY</code> lên <code className="text-emerald-300">ACTIVE_LIVE</code> sau chu kỳ EOD nếu thỏa mãn tối thiểu 30 mẫu, WinRate ≥ 58% và kỳ vọng Expectancy &gt; 0.
           </p>
         </div>
@@ -165,103 +208,167 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
           <span className={`w-2.5 h-2.5 rounded-full ${autoPromote ? 'bg-slate-950' : 'bg-slate-500'}`} />
           <span>{autoPromote ? 'ĐANG BẬT: TỰ TIẾN HÓA' : 'ĐANG TẮT: CHỈ GIÁM SÁT'}</span>
         </button>
-      </div>
+      </SpotlightBento>
 
-      {/* 3. HÀNG ĐỢI PHÊ DUYỆT CHIẾN LƯỢC AI (APPROVED / REJECTED) */}
-      <div className="quant-panel p-6 bg-[#040816] border border-white/10 rounded-2xl space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+      {/* 3. TÓM TẮT HÀNG ĐỢI PHÊ DUYỆT CHIẾN LƯỢC WFO (KHÔNG TRÙNG LẶP TAB 1) */}
+      {candidates.length > 0 ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-amber-300 font-bold font-sans">
+              Có {candidates.length} chiến lược Walk-Forward Optimization (WFO) đang chờ phê duyệt
+            </span>
+          </div>
+          <span className="text-slate-400 font-sans">
+            Xem bảng so sánh Diff chi tiết &amp; phê duyệt tại <strong className="text-cyan-300">Tab Trạm Điều Hành (Needs Me)</strong>
+          </span>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center text-xs font-mono text-slate-500">
+          0 chiến lược chờ duyệt · Hệ thống tự động lọc và đề xuất khi đạt ngưỡng chất lượng
+        </div>
+      )}
+
+      {/* 4. LỊCH SỬ PHIÊN BẢN CHIẾN LƯỢC & ROLLBACK 1-CLICK (CHUYỂN TỪ TAB 1 SANG ĐÚNG NGỮ CẢNH) */}
+      <SpotlightBento className="p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">
-              HÀNG ĐỢI DUYỆT LÊN TIỀN THẬT
+            <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6] font-bold">
+              VERSION CONTROL // 1-CLICK ROLLBACK
             </div>
-            <h3 className="mt-1 text-base font-bold text-white">
-              Chiến Lược Walk-Forward Optimization (WFO) Chờ Phê Duyệt
+            <h3 className="text-base font-bold text-white mt-0.5 font-sans">
+              Lịch Sử Phiên Bản Chiến Lược &amp; Điểm Khôi Phục
             </h3>
           </div>
-          <span className="text-xs font-mono text-slate-400">
-            {candidates.length} ứng viên đã vượt qua kiểm định OOS
+          <span className="text-[11px] font-mono text-slate-400">
+            Lưu trữ tối đa 10 phiên bản gần nhất
           </span>
         </div>
 
-        {candidates.length === 0 ? (
-          <div className="text-center py-8 text-slate-500 text-xs font-mono">
-            Hiện không có chiến lược nào đang chờ phê duyệt. Tiến trình nền tự động lọc và đề xuất khi đạt ngưỡng chất lượng.
+        {strategyHistory.length === 0 ? (
+          <div className="p-6 text-center text-xs text-slate-500 font-mono">
+            Chưa có lịch sử phiên bản nào được lưu trữ.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+            <table className="w-full text-left text-xs font-mono border-collapse">
               <thead>
-                <tr className="border-b border-white/10 text-slate-400 font-mono text-[11px]">
-                  <th className="py-2.5 px-3">CHIẾN LƯỢC</th>
+                <tr className="border-b border-white/10 text-slate-400 text-[11px]">
+                  <th className="py-2.5 px-3">PHIÊN BẢN &amp; TÊN</th>
                   <th className="py-2.5 px-3">TRẠNG THÁI</th>
-                  <th className="py-2.5 px-3">WIN RATE OOS</th>
+                  <th className="py-2.5 px-3">WIN RATE</th>
                   <th className="py-2.5 px-3">PROFIT FACTOR</th>
-                  <th className="py-2.5 px-3">MAX DRAWDOWN</th>
-                  <th className="py-2.5 px-3">MẪU TEST</th>
-                  <th className="py-2.5 px-3 text-right">QUYẾT ĐỊNH CỦA ADMIN</th>
+                  <th className="py-2.5 px-3">MAX DD</th>
+                  <th className="py-2.5 px-3">MẪU</th>
+                  <th className="py-2.5 px-3">CẬP NHẬT</th>
+                  <th className="py-2.5 px-3 text-right">THAO TÁC</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 font-mono">
-                {candidates.map((c: any) => (
-                  <tr key={c.id} className="hover:bg-white/[0.02] transition">
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-white">{c.name || c.id}</div>
-                      <div className="text-[10px] text-slate-500">{c.id}</div>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        c.status === 'APPROVED'
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                          : c.status === 'REJECTED'
-                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                          : 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
-                      }`}>
-                        {c.status || 'WAITING_APPROVAL'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-cyan-300 font-bold">
-                      {c.win_rate_pct ? `${c.win_rate_pct}%` : '—'}
-                    </td>
-                    <td className="py-3 px-3 text-emerald-400 font-bold">
-                      {c.profit_factor || '—'}
-                    </td>
-                    <td className="py-3 px-3 text-rose-400">
-                      {c.max_drawdown_pct ? `${c.max_drawdown_pct}%` : '—'}
-                    </td>
-                    <td className="py-3 px-3 text-slate-400">
-                      {c.sample_size || '—'}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {c.status !== 'APPROVED' && c.status !== 'REJECTED' ? (
-                        <div className="flex items-center justify-end gap-2">
+              <tbody className="divide-y divide-white/5">
+                {strategyHistory.map((strat) => {
+                  const isLive = strat.status === 'APPROVED_FOR_PROD';
+                  const isRolling = rollingBackId === strat.id;
+
+                  return (
+                    <tr key={strat.id} className="hover:bg-white/[0.02] transition">
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-white font-sans">{strat.name}</div>
+                        <div className="text-[10px] text-slate-500">{strat.id}</div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                          isLive
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : strat.status === 'ROLLED_BACK'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {isLive ? 'LIVE (ĐANG CHẠY)' : strat.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-cyan-300 font-bold tabular-nums">
+                        {strat.win_rate_pct}%
+                      </td>
+                      <td className="py-3 px-3 text-emerald-400 font-bold tabular-nums">
+                        {strat.profit_factor}
+                      </td>
+                      <td className="py-3 px-3 text-rose-300 tabular-nums">
+                        {strat.max_drawdown_pct}%
+                      </td>
+                      <td className="py-3 px-3 text-slate-400 tabular-nums">
+                        {strat.sample_size}
+                      </td>
+                      <td className="py-3 px-3 text-slate-400 text-[11px] tabular-nums">
+                        {formatDateTime(strat.updated_at || strat.created_at)}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        {isLive ? (
+                          <span className="text-[11px] text-emerald-400 font-bold font-sans">
+                            ● Đang vận hành
+                          </span>
+                        ) : (
                           <button
                             type="button"
-                            disabled={approvingId === c.id}
-                            onClick={() => handleDecision(c.id, true)}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-bold cursor-pointer text-[11px] transition"
+                            disabled={isRolling}
+                            onClick={() => setRollbackConfirmCandidate(strat)}
+                            className="px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold font-sans text-[11px] transition cursor-pointer disabled:opacity-50"
                           >
-                            ✓ Duyệt Live
+                            {isRolling ? 'Đang khôi phục...' : '↺ Rollback 1-Click'}
                           </button>
-                          <button
-                            type="button"
-                            disabled={approvingId === c.id}
-                            onClick={() => handleDecision(c.id, false)}
-                            className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 font-bold cursor-pointer text-[11px] transition"
-                          >
-                            ✗ Từ Chối
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-slate-500">Đã chốt</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
-      </div>
+      </SpotlightBento>
+
+      {/* CONFIRMATION DIALOG FOR 1-CLICK ROLLBACK */}
+      {rollbackConfirmCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-[#070e24] p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                <IconAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-white font-sans">Xác Nhận Rollback Chiến Lược</h4>
+                <p className="text-xs text-slate-400 font-mono">Thao tác này sẽ thay thế bản LIVE tức thì</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-black/40 p-4 border border-white/5 space-y-2 text-xs font-sans text-slate-300 leading-relaxed">
+              <div>
+                Bạn có chắc chắn muốn khôi phục chiến lược <strong className="text-cyan-300">{rollbackConfirmCandidate.name}</strong> (#{rollbackConfirmCandidate.id.slice(0, 8)}) lên làm bản chạy LIVE?
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Bản LIVE hiện tại sẽ được chuyển sang trạng thái <code className="text-amber-300">ROLLED_BACK</code> để làm điểm khôi phục dự phòng.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRollbackConfirmCandidate(null)}
+                className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 font-bold font-sans text-xs transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                disabled={rollingBackId === rollbackConfirmCandidate.id}
+                onClick={() => handleExecuteRollback(rollbackConfirmCandidate.id)}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold font-sans text-xs transition cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-50"
+              >
+                {rollingBackId === rollbackConfirmCandidate.id ? 'Đang khôi phục...' : 'Xác Nhận Khôi Phục'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

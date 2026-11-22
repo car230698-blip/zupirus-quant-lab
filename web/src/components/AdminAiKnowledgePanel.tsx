@@ -1,5 +1,13 @@
-import React, { useState, useRef } from 'react';
-import { apiPost, apiPut, apiDelete } from '../api/client';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  apiPost,
+  apiPut,
+  apiDelete,
+  fetchAdminAiQuota,
+  updateAdminAiQuota,
+  AdminAiQuota,
+} from '../api/client';
+import { SpotlightBento } from './ui/SpotlightBento';
 
 export interface AdminAiKnowledgePanelProps {
   geminiPool: any[];
@@ -25,6 +33,52 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
 
   // Gemini Key Pool state
   const [newKeyInput, setNewKeyInput] = useState('');
+
+  // AI Quota state
+  const [aiQuota, setAiQuota] = useState<AdminAiQuota | null>(null);
+  const [quotaUpdating, setQuotaUpdating] = useState(false);
+
+  const loadQuota = useCallback(async () => {
+    try {
+      const q = await fetchAdminAiQuota();
+      setAiQuota(q);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    loadQuota();
+  }, [loadQuota]);
+
+  const handleQuickQuotaOverride = async (minutes: number = 60) => {
+    setQuotaUpdating(true);
+    try {
+      await updateAdminAiQuota({ override_minutes: minutes });
+      setMsg(`Đã mở khóa quota thêm ${minutes} phút.`);
+      await loadQuota();
+      onRefresh();
+    } catch (err: any) {
+      setMsg(`Lỗi mở khóa quota: ${err?.message || 'Thất bại'}`);
+    } finally {
+      setQuotaUpdating(false);
+    }
+  };
+
+  const handleResetQuotaToday = async () => {
+    if (!window.confirm('Xác nhận đặt lại hạn mức và số lượt gọi trong ngày về 0?')) return;
+    setQuotaUpdating(true);
+    try {
+      await updateAdminAiQuota({ reset_today: true });
+      setMsg('Đã đặt lại bộ đếm quota hôm nay về 0.');
+      await loadQuota();
+      onRefresh();
+    } catch (err: any) {
+      setMsg(`Lỗi đặt lại quota: ${err?.message || 'Thất bại'}`);
+    } finally {
+      setQuotaUpdating(false);
+    }
+  };
 
   const handleIngestPdf = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,20 +133,27 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
   };
 
   const handleAddGeminiKey = async () => {
+    if (!newKeyInput.trim()) return;
     const rawKeys = newKeyInput
-      .split(/[\n,]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (rawKeys.length === 0) return;
+      .split(/[\n,]/)
+      .map((k) => k.trim())
+      .filter((k) => k.length > 10);
+
+    if (rawKeys.length === 0) {
+      setMsg('Vui lòng nhập định dạng khóa API Key hợp lệ (bắt đầu bằng AIzaSy...).');
+      return;
+    }
+
     let added = 0;
-    for (const k of rawKeys) {
+    for (const key of rawKeys) {
       try {
-        await apiPost('/api/admin/gemini/keys', { key: k });
+        await apiPost('/api/admin/gemini/keys', { api_key: key });
         added++;
       } catch {
-        // ignore duplicate
+        // ignore duplicate / invalid
       }
     }
+
     if (added > 0) {
       setNewKeyInput('');
       setMsg(`✓ Đã nạp thành công ${added} Gemini API Key vào Pool.`);
@@ -105,9 +166,10 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
   const handleToggleKey = async (kid: string) => {
     try {
       await apiPut(`/api/admin/gemini/keys/${encodeURIComponent(kid)}/toggle`);
+      setMsg('Đã cập nhật trạng thái Key.');
       onRefresh();
     } catch (err: any) {
-      setMsg(`Lỗi đổi trạng thái key: ${err.message || ''}`);
+      setMsg(`Lỗi khi cập nhật key: ${err.message || ''}`);
     }
   };
 
@@ -122,97 +184,89 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
     }
   };
 
-  const filteredIngested = ingestedList.filter((item: any) => {
+  const filteredLibrary = ingestedList.filter((item) => {
     if (libraryFilter === 'all') return true;
-    const nameLower = String(item.name || '').toLowerCase();
-    const descLower = String(item.description || '').toLowerCase();
-    const isMacro = nameLower.includes('fed') || nameLower.includes('vĩ mô') || descLower.includes('vĩ mô') || descLower.includes('tiền tệ');
-    const isGold = nameLower.includes('gold') || nameLower.includes('vàng') || descLower.includes('vàng');
-    if (libraryFilter === 'macro') return isMacro;
-    if (libraryFilter === 'gold') return isGold;
-    if (libraryFilter === 'strategy') return !isMacro && !isGold;
-    return true;
+    const cat = item.category || 'general';
+    return cat === libraryFilter;
   });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* CỘT TRÁI: NẠP TRI THỨC PDF & TÀI LIỆU */}
+      {/* CỘT TRÁI: NẠP VÀ QUẢN TRỊ KHO TÀI LIỆU SÁCH TRADING (RAG INGESTION) */}
       <div className="space-y-6">
-        <div className="quant-panel p-6 bg-[#040816] border border-white/10 rounded-2xl space-y-4">
+        <SpotlightBento className="p-6 space-y-4">
           <div className="border-b border-white/10 pb-3">
             <div className="font-mono text-[11px] uppercase tracking-widest text-cyan-400">
-              NẠP TRI THỨC & TÀI LIỆU QUAN TRỌNG
+              RAG INGESTION PIPELINE
             </div>
-            <h3 className="mt-1 text-base font-bold text-white">
-              Đúc Kết Tri Thức Định Lượng (PDF / Markdown)
+            <h3 className="mt-1 text-base font-bold text-white font-sans">
+              Nạp Tri Thức Mới Vào Bộ Não AI (PDF / TXT / MD)
             </h3>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed font-sans">
+              Hệ thống tự động sử dụng 4 sub-agent để bóc tách quy tắc, phân loại ngữ cảnh và đúc kết thành kỹ năng định lượng lưu trữ vào <code className="text-cyan-300">app/skills/learned</code>.
+            </p>
           </div>
 
           <form onSubmit={handleIngestPdf} className="space-y-4">
             <div>
-              <label className="block text-xs font-mono text-slate-300 mb-1.5">
-                File tài liệu nghiên cứu (PDF, MD, TXT):
+              <label className="block text-xs font-mono text-slate-300 mb-1">
+                Tiêu đề tài liệu (Tùy chọn):
               </label>
               <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.md,.txt"
-                onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-                className="w-full text-xs text-slate-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-mono file:font-bold file:bg-cyan-500/20 file:text-cyan-300 hover:file:bg-cyan-500/30 cursor-pointer"
+                type="text"
+                value={pdfTitle}
+                onChange={(e) => setPdfTitle(e.target.value)}
+                placeholder="VD: Trading in the Zone - Mark Douglas"
+                className="w-full bg-[#060c1e] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-400 font-mono"
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-mono text-slate-300 mb-1.5">
-                  Tiêu đề tài liệu (Tùy chọn):
-                </label>
-                <input
-                  type="text"
-                  value={pdfTitle}
-                  onChange={(e) => setPdfTitle(e.target.value)}
-                  placeholder="VD: Cẩm nang giao dịch Vàng 2026"
-                  className="w-full bg-[#060c1e] border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-400 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-mono text-slate-300 mb-1.5">
-                  Phân nhóm chuyên môn:
+                <label className="block text-xs font-mono text-slate-300 mb-1">
+                  Nhóm tri thức:
                 </label>
                 <select
                   value={pdfCategory}
-                  onChange={(e) => setPdfCategory(e.target.value as any)}
-                  className="w-full bg-[#060c1e] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono cursor-pointer"
+                  onChange={(e: any) => setPdfCategory(e.target.value)}
+                  className="w-full bg-[#060c1e] border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                 >
-                  <option value="macro">Kinh tế Vĩ mô & Chính sách FED</option>
-                  <option value="gold">Cấu trúc Vàng XAU/USD & Mùa vụ</option>
-                  <option value="strategy">Chiến thuật Kỹ thuật & SMC/ICT</option>
-                  <option value="general">Tri thức Tổng hợp</option>
+                  <option value="macro">Kinh tế vĩ mô & Tin tức</option>
+                  <option value="gold">Cấu trúc Vàng XAU/USD</option>
+                  <option value="strategy">Chiến thuật Price Action / SMC</option>
+                  <option value="general">Tâm lý & Quản trị rủi ro</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-slate-300 mb-1">
+                  Tệp tài liệu:
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.txt,.md"
+                  onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                  className="w-full bg-[#060c1e] border border-white/10 rounded-xl px-2 py-1.5 text-xs text-slate-300 file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[11px] file:font-mono file:bg-cyan-500/20 file:text-cyan-300 hover:file:bg-cyan-500/30 font-mono cursor-pointer"
+                />
               </div>
             </div>
 
-            {/* 4-Agent Visual Step Feedback */}
+            {/* Ingestion Steps Progress Indicator */}
             {isIngesting && (
-              <div className="p-3 bg-cyan-950/40 border border-cyan-500/30 rounded-xl text-xs font-mono space-y-2">
-                <div className="text-cyan-300 font-bold flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                  Swarm Multi-Agent Đang Xử Lý:
+              <div className="p-3 bg-cyan-950/20 border border-cyan-500/30 rounded-xl space-y-2">
+                <div className="flex items-center justify-between text-xs font-mono text-cyan-300">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                    <span>Đang tổng hợp tri thức tự trị...</span>
+                  </span>
+                  <span>Bước {ingestStep}/4</span>
                 </div>
-                <div className="grid grid-cols-4 gap-2 text-center text-[10px]">
-                  <div className={`p-1.5 rounded ${ingestStep >= 1 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-600'}`}>
-                    1. Bóc Tách
-                  </div>
-                  <div className={`p-1.5 rounded ${ingestStep >= 2 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-600'}`}>
-                    2. Tổng Hợp
-                  </div>
-                  <div className={`p-1.5 rounded ${ingestStep >= 3 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-600'}`}>
-                    3. Kiểm Định
-                  </div>
-                  <div className={`p-1.5 rounded ${ingestStep >= 4 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'text-slate-600'}`}>
-                    4. Đúc Kết
-                  </div>
+                <div className="text-[11px] text-slate-300 font-mono">
+                  {ingestStep === 1 && '1/4. Trích xuất văn bản & Lọc nhiễu tài liệu...'}
+                  {ingestStep === 2 && '2/4. Phân đoạn Vector & Trích xuất quy tắc giao dịch...'}
+                  {ingestStep === 3 && '3/4. Sub-agent Alpha đúc kết kỹ năng định lượng...'}
+                  {ingestStep === 4 && '4/4. Quy nạp thành công vào cơ sở dữ liệu tri thức!'}
                 </div>
               </div>
             )}
@@ -220,51 +274,68 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
             <button
               type="submit"
               disabled={isIngesting || !pdfFile}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold font-mono text-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20"
+              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-[#12B5A6] hover:from-cyan-500 hover:to-[#14C5B5] text-slate-950 font-mono text-xs font-bold transition flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer shadow-lg shadow-cyan-500/10"
             >
-              {isIngesting ? 'Đang Đúc Kết Tri Thức...' : 'Nạp Tài Liệu Vào Bộ Não AI'}
+              <span>{isIngesting ? 'Đang Nạp Tài Liệu...' : 'Nạp Tri Thức Vào Não AI'}</span>
+              <span>⚡</span>
             </button>
           </form>
-        </div>
+        </SpotlightBento>
 
-        {/* Danh sách tài liệu đã đúc kết */}
-        <div className="quant-panel p-6 bg-[#040816] border border-white/10 rounded-2xl space-y-4">
-          <div className="flex items-center justify-between border-b border-white/10 pb-3">
+        {/* DANH SÁCH TÀI LIỆU ĐÃ NẠP (INGESTED KNOWLEDGE BASE) */}
+        <SpotlightBento className="p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
             <div>
-              <div className="font-mono text-[11px] text-slate-400 uppercase tracking-widest">KHO TRI THỨC</div>
-              <h4 className="text-sm font-bold text-white">Tài Liệu Đã Nạp ({filteredIngested.length})</h4>
+              <div className="font-mono text-[11px] uppercase tracking-widest text-[#12B5A6]">
+                KHO KỸ NĂNG ĐÃ QUY NẠP
+              </div>
+              <h3 className="mt-1 text-base font-bold text-white font-sans">
+                Thư Viện Tri Thức AI ({ingestedList.length} Mục)
+              </h3>
             </div>
-            <div className="flex gap-1 text-[11px] font-mono">
-              {(['all', 'macro', 'gold', 'strategy'] as const).map((tab) => (
+
+            {/* Filter Pills */}
+            <div className="flex items-center gap-1 font-mono text-xs">
+              {(['all', 'macro', 'gold', 'strategy'] as const).map((f) => (
                 <button
-                  key={tab}
+                  key={f}
                   type="button"
-                  onClick={() => setLibraryFilter(tab)}
-                  className={`px-2 py-1 rounded-lg uppercase ${
-                    libraryFilter === tab ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold' : 'text-slate-400 hover:text-white'
+                  onClick={() => setLibraryFilter(f)}
+                  className={`px-2.5 py-1 rounded-lg transition cursor-pointer text-[11px] ${
+                    libraryFilter === f
+                      ? 'bg-[#12B5A6]/20 text-[#12B5A6] font-bold border border-[#12B5A6]/40'
+                      : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  {tab}
+                  {f === 'all' ? 'Tất cả' : f.toUpperCase()}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-            {filteredIngested.length === 0 ? (
-              <div className="text-center py-6 text-slate-500 text-xs font-mono">
-                Chưa có tài liệu nào trong nhóm này.
+          <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+            {filteredLibrary.length === 0 ? (
+              <div className="text-center py-8 text-slate-500 text-xs font-mono">
+                Chưa có tài liệu nào trong danh mục này. Hãy nạp file tài liệu ở biểu mẫu phía trên.
               </div>
             ) : (
-              filteredIngested.map((item: any) => (
+              filteredLibrary.map((item: any) => (
                 <div
                   key={item.skill_id || item.id}
                   className="p-3 bg-[#060c1e] border border-white/5 hover:border-white/10 rounded-xl flex items-center justify-between gap-3 text-xs"
                 >
-                  <div className="space-y-0.5 min-w-0">
-                    <div className="font-bold text-white truncate font-mono">{item.name || item.skill_id}</div>
-                    <div className="text-[11px] text-slate-400 truncate">{item.description || 'Kỹ năng định lượng'}</div>
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white truncate font-sans">{item.name || item.skill_id}</span>
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 shrink-0">
+                        {item.category || 'general'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 truncate font-mono">
+                      {item.summary || item.skill_id}
+                    </div>
                   </div>
+
                   <button
                     type="button"
                     onClick={() => handleDeleteIngested(item.skill_id || item.id)}
@@ -276,17 +347,90 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
               ))
             )}
           </div>
-        </div>
+        </SpotlightBento>
       </div>
 
-      {/* CỘT PHẢI: QUẢN LÝ GEMINI KEY POOL DỰ PHÒNG */}
+      {/* CỘT PHẢI: BUDGET GUARD & QUẢN LÝ GEMINI KEY POOL */}
       <div className="space-y-6">
-        <div className="quant-panel p-6 bg-[#040816] border border-white/10 rounded-2xl space-y-4">
+        {/* KHỐI 1: HẠN MỨC & NGÂN SÁCH QUOTA AI (BUDGET GUARD) */}
+        <SpotlightBento className="p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] pb-3">
+            <div>
+              <div className="font-mono text-xs uppercase tracking-wider text-cyan-400 font-bold">
+                BUDGET GUARD // CỤM AI GEMINI
+              </div>
+              <h3 className="text-base font-bold text-white mt-0.5 font-sans">
+                Hạn Mức &amp; Ngân Sách Quota AI Trong Ngày
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={quotaUpdating}
+                onClick={() => handleQuickQuotaOverride(60)}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold font-sans transition cursor-pointer disabled:opacity-50"
+              >
+                Mở khóa 60 phút
+              </button>
+              <button
+                type="button"
+                disabled={quotaUpdating}
+                onClick={handleResetQuotaToday}
+                className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold font-sans transition cursor-pointer disabled:opacity-50"
+              >
+                Đặt lại hôm nay
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-slate-300">
+                Tiến độ: <strong className="text-white tabular-nums">{aiQuota?.calls_today ?? 0}</strong> / <strong className="text-slate-400 tabular-nums">{aiQuota?.daily_cap ?? 90}</strong> lượt gọi
+              </span>
+              <span className={`font-bold tabular-nums ${
+                (aiQuota?.usage_pct || 0) >= 100
+                  ? 'text-rose-400'
+                  : (aiQuota?.usage_pct || 0) >= 80
+                  ? 'text-amber-300'
+                  : 'text-emerald-400'
+              }`}>
+                {aiQuota?.usage_pct ?? 0}% ({aiQuota?.status || 'OK'})
+              </span>
+            </div>
+
+            {/* Progress bar with dynamic color transitions */}
+            <div className="w-full bg-white/5 rounded-full h-2.5 overflow-hidden">
+              <div
+                className={`h-2.5 rounded-full transition-all duration-500 ${
+                  (aiQuota?.usage_pct || 0) >= 100
+                    ? 'bg-rose-500'
+                    : (aiQuota?.usage_pct || 0) >= 80
+                    ? 'bg-amber-400'
+                    : 'bg-gradient-to-r from-cyan-500 to-emerald-400'
+                }`}
+                style={{ width: `${Math.min(100, aiQuota?.usage_pct || 0)}%` }}
+              />
+            </div>
+
+            {/* Breakdown per caller */}
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              {Object.entries(aiQuota?.breakdown || {}).map(([caller, cnt]) => (
+                <span key={caller} className="px-2.5 py-1 rounded-md bg-white/5 border border-white/5 text-[11px] font-mono text-slate-300">
+                  <span className="text-slate-400">{caller}:</span> <strong className="text-cyan-300 tabular-nums">{cnt}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+        </SpotlightBento>
+
+        {/* KHỐI 2: QUẢN LÝ GEMINI KEY POOL DỰ PHÒNG */}
+        <SpotlightBento className="p-6 space-y-4">
           <div className="border-b border-white/10 pb-3">
             <div className="font-mono text-[11px] uppercase tracking-widest text-amber-400">
               POOL KHÓA DỰ PHÒNG
             </div>
-            <h3 className="mt-1 text-base font-bold text-white">
+            <h3 className="mt-1 text-base font-bold text-white font-sans">
               Quản Lý Danh Sách Gemini API Key ({geminiPool.length} Keys)
             </h3>
           </div>
@@ -360,7 +504,7 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
               ))
             )}
           </div>
-        </div>
+        </SpotlightBento>
       </div>
     </div>
   );
