@@ -751,7 +751,7 @@ async def test_a7_production_hardening_and_edge_cases(monkeypatch):
     mock_client.execute_order = capture_order
 
     with tx() as c:
-        setkv(c, "account_locked:acc_pers_cap", "")
+        c.execute("DELETE FROM kv WHERE key LIKE '%acc_pers_cap%'")
     pers_acc_scaled = [{
         "id": "acc_pers_cap", "metaapi_account_id": "meta_pers_cap", "broker_server": "PersServer",
         "risk_percent": 1.0, "is_prop_firm_mode": 0, "balance": 20000.0, "equity": 20000.0,
@@ -759,9 +759,9 @@ async def test_a7_production_hardening_and_edge_cases(monkeypatch):
     }]
     res_scaled = await execute_fan_out_for_signal(signal_pers, pers_acc_scaled, mock_client)
     assert res_scaled["executed"] == 1, f"Must execute with scaled risk, got: {res_scaled}"
-    # $20k equity * 1.0% base * 0.5 (macro_scale) * 0.5 (ranging meta_scale) = $50 risk -> 0.02 lot
+    # $20k equity * 1.0% base * min(0.5, 0.5) = $100 risk -> 0.05 lot
     captured_vol = recorded_exec.get("volume")
-    assert captured_vol == 0.02, f"Expected 0.02 lot for scaled risk on gold BUY with DXY UP, got {captured_vol}"
+    assert captured_vol == 0.05, f"Expected 0.05 lot for scaled risk on gold BUY with DXY UP, got {captured_vol}"
 
     # Reset macro state
     save_macro_state({"shock": "NONE", "dxy_trend": "FLAT", "us10y_trend": "FLAT", "updated_at": now})
@@ -820,3 +820,181 @@ async def test_a7_production_hardening_and_edge_cases(monkeypatch):
         acc_state = c.execute("SELECT deployment_state, auto_trade FROM trading_accounts WHERE id = 'acc_pay'").fetchone()
         assert acc_state[0] == "EXPIRED_PROTECTING", "Payment webhook must NOT forcefully mutate deployment_state"
         assert acc_state[1] == 0, "Payment webhook must NOT forcefully override user's auto_trade preference"
+
+
+# ===========================================================================
+# 5 REGRESSION TESTS POST-COMMIT e2672af
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_regression_75pct_daily_drawdown_no_unbound_and_no_close(tmp_path, monkeypatch):
+    """1. Tài khoản chạm vùng cảnh báo 75% Daily Drawdown không văng UnboundLocalError, không đóng lệnh bot."""
+    from app.core import db as core_db
+    from app import db
+    db_file = tmp_path / "test_reg_dd75.sqlite3"
+    monkeypatch.setattr(db, "DB", db_file)
+    monkeypatch.setattr(core_db, "DB", db_file)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(core_db, "DATABASE_URL", "")
+
+    now = time.time()
+    import datetime
+    date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+
+    with tx() as c:
+        run_all_migrations(c, is_pg=False)
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_dd75', 'u_dd75@example.com', 'pass', 'customer') ON CONFLICT DO NOTHING")
+        c.execute("""
+            INSERT INTO trading_accounts (
+                id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server,
+                balance, equity, is_prop_firm_mode, prop_daily_dd_limit_pct, deployment_state, created_at
+            ) VALUES (
+                'acc_dd75', 'u_dd75', 'meta_dd75', '7501', 'enc', 'DemoServer',
+                10000.0, 9690.0, 1, 4.0, 'DEPLOYED', ?
+            )
+        """, (now,))
+        setkv(c, f"daily_start_bal:acc_dd75:{date_str}", "10000.0")
+
+    mock_client = AsyncMock(spec=MetaApiClient)
+    close_called = False
+    async def mock_close(*args, **kwargs):
+        nonlocal close_called
+        close_called = True
+        return {"status": "OK"}
+    mock_client.close_position = mock_close
+
+    mock_client.get_positions_verified = AsyncMock(return_value=(True, [], {"synchronized": True}))
+    mock_client.get_open_orders_verified = AsyncMock(return_value=(True, [], {"synchronized": True}))
+    watcher = PositionWatcher(mock_client)
+    # Drawdown is (10000 - 9690) / 10000 = 3.1%, which is >= 0.75 * 4.0% (3.0%) and < 4.0%
+    res = await watcher.run_cycle()
+
+    assert close_called is False, "Bot positions must NOT be closed at 75% drawdown warning"
+    with tx() as c:
+        locked = getkv(c, "account_locked:acc_dd75")
+        assert not locked, "Account must NOT be locked at 75% drawdown warning"
+
+
+def test_regression_verify_position_ownership_rejects_prefix_without_db(tmp_path, monkeypatch):
+    """2. verify_position_ownership() từ chối vị thế chỉ có tiền tố ZP- / Zupirus mà không có bản ghi DB trên đúng account_id."""
+    from app.core import db as core_db
+    from app import db
+    db_file = tmp_path / "test_reg_prefix.sqlite3"
+    monkeypatch.setattr(db, "DB", db_file)
+    monkeypatch.setattr(core_db, "DB", db_file)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(core_db, "DATABASE_URL", "")
+
+    with tx() as c:
+        run_all_migrations(c, is_pg=False)
+        # Position with prefix comment but no DB trade execution
+        pos_fake_zp = {"id": "pos_fake_1", "volume": 0.10, "comment": "ZP-12345678"}
+        orig_zp, _ = verify_position_ownership(c, "acc_no_db", pos_fake_zp)
+        assert orig_zp == "MANUAL", "Prefix ZP- without DB record must be treated as MANUAL"
+
+        pos_fake_zup = {"id": "pos_fake_2", "volume": 0.10, "comment": "Zupirus-Auto"}
+        orig_zup, _ = verify_position_ownership(c, "acc_no_db", pos_fake_zup)
+        assert orig_zup == "MANUAL", "Prefix Zupirus without DB record must be treated as MANUAL"
+
+        pos_fake_e2e = {"id": "pos_e2e_12345", "volume": 0.10, "comment": "any"}
+        orig_e2e, _ = verify_position_ownership(c, "acc_no_db", pos_fake_e2e)
+        assert orig_e2e == "MANUAL", "ID pos_e2e_ without DB record must be treated as MANUAL"
+
+
+def test_regression_non_protective_sl_unconfirmed():
+    """3. Vị thế có stopLoss đặt sai phía (BUY có SL >= currentPrice hoặc SELL có SL <= currentPrice) giữ sl_confirmed = 0."""
+    from app.domains.execution.watcher import _is_protective_sl
+
+    # BUY cases
+    assert _is_protective_sl({"type": "POSITION_TYPE_BUY", "currentPrice": 2000.0, "stopLoss": 1990.0}) is True
+    assert _is_protective_sl({"type": "POSITION_TYPE_BUY", "currentPrice": 2000.0, "stopLoss": 2000.0}) is False
+    assert _is_protective_sl({"type": "POSITION_TYPE_BUY", "currentPrice": 2000.0, "stopLoss": 2005.0}) is False
+    assert _is_protective_sl({"type": "POSITION_TYPE_BUY", "currentPrice": 2000.0, "stopLoss": 0.0}) is False
+
+    # SELL cases
+    assert _is_protective_sl({"type": "POSITION_TYPE_SELL", "currentPrice": 2000.0, "stopLoss": 2010.0}) is True
+    assert _is_protective_sl({"type": "POSITION_TYPE_SELL", "currentPrice": 2000.0, "stopLoss": 2000.0}) is False
+    assert _is_protective_sl({"type": "POSITION_TYPE_SELL", "currentPrice": 2000.0, "stopLoss": 1995.0}) is False
+    assert _is_protective_sl({"type": "POSITION_TYPE_SELL", "currentPrice": 2000.0, "stopLoss": 0.0}) is False
+
+
+@pytest.mark.asyncio
+async def test_regression_timeout_unknown_execution_does_not_set_last_verified_at(tmp_path, monkeypatch):
+    """4. Lệnh timeout sang UNKNOWN_EXECUTION không cập nhật last_verified_at."""
+    from app.core import db as core_db
+    from app import db
+    db_file = tmp_path / "test_reg_timeout.sqlite3"
+    monkeypatch.setattr(db, "DB", db_file)
+    monkeypatch.setattr(core_db, "DB", db_file)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(core_db, "DATABASE_URL", "")
+
+    now = time.time()
+    with tx() as c:
+        run_all_migrations(c, is_pg=False)
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_to', 'u_to@example.com', 'pass', 'customer') ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO quotes (symbol, bid, ask, ts, source) VALUES ('XAUUSD', 2650.0, 2650.2, ?, 'TEST')", (now,))
+        c.execute("""
+            INSERT INTO trading_accounts (
+                id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server,
+                balance, equity, is_prop_firm_mode, deployment_state, created_at
+            ) VALUES (
+                'acc_to', 'u_to', 'meta_to', '7502', 'enc', 'DemoServer',
+                10000.0, 10000.0, 0, 'DEPLOYED', ?
+            )
+        """, (now,))
+
+    mock_client = AsyncMock(spec=MetaApiClient)
+    async def mock_timeout_exec(*args, **kwargs):
+        raise asyncio.TimeoutError("MetaApi execution gateway timed out")
+    mock_client.execute_order = mock_timeout_exec
+
+    signal = {"id": "sig_to_1", "symbol": "XAUUSD", "action": "BUY", "entry_price": 2650.0, "sl": 2640.0, "tp": 2670.0}
+    accounts = [{
+        "id": "acc_to", "metaapi_account_id": "meta_to", "broker_server": "DemoServer",
+        "risk_percent": 1.0, "is_prop_firm_mode": 0, "balance": 10000.0, "equity": 10000.0,
+    }]
+
+    res = await execute_fan_out_for_signal(signal, accounts, mock_client)
+    assert res["failed"] == 1
+
+    with tx() as c:
+        row = c.execute("SELECT status, last_verified_at FROM metaapi_trade_executions WHERE account_id = 'acc_to'").fetchone()
+        assert row is not None
+        assert row[0] == "UNKNOWN_EXECUTION", f"Expected UNKNOWN_EXECUTION on timeout, got {row[0]}"
+        assert row[1] is None, f"last_verified_at must remain NULL on unverified timeout, got {row[1]}"
+
+
+def test_regression_telemetry_admin_macro_degraded_over_2h(tmp_path, monkeypatch):
+    """5. Endpoint telemetry_admin trả đúng macro_degraded == True khi macro_age > 2h."""
+    from app.core import db as core_db
+    from app import db
+    db_file = tmp_path / "test_reg_telemetry.sqlite3"
+    monkeypatch.setattr(db, "DB", db_file)
+    monkeypatch.setattr(core_db, "DB", db_file)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(core_db, "DATABASE_URL", "")
+
+    from app.domains.ai.macro_station import save_macro_state, evaluate_macro_filter
+    from app.routers.telemetry_admin import get_admin_command_radar
+
+    now = time.time()
+    with tx() as c:
+        run_all_migrations(c, is_pg=False)
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('adm_1', 'admin@example.com', 'pass', 'admin') ON CONFLICT DO NOTHING")
+
+    # Save macro state older than 2 hours (7500s ago)
+    save_macro_state({
+        "shock": None,
+        "dxy_trend": "FLAT",
+        "us10y_trend": "FLAT",
+        "updated_at": now - 7500.0,
+    })
+
+    flt = evaluate_macro_filter("XAUUSD", "BUY", now_ts=now)
+    assert flt["macro_degraded"] is True, "Macro filter must flag macro_degraded=True when age > 7200s"
+    assert flt["macro_scale"] == 0.5, "Macro scale must degrade to 0.5 when age > 7200s"
+
+    radar = get_admin_command_radar(_admin={"id": "adm_1", "role": "admin"})
+    assert radar.get("macro_degraded") is True, f"Admin telemetry radar must return macro_degraded=True, got {radar}"
+

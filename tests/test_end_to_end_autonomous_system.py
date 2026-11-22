@@ -191,15 +191,28 @@ async def test_end_to_end_autonomous_customer_and_ai_lifecycle(monkeypatch):
     )
     assert fanout_rep["executed"] >= 1
 
+    exec_row = fanout_rep["executions"][0]
+    pos_id = f"pos_e2e_{secrets.token_hex(4)}"
+    vol = float(exec_row.get("volume") or 0.20)
+    with tx() as c:
+        c.execute(
+            """
+            UPDATE metaapi_trade_executions
+            SET position_id = ?, ticket = ?, origin = 'BOT', status = 'FILLED', volume = ?
+            WHERE id = ?
+            """,
+            (pos_id, pos_id, vol, exec_row["exec_id"])
+        )
+
     # PositionWatcher protects position (BE 1R + 50% TP1)
     watcher = PositionWatcher()
     watcher.client.get_account_information = AsyncMock(return_value={"balance": 100000.0, "equity": 101500.0})
     watcher.client.get_open_positions = AsyncMock(
         return_value=[{
-            "id": f"pos_e2e_{secrets.token_hex(4)}",
+            "id": pos_id,
             "symbol": "XAUUSD",
             "type": "POSITION_TYPE_BUY",
-            "volume": 0.20,
+            "volume": vol,
             "openPrice": latest_mid,
             "currentPrice": latest_mid + 6.0,
             "stopLoss": latest_mid - 5.0,

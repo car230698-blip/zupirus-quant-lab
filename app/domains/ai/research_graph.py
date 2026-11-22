@@ -51,6 +51,11 @@ def discover_candidate_from_observations(
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
                   AND created_at <= ?
+                  AND signal_id NOT IN (
+                      SELECT signal_id FROM metaapi_trade_executions 
+                      WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
+                         OR evidence_json LIKE '%"manual_closed_by_user":true%'
+                  )
                 ORDER BY created_at DESC LIMIT 200
                 """,
                 (sym_u, float(max_created_at)),
@@ -62,6 +67,11 @@ def discover_candidate_from_observations(
                 FROM signal_audit_logs
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
+                  AND signal_id NOT IN (
+                      SELECT signal_id FROM metaapi_trade_executions 
+                      WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
+                         OR evidence_json LIKE '%"manual_closed_by_user":true%'
+                  )
                 ORDER BY created_at DESC LIMIT 200
                 """,
                 (sym_u,),
@@ -675,6 +685,11 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                 FROM signal_audit_logs
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = 'XAUUSD'
+                  AND signal_id NOT IN (
+                      SELECT signal_id FROM metaapi_trade_executions 
+                      WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
+                         OR evidence_json LIKE '%"manual_closed_by_user":true%'
+                  )
                 """
             ).fetchone()
             obs_fp = f"{obs_meta[0]}:{obs_meta[1]}:{obs_meta[2]}" if obs_meta else "0:0:0"
@@ -784,10 +799,15 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                         """
                         SELECT pnl
                         FROM signal_audit_logs
-                        WHERE (strategy_id = ? OR source_name = ? OR signal_id = ? OR signal_id LIKE ?) AND created_at >= ? AND pnl IS NOT NULL
+                        WHERE (strategy_id = ? OR source_name = ? OR signal_id = ? OR signal_id LIKE ? OR signal_id LIKE ?) AND created_at >= ? AND pnl IS NOT NULL
+                          AND signal_id NOT IN (
+                              SELECT signal_id FROM metaapi_trade_executions 
+                              WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
+                                 OR evidence_json LIKE '%"manual_closed_by_user":true%'
+                          )
                         ORDER BY created_at ASC
                         """,
-                        (c_id, c_id, c_id, f"{c_id}:%", c_started_at),
+                        (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
                     ).fetchall()
                     pnls = [float(r[0]) for r in log_rows]
                     closed_cnt = len(pnls)
@@ -910,6 +930,7 @@ def run_eod_shadow_evaluation_cycle(force: bool = False):
 
 
 _last_discovery_ts = 0.0
+_last_macro_station_ts = 0.0
 
 
 def run_periodic_source_discovery():
@@ -926,6 +947,28 @@ def run_periodic_source_discovery():
         logger.debug(f"Periodic source discovery note: {e}")
 
 
+def run_periodic_macro_bias():
+    """Autonomously update real-time macro bias, yields & news shocks every 30 minutes."""
+    global _last_macro_station_ts
+    now = time.time()
+    if now - _last_macro_station_ts < 1800.0:
+        return
+    _last_macro_station_ts = now
+    try:
+        import asyncio
+        from app.domains.ai.macro_station import fetch_macro_bias
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(fetch_macro_bias(now_ts=now))
+            else:
+                loop.run_until_complete(fetch_macro_bias(now_ts=now))
+        except RuntimeError:
+            asyncio.run(fetch_macro_bias(now_ts=now))
+    except Exception as e:
+        logger.debug(f"Periodic macro station note: {e}")
+
+
 def main():
     init()
     from app.domains.ai.signal_swarm import is_agent_paused
@@ -936,6 +979,7 @@ def main():
             process_once()
             run_periodic_calendar_sync()
             run_periodic_source_discovery()
+            run_periodic_macro_bias()
             run_eod_shadow_evaluation_cycle()
             try:
                 run_daily_executive_digest()

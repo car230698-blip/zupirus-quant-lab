@@ -186,7 +186,7 @@ def tag_manual_closed_by_user(c, exec_id: str, now_ts: Optional[float] = None) -
     c.execute(
         """
         UPDATE metaapi_trade_executions
-        SET origin = 'MANUAL_CLOSED_BY_USER', evidence_json = ?, last_verified_at = ?
+        SET origin = 'BOT', evidence_json = ?, last_verified_at = ?
         WHERE id = ?
         """,
         (json.dumps(prev_ev), now, exec_id)

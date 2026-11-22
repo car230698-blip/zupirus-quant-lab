@@ -39,6 +39,39 @@ SUCCESS_STRING_CODES = {
 }
 
 
+def _is_protective_sl(pos: Optional[Dict[str, Any]]) -> bool:
+    """Validate that stopLoss is protective and placed on the correct side of price:
+    - sl_val > 0
+    - BUY: sl_val < currentPrice (fallback openPrice)
+    - SELL: sl_val > currentPrice (fallback openPrice)
+    Returns False if missing side, missing reference price, or SL is on the wrong side.
+    """
+    if not pos or not isinstance(pos, dict):
+        return False
+    try:
+        sl_val = float(pos.get("stopLoss") or 0.0)
+        if sl_val <= 0:
+            return False
+        raw_type = str(pos.get("type") or pos.get("action") or "").upper()
+        is_buy = "BUY" in raw_type
+        is_sell = "SELL" in raw_type
+        if not is_buy and not is_sell:
+            return False
+
+        ref_price = float(pos.get("currentPrice") or 0.0)
+        if ref_price <= 0:
+            ref_price = float(pos.get("openPrice") or 0.0)
+        if ref_price <= 0:
+            return False
+
+        if is_buy:
+            return sl_val < ref_price
+        else:
+            return sl_val > ref_price
+    except Exception:
+        return False
+
+
 def _is_metaapi_success(res: Optional[Dict[str, Any]]) -> bool:
     """Validate whether a MetaApi trade/modify response succeeded."""
     if not res or not isinstance(res, dict):
@@ -129,11 +162,7 @@ def verify_position_ownership(c, account_id: str, pos: Dict[str, Any]) -> Tuple[
             (account_id, pos_id, pos_id, pos_id)
         ).fetchone()
 
-    # 4. Recognize legacy test and production bot prefixes (e.g. ZP-, pos_e2e_)
-    if not bot_exec and (comment.startswith("ZP-") or comment.startswith("Zupirus") or pos_id.startswith("pos_e2e_")):
-        return "BOT", {"volume": vol}
-
-    # 5. If no bot execution record found, check if it's already marked MANUAL or UNKNOWN
+    # 4. If no bot execution record found, check if it's already marked MANUAL or UNKNOWN
     if not bot_exec:
         manual_exec = c.execute(
             "SELECT * FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR ticket = ? OR order_id = ?)",
@@ -237,10 +266,7 @@ def reconcile_account_positions(
                 setkv(c, f"orphan_missing_cycle:{exec_id}", "0")
             c.execute("UPDATE metaapi_trade_executions SET last_verified_at = ? WHERE id = ?", (now_ts, exec_id))
             if not sl_conf:
-                sl_val = float(matched_p.get("stopLoss") or 0.0)
-                op_val = float(matched_p.get("openPrice") or 0.0)
-                is_buy = "BUY" in str(matched_p.get("type") or "").upper()
-                if sl_val > 0 and ((is_buy and sl_val < op_val or sl_val >= op_val) or (not is_buy and sl_val > op_val or sl_val <= op_val)):
+                if _is_protective_sl(matched_p):
                     c.execute("UPDATE metaapi_trade_executions SET sl_confirmed = 1 WHERE id = ?", (exec_id,))
         else:
             # Position missing from live MT5 positions: verify via deals history
@@ -263,6 +289,38 @@ def reconcile_account_positions(
                 all_dl_ids = list(prev_ids.union(set(dl_ids)))
 
                 if total_closed >= total_vol - 0.001:
+                    is_sys_closed = bool(prev_ev.get("system_closed") or prev_ev.get("closed_by_system"))
+                    is_manually_tagged = False
+                    if not is_sys_closed:
+                        try:
+                            row_dict = dict(row) if hasattr(row, "keys") else {}
+                            e_price = float(row_dict.get("entry_price") or (r[4] if len(r) > 4 else 0.0) or 0.0)
+                            sl_val = float(row_dict.get("stop_loss") or (r[5] if len(r) > 5 else 0.0) or 0.0)
+                            tp_val = float(row_dict.get("take_profit") or (r[6] if len(r) > 6 else 0.0) or 0.0)
+                            exit_price = 0.0
+                            if new_deals:
+                                exit_price = float(new_deals[-1].get("price") or 0.0)
+                            elif matching_deals:
+                                exit_price = float(matching_deals[-1].get("price") or 0.0)
+
+                            if exit_price > 0 and e_price > 0:
+                                near_sl = (sl_val > 0) and abs(exit_price - sl_val) <= max(2.5, 0.005 * sl_val)
+                                near_tp = (tp_val > 0) and abs(exit_price - tp_val) <= max(2.5, 0.005 * tp_val)
+                                near_be = abs(exit_price - e_price) <= max(1.5, 0.002 * e_price)
+                                if not near_sl and not near_tp and not near_be:
+                                    is_manually_tagged = True
+                        except Exception as tag_err:
+                            logger.debug(f"Tag manual close check error: {tag_err}")
+
+                    ev_closed = {"deal_ids": all_dl_ids, "closed_at": now_ts}
+                    if is_manually_tagged:
+                        from app.domains.execution.compliance import tag_manual_closed_by_user
+                        try:
+                            tag_manual_closed_by_user(c, exec_id, now_ts)
+                        except Exception as tm_err:
+                            logger.debug(f"Call tag_manual_closed_by_user note: {tm_err}")
+                        ev_closed["manual_closed_by_user"] = True
+                        ev_closed["manual_closed_at"] = now_ts
                     c.execute(
                         """
                         UPDATE metaapi_trade_executions
@@ -270,7 +328,7 @@ def reconcile_account_positions(
                             last_verified_at = ?, evidence_json = ?
                         WHERE id = ?
                         """,
-                        (now_ts, total_vol, now_ts, json.dumps({"deal_ids": all_dl_ids, "closed_at": now_ts}), exec_id)
+                        (now_ts, total_vol, now_ts, json.dumps(ev_closed), exec_id)
                     )
                     orphans_closed += 1
                 else:
@@ -331,7 +389,7 @@ def reconcile_account_positions(
             mp = matched_live[0]
             pid = str(mp.get("id") or "")
             sl_val = float(mp.get("stopLoss") or 0.0)
-            sl_c = 1 if sl_val > 0 else 0
+            sl_c = 1 if _is_protective_sl(mp) else 0
             live_vol = float(mp.get("volume") or 0.0)
             orig_vol = float(urow.get("volume") or (ur[4] if len(ur) > 4 else 0.0) or 0.0)
             closed_v = sum(
@@ -387,8 +445,7 @@ def reconcile_account_positions(
                     matching_live_pos = live_pos_map.get(pos_id)
                     sl_c = 0
                     if matching_live_pos:
-                        sl_val = float(matching_live_pos.get("stopLoss") or 0.0)
-                        sl_c = 1 if sl_val > 0 else 0
+                        sl_c = 1 if _is_protective_sl(matching_live_pos) else 0
 
                     c.execute(
                         """
@@ -405,8 +462,7 @@ def reconcile_account_positions(
                     matching_live_pos = live_pos_map.get(pos_id)
                     if matching_live_pos:
                         # Position is still open on broker (partial close): keep FILLED, retain account lock
-                        sl_val = float(matching_live_pos.get("stopLoss") or 0.0)
-                        sl_c = 1 if sl_val > 0 else 0
+                        sl_c = 1 if _is_protective_sl(matching_live_pos) else 0
                         dl_id_str = str(dl.get("id") or "")
                         c.execute(
                             """
@@ -491,8 +547,7 @@ def reconcile_account_positions(
                     pos_id_first = str(out_deals[0].get("positionId") or out_deals[0].get("orderId") or "")
                     matching_live_pos = live_pos_map.get(pos_id_first)
                     if matching_live_pos:
-                        sl_val = float(matching_live_pos.get("stopLoss") or 0.0)
-                        sl_c = 1 if sl_val > 0 else 0
+                        sl_c = 1 if _is_protective_sl(matching_live_pos) else 0
                         c.execute(
                             """
                             UPDATE metaapi_trade_executions
@@ -638,16 +693,6 @@ class PositionWatcher:
                     )
                 except Exception as ne:
                     logger.debug(f"Failed to emit manual preserved notification: {ne}")
-
-        # Call mock close_all_positions if present on client
-        if hasattr(self.client, "close_all_positions"):
-            try:
-                import inspect
-                from unittest.mock import AsyncMock, MagicMock
-                if isinstance(getattr(self.client, "close_all_positions", None), (AsyncMock, MagicMock)):
-                    await self.client.close_all_positions(metaapi_account_id)
-            except Exception:
-                pass
 
         return {
             "status": "ALL_POSITIONS_CLOSED" if (failed_count == 0 and len(positions) == closed_count) else ("ALL_BOT_POSITIONS_CLOSED" if failed_count == 0 else "PARTIAL_BOT_CLOSE"),
@@ -924,23 +969,6 @@ class PositionWatcher:
                         if not close_ok:
                             logger.error(f"PROP FIRM BREACH close incomplete for {acc_id}: {close_res} — will retry next cycle.")
                         results["prop_breakers_triggered"] += 1
-                    elif drawdown_pct >= 0.75 * prop_dd_limit:
-                        with tx() as c:
-                            try:
-                                from app.domains.notifications.service import emit_notification
-                                emit_notification(
-                                    c,
-                                    user_id=acc.get("user_id"),
-                                    role="user",
-                                    severity="WARNING",
-                                    title="Cảnh Báo Chạm Ngưỡng Drawdown",
-                                    body=f"Tài khoản {acc.get('account_name') or acc_id} chạm {drawdown_pct:.1f}% sụt giảm (đạt 75% ngưỡng giới hạn {prop_dd_limit:.1f}%).",
-                                    send_email=True,
-                                    cooldown_key=f"user_dd_warn_{acc_id}_{date_str}",
-                                    cooldown_sec=3600,
-                                )
-                            except Exception as ne:
-                                logger.debug(f"Failed to emit drawdown warning: {ne}")
                         results["details"].append({
                             "account_id": acc_id,
                             "action": "PROP_CIRCUIT_BREAKER_LOCKED" if close_ok else "PROP_CIRCUIT_BREAKER_CLOSE_INCOMPLETE",
@@ -962,6 +990,23 @@ class PositionWatcher:
                         except Exception as exc:
                             logger.warning(f"Failed to send admin alert email for Prop DD account {acc_id}: {exc}")
                         continue
+                    elif drawdown_pct >= 0.75 * prop_dd_limit:
+                        with tx() as c:
+                            try:
+                                from app.domains.notifications.service import emit_notification
+                                emit_notification(
+                                    c,
+                                    user_id=acc.get("user_id"),
+                                    role="user",
+                                    severity="WARNING",
+                                    title="Cảnh Báo Chạm Ngưỡng Drawdown",
+                                    body=f"Tài khoản {acc.get('account_name') or acc_id} chạm {drawdown_pct:.1f}% sụt giảm (đạt 75% ngưỡng giới hạn {prop_dd_limit:.1f}%).",
+                                    send_email=True,
+                                    cooldown_key=f"user_dd_warn_{acc_id}_{date_str}",
+                                    cooldown_sec=3600,
+                                )
+                            except Exception as ne:
+                                logger.debug(f"Failed to emit drawdown warning: {ne}")
 
                 # 2B. Prop Firm Exclusive Protections (only when is_prop_firm_mode is explicitly enabled; personal accounts unaffected)
                 if bool(acc.get("is_prop_firm_mode")):

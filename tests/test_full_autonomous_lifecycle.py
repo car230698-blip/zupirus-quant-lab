@@ -137,12 +137,25 @@ async def test_full_autonomous_lifecycle_end_to_end():
     )
     assert fanout_rep["executed"] == 3
 
+    # Link position to executions so PositionWatcher verifies ownership as BOT
+    pos_id = f"pos_e2e_{secrets.token_hex(4)}"
+    with tx() as c:
+        for ex in fanout_rep.get("executions", []):
+            c.execute(
+                """
+                UPDATE metaapi_trade_executions
+                SET position_id = ?, ticket = ?, origin = 'BOT', status = 'FILLED', volume = 0.10
+                WHERE id = ?
+                """,
+                (pos_id, pos_id, ex["exec_id"])
+            )
+
     # Verify PositionWatcher moves SL to Break-Even FIRST and closes 50% TP1 at >= 1R profit
     watcher = PositionWatcher()
     watcher.client.get_account_information = AsyncMock(return_value={"balance": 10000.0, "equity": 10500.0})
     watcher.client.get_open_positions = AsyncMock(
         return_value=[{
-            "id": f"pos_e2e_{secrets.token_hex(4)}",
+            "id": pos_id,
             "symbol": "XAUUSD",
             "type": "POSITION_TYPE_BUY",
             "volume": 0.10,

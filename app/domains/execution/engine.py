@@ -587,6 +587,31 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:
             return {"status": "SKIPPED", "reason": "CANDLE_ALREADY_EVALUATED"}
 
+        # Station 2: Classify market regime & Shadow evaluate 3 core strategies on each closed M15 bar
+        try:
+            from app.domains.execution.regime_strategies import (
+                classify_market_regime,
+                RegimeMetaRouter,
+                strat_trend_breakout,
+                strat_liquidity_sweep,
+                strat_mean_reversion,
+            )
+            regime_res = classify_market_regime(bars_asc)
+            c_regime = regime_res.get("regime", "RANGING")
+            router = RegimeMetaRouter(db_cursor=c)
+            r_state = router.get_state()
+            r_state["last_regime"] = c_regime
+            r_state["regime_metrics"] = regime_res
+            r_state["updated_at"] = now
+            r_state["shadow_signals"] = {
+                "strat_trend_breakout": strat_trend_breakout(bars_asc, symbol=sym_u),
+                "strat_liquidity_sweep": strat_liquidity_sweep(bars_asc, symbol=sym_u),
+                "strat_mean_reversion": strat_mean_reversion(bars_asc, symbol=sym_u),
+            }
+            router.save_state(r_state)
+        except Exception as r_err:
+            logger.debug(f"Regime classifier & shadow router evaluation note: {r_err}")
+
         decision = coordinate_strategies(bars_asc, timeframe="M15", db_cursor=c)
         side = force_side or decision.get("side")
         if not side:

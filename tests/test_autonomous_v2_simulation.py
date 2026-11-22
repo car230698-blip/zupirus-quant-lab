@@ -253,23 +253,45 @@ def test_scenario_6_regime_meta_router_and_oos_validation(tmp_path, monkeypatch)
     scale_recovered = router.get_strategy_scale(strat_id, "TRENDING")
     assert scale_recovered == 1.0, "Strategy must auto-recover to ACTIVE when 10 shadow trades yield positive expectancy"
 
-    # 3. Out-of-Sample 70/30 Metric Validation Function
-    def evaluate_oos_metrics(win_rate: float, pf: float, max_dd: float, sharpe: float, oos_pips: float) -> str:
-        if (
-            win_rate >= 0.52
-            and pf >= 1.35
-            and max_dd <= 8.0
-            and sharpe >= 1.20
-            and oos_pips >= 150.0
-        ):
-            return "QUALIFIED"
-        return "NO_QUALIFIED_STRATEGY"
+    # 3. Real Out-of-Sample 70/30 Metric Validation Function
+    from app.domains.ai.oos_validator import evaluate_oos_metrics
 
-    # Strategy with good metrics passes
-    assert evaluate_oos_metrics(0.58, 1.65, 6.2, 1.45, 240.0) == "QUALIFIED"
+    # Candidate meeting all 5 gates passes
+    assert evaluate_oos_metrics(
+        std_net_pnl=120.0,
+        std_pf=1.45,
+        std_max_dd=8.5,
+        trade_count=35,
+        sev_net_pnl=25.0,
+        sev_max_dd=11.2,
+    ) == "QUALIFIED"
 
-    # Strategy with Max DD > 8.0% fails
-    assert evaluate_oos_metrics(0.58, 1.65, 8.5, 1.45, 240.0) == "NO_QUALIFIED_STRATEGY"
+    # Fails Gate 3 (Standard Max DD > 12%)
+    assert evaluate_oos_metrics(
+        std_net_pnl=120.0,
+        std_pf=1.45,
+        std_max_dd=14.0,
+        trade_count=35,
+        sev_net_pnl=25.0,
+        sev_max_dd=11.2,
+    ) == "NO_QUALIFIED_STRATEGY"
 
-    # Strategy with OOS Net < 150 pips fails
-    assert evaluate_oos_metrics(0.55, 1.40, 5.0, 1.25, 110.0) == "NO_QUALIFIED_STRATEGY"
+    # Fails Gate 4 (Trade count on 30% OOS < 30)
+    assert evaluate_oos_metrics(
+        std_net_pnl=120.0,
+        std_pf=1.45,
+        std_max_dd=8.5,
+        trade_count=18,
+        sev_net_pnl=25.0,
+        sev_max_dd=11.2,
+    ) == "NO_QUALIFIED_STRATEGY"
+
+    # Fails Gate 5 (Severe Net PnL < 0)
+    assert evaluate_oos_metrics(
+        std_net_pnl=120.0,
+        std_pf=1.45,
+        std_max_dd=8.5,
+        trade_count=35,
+        sev_net_pnl=-5.0,
+        sev_max_dd=11.2,
+    ) == "NO_QUALIFIED_STRATEGY"

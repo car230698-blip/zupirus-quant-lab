@@ -25,7 +25,7 @@ async def execute_fan_out_for_signal(
     action = signal.get("action", "BUY").upper()
 
     # Global Kill Switch Check (Fail-Closed)
-    from app.db import tx, getkv
+    from app.db import tx, getkv, setkv
     with tx() as c:
         halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
         is_halted = bool(halt_row and str(halt_row[0]).strip() in ("1", "true", "True"))
@@ -293,10 +293,28 @@ async def execute_fan_out_for_signal(
 
         is_prop_mode = bool(acc.get("is_prop_firm_mode"))
         prop_stage = str(acc.get("prop_stage") or "CHALLENGE").upper()
-        effective_risk_pct = risk_pct * meta_scale * macro_scale
+        if meta_scale <= 0 or macro_scale <= 0:
+            effective_risk_pct = 0.0
+        else:
+            effective_risk_pct = risk_pct * min(meta_scale, macro_scale)
+        if effective_risk_pct <= 0:
+            logger.info(f"Account {acc_id} skipped: effective risk scale <= 0 (meta_scale={meta_scale}, macro_scale={macro_scale}).")
+            continue
         effective_mult = mult
         total_open_portfolio_risk_pct = 0.0
         max_portfolio_risk_pct = float(os.getenv("PROP_LIVE_MAX_PORTFOLIO_RISK_PCT", "2.0").strip())
+
+        from app.domains.execution.compliance import (
+            get_prop_rule_profile,
+            is_daily_profit_locked,
+            calculate_compliant_sl_tp,
+            apply_execution_jitter_and_micro_variance,
+        )
+        prop_profile_id = acc.get("prop_rule_profile") or acc.get("prop_profile") or (
+            "PERSONAL_CENT" if is_cent_acc else ("FTMO_STANDARD" if is_prop_mode else "PERSONAL_STANDARD")
+        )
+        prop_rule_cfg = get_prop_rule_profile(prop_profile_id)
+        profit_lock_pct = float(prop_rule_cfg.get("daily_profit_lock_pct") or 0.0)
 
         if is_prop_mode and prop_stage != "LIVE":
             # Check profit-target throttle flag (halve risk when >= 80% of prop profit target achieved in CHALLENGE)
@@ -308,8 +326,7 @@ async def execute_fan_out_for_signal(
             except Exception as exc:
                 logger.debug("Prop throttle check failed for account %s: %s", acc_id, exc)
 
-        # Dynamic De-Risking check (B4):
-        # When account daily drawdown exceeds 50% of daily loss limit, multiply effective_mult by 0.5
+        # Dynamic De-Risking & Daily Profit Lock check:
         try:
             prop_dd_limit = float(acc.get("prop_daily_dd_limit_pct") or 4.0)
             date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
@@ -317,16 +334,25 @@ async def execute_fan_out_for_signal(
             with tx() as c:
                 day_start_str = getkv(c, f"daily_start_bal:{acc_id}:{date_str}")
                 day_start_bal = float(day_start_str) if day_start_str else balance
-            if day_start_bal > 0 and equity < day_start_bal:
-                current_daily_dd_pct = ((day_start_bal - equity) / day_start_bal) * 100.0
-                if current_daily_dd_pct >= (prop_dd_limit * 0.5):
-                    effective_mult = effective_mult * 0.5
-                    logger.warning(
-                        f"DYNAMIC_DERISK_50PCT: Account {acc_id} daily drawdown {current_daily_dd_pct:.2f}% >= "
-                        f"50% of limit ({prop_dd_limit * 0.5:.2f}%). Throttling multiplier by 0.5x -> {effective_mult:.2f}x"
-                    )
+            if day_start_bal > 0:
+                if equity > day_start_bal and profit_lock_pct > 0:
+                    current_daily_profit_pct = ((equity - day_start_bal) / day_start_bal) * 100.0
+                    if is_daily_profit_locked(acc_id, current_daily_profit_pct, profit_lock_pct):
+                        logger.warning(
+                            f"DAILY_PROFIT_LOCKED: Account {acc_id} daily profit {current_daily_profit_pct:.2f}% >= "
+                            f"{profit_lock_pct:.2f}%. Locking trades for the day."
+                        )
+                        continue
+                elif equity < day_start_bal:
+                    current_daily_dd_pct = ((day_start_bal - equity) / day_start_bal) * 100.0
+                    if current_daily_dd_pct >= (prop_dd_limit * 0.5):
+                        effective_mult = effective_mult * 0.5
+                        logger.warning(
+                            f"DYNAMIC_DERISK_50PCT: Account {acc_id} daily drawdown {current_daily_dd_pct:.2f}% >= "
+                            f"50% of limit ({prop_dd_limit * 0.5:.2f}%). Throttling multiplier by 0.5x -> {effective_mult:.2f}x"
+                        )
         except Exception as dd_err:
-            logger.debug(f"Dynamic derisk check note for {acc_id}: {dd_err}")
+            logger.debug(f"Dynamic derisk/profit check note for {acc_id}: {dd_err}")
 
         open_positions_cache = None
         if metaapi_client:
@@ -456,6 +482,27 @@ async def execute_fan_out_for_signal(
             symbol=symbol,
             entry_price=entry_price,
         )
+
+        broker_spec = {}
+        raw_spec = acc.get("broker_spec_json")
+        if raw_spec:
+            try:
+                broker_spec = json.loads(raw_spec) if isinstance(raw_spec, str) else raw_spec
+            except Exception:
+                pass
+
+        if is_prop_mode and volume > 0:
+            min_vol = float(broker_spec.get("minVolume") or 0.01)
+            vol_step = float(broker_spec.get("volumeStep") or 0.01)
+            volume, _jitter_delay = apply_execution_jitter_and_micro_variance(
+                volume=volume,
+                min_vol=min_vol,
+                vol_step=vol_step,
+            )
+            if max_lot > 0:
+                volume = min(volume, max_lot)
+            volume = round(volume, 2)
+
         if volume <= 0:
             logger.info(f"Account {acc_id} skipped: calculated volume={volume} <= 0 (risk budget too small for min_lot).")
             continue
@@ -463,8 +510,22 @@ async def execute_fan_out_for_signal(
         # Acquire DB atomic risk reservation and idempotency lock
         from app.services.symbol_precision import digits_for_symbol
         dec_places = digits_for_symbol(broker_sym)
-        rounded_sl = round(sl, dec_places) if sl is not None else None
-        rounded_tp = round(tp, dec_places) if tp is not None else None
+        if sl is not None and tp is not None:
+            c_sl, c_tp = calculate_compliant_sl_tp(
+                symbol=broker_sym,
+                side=action,
+                entry_price=entry_price,
+                raw_sl=sl,
+                raw_tp=tp,
+                spec=broker_spec,
+                live_bid=float(acc.get("bid") or 0.0) or None,
+                live_ask=float(acc.get("ask") or 0.0) or None,
+            )
+            rounded_sl = round(c_sl, dec_places)
+            rounded_tp = round(c_tp, dec_places)
+        else:
+            rounded_sl = round(sl, dec_places) if sl is not None else None
+            rounded_tp = round(tp, dec_places) if tp is not None else None
 
         client_order_id = f"ZV2_{uuid.uuid4().hex[:8]}"
         exec_id = f"exec_{uuid.uuid4().hex[:16]}"
@@ -683,15 +744,16 @@ async def execute_fan_out_for_signal(
                 c.execute(
                     """
                     UPDATE metaapi_trade_executions
-                    SET status = 'UNKNOWN_EXECUTION', error_message = ?, last_verified_at = ?
+                    SET status = 'UNKNOWN_EXECUTION', error_message = ?
                     WHERE id = ?
                     """,
-                    (str(res), now_ts, exec_id)
+                    (str(res), exec_id)
                 )
                 setkv(c, f"account_locked:{acc_id_val}", "UNKNOWN_EXECUTION")
                 from app.domains.execution.compliance import record_broker_execution_error
                 record_broker_execution_error(server=srv_target, error_type="NETWORK_EXCEPTION", db_cursor=c, now_ts=now_ts)
             executions.append({
+                "exec_id": exec_id,
                 "account_id": acc_id_val,
                 "metaapi_account_id": meta_id_val,
                 "status": "UNKNOWN_EXECUTION",
@@ -714,13 +776,14 @@ async def execute_fan_out_for_signal(
                     c.execute(
                         """
                         UPDATE metaapi_trade_executions
-                        SET status = 'UNKNOWN_EXECUTION', error_message = ?, latency_ms = ?, last_verified_at = ?
+                        SET status = 'UNKNOWN_EXECUTION', error_message = ?, latency_ms = ?
                         WHERE id = ?
                         """,
-                        (msg or str_code, lat, now_ts, exec_id)
+                        (msg or str_code, lat, exec_id)
                     )
                     setkv(c, f"account_locked:{acc_id_val}", "UNKNOWN_EXECUTION")
                 executions.append({
+                    "exec_id": exec_id,
                     "account_id": acc_id_val,
                     "metaapi_account_id": meta_id_val,
                     "status": "UNKNOWN_EXECUTION",
@@ -742,14 +805,15 @@ async def execute_fan_out_for_signal(
                         """
                         UPDATE metaapi_trade_executions
                         SET status = 'FILLED', position_id = ?, ticket = ?, order_id = ?,
-                            volume = ?, latency_ms = ?, sl_confirmed = ?, executed_at = ?, last_verified_at = ?
+                            volume = ?, latency_ms = ?, sl_confirmed = ?, executed_at = ?
                         WHERE id = ?
                         """,
-                        (pos_id, pos_id, ord_id, filled_vol, lat, sl_confirmed, now_ts, now_ts, exec_id)
+                        (pos_id, pos_id, ord_id, filled_vol, lat, sl_confirmed, now_ts, exec_id)
                     )
                     from app.domains.execution.compliance import reset_broker_circuit_breaker
                     reset_broker_circuit_breaker(server=srv_target, db_cursor=c)
                 executions.append({
+                    "exec_id": exec_id,
                     "account_id": acc_id_val,
                     "metaapi_account_id": meta_id_val,
                     "status": "FILLED",
@@ -775,6 +839,7 @@ async def execute_fan_out_for_signal(
                     from app.domains.execution.compliance import record_broker_execution_error
                     record_broker_execution_error(server=srv_target, error_type=msg or str_code, db_cursor=c, now_ts=now_ts)
                 executions.append({
+                    "exec_id": exec_id,
                     "account_id": acc_id_val,
                     "metaapi_account_id": meta_id_val,
                     "status": "REJECTED",

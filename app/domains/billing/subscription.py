@@ -200,7 +200,15 @@ async def run_subscription_lifecycle_cycle(
                             (acc["id"],),
                         )
                         audit(c, "subscription_lifecycle", "expired_account_undeployed", {
-                            "account_id": acc["id"], "user_id": user_id, "forced_24h": is_24h_expired
+                            "account_id": acc["id"],
+                            "user_id": user_id,
+                            "forced_24h": is_24h_expired,
+                            "is_read_ok": is_read_ok,
+                            "synchronized": bool(sync_meta.get("synchronized", False)),
+                            "open_positions_count": len(open_positions),
+                            "open_orders_count": len(open_orders),
+                            "unverified_count": len(unverified_reqs),
+                            "last_verified_at": last_verified_ts,
                         })
                         stats["undeployed_idle"] += 1
 
@@ -213,11 +221,28 @@ async def run_subscription_lifecycle_cycle(
                                 from app.core.mailer import send_admin_alert_email, send_email_template
                                 u_row = c.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
                                 user_email = u_row["email"] if u_row and hasattr(u_row, "keys") else (u_row[0] if u_row else None)
+                                unverified_cids = []
+                                for ur in unverified_reqs:
+                                    cid = None
+                                    if isinstance(ur, dict):
+                                        cid = ur.get("client_order_id")
+                                    elif hasattr(ur, "keys"):
+                                        cid = ur["client_order_id"] if "client_order_id" in ur.keys() else (ur[2] if len(ur) > 2 else None)
+                                    elif len(ur) > 2:
+                                        cid = ur[2]
+                                    if cid:
+                                        unverified_cids.append(str(cid))
+                                sync_label = "ĐỒNG BỘ" if (is_read_ok and bool(sync_meta.get("synchronized", False))) else "MẤT KẾT NỐI"
+                                unverified_str = ", ".join(unverified_cids) if unverified_cids else "Không có"
                                 send_admin_alert_email(
                                     f"[ZUPIRUS] Bàn giao tài khoản hết hạn 24h: {acc['id']}",
-                                    f"Tài khoản {acc['id']} (User: {user_email or user_id}) đã hết hạn > 24 giờ. "
-                                    f"Trạng thái kết nối: {'ĐỒNG BỘ' if is_read_ok else 'MẤT KẾT NỐI'}. Mốc xác minh gần nhất: {last_verified_ts}. "
-                                    f"Hệ thống đã thu hồi trạm thành công sau 24h bảo vệ và bàn giao cho khách hàng tự quản lý."
+                                    f"Tài khoản {acc['id']} (User: {user_email or user_id}) đã hết hạn > 24 giờ.\n"
+                                    f"Trạng thái kết nối: {sync_label}.\n"
+                                    f"Thời điểm xác minh gần nhất: {last_verified_ts}.\n"
+                                    f"Danh sách mã lệnh chưa rõ (PENDING/UNKNOWN/AMBIGUOUS): {unverified_str}.\n"
+                                    f"Vị thế mở trên sàn: {len(open_positions)}, Lệnh chờ: {len(open_orders)}.\n"
+                                    f"Lưu ý: Không thể xác nhận SL/TP còn hiệu lực nếu kết nối chưa được xác minh.\n"
+                                    f"Hệ thống đã thu hồi trạm sau 24h bảo vệ và bàn giao cho khách hàng tự quản lý."
                                 )
                                 if user_email:
                                     send_email_template(
@@ -226,8 +251,11 @@ async def run_subscription_lifecycle_cycle(
                                         body_text=(
                                             f"Kính gửi Quý khách,\n\n"
                                             f"Gói dịch vụ ZUPIRUS Cloud MT5 cho tài khoản {acc['id']} đã hết hạn quá 24 giờ.\n"
-                                            f"Hệ thống đã hoàn tất thời gian bảo vệ và chính thức thu hồi trạm Cloud MT5 để bàn giao quyền quản lý trực tiếp cho bạn.\n"
-                                            f"Vui lòng kiểm tra tài khoản trên ứng dụng MT5 của sàn để quản lý các lệnh còn lại (nếu có).\n\n"
+                                            f"Trạng thái kết nối trạm với broker: {sync_label}.\n"
+                                            f"Thời điểm xác minh broker gần nhất: {last_verified_ts}.\n"
+                                            f"Mã lệnh cần kiểm tra lại trên MT5: {unverified_str}.\n\n"
+                                            f"CẢNH BÁO AN TOÀN: Do trạm đã thu hồi, hệ thống KHÔNG THỂ đảm bảo các mức Cắt lỗ (SL) hoặc Chốt lời (TP) còn hiệu lực trên sàn nếu lệnh chưa được sàn xác nhận trước đó.\n"
+                                            f"Quý khách vui lòng mở ứng dụng MetaTrader 5 (MT5) trực tiếp trên điện thoại hoặc máy tính để kiểm tra và xử lý các vị thế/lệnh chờ còn lại.\n\n"
                                             f"Trân trọng,\nĐội ngũ ZUPIRUS Quant Lab"
                                         )
                                     )

@@ -219,7 +219,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         from app.domains.execution.regime_strategies import RegimeMetaRouter
         from app.domains.ai.macro_station import evaluate_macro_filter
         macro_state = evaluate_macro_filter(symbol="XAUUSD", side="BUY", now_ts=now_ts, db_cursor=c)
-        router = RegimeMetaRouter()
+        router = RegimeMetaRouter(db_cursor=c)
         active_strat_id = (live_strat[0] if live_strat else "strat_trend_breakout")
         current_regime = macro_state.get("regime", "RANGING")
         router_scale = router.get_strategy_scale(active_strat_id, current_regime)
@@ -275,7 +275,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         "regime": current_regime,
         "meta_router_scale": router_scale,
         "dxy_trend": macro_state.get("dxy_trend", "FLAT"),
-        "macro_degraded": macro_state.get("degraded", False),
+        "macro_degraded": macro_state.get("macro_degraded", False),
         "circuit_breaker_active": cb_active,
         "unverified_count": unver_cnt,
     }
