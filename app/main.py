@@ -300,6 +300,11 @@ def _serve_spa_dir(base_dir: Path, full_path: str):
     return None
 
 
+@app.api_route("/api/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def api_unmatched_fallback(request: Request, full_path: str):
+    return JSONResponse({"detail": f"Not Found: api/{full_path}"}, status_code=404)
+
+
 @app.get('/{full_path:path}')
 async def spa_fallback(request: Request, full_path: str):
     if full_path.startswith('api/') or full_path in ('healthz', 'readyz', 'api'):

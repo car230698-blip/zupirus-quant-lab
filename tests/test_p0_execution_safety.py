@@ -1036,8 +1036,18 @@ def test_admin_radar_dry_run_endpoints(tmp_path, monkeypatch):
     assert "steps" in data2
     assert len(data2["steps"]) >= 4
 
-    # 3. Test unauthorized request is rejected
+    # 3. Test GET method also works smoothly for both endpoints
+    res_get1 = client.get("/api/v1/telemetry/dry-run", headers=headers)
+    assert res_get1.status_code == 200, f"Expected 200 on GET, got {res_get1.status_code}"
+    res_get2 = client.get("/api/v1/telemetry/admin-radar/dry-run", headers=headers)
+    assert res_get2.status_code == 200, f"Expected 200 on GET, got {res_get2.status_code}"
+
+    # 4. Test unauthorized request is rejected
     res3 = client.post("/api/v1/telemetry/dry-run")
     assert res3.status_code in (401, 403)
+
+    # 5. Test unmatched POST /api/* route returns clean 404 (not 405 Method Not Allowed)
+    res_404 = client.post("/api/nonexistent/random-endpoint-xyz", json={"test": True})
+    assert res_404.status_code == 404, f"Expected 404 for unmatched API route, got {res_404.status_code}"
 
 

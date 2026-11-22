@@ -350,7 +350,16 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     setDryRunRunning(true);
     setDryRunResult(null);
     try {
-      const res = await api.post('/api/v1/telemetry/dry-run', {});
+      let res;
+      try {
+        res = await api.post('/api/v1/telemetry/dry-run', {});
+      } catch (err: any) {
+        if (err?.status === 404 || err?.status === 405) {
+          res = await api.post('/api/v1/telemetry/admin-radar/dry-run', {});
+        } else {
+          throw err;
+        }
+      }
       setDryRunResult(res);
       setMsg('✓ Dry-run hoàn tất: Đã kiểm tra chu trình tạo tín hiệu không rủi ro.');
     } catch (err: any) {
