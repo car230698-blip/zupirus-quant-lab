@@ -420,3 +420,174 @@ async def test_a5_canary_isolation_no_fallback_peak_drawdown(tmp_path, monkeypat
     with tx() as c:
         row_c = c.execute("SELECT status FROM strategy_candidates WHERE id = 'strat_C'").fetchone()
         assert row_c[0] == "CANARY_REJECTED", "Strategy C must be rejected because peak-to-trough drawdown 8.33% > 8.0%"
+
+
+@pytest.mark.asyncio
+async def test_a6_operational_invariants_and_edge_cases(tmp_path, monkeypatch):
+    """
+    Test A6:
+    1. Partial close on UNKNOWN_EXECUTION keeps status FILLED (not CLOSED) and preserves remaining volume.
+    2. TRADE_RETCODE_DONE_PARTIAL in close_bot_positions_only does not mark position CLOSED.
+    3. Personal account and challenge prop account pass fanout without risk_cfg NameError.
+    4. Subscription lifecycle fail-closed: failed get_open_orders prevents premature undeployment.
+    5. Handover alert imports and dispatches cleanly to both user and admin.
+    6. Broker circuit breaker is shared across accounts sharing the same broker_server.
+    """
+    from app.core import db as core_db
+    from app import db
+    db_file = tmp_path / "test_a6.sqlite3"
+    monkeypatch.setattr(db, "DB", db_file)
+    monkeypatch.setattr(core_db, "DB", db_file)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(core_db, "DATABASE_URL", "")
+
+    now = time.time()
+    with tx() as c:
+        run_all_migrations(c, is_pg=False)
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u6', 'u6@example.com', 'pass_hash_123', 'customer') ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO quotes (symbol, bid, ask, ts, source) VALUES ('XAUUSD', 2000.0, 2000.3, ?, 'live')", (now,))
+        c.execute("""
+            INSERT INTO trading_accounts (
+                id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server,
+                auto_trade, balance, equity, risk_config, deployment_state, created_at
+            ) VALUES (
+                'acc_pers', 'u6', 'meta_pers', '6001', 'enc_pass', 'CommonBrokerServer',
+                1, 10000.0, 10000.0, '{"risk_percent": 1.0, "max_lot": 5.0, "max_portfolio_risk_pct": 2.0}', 'DEPLOYED', ?
+            )
+        """, (now,))
+        c.execute("INSERT INTO metaapi_cloud_accounts (id, user_id, login, server, metaapi_account_id, created_at) VALUES ('acc_pers', 'u6', '6001', 'CommonBrokerServer', 'meta_pers', ?)", (now,))
+
+    # 1. Partial close test on UNKNOWN_EXECUTION: 0.50 lot closed on a 1.00 lot position
+    with tx() as c:
+        c.execute("""
+            INSERT INTO metaapi_trade_executions (
+                id, signal_id, account_id, metaapi_account_id, symbol, action, volume, entry_price,
+                client_order_id, status, origin, executed_at
+            ) VALUES (
+                'uexec_part', 'sig_part', 'acc_pers', 'meta_pers', 'XAUUSD', 'BUY', 1.00, 2000.0,
+                'ZV2_part123', 'UNKNOWN_EXECUTION', 'BOT', ?
+            )
+        """, (now,))
+        setkv(c, "account_locked:acc_pers", "UNKNOWN_PENDING")
+
+        part_deals = [
+            {"id": "deal_part_out", "clientId": "ZV2_part123", "positionId": "pos_part_1", "volume": 0.50, "entryType": "DEAL_ENTRY_OUT"}
+        ]
+        live_part_positions = [
+            {"id": "pos_part_1", "clientId": "ZV2_part123", "volume": 0.50, "stopLoss": 1980.0, "openPrice": 2000.0, "type": "POSITION_TYPE_BUY"}
+        ]
+        reconcile_account_positions(c, "acc_pers", "meta_pers", ok=True, live_positions=live_part_positions, deals=part_deals, now_ts=now)
+
+        row = c.execute("SELECT status, closed_volume FROM metaapi_trade_executions WHERE id = 'uexec_part'").fetchone()
+        assert row[0] == "FILLED", "Partially closed position must remain FILLED, NEVER marked CLOSED"
+        assert float(row[1]) == 0.50, "closed_volume must reflect partial 0.50 lot closed"
+
+    # 2. close_bot_positions_only with TRADE_RETCODE_DONE_PARTIAL
+    mock_client = MagicMock(spec=MetaApiClient)
+    mock_client.close_position = AsyncMock(return_value={
+        "numericCode": 10009,
+        "stringCode": "TRADE_RETCODE_DONE_PARTIAL",
+        "volume": 0.50,
+        "message": "Partially executed"
+    })
+    mock_client.get_positions_verified = AsyncMock(return_value=(True, live_part_positions, {"synchronized": True}))
+
+    watcher = PositionWatcher(mock_client)
+    res_close = await watcher.close_bot_positions_only("meta_pers", "acc_pers")
+    assert res_close["failed_count"] >= 1, "Partial close must NOT be counted as complete close"
+    with tx() as c:
+        row = c.execute("SELECT status FROM metaapi_trade_executions WHERE id = 'uexec_part'").fetchone()
+        assert row[0] != "CLOSED", "TRADE_RETCODE_DONE_PARTIAL must never set status to CLOSED"
+        assert getkv(c, "account_locked:acc_pers") == "PARTIAL_CLOSE_PENDING"
+
+    # 3. Personal account fanout (verifies absence of NameError: risk_cfg)
+    mock_client.execute_order = AsyncMock(return_value={
+        "numericCode": 10009,
+        "stringCode": "TRADE_RETCODE_DONE",
+        "positionId": "pos_new_1",
+        "orderId": "ord_new_1",
+        "stopLoss": 1980.0,
+        "latency_ms": 12,
+        "volume": 0.1
+    })
+    with tx() as c:
+        setkv(c, "account_locked:acc_pers", "")  # clear for test
+    signal = {"id": "sig_pers_1", "symbol": "XAUUSD", "action": "BUY", "entry_price": 2000.0, "sl": 1980.0, "tp": 2040.0}
+    pers_accounts = [{
+        "id": "acc_pers", "metaapi_account_id": "meta_pers", "broker_server": "CommonBrokerServer",
+        "risk_percent": 1.0, "is_prop_firm_mode": 0, "balance": 10000.0, "equity": 10000.0,
+        "risk_config": '{"max_portfolio_risk_pct": 2.0}'
+    }]
+    fanout_res = await execute_fan_out_for_signal(signal, pers_accounts, mock_client)
+    assert fanout_res["executed"] == 1, "Personal account must execute fanout cleanly without NameError"
+
+    # 4. Subscription lifecycle fail-closed when get_open_orders fails
+    with tx() as c:
+        c.execute("""
+            INSERT INTO trading_accounts (
+                id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server,
+                auto_trade, balance, equity, deployment_state, created_at
+            ) VALUES (
+                'acc_exp', 'u6', 'meta_exp', '6002', 'enc_pass', 'CommonBrokerServer',
+                1, 5000.0, 5000.0, 'DEPLOYED', ?
+            )
+        """, (now - 86400 * 2,))
+        c.execute("INSERT INTO metaapi_cloud_accounts (id, user_id, login, server, metaapi_account_id, created_at) VALUES ('acc_exp', 'u6', '6002', 'CommonBrokerServer', 'meta_exp', ?)", (now,))
+        c.execute("INSERT INTO subscriptions (id, user_id, service_expires_at, plan_tier, created_at, updated_at) VALUES ('sub_exp', 'u6', ?, 'alpha', ?, ?)", (now - 3600, now, now))
+
+    mock_client.get_positions_verified = AsyncMock(return_value=(True, [], {"synchronized": True}))
+    mock_client.get_open_orders_verified = AsyncMock(return_value=(False, [], {"error": "Gateway Timeout"}))
+    mock_client.undeploy_account = AsyncMock(return_value=True)
+
+    stats = await run_subscription_lifecycle_cycle(meta_client=mock_client, now_ts=now)
+    with tx() as c:
+        row = c.execute("SELECT deployment_state FROM trading_accounts WHERE id = 'acc_exp'").fetchone()
+        assert row[0] == "EXPIRED_PROTECTING", "Failed open_orders check must keep station in EXPIRED_PROTECTING"
+
+    # 5. Handover email dispatch after 24h
+    with tx() as c:
+        # Move expiry to > 24h ago with unverified items
+        c.execute("UPDATE subscriptions SET service_expires_at = ? WHERE id = 'sub_exp'", (now - 86400 * 2,))
+        c.execute("""
+            INSERT INTO metaapi_trade_executions (
+                id, signal_id, account_id, metaapi_account_id, symbol, action, volume, entry_price, status, origin, executed_at
+            ) VALUES ('ex_unver_exp', 'sig_e', 'acc_exp', 'meta_exp', 'XAUUSD', 'BUY', 0.1, 2000.0, 'UNKNOWN_EXECUTION', 'BOT', ?)
+        """, (now - 86400 * 2,))
+
+    mock_client.get_positions_verified = AsyncMock(return_value=(False, [], {"synchronized": False}))
+    mock_client.get_open_orders_verified = AsyncMock(return_value=(True, [], {"status_code": 200}))
+
+    dispatched_emails = []
+    from app.core import mailer
+    monkeypatch.setattr(mailer, "send_resend_email", lambda *args, **kwargs: dispatched_emails.append(kwargs) or {"ok": True})
+    monkeypatch.setattr(mailer, "send_admin_alert_email", lambda title, detail: dispatched_emails.append({"admin_alert": title}) or {"ok": True})
+
+    stats_handover = await run_subscription_lifecycle_cycle(meta_client=mock_client, now_ts=now)
+    with tx() as c:
+        row = c.execute("SELECT deployment_state FROM trading_accounts WHERE id = 'acc_exp'").fetchone()
+        assert row[0] == "UNDEPLOYED", "Account expired > 24h must be undeployed"
+    assert len(dispatched_emails) >= 2, "Handover alerts must be dispatched to BOTH admin and customer"
+
+    # 6. Shared Broker Circuit Breaker across accounts
+    with tx() as c:
+        c.execute("""
+            INSERT INTO trading_accounts (
+                id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server,
+                auto_trade, balance, equity, deployment_state, created_at
+            ) VALUES (
+                'acc_peer', 'u6', 'meta_peer', '6003', 'enc_pass', 'CommonBrokerServer',
+                1, 10000.0, 10000.0, 'DEPLOYED', ?
+            )
+        """, (now,))
+        from app.domains.execution.compliance import record_broker_execution_error
+        # Trip circuit breaker on CommonBrokerServer (3 consecutive errors)
+        record_broker_execution_error(server="CommonBrokerServer", error_type="502_BAD_GATEWAY", db_cursor=c, now_ts=now)
+        record_broker_execution_error(server="CommonBrokerServer", error_type="502_BAD_GATEWAY", db_cursor=c, now_ts=now)
+        record_broker_execution_error(server="CommonBrokerServer", error_type="502_BAD_GATEWAY", db_cursor=c, now_ts=now)
+
+    peer_accounts = [{
+        "id": "acc_peer", "metaapi_account_id": "meta_peer", "broker_server": "CommonBrokerServer",
+        "risk_percent": 1.0, "is_prop_firm_mode": 0, "balance": 10000.0, "equity": 10000.0
+    }]
+    res_cb = await execute_fan_out_for_signal(signal, peer_accounts, mock_client)
+    assert res_cb["executed"] == 0 and res_cb["skipped"] == 1, "Account sharing failing broker_server must be skipped by Circuit Breaker"

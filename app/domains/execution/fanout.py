@@ -80,18 +80,51 @@ async def execute_fan_out_for_signal(
     from app.services.account_classifier import calculate_normalized_lot_size
     from app.services.signal_ingestion.sanitizer import check_live_spread_guard
     from app.services.execution.watcher import is_account_drawdown_halted
+    from app.domains.execution.regime_strategies import RegimeMetaRouter, is_market_open_gap_cooldown
+    from app.domains.ai.macro_station import evaluate_macro_filter
+
+    now_init = time.time()
+    if is_market_open_gap_cooldown(now_init):
+        logger.warning(f"execute_fan_out_for_signal skipped: Sunday market open gap cooldown active.")
+        return {
+            "signal_id": signal_id,
+            "total_accounts": len(accounts),
+            "executed": 0,
+            "failed": 0,
+            "skipped": len(accounts),
+            "executions": [],
+            "error": "MARKET_OPEN_GAP_COOLDOWN",
+        }
+
+    strat_name = str(signal.get("strategy_id") or signal.get("source") or "strat_trend_breakout")
+    macro_eval = evaluate_macro_filter(symbol=symbol, side=action, now_ts=now_init)
+    curr_regime = macro_eval.get("regime", "RANGING")
+    meta_router = RegimeMetaRouter()
+    meta_scale = meta_router.get_strategy_scale(strat_name, curr_regime)
+    if meta_scale <= 0.0:
+        logger.warning(f"execute_fan_out_for_signal skipped: Strategy {strat_name} in SHADOW/STAND-ASIDE for {curr_regime} (scale=0.0).")
+        return {
+            "signal_id": signal_id,
+            "total_accounts": len(accounts),
+            "executed": 0,
+            "failed": 0,
+            "skipped": len(accounts),
+            "executions": [],
+            "error": f"STRATEGY_STAND_ASIDE_{curr_regime}",
+        }
 
     for acc in accounts:
         now_ts = time.time()
         acc_id = acc["id"]
         meta_id = acc.get("metaapi_account_id") or acc_id
+        broker_srv = str(acc.get("broker_server") or acc.get("server") or meta_id)
 
         # 0. Check per-account Prop Drawdown Lock and Account Lock (unverified executions pending)
         with tx() as c:
             is_dd_locked = is_account_drawdown_halted(c, acc_id)
             acc_locked = getkv(c, f"account_locked:{acc_id}")
             from app.domains.execution.compliance import check_broker_circuit_breaker, record_broker_execution_error, reset_broker_circuit_breaker
-            cb_res = check_broker_circuit_breaker(server=str(meta_id), db_cursor=c, now_ts=now_ts)
+            cb_res = check_broker_circuit_breaker(server=broker_srv, db_cursor=c, now_ts=now_ts)
         if is_dd_locked:
             logger.warning(f"Account {acc_id} skipped: Prop drawdown circuit breaker is LOCKED.")
             continue
@@ -128,7 +161,7 @@ async def execute_fan_out_for_signal(
                         broker_spread = round(abs(float(q_row[1]) - float(q_row[0])) * pip_multiplier_for_symbol(canon_sym), 1)
             except Exception as exc:
                 logger.debug(f"Could not compute broker spread from quotes table for {canon_sym} (acc {acc_id}): {exc}")
-        if broker_spread <= 0:
+        if broker_spread <= 0 and canonical_symbol(symbol) == "XAUUSD":
             try:
                 from app.routers.telemetry import get_live_xauusd_quote
                 lq = get_live_xauusd_quote()
@@ -481,6 +514,16 @@ async def execute_fan_out_for_signal(
                     elif st == 'FILLED' and p_id not in live_tickets and t_id not in live_tickets:
                         unreflected_risk_pct += r_pct
 
+                risk_cfg = {}
+                try:
+                    raw_cfg = acc.get("risk_config")
+                    if isinstance(raw_cfg, str):
+                        risk_cfg = json.loads(raw_cfg)
+                    elif isinstance(raw_cfg, dict):
+                        risk_cfg = raw_cfg
+                except Exception:
+                    risk_cfg = {}
+
                 total_in_flight_risk = total_open_portfolio_risk_pct + unreflected_risk_pct
                 max_allowed_cap = max_portfolio_risk_pct if (is_prop_mode and prop_stage == "LIVE") else float(risk_cfg.get("max_portfolio_risk_pct") or 2.0)
                 if total_in_flight_risk + effective_risk_pct > max_allowed_cap + 0.001:
@@ -550,6 +593,7 @@ async def execute_fan_out_for_signal(
             "is_compounding": is_comp,
             "multiplier": mult,
             "broker_symbol": broker_sym,
+            "broker_server": broker_srv,
             "client_order_id": client_order_id,
             "rounded_sl": rounded_sl,
             "rounded_tp": rounded_tp,
@@ -601,6 +645,7 @@ async def execute_fan_out_for_signal(
         exec_id = meta["exec_id"]
         acc_id_val = meta["account_id"]
         meta_id_val = meta["metaapi_account_id"]
+        srv_target = str(meta.get("broker_server") or meta_id_val)
         c_order_id = meta["client_order_id"]
 
         if isinstance(res, Exception):
@@ -617,7 +662,7 @@ async def execute_fan_out_for_signal(
                 )
                 setkv(c, f"account_locked:{acc_id_val}", "UNKNOWN_EXECUTION")
                 from app.domains.execution.compliance import record_broker_execution_error
-                record_broker_execution_error(server=str(meta_id_val), error_type="NETWORK_EXCEPTION", db_cursor=c, now_ts=now_ts)
+                record_broker_execution_error(server=srv_target, error_type="NETWORK_EXCEPTION", db_cursor=c, now_ts=now_ts)
             executions.append({
                 "account_id": acc_id_val,
                 "metaapi_account_id": meta_id_val,
@@ -675,7 +720,7 @@ async def execute_fan_out_for_signal(
                         (pos_id, pos_id, ord_id, filled_vol, lat, sl_confirmed, now_ts, now_ts, exec_id)
                     )
                     from app.domains.execution.compliance import reset_broker_circuit_breaker
-                    reset_broker_circuit_breaker(server=str(meta_id_val), db_cursor=c)
+                    reset_broker_circuit_breaker(server=srv_target, db_cursor=c)
                 executions.append({
                     "account_id": acc_id_val,
                     "metaapi_account_id": meta_id_val,
@@ -700,7 +745,7 @@ async def execute_fan_out_for_signal(
                         (msg or str_code, lat, now_ts, exec_id)
                     )
                     from app.domains.execution.compliance import record_broker_execution_error
-                    record_broker_execution_error(server=str(meta_id_val), error_type=msg or str_code, db_cursor=c, now_ts=now_ts)
+                    record_broker_execution_error(server=srv_target, error_type=msg or str_code, db_cursor=c, now_ts=now_ts)
                 executions.append({
                     "account_id": acc_id_val,
                     "metaapi_account_id": meta_id_val,

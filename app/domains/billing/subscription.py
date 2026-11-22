@@ -137,13 +137,23 @@ async def run_subscription_lifecycle_cycle(
                 open_orders = []
                 sync_meta = {}
                 try:
+                    is_pos_ok = False
+                    is_orders_ok = False
                     if hasattr(meta_client, "get_positions_verified"):
-                        is_read_ok, open_positions, sync_meta = await meta_client.get_positions_verified(meta_id)
+                        is_pos_ok, open_positions, sync_meta = await meta_client.get_positions_verified(meta_id)
                     else:
                         open_positions = await meta_client.get_open_positions(meta_id) or []
-                        is_read_ok = True
-                    if hasattr(meta_client, "get_open_orders"):
-                        open_orders = await meta_client.get_open_orders(meta_id) or []
+                        is_pos_ok = True
+
+                    if hasattr(meta_client, "get_open_orders_verified"):
+                        is_orders_ok, open_orders, _ = await meta_client.get_open_orders_verified(meta_id)
+                    elif hasattr(meta_client, "get_open_orders"):
+                        open_orders = await meta_client.get_open_orders(meta_id, raise_on_error=True)
+                        is_orders_ok = True
+                    else:
+                        is_orders_ok = True
+
+                    is_read_ok = is_pos_ok and is_orders_ok
                 except Exception as e:
                     logger.debug(f"Could not check positions/orders before undeploy for {acc['id']}: {e}")
                     is_read_ok = False
@@ -200,8 +210,7 @@ async def run_subscription_lifecycle_cycle(
                                 f"Sending handover alert to user and admin."
                             )
                             try:
-                                from app.core.mailer import send_admin_alert_email
-                                from app.mailer import send_email_template
+                                from app.core.mailer import send_admin_alert_email, send_email_template
                                 u_row = c.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
                                 user_email = u_row["email"] if u_row and hasattr(u_row, "keys") else (u_row[0] if u_row else None)
                                 send_admin_alert_email(

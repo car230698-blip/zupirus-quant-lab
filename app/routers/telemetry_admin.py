@@ -215,6 +215,26 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         live_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC LIMIT 1").fetchone()
         canary_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'CANARY_DEMO' ORDER BY updated_at DESC LIMIT 1").fetchone()
 
+        # Realtime market regime & meta-router telemetry
+        from app.domains.execution.regime_strategies import RegimeMetaRouter
+        from app.domains.ai.macro_station import evaluate_macro_filter
+        macro_state = evaluate_macro_filter(symbol="XAUUSD", side="BUY", now_ts=now_ts, db_cursor=c)
+        router = RegimeMetaRouter()
+        active_strat_id = (live_strat[0] if live_strat else "strat_trend_breakout")
+        current_regime = macro_state.get("regime", "RANGING")
+        router_scale = router.get_strategy_scale(active_strat_id, current_regime)
+
+        unver_row = c.execute(
+            """
+            SELECT count(*) FROM metaapi_trade_executions
+            WHERE status IN ('UNKNOWN_EXECUTION', 'PENDING_SUBMIT', 'AMBIGUOUS_LOCKED')
+               OR (origin = 'BOT' AND status IN ('OPEN', 'FILLED') AND sl_confirmed = 0)
+            """
+        ).fetchone()
+        unver_cnt = unver_row[0] if unver_row else 0
+
+        cb_active = bool(c.execute("SELECT 1 FROM kv WHERE key LIKE 'circuit_breaker:%' AND value LIKE '%circuit_open_until%' AND value NOT LIKE '%circuit_open_until\": 0.0%'").fetchone())
+
     health_cards = [
         {
             "key": "market_data",
@@ -252,6 +272,12 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         "signal_mode": active_mode,
         "active_strategy": live_strat[0] if live_strat else "Alpha Quant XAU M15",
         "canary_strategy": canary_strat[0] if canary_strat else None,
+        "regime": current_regime,
+        "meta_router_scale": router_scale,
+        "dxy_trend": macro_state.get("dxy_trend", "FLAT"),
+        "macro_degraded": macro_state.get("degraded", False),
+        "circuit_breaker_active": cb_active,
+        "unverified_count": unver_cnt,
     }
 
 

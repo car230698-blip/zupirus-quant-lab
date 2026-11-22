@@ -76,6 +76,17 @@ def send_resend_email(
         logger.error("Failed to dispatch Resend email: %s", e)
         return {"ok": False, "error": str(e)}
 
+def send_email_template(
+    to: Union[str, List[str]],
+    subject: str,
+    body_text: str,
+    html_content: str = None
+) -> Dict[str, Any]:
+    """Send formatted text/HTML email via Resend."""
+    html_body = html_content or f"<div style='font-family: sans-serif; white-space: pre-wrap; line-height: 1.5;'>{html_mod.escape(body_text)}</div>"
+    return send_resend_email(to=to, subject=subject, html=html_body)
+
+
 def send_otp_code(email: str, code: str, purpose: str = "Đăng Ký & Xác Thực") -> Dict[str, Any]:
     """Send a cybernetic OTP verification email."""
     subject = f"[{code}] Mã xác thực tài khoản - ZUPIRUS Quant Lab"

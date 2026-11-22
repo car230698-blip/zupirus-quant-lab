@@ -538,6 +538,17 @@ async def handle_sepay_webhook(
             (tx_id, trans_id or None, matched_user_id, amount_in, gateway, combined_content, ref_code, now_ts)
         )
 
+        # Auto-restore expired protecting accounts upon confirmed renewal payment
+        if matched_user_id:
+            c.execute(
+                """
+                UPDATE trading_accounts
+                SET deployment_state = 'DEPLOYED', auto_trade = 1
+                WHERE user_id = ? AND deployment_state = 'EXPIRED_PROTECTING'
+                """,
+                (matched_user_id,)
+            )
+
     if not matched_user_id:
         return {
             "success": True,

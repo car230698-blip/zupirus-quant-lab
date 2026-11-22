@@ -161,11 +161,14 @@ def test_ingest_signal(p: TestIngestPayload, admin=Depends(get_current_admin)):
 
     # Get fresh market price from quotes table filtered by symbol
     target_sym = (p.symbol or "XAUUSD").upper()
-    live_price = 2900.0
+    from app.services.symbol_mapper import canonical_symbol
+    canon_target = canonical_symbol(target_sym)
+    live_price = 2900.0 if "XAU" in canon_target else 1.0800
     with tx() as c:
-        q = c.execute("SELECT bid, ask FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1", (target_sym,)).fetchone()
-        if not q:
-            q = c.execute("SELECT bid, ask FROM quotes ORDER BY ts DESC LIMIT 1").fetchone()
+        q = c.execute(
+            "SELECT bid, ask FROM quotes WHERE (symbol = ? OR symbol = ?) ORDER BY ts DESC LIMIT 1",
+            (target_sym, canon_target)
+        ).fetchone()
         if q:
             from app.services.symbol_precision import digits_for_symbol
             live_price = round((float(q["bid"]) + float(q["ask"])) / 2.0, digits_for_symbol(target_sym))

@@ -14,7 +14,7 @@ import time
 import uuid
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import httpx
 
 logger = logging.getLogger("zupirus.metaapi")
@@ -303,21 +303,31 @@ class MetaApiClient:
             raise RuntimeError(f"MetaApi get_open_positions unverified: {meta}")
         return positions
 
-    async def get_open_orders(self, metaapi_account_id: str) -> List[Dict[str, Any]]:
-        """Retrieve pending orders on MT5 via MetaApi."""
+    async def get_open_orders_verified(
+        self, metaapi_account_id: str
+    ) -> Tuple[bool, List[Dict[str, Any]], Dict[str, Any]]:
+        """Retrieve pending orders on MT5 via MetaApi with fail-closed verification."""
         if self._is_mock_account(metaapi_account_id):
-            return []
+            return True, [], {"mock": True}
         url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/orders"
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(url, headers=self._headers())
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data if isinstance(data, list) else []
-                return []
+                    orders = data if isinstance(data, list) else []
+                    return True, orders, {"status_code": 200}
+                return False, [], {"status_code": resp.status_code, "error": resp.text}
         except Exception as e:
-            logger.debug(f"get_open_orders error for {metaapi_account_id}: {e}")
-            return []
+            logger.debug(f"get_open_orders_verified error for {metaapi_account_id}: {e}")
+            return False, [], {"error": str(e)}
+
+    async def get_open_orders(self, metaapi_account_id: str, raise_on_error: bool = False) -> List[Dict[str, Any]]:
+        """Retrieve pending orders on MT5 via MetaApi."""
+        ok, orders, meta = await self.get_open_orders_verified(metaapi_account_id)
+        if not ok and raise_on_error:
+            raise RuntimeError(f"MetaApi get_open_orders unverified: {meta}")
+        return orders
 
     async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
         """Retrieve closed execution deals from MetaApi history for real PnL reflection."""
