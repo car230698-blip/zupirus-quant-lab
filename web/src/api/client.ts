@@ -253,3 +253,12 @@ export async function rollbackStrategy(candidateId: string): Promise<{ ok: boole
   return api.post<{ ok: boolean; message: string }>(`/api/admin/strategies/${encodeURIComponent(candidateId)}/rollback`);
 }
 
+export async function updateUserLanguage(language: 'vi' | 'en'): Promise<{ ok: boolean; preferred_language: string }> {
+  return api.patch<{ ok: boolean; preferred_language: string }>('/api/v1/auth/language', { language });
+}
+
+export async function fetchPaymentGateways(): Promise<{ sepay: boolean; usdt: boolean; supported_currencies: string[] }> {
+  return api.get<{ sepay: boolean; usdt: boolean; supported_currencies: string[] }>('/api/v1/billing/gateways');
+}
+
+

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import html
 import json
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 router = APIRouter(tags=["SEO Pages"])
@@ -331,14 +331,34 @@ def _render_shell(
     json_ld: dict,
     body_html: str,
     extra_head_html: str = "",
+    lang: str = "vi",
 ) -> str:
+    is_en = str(lang or "").strip().lower() == "en"
+    html_lang = "en" if is_en else "vi"
+    locale_val = "en_US" if is_en else "vi_VN"
     esc_title = html.escape(title)
     esc_desc = html.escape(description)
     esc_kw = html.escape(keywords)
     esc_canon = html.escape(canonical)
     ld_str = json.dumps(json_ld, ensure_ascii=False)
+
+    nav_perf = "Real Performance" if is_en else "Hiệu Suất Thực Tế"
+    nav_lot = "XAU/USD Lot Calculator" if is_en else "Tính Lot XAU/USD"
+    nav_dd = "Prop Firm Drawdown" if is_en else "Tính Drawdown Quỹ"
+    nav_guide = "Guides & Documentation" if is_en else "Kiến Thức & Hướng Dẫn"
+    nav_cta = "Launch Portal →" if is_en else "Mở Cổng Giao Dịch →"
+
+    footer_home = "Home" if is_en else "Trang Chủ"
+    footer_guides = "Guides" if is_en else "Hướng Dẫn"
+    footer_login = "Login" if is_en else "Đăng Nhập"
+    footer_tagline = (
+        "Zero-VPS Cloud MT5 Infrastructure & Prop Firm Guard"
+        if is_en
+        else "Hạ tầng Cloud MT5 XAU/USD Zero-VPS & Prop Firm Guard"
+    )
+
     return f"""<!doctype html>
-<html lang="vi">
+<html lang="{html_lang}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -350,7 +370,7 @@ def _render_shell(
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="ZUPIRUS Quant Lab" />
-  <meta property="og:locale" content="vi_VN" />
+  <meta property="og:locale" content="{locale_val}" />
   <meta property="og:url" content="{esc_canon}" />
   <meta property="og:title" content="{esc_title}" />
   <meta property="og:description" content="{esc_desc}" />
@@ -404,27 +424,38 @@ def _render_shell(
     <div class="nav">
       <a class="brand" href="https://zupirus.com/">⚡ ZUPIRUS QUANT LAB</a>
       <div class="nav-links">
-        <a href="https://zupirus.com/#track-record">Hiệu Suất Thực Tế</a>
-        <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a>
-        <a href="/cong-cu/tinh-drawdown-quy-prop-firm">Tính Drawdown Quỹ</a>
-        <a href="/huong-dan">Kiến Thức &amp; Hướng Dẫn</a>
+        <a href="https://zupirus.com/#track-record">{nav_perf}</a>
+        <a href="/cong-cu/tinh-lot-size-xauusd">{nav_lot}</a>
+        <a href="/cong-cu/tinh-drawdown-quy-prop-firm">{nav_dd}</a>
+        <a href="/huong-dan">{nav_guide}</a>
         <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a>
         <a href="https://discord.gg/yxCx3dVe34" target="_blank" rel="noopener noreferrer">Discord</a>
-        <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
+        <a class="cta" href="https://app.zupirus.com/">{nav_cta}</a>
       </div>
     </div>
   </header>
   <main>{body_html}</main>
   <footer>
-    © 2026 ZUPIRUS Quant Lab · Hạ tầng Cloud MT5 XAU/USD Zero-VPS &amp; Prop Firm Guard ·
-    <a href="https://zupirus.com/">Trang Chủ</a> · <a href="/cong-cu/tinh-lot-size-xauusd">Tính Lot XAU/USD</a> · <a href="/cong-cu/tinh-drawdown-quy-prop-firm">Tính Drawdown Quỹ</a> · <a href="/huong-dan">Hướng Dẫn</a> · <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a> · <a href="https://app.zupirus.com/">Đăng Nhập</a>
+    © 2026 ZUPIRUS Quant Lab · {footer_tagline} ·
+    <a href="https://zupirus.com/">{footer_home}</a> · <a href="/cong-cu/tinh-lot-size-xauusd">{nav_lot}</a> · <a href="/cong-cu/tinh-drawdown-quy-prop-firm">{nav_dd}</a> · <a href="/huong-dan">{footer_guides}</a> · <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a> · <a href="https://app.zupirus.com/">{footer_login}</a>
   </footer>
 </body>
 </html>"""
 
 
+def _resolve_lang(request: Optional[Request], lang: Optional[str]) -> str:
+    if lang and str(lang).strip().lower() == "en":
+        return "en"
+    if request:
+        acc = request.headers.get("accept-language", "").lower()
+        if acc.startswith("en") or ",en" in acc:
+            return "en"
+    return "vi"
+
+
 @router.get("/cong-cu/tinh-lot-size-xauusd", response_class=HTMLResponse)
-def seo_lot_calculator_page() -> HTMLResponse:
+def seo_lot_calculator_page(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
+    effective_lang = _resolve_lang(request, lang)
     canonical = "https://zupirus.com/cong-cu/tinh-lot-size-xauusd"
     title = "Tính Lot Size Vàng XAU/USD & Drawdown Prop Firm | ZUPIRUS"
     desc = "Công cụ tính Lot Size XAU/USD miễn phí cho Standard, Cent và quỹ FTMO, The5ers, FundedNext. Tự tính số lệnh thua tối đa theo Daily DD 4%-5%."
@@ -618,12 +649,14 @@ def seo_lot_calculator_page() -> HTMLResponse:
             json_ld,
             body,
             extra_head_html="",
+            lang=effective_lang,
         )
     )
 
 
 @router.get("/cong-cu/tinh-drawdown-quy-prop-firm", response_class=HTMLResponse)
-def seo_drawdown_calculator_page() -> HTMLResponse:
+def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
+    effective_lang = _resolve_lang(request, lang)
     canonical = "https://zupirus.com/cong-cu/tinh-drawdown-quy-prop-firm"
     title = "Bảng Tính Daily Drawdown & Phân Bổ Rủi Ro Quỹ Prop Firm | ZUPIRUS"
     desc = "Công cụ tính Daily Loss và Max Drawdown trực tuyến cho tài khoản quỹ FTMO, The5ers, FundedNext. Tự động tính ngưỡng dừng lỗ an toàn và số lệnh thua tối đa."
@@ -909,15 +942,25 @@ def seo_drawdown_calculator_page() -> HTMLResponse:
             json_ld,
             body,
             extra_head_html="",
+            lang=effective_lang,
         )
     )
 
 
 @router.get("/huong-dan", response_class=HTMLResponse)
-def seo_guides_hub() -> HTMLResponse:
+def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
+    effective_lang = _resolve_lang(request, lang)
     canonical = "https://zupirus.com/huong-dan"
-    title = "Kiến Thức Bot Trade Vàng XAU/USD & Pass Quỹ | ZUPIRUS"
-    desc = "Tổng hợp hướng dẫn bot trade vàng XAU/USD trên Cloud MT5 Zero-VPS, công thức tính lot chuẩn quỹ và cách pass FTMO, The5ers, FundedNext."
+    title = (
+        "Gold Bot Trading XAU/USD & Prop Firm Pass Knowledge Hub | ZUPIRUS"
+        if effective_lang == "en"
+        else "Kiến Thức Bot Trade Vàng XAU/USD & Pass Quỹ | ZUPIRUS"
+    )
+    desc = (
+        "Comprehensive technical guide on XAU/USD gold bot trading on Zero-VPS Cloud MT5, lot size formulas, and passing FTMO, The5ers, FundedNext."
+        if effective_lang == "en"
+        else "Tổng hợp hướng dẫn bot trade vàng XAU/USD trên Cloud MT5 Zero-VPS, công thức tính lot chuẩn quỹ và cách pass FTMO, The5ers, FundedNext."
+    )
     json_ld = {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
@@ -933,28 +976,44 @@ def seo_guides_hub() -> HTMLResponse:
               <span class="badge">{html.escape(str(g['badge']))}</span>
               <h2 style="margin-top:12px;font-size:18px"><a href="/huong-dan/{g['slug']}">{html.escape(str(g['h1']))}</a></h2>
               <p style="font-size:14px">{html.escape(str(g['meta_description']))}</p>
-              <a href="/huong-dan/{g['slug']}" style="font-size:13px;font-weight:700">Đọc chi tiết ({g['read_time']}) →</a>
+              <a href="/huong-dan/{g['slug']}" style="font-size:13px;font-weight:700">{'Read Details' if effective_lang == 'en' else 'Đọc chi tiết'} ({g['read_time']}) →</a>
             </article>"""
         )
+    crumb_home = "Home" if effective_lang == "en" else "Trang chủ"
+    crumb_guides = "Guides & Knowledge" if effective_lang == "en" else "Kiến Thức &amp; Hướng Dẫn"
+    h1_text = (
+        "XAU/USD Quantitative Trading, Cloud MT5 & Prop Firm Knowledge Hub"
+        if effective_lang == "en"
+        else "Kiến Thức Giao Dịch Định Lượng XAU/USD, Cloud MT5 &amp; Pass Quỹ Prop Firm"
+    )
+    sub_text = (
+        "Technical documentation helping traders deploy automated XAU/USD infrastructure without VPS and pass prop firm challenges with 4 Fail-Closed Shields."
+        if effective_lang == "en"
+        else "Hệ thống tài liệu kỹ thuật giúp trader triển khai hạ tầng tự động hóa XAU/USD không cần VPS và bảo vệ tài khoản quỹ FTMO, The5ers, FundedNext bằng 4 lớp giáp Fail-Closed."
+    )
+    cta_title = "Ready to connect your MT5 account to London G2 Cloud?" if effective_lang == "en" else "Sẵn sàng kết nối tài khoản MT5 lên Cloud London G2?"
+    cta_sub = "Review verified performance or activate instantly 24/7." if effective_lang == "en" else "Xem hiệu suất thực tế đã xác thực hoặc kích hoạt ngay qua SePay VietQR 24/7."
+    cta_btn = "Get Started Now →" if effective_lang == "en" else "Bắt Đầu Ngay →"
     body = f"""
-      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / Kiến Thức &amp; Hướng Dẫn</div>
+      <div class="crumb"><a href="https://zupirus.com/">{crumb_home}</a> / {crumb_guides}</div>
       <span class="badge">ZUPIRUS KNOWLEDGE HUB · SEO</span>
-      <h1>Kiến Thức Giao Dịch Định Lượng XAU/USD, Cloud MT5 &amp; Pass Quỹ Prop Firm</h1>
-      <p>Hệ thống tài liệu kỹ thuật giúp trader triển khai hạ tầng tự động hóa XAU/USD không cần VPS và bảo vệ tài khoản quỹ FTMO, The5ers, FundedNext bằng 4 lớp giáp Fail-Closed.</p>
+      <h1>{h1_text}</h1>
+      <p>{sub_text}</p>
       <div class="grid">{''.join(cards)}</div>
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">Sẵn sàng kết nối tài khoản MT5 lên Cloud London G2?</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Xem hiệu suất thực tế đã xác thực hoặc kích hoạt ngay qua SePay VietQR 24/7.</p>
+          <strong style="color:#fff;font-size:17px">{cta_title}</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">{cta_sub}</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Bắt Đầu Ngay →</a>
+        <a class="cta" href="https://app.zupirus.com/">{cta_btn}</a>
       </div>
     """
-    return HTMLResponse(_render_shell(title, desc, canonical, "bot trade vàng XAUUSD, pass quỹ FTMO, Cloud MT5 Zero-VPS, ZUPIRUS", json_ld, body))
+    return HTMLResponse(_render_shell(title, desc, canonical, "bot trade vàng XAUUSD, pass quỹ FTMO, Cloud MT5 Zero-VPS, ZUPIRUS", json_ld, body, lang=effective_lang))
 
 
 @router.get("/huong-dan/{slug}", response_class=HTMLResponse)
-def seo_guide_detail(slug: str) -> HTMLResponse:
+def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
+    effective_lang = _resolve_lang(request, lang)
     g = GUIDE_BY_SLUG.get(slug)
     if not g:
         raise HTTPException(status_code=404, detail="Guide not found")
@@ -1020,5 +1079,6 @@ def seo_guide_detail(slug: str) -> HTMLResponse:
             str(g["keywords"]),
             json_ld,
             body,
+            lang=effective_lang,
         )
     )

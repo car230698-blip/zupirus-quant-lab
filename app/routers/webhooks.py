@@ -554,3 +554,64 @@ async def handle_sepay_webhook(
         "matched_user": matched_email or matched_user_id,
         "message": "Payment verified and recorded successfully"
     }
+
+
+@router.post("/api/v1/billing/webhooks/nowpayments")
+@router.post("/api/webhooks/nowpayments")
+async def handle_nowpayments_webhook(request: Request):
+    """Handle NOWPayments IPN cryptocurrency payment webhook.
+    Verifies HMAC-SHA512 signature in x-nowpayments-sig header.
+    Fulfills order when payment_status in ('finished', 'confirmed').
+    """
+    raw_body = await request.body()
+    sig_header = request.headers.get("x-nowpayments-sig") or request.headers.get("x-nowpayments-signature")
+
+    try:
+        import json
+        payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    from app.domains.billing.nowpayments import verify_nowpayments_signature
+    if not verify_nowpayments_signature(payload, sig_header):
+        logger.warning("NOWPayments IPN rejected: invalid HMAC-SHA512 signature or missing secret.")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    payment_status = str(payload.get("payment_status") or "").lower().strip()
+    order_id = str(payload.get("order_id") or payload.get("order_description") or "").strip()
+    payment_id = str(payload.get("payment_id") or payload.get("id") or "").strip()
+
+    logger.info(f"Received NOWPayments IPN: order_id={order_id}, payment_id={payment_id}, status={payment_status}")
+
+    # Only process and extend subscription when payment is confirmed or finished
+    if payment_status not in ("finished", "confirmed"):
+        return {
+            "ok": True,
+            "order_id": order_id,
+            "payment_status": payment_status,
+            "message": f"Payment status '{payment_status}' acknowledged, pending confirmation.",
+        }
+
+    try:
+        pay_amount = float(payload.get("pay_amount") or payload.get("price_amount") or 0.0)
+    except (ValueError, TypeError):
+        pay_amount = 0.0
+
+    pay_currency = str(payload.get("pay_currency") or "USDT").upper()
+
+    from app.domains.billing.service import process_nowpayments_payment
+    success = await process_nowpayments_payment(
+        order_id=order_id,
+        payment_id=payment_id,
+        pay_amount=pay_amount,
+        pay_currency=pay_currency,
+        raw_payload=payload,
+    )
+
+    return {
+        "ok": success,
+        "order_id": order_id,
+        "payment_id": payment_id,
+        "payment_status": payment_status,
+        "fulfilled": success,
+    }

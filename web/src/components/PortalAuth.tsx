@@ -3,6 +3,7 @@ import type { PortalType } from '../App.tsx';
 import { Brand, type Portal } from './PortalChrome.tsx';
 import { apiPost } from '../api/client.ts';
 import { IconBolt, IconShield, IconReceipt } from './Icons';
+import { useLanguage } from '../i18n/LanguageContext.tsx';
 
 export function PortalAuth({
   portal,
@@ -28,6 +29,7 @@ export function PortalAuth({
   const [otpSending, setOtpSending] = useState(false);
   const [otpCountdown, setOtpCountdown] = useState(0);
   const [otpNotice, setOtpNotice] = useState<string | null>(null);
+  const { lang, toggleLang } = useLanguage();
 
   useEffect(() => {
     if (otpCountdown <= 0) return;
@@ -105,7 +107,17 @@ export function PortalAuth({
         {/* Left Column (50%): Form Area */}
         <div className="flex flex-col justify-between p-8 sm:p-12 lg:p-16 bg-[#0B1220] border-r border-slate-800/80">
           <div className="flex items-center justify-between">
-            <Brand />
+            <div className="flex items-center gap-3">
+              <Brand />
+              <button
+                type="button"
+                onClick={toggleLang}
+                className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#090e1d] px-2.5 py-1 font-mono text-[11px] font-bold text-slate-300 hover:border-amber-400/50 hover:text-amber-300 transition cursor-pointer"
+                title="Chuyển đổi ngôn ngữ / Switch Language (VI / EN)"
+              >
+                <span>{lang === 'vi' ? '🇻🇳 VI' : '🇬🇧 EN'}</span>
+              </button>
+            </div>
             {onClosePreview && (
               <button
                 type="button"

@@ -3,6 +3,7 @@ import type { PortalType } from '../App.tsx';
 import { useLiveTopbarTelemetry, useRealtimePortalStream } from '../hooks/useQuantData.ts';
 import { api, apiPost } from '../api/client.ts';
 import { NotificationBellMenu } from './NotificationBellMenu.tsx';
+import { useLanguage } from '../i18n/LanguageContext.tsx';
 import {
   LayoutDashboard,
   Server,
@@ -137,6 +138,7 @@ export function PortalShell({
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState('');
+  const { lang, toggleLang } = useLanguage();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
@@ -451,6 +453,14 @@ export function PortalShell({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
+              onClick={toggleLang}
+              className="flex h-8 px-2 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 hover:text-white transition cursor-pointer text-xs font-mono font-bold"
+              title="Chuyển đổi ngôn ngữ / Switch Language (VI / EN)"
+            >
+              {lang === 'vi' ? '🇻🇳 VI' : '🇬🇧 EN'}
+            </button>
+            <button
+              type="button"
               onClick={() => setQuantTheme(quantTheme === 'gold' ? 'cyber' : 'gold')}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 hover:text-white transition cursor-pointer text-xs"
               title="Đổi chủ đề (Gold / Cyber)"
@@ -503,6 +513,16 @@ export function PortalShell({
 
           {/* Zone 3: Session Identity & Primary Action */}
           <div className="quant-session">
+            {/* Language Switcher */}
+            <button
+              type="button"
+              onClick={toggleLang}
+              className="quant-quiet font-mono font-bold hover:border-amber-400/50 hover:text-amber-300"
+              title="Chuyển đổi ngôn ngữ / Switch Language (VI / EN)"
+            >
+              {lang === 'vi' ? '🇻🇳 VI' : '🇬🇧 EN'}
+            </button>
+
             {/* Notification Bell Dropdown */}
             <NotificationBellMenu
               notifications={notifications}

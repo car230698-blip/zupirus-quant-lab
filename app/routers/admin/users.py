@@ -56,7 +56,7 @@ def create_admin_user(p: CreateUser, u=Depends(get_current_admin)):
         if c.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone():
             fail(409, 'Email đã tồn tại')
         uid = f"usr_{secrets.token_hex(8)}"
-        c.execute('INSERT INTO users VALUES(?,?,?,?)', (uid, email, password_hash(p.password.strip()), db_role))
+        c.execute('INSERT INTO users(id, email, password, role) VALUES(?,?,?,?)', (uid, email, password_hash(p.password.strip()), db_role))
         audit(c, u['id'], 'user_created', {'target_user_id': uid, 'email': email, 'role': db_role})
     return {'ok': True, 'id': uid, 'email': email, 'role': db_role}
 

@@ -161,7 +161,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     return () => clearInterval(interval);
   }, [checkoutModalOpen, checkoutOrder?.id, checkoutOrder?.status]);
 
-  const handleCreateCheckout = async () => {
+  const handleCreateCheckout = async (paymentMethod: 'SEPAY' | 'USDT' = 'SEPAY') => {
     setCloudBusy(true);
     setCloudMsg('');
     try {
@@ -171,6 +171,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         billing_cycle: subBillingCycle,
         cloud_slots: effectiveSlots,
         cloud_accounts_count: effectiveSlots,
+        payment_method: paymentMethod,
       });
       const orderData = data?.order || (data?.id ? data : null);
       if (orderData) {
@@ -471,7 +472,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                         <button
                           type="button"
                           disabled={cloudBusy}
-                          onClick={handleCreateCheckout}
+                          onClick={() => handleCreateCheckout('SEPAY')}
                           className="rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-mono font-bold px-3 py-1 text-[11px] cursor-pointer whitespace-nowrap"
                         >
                           Gia Hạn Ngay →
@@ -590,14 +591,26 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   <span className="text-xs font-normal text-slate-400">(${fmtNum(estimatedUsd, 2)})</span>
                 </div>
               </div>
-              <button
-                type="button"
-                disabled={cloudBusy}
-                onClick={handleCreateCheckout}
-                className="quant-btn-primary px-4 py-2.5 text-xs whitespace-nowrap shrink-0"
-              >
-                Tạo Mã QR SePay
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={cloudBusy}
+                  onClick={() => handleCreateCheckout('SEPAY')}
+                  className="quant-btn-primary px-3 py-2 text-xs whitespace-nowrap shrink-0"
+                  title="Thanh toán qua SePay VietQR (VND)"
+                >
+                  VietQR (VND)
+                </button>
+                <button
+                  type="button"
+                  disabled={cloudBusy}
+                  onClick={() => handleCreateCheckout('USDT')}
+                  className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition whitespace-nowrap shrink-0 cursor-pointer"
+                  title="Thanh toán bằng USDT Crypto (NOWPayments)"
+                >
+                  USDT (Crypto)
+                </button>
+              </div>
             </div>
           </div>
         </SpotlightBento>

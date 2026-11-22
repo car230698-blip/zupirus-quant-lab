@@ -15,6 +15,7 @@ import { ScrollProgressBar } from './ui/ScrollProgressBar';
 import { LandingHeroTerminal } from './LandingHeroTerminal';
 import { LandingTrustMarquee } from './LandingTrustMarquee';
 import { ArrowRight, Sparkles } from 'lucide-react';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface LandingPageProps {
   onEnterPortal?: () => void;
@@ -26,6 +27,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onEnterApp,
 }) => {
   const onEnterPortal = externalOnEnterPortal || onEnterApp || (() => {});
+  const { lang, t } = useLanguage();
   const { data: telemetryData } = useLiveTopbarTelemetry();
 
   const spotPrice = Number(telemetryData?.xauusd?.bid || 0);
@@ -44,8 +46,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   // Interactive Pricing & VietQR Preview State
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('QUARTERLY');
-  const [currencyMode, setCurrencyMode] = useState<'VND' | 'USD'>('VND');
+  const [currencyMode, setCurrencyMode] = useState<'VND' | 'USD'>(lang === 'en' ? 'USD' : 'VND');
   const [qrPreviewTier, setQrPreviewTier] = useState<typeof PRICING_TIERS[number] | null>(null);
+
+  useEffect(() => {
+    setCurrencyMode(lang === 'en' ? 'USD' : 'VND');
+  }, [lang]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-quant-theme', quantTheme);
@@ -86,20 +92,31 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Badge: Cloud MT5 · Zero EA · Zero VPS with pulse ring */}
           <div className="inline-flex items-center gap-2.5 rounded-full border border-[#12B5A6]/30 bg-[#12B5A6]/10 px-4 py-1.5 text-xs font-mono font-medium text-emerald-300 backdrop-blur-md">
             <span className="pulse-wrap"><span className="pulse-core" /></span>
-            <span>Cloud MT5 · Zero EA · Zero VPS</span>
+            <span>{t.hero.badge}</span>
           </div>
 
           {/* Large H1 with subtle silver/white gradient matching prototype */}
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.12]">
-            Giao dịch định lượng Vàng &amp; Forex{' '}
-            <span className="bg-gradient-to-r from-amber-200 via-white to-[#12B5A6] bg-clip-text text-transparent">
-              chuẩn kỷ luật quỹ.
-            </span>
+            {lang === 'en' ? (
+              <>
+                Quantitative XAU/USD Execution{' '}
+                <span className="bg-gradient-to-r from-amber-200 via-white to-[#12B5A6] bg-clip-text text-transparent">
+                  with Institutional Prop Discipline.
+                </span>
+              </>
+            ) : (
+              <>
+                Giao dịch định lượng Vàng &amp; Forex{' '}
+                <span className="bg-gradient-to-r from-amber-200 via-white to-[#12B5A6] bg-clip-text text-transparent">
+                  chuẩn kỷ luật quỹ.
+                </span>
+              </>
+            )}
           </h1>
 
           {/* 2-line concise description */}
           <p className="text-base sm:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Kết nối trực tiếp tài khoản MT5 của bạn lên hạ tầng đám mây ZUPIRUS. Mọi lệnh đều đi qua 4 lớp bảo vệ Fail-Closed, tự quy đổi tài khoản Cent và khóa chặt trần rủi ro 1% cho quỹ Prop Live.
+            {t.hero.subtitle}
           </p>
 
           {/* 2 Clean CTA Buttons */}
@@ -110,7 +127,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#12B5A6] to-[#0D9488] px-7 py-3.5 text-sm font-extrabold text-[#032220] hover:shadow-[0_10px_30px_-8px_rgba(18,181,166,0.7)] hover:scale-[1.02] transition-all cursor-pointer whitespace-nowrap"
             >
               <Sparkles className="w-4 h-4" strokeWidth={2} />
-              <span>Bắt đầu ngay</span>
+              <span>{t.hero.ctaPrimary}</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" strokeWidth={2.2} />
             </button>
 
@@ -122,7 +139,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               }}
               className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3.5 font-mono text-xs font-bold text-slate-200 hover:border-amber-400/50 hover:bg-amber-500/10 transition-colors cursor-pointer whitespace-nowrap backdrop-blur-md"
             >
-              <span>⚡ Thử mô phỏng 4 lớp giáp</span>
+              <span>{lang === 'en' ? '⚡ Simulate 4 Safety Guards' : '⚡ Thử mô phỏng 4 lớp giáp'}</span>
             </button>
           </div>
 

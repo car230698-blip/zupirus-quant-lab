@@ -50,6 +50,18 @@ def force_refresh_exchange_rate(admin=Depends(get_current_admin)):
     )
 
 
+@router.get("/gateways")
+def get_available_gateways():
+    """Retrieve available payment gateways and their live enablement state."""
+    from app.domains.billing.nowpayments import get_nowpayments_api_key
+    has_np = bool(get_nowpayments_api_key())
+    return {
+        "sepay": True,
+        "usdt": has_np,
+        "supported_currencies": ["VND", "USD", "USDT"],
+    }
+
+
 @router.get("/subscription", response_model=SubscriptionResponse)
 def get_my_subscription(u=Depends(get_current_user)):
     """Retrieve active subscription and entitlements for current user."""
@@ -59,12 +71,13 @@ def get_my_subscription(u=Depends(get_current_user)):
 
 @router.post("/checkout", response_model=OrderResponse)
 def checkout(p: CreateOrderRequest, u=Depends(get_current_user)):
-    """Create checkout order with locked FX rate and SePay VietQR payment info."""
+    """Create checkout order with locked FX rate, SePay VietQR (VND) or NOWPayments (USDT)."""
     order_data = create_checkout_order(
         user_id=u["id"],
         plan_tier=p.plan_tier,
         cloud_slots=p.cloud_slots,
         billing_cycle=p.billing_cycle or "MONTHLY",
+        payment_method=p.payment_method or "SEPAY",
     )
     return OrderResponse(**order_data)
 

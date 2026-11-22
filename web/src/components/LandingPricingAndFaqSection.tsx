@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { calculateSubscriptionPricing, type BillingCycle } from '../utils/quantMath';
 import { SpotlightBento } from './ui/SpotlightBento';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface LandingPricingTier {
   id: string;
@@ -58,6 +59,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
   onEnterPortal,
 }) => {
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
+  const { lang } = useLanguage();
 
   return (
     <div className="space-y-24">
@@ -79,9 +81,9 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
             <div className="flex items-center gap-1 rounded-xl border border-slate-800 bg-[#080E1A] p-1 font-mono text-xs">
               {(
                 [
-                  ['MONTHLY', 'Tháng'],
-                  ['QUARTERLY', 'Quý (-10%)'],
-                  ['ANNUAL', 'Năm (-20%)'],
+                  ['MONTHLY', lang === 'en' ? 'Monthly' : 'Tháng'],
+                  ['QUARTERLY', lang === 'en' ? 'Quarterly (-10%)' : 'Quý (-10%)'],
+                  ['ANNUAL', lang === 'en' ? 'Annual (-20%)' : 'Năm (-20%)'],
                 ] as [BillingCycle, string][]
               ).map(([cycle, label]) => (
                 <button
@@ -135,7 +137,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
               >
                 {isPopular && (
                   <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-[#12B5A6] bg-[#060A13] px-3.5 py-0.5 font-mono text-[11px] font-bold text-[#12B5A6] shadow-[0_0_12px_rgba(18,181,166,0.4)]">
-                    Phổ Biến Nhất
+                    {lang === 'en' ? 'Most Popular' : 'Phổ Biến Nhất'}
                   </span>
                 )}
 
@@ -154,7 +156,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                         ? `${pricing.totalVnd.toLocaleString('vi-VN')} ₫`
                         : `$${pricing.totalUsd.toFixed(2)}`}
                       <span className="ml-2 text-xs font-normal text-slate-400">
-                        / {pricing.months} tháng
+                        / {pricing.months} {lang === 'en' ? (pricing.months > 1 ? 'months' : 'month') : 'tháng'}
                       </span>
                     </div>
                   </div>

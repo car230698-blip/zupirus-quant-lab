@@ -219,8 +219,18 @@ async def run_subscription_lifecycle_cycle(
                             )
                             try:
                                 from app.core.mailer import send_admin_alert_email, send_email_template
-                                u_row = c.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
-                                user_email = u_row["email"] if u_row and hasattr(u_row, "keys") else (u_row[0] if u_row else None)
+                                u_row = c.execute("SELECT email, preferred_language FROM users WHERE id = ?", (user_id,)).fetchone()
+                                user_email = None
+                                user_lang = "vi"
+                                if u_row:
+                                    u_dict = dict(u_row) if hasattr(u_row, "keys") else {}
+                                    if u_dict:
+                                        user_email = u_dict.get("email")
+                                        user_lang = u_dict.get("preferred_language", "vi") or "vi"
+                                    else:
+                                        user_email = u_row[0]
+                                        user_lang = u_row[1] if len(u_row) > 1 and u_row[1] else "vi"
+                                user_lang = str(user_lang).strip().lower()
                                 unverified_cids = []
                                 for ur in unverified_reqs:
                                     cid = None
@@ -245,20 +255,38 @@ async def run_subscription_lifecycle_cycle(
                                     f"Hệ thống đã thu hồi trạm sau 24h bảo vệ và bàn giao cho khách hàng tự quản lý."
                                 )
                                 if user_email:
-                                    send_email_template(
-                                        to=user_email,
-                                        subject="[ZUPIRUS] Bàn giao tài khoản Cloud MT5 sau thời gian bảo vệ",
-                                        body_text=(
-                                            f"Kính gửi Quý khách,\n\n"
-                                            f"Gói dịch vụ ZUPIRUS Cloud MT5 cho tài khoản {acc['id']} đã hết hạn quá 24 giờ.\n"
-                                            f"Trạng thái kết nối trạm với broker: {sync_label}.\n"
-                                            f"Thời điểm xác minh broker gần nhất: {last_verified_ts}.\n"
-                                            f"Mã lệnh cần kiểm tra lại trên MT5: {unverified_str}.\n\n"
-                                            f"CẢNH BÁO AN TOÀN: Do trạm đã thu hồi, hệ thống KHÔNG THỂ đảm bảo các mức Cắt lỗ (SL) hoặc Chốt lời (TP) còn hiệu lực trên sàn nếu lệnh chưa được sàn xác nhận trước đó.\n"
-                                            f"Quý khách vui lòng mở ứng dụng MetaTrader 5 (MT5) trực tiếp trên điện thoại hoặc máy tính để kiểm tra và xử lý các vị thế/lệnh chờ còn lại.\n\n"
-                                            f"Trân trọng,\nĐội ngũ ZUPIRUS Quant Lab"
+                                    if user_lang == "en":
+                                        sync_label_en = "SYNCHRONIZED" if (is_read_ok and bool(sync_meta.get("synchronized", False))) else "DISCONNECTED"
+                                        unverified_str_en = ", ".join(unverified_cids) if unverified_cids else "None"
+                                        send_email_template(
+                                            to=user_email,
+                                            subject="[ZUPIRUS] Handover Notice for Cloud MT5 Account After Protection Period",
+                                            body_text=(
+                                                f"Dear Trader,\n\n"
+                                                f"Your ZUPIRUS Cloud MT5 instance for account {acc['id']} has expired over 24 hours ago.\n"
+                                                f"Broker terminal connection state: {sync_label_en}.\n"
+                                                f"Last verified broker timestamp: {last_verified_ts}.\n"
+                                                f"Unverified client order IDs needing verification on MT5: {unverified_str_en}.\n\n"
+                                                f"CRITICAL SAFETY NOTICE: Since the cloud station has been decommissioned, the system CANNOT guarantee Stop Loss (SL) or Take Profit (TP) orders remain active on the broker unless previously confirmed by the broker engine.\n"
+                                                f"Please open your MetaTrader 5 (MT5) application on your mobile device or desktop immediately to audit and manage any remaining open positions and orders.\n\n"
+                                                f"Best regards,\nZUPIRUS Quant Lab Engineering Team"
+                                            )
                                         )
-                                    )
+                                    else:
+                                        send_email_template(
+                                            to=user_email,
+                                            subject="[ZUPIRUS] Bàn giao tài khoản Cloud MT5 sau thời gian bảo vệ",
+                                            body_text=(
+                                                f"Kính gửi Quý khách,\n\n"
+                                                f"Gói dịch vụ ZUPIRUS Cloud MT5 cho tài khoản {acc['id']} đã hết hạn quá 24 giờ.\n"
+                                                f"Trạng thái kết nối trạm với broker: {sync_label}.\n"
+                                                f"Thời điểm xác minh broker gần nhất: {last_verified_ts}.\n"
+                                                f"Mã lệnh cần kiểm tra lại trên MT5: {unverified_str}.\n\n"
+                                                f"CẢNH BÁO AN TOÀN: Do trạm đã thu hồi, hệ thống KHÔNG THỂ đảm bảo các mức Cắt lỗ (SL) hoặc Chốt lời (TP) còn hiệu lực trên sàn nếu lệnh chưa được sàn xác nhận trước đó.\n"
+                                                f"Quý khách vui lòng mở ứng dụng MetaTrader 5 (MT5) trực tiếp trên điện thoại hoặc máy tính để kiểm tra và xử lý các vị thế/lệnh chờ còn lại.\n\n"
+                                                f"Trân trọng,\nĐội ngũ ZUPIRUS Quant Lab"
+                                            )
+                                        )
                             except Exception as he:
                                 logger.debug(f"Handover email note: {he}")
                     else:

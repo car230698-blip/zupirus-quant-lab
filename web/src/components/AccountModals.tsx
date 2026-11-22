@@ -95,16 +95,22 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
         </div>
       )}
 
-      {/* VietQR Modal */}
+      {/* Payment Checkout Modal (VietQR / NOWPayments USDT) */}
       {checkoutModalOpen && checkoutOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
           <div className="max-w-md w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl text-center">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 text-left">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400">
-                  Cổng Thanh Toán Tự Động SePay
+                  {checkoutOrder.payment_gateway?.startsWith('NOWPAYMENTS')
+                    ? 'CỔNG THANH TOÁN QUỐC TẾ USDT'
+                    : 'Cổng Thanh Toán Tự Động SePay'}
                 </span>
-                <h4 className="text-base font-bold text-white">Quét Mã VietQR Kích Hoạt Gói Cloud</h4>
+                <h4 className="text-base font-bold text-white">
+                  {checkoutOrder.payment_gateway?.startsWith('NOWPAYMENTS')
+                    ? 'Thanh Toán Gói Cloud MT5 Bằng USDT'
+                    : 'Quét Mã VietQR Kích Hoạt Gói Cloud'}
+                </h4>
               </div>
               <button
                 type="button"
@@ -117,7 +123,80 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
             </div>
 
             {(() => {
+              const isCrypto = Boolean(
+                checkoutOrder.payment_gateway?.startsWith('NOWPAYMENTS') ||
+                checkoutOrder.currency === 'USDT'
+              );
               const displayOrderId = checkoutOrder.order_code || checkoutOrder.order_id || checkoutOrder.id || '';
+
+              if (isCrypto) {
+                const amountUsd = Number(checkoutOrder.amount_usd || 0);
+                const invoiceUrl = checkoutOrder.invoice_url;
+
+                return (
+                  <div className="space-y-4 text-left">
+                    <div className="space-y-2 rounded-xl border border-emerald-500/30 bg-[#040710] p-4 font-mono text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Mã đơn hàng:</span>
+                        <strong className="text-cyan-300 select-all">{displayOrderId}</strong>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Số tiền thanh toán:</span>
+                        <strong className="text-emerald-400 text-sm font-bold">
+                          ${amountUsd.toFixed(2)} USDT
+                        </strong>
+                      </div>
+                      <div className="flex justify-between items-center border-t border-white/[0.05] pt-2">
+                        <span className="text-slate-400">Mạng lưới hỗ trợ:</span>
+                        <span className="text-amber-300 font-bold">TRC20 · BEP20 · ERC20</span>
+                      </div>
+                      <div className="flex justify-between items-center border-t border-white/[0.05] pt-2">
+                        <span className="text-slate-400">Trạng thái:</span>
+                        <strong className={checkoutOrder.status === 'PAID' ? 'text-emerald-400 font-bold' : 'text-amber-300'}>
+                          {checkoutOrder.status === 'PAID' ? '✓ ĐÃ THANH TOÁN (KÍCH HOẠT CLOUD)' : '⏳ ĐANG CHỜ XÁC NHẬN GIAO DỊCH...'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {invoiceUrl ? (
+                      <div className="space-y-2">
+                        <a
+                          href={invoiceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:from-emerald-400 hover:to-teal-500 transition cursor-pointer"
+                        >
+                          <span>Mở Cổng Thanh Toán NOWPayments</span>
+                          <span>↗</span>
+                        </a>
+                        <p className="text-[11px] text-center text-slate-400">
+                          Sau khi gửi USDT trên NOWPayments, hệ thống sẽ tự động kích hoạt tài khoản trong vòng 1-3 phút.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-3.5 text-xs text-amber-200 space-y-2">
+                        <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                          <span>ℹ️ Thanh Toán USDT Thủ Công (Manual Support)</span>
+                        </div>
+                        <p className="text-[11px] text-slate-300 leading-relaxed">
+                          Cổng thanh toán tự động đang được thiết lập. Vui lòng liên hệ Admin qua Discord hoặc gửi email về{' '}
+                          <a href="mailto:support@zupirus.com" className="text-cyan-300 underline font-mono">
+                            support@zupirus.com
+                          </a>{' '}
+                          kèm mã đơn <strong className="text-white font-mono">{displayOrderId}</strong> để nhận địa chỉ ví USDT nạp trực tiếp trong 5 phút.
+                        </p>
+                      </div>
+                    )}
+
+                    {pollingPaid && checkoutOrder.status !== 'PAID' && (
+                      <div className="pt-1 text-[11px] font-mono text-slate-400 text-center">
+                        Hệ thống đang tự động kiểm tra trạng thái thanh toán...
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               const displayBank = checkoutOrder.bank_name || 'Chưa cấu hình';
               const displayAccNum = checkoutOrder.account_number || 'Chưa cấu hình';
               const displayHolder = checkoutOrder.account_holder || 'ZUPIRUS QUANT LAB';

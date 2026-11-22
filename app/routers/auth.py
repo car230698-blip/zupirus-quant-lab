@@ -39,6 +39,10 @@ class RegisterPayload(Model):
     email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
     password: str = Field(min_length=12, max_length=128)
     otp_code: Optional[str] = Field(default=None, max_length=10)
+    preferred_language: Optional[str] = Field(default='vi', max_length=10)
+
+class UpdateLanguagePayload(Model):
+    language: str = Field(min_length=2, max_length=2)
 
 @router.post('/api/register')
 def register(p: RegisterPayload):
@@ -78,15 +82,29 @@ def register(p: RegisterPayload):
     elif os.environ.get("REQUIRE_REGISTRATION_OTP", "1") == "1" and not os.environ.get("PYTEST_CURRENT_TEST"):
         fail(400, "Vui lòng nhập mã xác thực OTP gửi qua email")
 
+    preferred_lang = (p.preferred_language or 'vi').strip().lower()
+    if preferred_lang not in ('vi', 'en'):
+        preferred_lang = 'vi'
+
     with tx() as c:
         try:
             c.execute(
-                'INSERT INTO users(id, email, password, role) VALUES(?,?,?,?)',
-                (secrets.token_hex(16), email_clean, password_hash(p.password), 'customer'),
+                'INSERT INTO users(id, email, password, role, preferred_language) VALUES(?,?,?,?,?)',
+                (secrets.token_hex(16), email_clean, password_hash(p.password), 'customer', preferred_lang),
             )
-        except (sqlite3.IntegrityError, Exception):
-            fail(409, 'Email already registered')
-    return {'ok': True}
+        except (sqlite3.IntegrityError, Exception) as exc:
+            # Fallback if table doesn't have preferred_language column yet
+            if "has no column named preferred_language" in str(exc) or "column \"preferred_language\" of relation \"users\" does not exist" in str(exc):
+                try:
+                    c.execute(
+                        'INSERT INTO users(id, email, password, role) VALUES(?,?,?,?)',
+                        (secrets.token_hex(16), email_clean, password_hash(p.password), 'customer'),
+                    )
+                except Exception:
+                    fail(409, 'Email already registered')
+            else:
+                fail(409, 'Email already registered')
+    return {'ok': True, 'preferred_language': preferred_lang}
 
 @router.post('/api/login')
 def login(p: Credentials, request: Request):
@@ -129,8 +147,28 @@ def logout(request: Request, u=Depends(get_current_user)):
     return r
 
 @router.get('/api/me')
+@router.get('/api/v1/auth/me')
 def me(u=Depends(get_current_user)):
-    return {'id': u['id'], 'email': u['email'], 'role': u['role']}
+    return {
+        'id': u['id'],
+        'email': u['email'],
+        'role': u['role'],
+        'preferred_language': u.get('preferred_language', 'vi'),
+    }
+
+
+@router.patch('/api/v1/auth/language')
+@router.patch('/api/auth/language')
+def update_user_language(p: UpdateLanguagePayload, u=Depends(get_current_user)):
+    lang = p.language.strip().lower()
+    if lang not in ('vi', 'en'):
+        fail(400, "Ngôn ngữ không được hỗ trợ (chỉ hỗ trợ 'vi' hoặc 'en') / Unsupported language (only 'vi' or 'en' allowed)")
+    with tx() as c:
+        try:
+            c.execute("UPDATE users SET preferred_language=? WHERE id=?", (lang, u['id']))
+        except Exception:
+            pass
+    return {'ok': True, 'preferred_language': lang}
 
 
 class ForgotPasswordPayload(Model):

@@ -37,6 +37,7 @@ class CreateOrderRequest(BaseModel):
     cloud_slots: int = Field(default=1, ge=1, le=20)
     cloud_accounts_count: Optional[int] = None
     billing_cycle: Optional[str] = None
+    payment_method: Optional[str] = "SEPAY"
 
     @model_validator(mode="before")
     def resolve_fields(cls, values):
@@ -62,6 +63,10 @@ class OrderResponse(BaseModel):
     payment_status: str = "PENDING"
     entitlement_status: str = "PENDING"
     cloud_deploy_status: str = "PENDING"
+    currency: Optional[str] = "VND"
+    payment_gateway: Optional[str] = "SEPAY"
+    invoice_url: Optional[str] = None
+    external_payment_id: Optional[str] = None
     qr_code_url: Optional[str] = None
     qr_url: Optional[str] = None
     account_number: Optional[str] = None

@@ -583,5 +583,57 @@ def apply_migration_023(c, is_pg: bool):
             pass
 
 
+def apply_migration_024(c, is_pg: bool):
+    """024_user_language_and_intl_billing: Add preferred_language to users, and gateway, currency, external_payment_id, invoice_url to orders & payment_transactions."""
+    if is_pg:
+        c.execute("""
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language TEXT NOT NULL DEFAULT 'vi';
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'VND';
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS external_payment_id TEXT;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoice_url TEXT;
+        ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS external_payment_id TEXT;
+        CREATE INDEX IF NOT EXISTS idx_orders_ext_pay ON orders(external_payment_id);
+        CREATE INDEX IF NOT EXISTS idx_payment_ext_pay ON payment_transactions(external_payment_id);
+        """)
+    else:
+        u_cols = [r[1] for r in c.execute("PRAGMA table_info(users)").fetchall()]
+        if "preferred_language" not in u_cols:
+            try:
+                c.execute("ALTER TABLE users ADD COLUMN preferred_language TEXT NOT NULL DEFAULT 'vi'")
+            except Exception:
+                pass
+
+        o_cols = [r[1] for r in c.execute("PRAGMA table_info(orders)").fetchall()]
+        if "currency" not in o_cols:
+            try:
+                c.execute("ALTER TABLE orders ADD COLUMN currency TEXT NOT NULL DEFAULT 'VND'")
+            except Exception:
+                pass
+        if "external_payment_id" not in o_cols:
+            try:
+                c.execute("ALTER TABLE orders ADD COLUMN external_payment_id TEXT")
+            except Exception:
+                pass
+        if "invoice_url" not in o_cols:
+            try:
+                c.execute("ALTER TABLE orders ADD COLUMN invoice_url TEXT")
+            except Exception:
+                pass
+
+        p_cols = [r[1] for r in c.execute("PRAGMA table_info(payment_transactions)").fetchall()]
+        if "external_payment_id" not in p_cols:
+            try:
+                c.execute("ALTER TABLE payment_transactions ADD COLUMN external_payment_id TEXT")
+            except Exception:
+                pass
+
+        try:
+            c.execute("CREATE INDEX IF NOT EXISTS idx_orders_ext_pay ON orders(external_payment_id)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_payment_ext_pay ON payment_transactions(external_payment_id)")
+        except Exception:
+            pass
+
+
+
 
 

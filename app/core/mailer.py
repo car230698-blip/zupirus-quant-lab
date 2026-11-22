@@ -9,7 +9,7 @@ import json
 import logging
 import urllib.request
 import urllib.error
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Optional
 
 logger = logging.getLogger("zupirus.mailer")
 
@@ -87,9 +87,27 @@ def send_email_template(
     return send_resend_email(to=to, subject=subject, html=html_body)
 
 
-def send_otp_code(email: str, code: str, purpose: str = "Đăng Ký & Xác Thực") -> Dict[str, Any]:
-    """Send a cybernetic OTP verification email."""
-    subject = f"[{code}] Mã xác thực tài khoản - ZUPIRUS Quant Lab"
+def send_otp_code(email: str, code: str, purpose: str = "Đăng Ký & Xác Thực", lang: str = "vi") -> Dict[str, Any]:
+    """Send a cybernetic OTP verification email (bilingual VI / EN)."""
+    is_en = str(lang or "").strip().lower() == "en"
+    if is_en:
+        subject = f"[{code}] Account Verification Code - ZUPIRUS Quant Lab"
+        title = "ZUPIRUS QUANT LAB"
+        subtitle = "Security & Execution Identity Verification"
+        greeting = "Hello Trader,"
+        purpose_en = "Account Authentication" if "xác thực" in str(purpose).lower() or "đăng ký" in str(purpose).lower() else str(purpose)
+        desc = f"You are performing <strong style='color:#38bdf8;'>{__import__('html').escape(purpose_en)}</strong> on the ZUPIRUS Quant Lab platform. Please enter the verification code below to proceed:"
+        validity = "Valid for 10 minutes"
+        warning = "⚠️ Never share this security code with anyone, including ZUPIRUS staff. If you did not initiate this request, you can safely ignore this email."
+    else:
+        subject = f"[{code}] Mã xác thực tài khoản - ZUPIRUS Quant Lab"
+        title = "ZUPIRUS QUANT LAB"
+        subtitle = "Xác Thực Bảo Mật & Danh Tính Giao Dịch"
+        greeting = "Xin chào nhà giao dịch,"
+        desc = f"Bạn đang thực hiện thao tác <strong style='color:#38bdf8;'>{__import__('html').escape(str(purpose))}</strong> trên hệ thống ZUPIRUS Quant Lab. Vui lòng nhập mã OTP bên dưới để hoàn tất:"
+        validity = "Hiệu lực trong vòng 10 phút"
+        warning = "⚠️ Tuyệt đối không chia sẻ mã này với bất kỳ ai, bao gồm cả hỗ trợ viên Zupirus. Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email."
+
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -104,25 +122,21 @@ def send_otp_code(email: str, code: str, purpose: str = "Đăng Ký & Xác Thự
                   <div style="display:inline-block;padding:8px 16px;background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);border-radius:9999px;color:#38bdf8;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">
                     CYBERNETIC QUANT TERMINAL
                   </div>
-                  <h1 style="color:#f8fafc;font-size:24px;font-weight:800;letter-spacing:1px;margin:16px 0 4px;">ZUPIRUS QUANT LAB</h1>
-                  <p style="color:#94a3b8;font-size:13px;margin:0;">Xác Thực Bảo Mật & Danh Tính Giao Dịch</p>
+                  <h1 style="color:#f8fafc;font-size:24px;font-weight:800;letter-spacing:1px;margin:16px 0 4px;">{title}</h1>
+                  <p style="color:#94a3b8;font-size:13px;margin:0;">{subtitle}</p>
                 </td>
               </tr>
               <tr>
                 <td style="padding:32px;">
-                  <p style="color:#cbd5e1;font-size:14px;margin:0 0 16px;">Xin chào nhà giao dịch,</p>
-                  <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0 0 24px;">
-                    Bạn đang thực hiện thao tác <strong style="color:#38bdf8;">{__import__('html').escape(str(purpose))}</strong> trên hệ thống ZUPIRUS Quant Lab. Vui lòng nhập mã OTP bên dưới để hoàn tất:
-                  </p>
+                  <p style="color:#cbd5e1;font-size:14px;margin:0 0 16px;">{greeting}</p>
+                  <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0 0 24px;">{desc}</p>
                   <div style="background:#090d1a;border:1px solid #334155;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
                     <div style="font-size:38px;font-weight:900;letter-spacing:10px;color:#10b981;font-family:monospace;text-shadow:0 0 20px rgba(16,185,129,0.4);">
                       {__import__('html').escape(str(code))}
                     </div>
-                    <p style="color:#64748b;font-size:11px;margin:12px 0 0;text-transform:uppercase;letter-spacing:1px;">Hiệu lực trong vòng 10 phút</p>
+                    <p style="color:#64748b;font-size:11px;margin:12px 0 0;text-transform:uppercase;letter-spacing:1px;">{validity}</p>
                   </div>
-                  <p style="color:#64748b;font-size:12px;line-height:1.5;margin:0;">
-                    ⚠️ Tuyệt đối không chia sẻ mã này với bất kỳ ai, bao gồm cả hỗ trợ viên Zupirus. Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email.
-                  </p>
+                  <p style="color:#64748b;font-size:12px;line-height:1.5;margin:0;">{warning}</p>
                 </td>
               </tr>
               <tr>
@@ -148,27 +162,53 @@ def send_payment_receipt_email(
     amount_vnd: int,
     cloud_slots: int,
     expires_at: float,
+    lang: str = "vi",
+    amount_usd: Optional[float] = None,
+    currency: str = "VND",
 ) -> Dict[str, Any]:
-    """Send automated SePay payment confirmation receipt & Cloud activation notice."""
+    """Send automated payment confirmation receipt & Cloud activation notice (bilingual VI / EN)."""
     from datetime import datetime, timezone
     exp_str = datetime.fromtimestamp(float(expires_at), tz=timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
-    subject = f"[ZUPIRUS] Xác nhận thanh toán đơn {order_id} - Kích hoạt gói {plan_tier.upper()}"
-    html = f"""
-    <!DOCTYPE html>
-    <html><body style="background:#050811;color:#f8fafc;font-family:Arial,sans-serif;padding:32px;">
-      <div style="max-width:560px;margin:0 auto;background:#0d1527;border:1px solid #1e293b;border-radius:14px;padding:28px;">
-        <h2 style="color:#10b981;margin:0 0 12px;">Thanh Toán Thành Công &amp; Đã Kích Hoạt Cloud MT5</h2>
-        <p style="color:#cbd5e1;font-size:14px;">Hệ thống ZUPIRUS Quant Lab đã đối soát giao dịch VietQR tự động và mở khóa gói cước của bạn:</p>
-        <table width="100%" style="background:#090d1a;border-radius:10px;padding:16px;margin:16px 0;font-size:13px;">
-          <tr><td style="color:#94a3b8;padding:6px 0;">Mã đơn hàng:</td><td style="color:#38bdf8;font-weight:700;">{order_id}</td></tr>
-          <tr><td style="color:#94a3b8;padding:6px 0;">Gói dịch vụ:</td><td style="color:#f8fafc;font-weight:700;">{plan_tier.upper()} ({cloud_slots} MT5 Slots)</td></tr>
-          <tr><td style="color:#94a3b8;padding:6px 0;">Số tiền đã nhận:</td><td style="color:#10b981;font-weight:700;">{int(amount_vnd):,} VND</td></tr>
-          <tr><td style="color:#94a3b8;padding:6px 0;">Hiệu lực đến:</td><td style="color:#f8fafc;">{exp_str}</td></tr>
-        </table>
-        <p style="color:#94a3b8;font-size:12px;">Bạn có thể truy cập <a href="https://app.zupirus.com" style="color:#38bdf8;">app.zupirus.com</a> để kết nối tài khoản MT5 và nhận tín hiệu tự động 24/5.</p>
-      </div>
-    </body></html>
-    """
+    is_en = str(lang or "").strip().lower() == "en"
+
+    if is_en:
+        subject = f"[ZUPIRUS] Payment Receipt for Order {order_id} - {plan_tier.upper()} Plan Activated"
+        paid_display = f"${amount_usd:.2f} USD" if (amount_usd and amount_usd > 0) else (f"{int(amount_vnd):,} VND" if currency == "VND" else f"{amount_usd or amount_vnd} {currency}")
+        html = f"""
+        <!DOCTYPE html>
+        <html><body style="background:#050811;color:#f8fafc;font-family:Arial,sans-serif;padding:32px;">
+          <div style="max-width:560px;margin:0 auto;background:#0d1527;border:1px solid #1e293b;border-radius:14px;padding:28px;">
+            <h2 style="color:#10b981;margin:0 0 12px;">Payment Confirmed &amp; Cloud MT5 Activated</h2>
+            <p style="color:#cbd5e1;font-size:14px;">ZUPIRUS Quant Lab has verified your payment and unlocked your cloud subscription:</p>
+            <table width="100%" style="background:#090d1a;border-radius:10px;padding:16px;margin:16px 0;font-size:13px;">
+              <tr><td style="color:#94a3b8;padding:6px 0;">Order ID:</td><td style="color:#38bdf8;font-weight:700;">{order_id}</td></tr>
+              <tr><td style="color:#94a3b8;padding:6px 0;">Subscription Plan:</td><td style="color:#f8fafc;font-weight:700;">{plan_tier.upper()} ({cloud_slots} MT5 Slots)</td></tr>
+              <tr><td style="color:#94a3b8;padding:6px 0;">Amount Paid:</td><td style="color:#10b981;font-weight:700;">{paid_display}</td></tr>
+              <tr><td style="color:#94a3b8;padding:6px 0;">Valid Until:</td><td style="color:#f8fafc;">{exp_str}</td></tr>
+            </table>
+            <p style="color:#94a3b8;font-size:12px;">Access your terminal at <a href="https://app.zupirus.com" style="color:#38bdf8;">app.zupirus.com</a> to connect your MT5 accounts and stream 24/5 execution.</p>
+          </div>
+        </body></html>
+        """
+    else:
+        subject = f"[ZUPIRUS] Xác nhận thanh toán đơn {order_id} - Kích hoạt gói {plan_tier.upper()}"
+        paid_display = f"{int(amount_vnd):,} VND"
+        html = f"""
+        <!DOCTYPE html>
+        <html><body style="background:#050811;color:#f8fafc;font-family:Arial,sans-serif;padding:32px;">
+          <div style="max-width:560px;margin:0 auto;background:#0d1527;border:1px solid #1e293b;border-radius:14px;padding:28px;">
+            <h2 style="color:#10b981;margin:0 0 12px;">Thanh Toán Thành Công &amp; Đã Kích Hoạt Cloud MT5</h2>
+            <p style="color:#cbd5e1;font-size:14px;">Hệ thống ZUPIRUS Quant Lab đã đối soát giao dịch tự động và mở khóa gói cước của bạn:</p>
+            <table width="100%" style="background:#090d1a;border-radius:10px;padding:16px;margin:16px 0;font-size:13px;">
+              <tr><td style="color:#94a3b8;padding:6px 0;">Mã đơn hàng:</td><td style="color:#38bdf8;font-weight:700;">{order_id}</td></tr>
+              <tr><td style="color:#94a3b8;padding:6px 0;">Gói dịch vụ:</td><td style="color:#f8fafc;font-weight:700;">{plan_tier.upper()} ({cloud_slots} MT5 Slots)</td></tr>
+              <tr><td style="color:#94a3b8;padding:6px 0;">Số tiền đã nhận:</td><td style="color:#10b981;font-weight:700;">{paid_display}</td></tr>
+              <tr><td style="color:#94a3b8;padding:6px 0;">Hiệu lực đến:</td><td style="color:#f8fafc;">{exp_str}</td></tr>
+            </table>
+            <p style="color:#94a3b8;font-size:12px;">Bạn có thể truy cập <a href="https://app.zupirus.com" style="color:#38bdf8;">app.zupirus.com</a> để kết nối tài khoản MT5 và nhận tín hiệu tự động 24/5.</p>
+          </div>
+        </body></html>
+        """
     return send_resend_email(to=email, subject=subject, html=html)
 
 
@@ -177,21 +217,37 @@ def send_subscription_expiry_reminder(
     plan_tier: str,
     days_left: int,
     expires_at: float,
+    lang: str = "vi",
 ) -> Dict[str, Any]:
-    """Send automated renewal reminder 3 days or 1 day prior to subscription expiry."""
+    """Send automated renewal reminder 3 days or 1 day prior to subscription expiry (bilingual VI / EN)."""
     from datetime import datetime, timezone
     exp_str = datetime.fromtimestamp(float(expires_at), tz=timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
-    subject = f"[ZUPIRUS] Gói {plan_tier.upper()} sắp hết hạn trong {days_left} ngày"
-    html = f"""
-    <!DOCTYPE html>
-    <html><body style="background:#050811;color:#f8fafc;font-family:Arial,sans-serif;padding:32px;">
-      <div style="max-width:560px;margin:0 auto;background:#0d1527;border:1px solid #f59e0b;border-radius:14px;padding:28px;">
-        <h2 style="color:#f59e0b;margin:0 0 12px;">Nhắc Gia Hạn Gói Cloud MT5 ({days_left} ngày còn lại)</h2>
-        <p style="color:#cbd5e1;font-size:14px;">Gói <strong>{plan_tier.upper()}</strong> của bạn sẽ hết hạn vào <strong>{exp_str}</strong>.</p>
-        <p style="color:#94a3b8;font-size:13px;">Khi hết hạn, hệ thống sẽ tự động tạm ngưng mở lệnh mới và thu hồi kết nối Cloud (PositionWatcher vẫn bảo vệ các lệnh đang mở cho tới khi đóng). Gia hạn ngay tại <a href="https://app.zupirus.com" style="color:#38bdf8;">app.zupirus.com</a> để không gián đoạn giao dịch.</p>
-      </div>
-    </body></html>
-    """
+    is_en = str(lang or "").strip().lower() == "en"
+
+    if is_en:
+        subject = f"[ZUPIRUS] Your {plan_tier.upper()} plan will expire in {days_left} day{'s' if days_left != 1 else ''}"
+        html = f"""
+        <!DOCTYPE html>
+        <html><body style="background:#050811;color:#f8fafc;font-family:Arial,sans-serif;padding:32px;">
+          <div style="max-width:560px;margin:0 auto;background:#0d1527;border:1px solid #f59e0b;border-radius:14px;padding:28px;">
+            <h2 style="color:#f59e0b;margin:0 0 12px;">Cloud MT5 Subscription Renewal Reminder ({days_left} day{'s' if days_left != 1 else ''} left)</h2>
+            <p style="color:#cbd5e1;font-size:14px;">Your <strong>{plan_tier.upper()}</strong> plan will expire on <strong>{exp_str}</strong>.</p>
+            <p style="color:#94a3b8;font-size:13px;">Upon expiration, new order entries will be suspended and cloud connections will be withdrawn (PositionWatcher will continue protecting open positions until closed). Renew now at <a href="https://app.zupirus.com" style="color:#38bdf8;">app.zupirus.com</a> to ensure uninterrupted trading.</p>
+          </div>
+        </body></html>
+        """
+    else:
+        subject = f"[ZUPIRUS] Gói {plan_tier.upper()} sắp hết hạn trong {days_left} ngày"
+        html = f"""
+        <!DOCTYPE html>
+        <html><body style="background:#050811;color:#f8fafc;font-family:Arial,sans-serif;padding:32px;">
+          <div style="max-width:560px;margin:0 auto;background:#0d1527;border:1px solid #f59e0b;border-radius:14px;padding:28px;">
+            <h2 style="color:#f59e0b;margin:0 0 12px;">Nhắc Gia Hạn Gói Cloud MT5 ({days_left} ngày còn lại)</h2>
+            <p style="color:#cbd5e1;font-size:14px;">Gói <strong>{plan_tier.upper()}</strong> của bạn sẽ hết hạn vào <strong>{exp_str}</strong>.</p>
+            <p style="color:#94a3b8;font-size:13px;">Khi hết hạn, hệ thống sẽ tự động tạm ngưng mở lệnh mới và thu hồi kết nối Cloud (PositionWatcher vẫn bảo vệ các lệnh đang mở cho tới khi đóng). Gia hạn ngay tại <a href="https://app.zupirus.com" style="color:#38bdf8;">app.zupirus.com</a> để không gián đoạn giao dịch.</p>
+          </div>
+        </body></html>
+        """
     return send_resend_email(to=email, subject=subject, html=html)
 
 

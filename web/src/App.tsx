@@ -12,6 +12,7 @@ import { AdminAIEvolutionTab } from './components/AdminAIEvolutionTab.tsx';
 import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTab.tsx';
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
 import { normalizeCentToUsd } from './utils/currencyFormat.ts';
+import { LanguageProvider } from './i18n/LanguageContext.tsx';
 
 const LandingPage = lazy(() =>
   import('./components/LandingPage.tsx').then((m) => ({ default: m.LandingPage }))
@@ -435,7 +436,9 @@ const AppContent: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppContent />
+      <LanguageProvider>
+        <AppContent />
+      </LanguageProvider>
     </QueryClientProvider>
   );
 };

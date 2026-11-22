@@ -122,8 +122,11 @@ def create_checkout_order(
     cloud_slots: int = 1,
     cloud_slots_count: Optional[int] = None,
     billing_cycle: str = "MONTHLY",
+    payment_method: str = "SEPAY",
 ) -> Dict[str, Any]:
-    """Create a new payment order with locked FX rate valid for ORDER_LOCK_MINUTES."""
+    """Create a new payment order with locked FX rate valid for ORDER_LOCK_MINUTES.
+    Supports domestic SePay VietQR (VND) and international NOWPayments (USDT).
+    """
     if cloud_slots_count is not None:
         cloud_slots = cloud_slots_count
     cloud_slots = clamp_cloud_slots(plan_tier, cloud_slots)
@@ -132,23 +135,64 @@ def create_checkout_order(
     if cycle_u not in BILLING_CYCLE_CONFIG:
         cycle_u = "MONTHLY"
 
+    method_u = str(payment_method or "SEPAY").strip().upper()
+    is_usdt = method_u in ("USDT", "NOWPAYMENTS")
+
     total_usd, amount_vnd, locked_rate = calculate_order_totals(plan_tier, cloud_slots, billing_cycle=cycle_u)
     now_ts = time.time()
     expires_at = now_ts + (ORDER_LOCK_MINUTES * 60)
     order_id = f"ord_{secrets.token_hex(6)}"
     content_memo = f"ZP {order_id[-6:].upper()}"
 
+    gateway = "NOWPAYMENTS" if is_usdt else "SEPAY"
+    currency = "USDT" if is_usdt else "VND"
+    invoice_url: Optional[str] = None
+    external_payment_id: Optional[str] = None
+
+    if is_usdt:
+        from app.domains.billing.nowpayments import get_nowpayments_api_key, create_nowpayments_invoice
+        if get_nowpayments_api_key():
+            inv = create_nowpayments_invoice(
+                order_id=order_id,
+                price_amount=total_usd,
+                price_currency="usd",
+                order_description=f"ZUPIRUS Quant Lab - {plan_tier.upper()} Plan ({cloud_slots} MT5)",
+            )
+            if inv.get("ok"):
+                invoice_url = inv.get("invoice_url")
+                external_payment_id = str(inv.get("invoice_id") or "")
+        else:
+            gateway = "NOWPAYMENTS_MANUAL"
+
     with tx() as c:
-        c.execute(
-            """
-            INSERT INTO orders (
-                id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
-                plan_tier, cloud_slots_count, status, payment_gateway,
-                created_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', 'SEPAY', ?, ?)
-            """,
-            (order_id, user_id, total_usd, locked_rate, amount_vnd, plan_tier.lower(), cloud_slots, now_ts, expires_at)
-        )
+        try:
+            c.execute(
+                """
+                INSERT INTO orders (
+                    id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
+                    plan_tier, cloud_slots_count, status, payment_gateway,
+                    created_at, expires_at, currency, external_payment_id, invoice_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    order_id, user_id, total_usd, locked_rate, amount_vnd,
+                    plan_tier.lower(), cloud_slots, gateway, now_ts, expires_at,
+                    currency, external_payment_id, invoice_url
+                )
+            )
+        except Exception:
+            # Fallback if migration 024 columns aren't ready
+            c.execute(
+                """
+                INSERT INTO orders (
+                    id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
+                    plan_tier, cloud_slots_count, status, payment_gateway,
+                    created_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
+                """,
+                (order_id, user_id, total_usd, locked_rate, amount_vnd, plan_tier.lower(), cloud_slots, gateway, now_ts, expires_at)
+            )
+
         c.execute(
             "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (f"order_cycle:{order_id}", cycle_u),
@@ -172,6 +216,10 @@ def create_checkout_order(
         "locked_exchange_rate": locked_rate,
         "amount_vnd": amount_vnd,
         "status": "PENDING",
+        "currency": currency,
+        "payment_gateway": gateway,
+        "invoice_url": invoice_url,
+        "external_payment_id": external_payment_id,
         "qr_code_url": qr_url,
         "qr_url": qr_url,
         "account_number": bank_acc,
@@ -448,6 +496,213 @@ async def process_successful_payment(
         pass
 
     logger.info(f"Order {order['id']} fulfilled successfully for user {order['user_id']}.")
+    return True
+
+
+async def process_nowpayments_payment(
+    order_id: str,
+    payment_id: str,
+    pay_amount: float,
+    pay_currency: str = "USDT",
+    raw_payload: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Process verified IPN webhook from NOWPayments (USDT/crypto):
+    - Atomically inserts payment_transactions with ON CONFLICT (external_payment_id) DO NOTHING first
+    - Transitions order status -> PAID
+    - Activates user subscription and extends MT5 cloud instance
+    - Awards +7 days referral bonus on first completed order if user was referred
+    - Dispatches receipt email in user's preferred language
+    """
+    now_ts = time.time()
+    order_id = str(order_id or "").strip().lower()
+    eff_pay_id = str(payment_id or "").strip()
+
+    from app.db import is_postgres
+    for_update = " FOR UPDATE" if is_postgres() else ""
+    with tx() as c:
+        row = c.execute(f"SELECT * FROM orders WHERE LOWER(id) = ?{for_update}", (order_id,)).fetchone()
+        if not row and len(order_id) >= 6:
+            row = c.execute(
+                f"SELECT * FROM orders WHERE LOWER(id) LIKE ? ORDER BY CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END, created_at DESC LIMIT 1{for_update}",
+                (f"%{order_id}",)
+            ).fetchone()
+
+        if not row:
+            logger.error(f"Order {order_id} not found for NOWPayments fulfillment.")
+            return False
+
+        order = dict(row)
+        if order["status"] == "PAID":
+            logger.info(f"Order {order['id']} is already PAID (idempotent return).")
+            return True
+
+        # Atomic deduplication on external_payment_id
+        tx_id = f"tx_np_{secrets.token_hex(8)}"
+        try:
+            ins_cur = c.execute(
+                """
+                INSERT INTO payment_transactions (
+                    id, sepay_id, user_id, amount, currency, gateway, content, status, created_at, external_payment_id
+                ) VALUES (?, ?, ?, ?, ?, 'NOWPAYMENTS', ?, 'completed', ?, ?)
+                ON CONFLICT (external_payment_id) DO NOTHING
+                """,
+                (
+                    tx_id,
+                    f"np_{eff_pay_id}",
+                    order["user_id"],
+                    pay_amount,
+                    pay_currency.upper(),
+                    f"NOWPayments Order {order['id']} ({eff_pay_id})",
+                    now_ts,
+                    eff_pay_id
+                )
+            )
+        except Exception:
+            # Fallback if external_payment_id unique constraint / column fallback
+            ins_cur = c.execute(
+                """
+                INSERT INTO payment_transactions (
+                    id, sepay_id, user_id, amount, currency, gateway, content, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, 'NOWPAYMENTS', ?, 'completed', ?)
+                ON CONFLICT (sepay_id) DO NOTHING
+                """,
+                (
+                    tx_id,
+                    f"np_{eff_pay_id}",
+                    order["user_id"],
+                    pay_amount,
+                    pay_currency.upper(),
+                    f"NOWPayments Order {order['id']} ({eff_pay_id})",
+                    now_ts
+                )
+            )
+
+        if getattr(ins_cur, "rowcount", 1) <= 0:
+            logger.info(f"NOWPayments transaction {eff_pay_id} already recorded (atomic deduplication).")
+            return order["status"] == "PAID"
+
+        # Update order to PAID
+        upd_cur = c.execute(
+            """
+            UPDATE orders
+            SET status = 'PAID',
+                payment_status = 'PAID',
+                entitlement_status = 'GRANTED',
+                external_payment_id = ?,
+                paid_at = ?
+            WHERE id = ? AND status != 'PAID'
+            """,
+            (eff_pay_id, now_ts, order["id"])
+        )
+        if getattr(upd_cur, "rowcount", 1) <= 0:
+            logger.info(f"Order {order['id']} was fulfilled concurrently.")
+            return True
+
+        user_id = order["user_id"]
+        tier = order["plan_tier"].lower()
+        cloud_slots = order["cloud_slots_count"]
+        cycle_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_cycle:{order['id']}",)).fetchone()
+        cycle_u = str(cycle_row[0]).upper() if cycle_row and cycle_row[0] else "MONTHLY"
+        cycle_days = BILLING_CYCLE_CONFIG.get(cycle_u, BILLING_CYCLE_CONFIG["MONTHLY"])["days"]
+        duration_sec = cycle_days * 86400
+
+        # Update or create subscription
+        sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
+        sub_d = dict(sub) if sub else None
+        current_sub_exp = float(sub_d["service_expires_at"] or 0) if sub_d and sub_d.get("service_expires_at") else 0.0
+        new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
+
+        is_growth = tier in ("growth", "alpha")
+        is_alpha = tier == "alpha"
+        max_accounts = max(clamp_cloud_slots(tier, cloud_slots), int(sub_d.get("max_mt5_accounts") or 1) if (sub_d and current_sub_exp > now_ts) else 1)
+
+        sub_id = sub_d["id"] if sub_d else f"sub_{secrets.token_hex(6)}"
+        if sub_d:
+            c.execute(
+                """
+                UPDATE subscriptions SET
+                    plan_tier = ?, service_expires_at = ?, max_mt5_accounts = ?,
+                    allow_custom_multiplier = ?, allow_compounding = ?, allow_partial_tp_be = ?,
+                    allow_prop_firm_mode = ?, allow_alpha_strategies = ?, updated_at = ?
+                WHERE user_id = ?
+                """,
+                (tier, new_sub_exp, max_accounts, 1 if is_growth else 0, 1 if is_growth else 0, 1 if is_growth else 0, 1 if is_alpha else 0, 1 if is_alpha else 0, now_ts, user_id)
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO subscriptions (
+                    id, user_id, plan_tier, service_expires_at, max_mt5_accounts,
+                    allow_custom_multiplier, allow_compounding, allow_partial_tp_be,
+                    allow_prop_firm_mode, allow_alpha_strategies, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (sub_id, user_id, tier, new_sub_exp, max_accounts, 1 if is_growth else 0, 1 if is_growth else 0, 1 if is_growth else 0, 1 if is_alpha else 0, 1 if is_alpha else 0, now_ts, now_ts)
+            )
+
+        # Extend user trading accounts
+        acc_rows = c.execute(
+            "SELECT id, metaapi_account_id, cloud_expires_at, deployment_state, auto_trade FROM trading_accounts WHERE user_id = ? LIMIT ?",
+            (user_id, max_accounts)
+        ).fetchall()
+        accounts_to_deploy = []
+        for a_row in acc_rows:
+            a = dict(a_row)
+            curr_c_exp = float(a["cloud_expires_at"] or 0) if a.get("cloud_expires_at") else 0.0
+            new_c_exp = max(curr_c_exp, now_ts) + duration_sec
+            c.execute("UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = 1 WHERE id = ? AND user_id = ?", (new_c_exp, a["id"], user_id))
+            if a.get("metaapi_account_id"):
+                accounts_to_deploy.append((a["id"], a["metaapi_account_id"]))
+
+        # Referral reward: +7 days for referrer on first successful paid order
+        try:
+            from app.db import getkv, setkv
+            ref_code = getkv(c, f"ref_by:{user_id}")
+            if ref_code:
+                paid_count = c.execute("SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'PAID'", (user_id,)).fetchone()[0]
+                if paid_count == 1:
+                    ref_owner = getkv(c, f"ref_owner:{ref_code}")
+                    if ref_owner:
+                        r_sub = c.execute("SELECT id, service_expires_at FROM subscriptions WHERE user_id = ?", (ref_owner,)).fetchone()
+                        if r_sub:
+                            r_cur_exp = float(r_sub["service_expires_at"] or 0)
+                            r_new_exp = max(r_cur_exp, now_ts) + (7 * 86400)
+                            c.execute("UPDATE subscriptions SET service_expires_at = ?, updated_at = ? WHERE id = ?", (r_new_exp, now_ts, r_sub["id"]))
+        except Exception as ref_err:
+            logger.debug(f"Referral reward check note: {ref_err}")
+
+        user_row = c.execute("SELECT email, preferred_language FROM users WHERE id = ?", (user_id,)).fetchone()
+        user_email = None
+        user_lang = "vi"
+        if user_row:
+            u_dict = dict(user_row) if hasattr(user_row, "keys") else {}
+            if u_dict:
+                user_email = u_dict.get("email")
+                user_lang = u_dict.get("preferred_language") or "vi"
+            else:
+                user_email = user_row[0]
+                user_lang = user_row[1] if len(user_row) > 1 and user_row[1] else "vi"
+
+    if accounts_to_deploy:
+        await _deploy_with_retries(accounts_to_deploy, order_id=order["id"], max_retries=3, delay=1)
+
+    if user_email:
+        try:
+            from app.core.mailer import send_payment_receipt_email
+            send_payment_receipt_email(
+                email=user_email,
+                order_id=order["id"],
+                plan_tier=tier,
+                amount_vnd=int(order.get("amount_vnd") or 0),
+                cloud_slots=int(max_accounts),
+                expires_at=new_sub_exp,
+                lang=user_lang,
+                amount_usd=float(order.get("amount_usd") or pay_amount),
+                currency=pay_currency,
+            )
+        except Exception as mail_err:
+            logger.warning(f"Failed sending NOWPayments receipt email to {user_email}: {mail_err}")
+
     return True
 
 

@@ -82,12 +82,12 @@ def bootstrap(c):
     if not c.execute('SELECT 1 FROM users WHERE email=?',(email,)).fetchone():
         if len(password)<8: raise RuntimeError('ADMIN_PASSWORD must contain at least 8 characters')
         uid=secrets.token_hex(16)
-        c.execute('INSERT INTO users VALUES(?,?,?,?)',(uid,email,password_hash(password),'admin'))
+        c.execute('INSERT INTO users(id, email, password, role) VALUES(?,?,?,?)',(uid,email,password_hash(password),'admin'))
 
     if os.getenv('APP_ENV', 'dev').lower() != 'production':
         trader_email = 'trader@zupirus.local'
         trader_pass = os.getenv('DEMO_TRADER_PASSWORD', 'quant-access-2026')
         if not c.execute('SELECT 1 FROM users WHERE email=?', (trader_email,)).fetchone():
             t_uid = secrets.token_hex(16)
-            c.execute('INSERT INTO users VALUES(?,?,?,?)', (t_uid, trader_email, password_hash(trader_pass), 'customer'))
+            c.execute('INSERT INTO users(id, email, password, role) VALUES(?,?,?,?)', (t_uid, trader_email, password_hash(trader_pass), 'customer'))
 

@@ -121,6 +121,11 @@ MIGRATIONS = [
         "version": 23,
         "name": "023_execution_safety_and_ownership",
         "description": "Add origin, client_order_id, evidence_json, reserved_risk_pct, sl_confirmed, closed_volume to metaapi_trade_executions"
+    },
+    {
+        "version": 24,
+        "name": "024_user_language_and_intl_billing",
+        "description": "Add preferred_language to users, and currency, external_payment_id, invoice_url to orders & payment_transactions"
     }
 ]
 
@@ -138,7 +143,7 @@ from .seed_and_fixes import (
     apply_migration_013, apply_migration_014, apply_migration_015,
     apply_migration_016, apply_migration_017, apply_migration_018,
     apply_migration_019, apply_migration_020, apply_migration_021,
-    apply_migration_022, apply_migration_023,
+    apply_migration_022, apply_migration_023, apply_migration_024,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -170,6 +175,7 @@ def run_all_migrations(c, is_pg: bool):
         21: apply_migration_021,
         22: apply_migration_022,
         23: apply_migration_023,
+        24: apply_migration_024,
     }
 
     for m in MIGRATIONS:
