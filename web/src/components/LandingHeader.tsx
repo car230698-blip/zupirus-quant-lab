@@ -14,7 +14,7 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
   onEnterPortal,
   spotPrice = 0,
 }) => {
-  const { lang, toggleLang, t } = useLanguage();
+  const { t } = useLanguage();
 
   return (
     <header className="sticky top-0 z-40 h-16 border-b border-slate-800/80 bg-[#070c18]/85 backdrop-blur-md">
@@ -55,18 +55,8 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
           </a>
         </nav>
 
-        {/* Right: Language Switcher + Discord + Login + Primary CTA */}
+        {/* Right: Discord + Login + Primary CTA (Language auto-detected via IP) */}
         <div className="flex items-center gap-2.5">
-          {/* Language Toggle Button */}
-          <button
-            type="button"
-            onClick={toggleLang}
-            className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#090e1d] px-2.5 py-1.5 font-mono text-[11px] font-bold text-slate-300 hover:border-amber-400/50 hover:text-amber-300 transition cursor-pointer"
-            title="Chuyển đổi ngôn ngữ / Switch Language (VI / EN)"
-          >
-            <span>{lang === 'vi' ? '🇻🇳 VI' : '🇬🇧 EN'}</span>
-          </button>
-
           <a
             href="https://discord.gg/yxCx3dVe34"
             target="_blank"

@@ -41,6 +41,43 @@ export const SHIELD_LAYERS = [
   },
 ];
 
+export const SHIELD_LAYERS_EN = [
+  {
+    id: '01',
+    code: 'REDIS LOCK',
+    title: 'De-Duplication Lock',
+    status: 'ACTIVE',
+    latency: '0.6 ms',
+    detail: 'SHA-256 atomic Redis lock blocks duplicate executions from external webhooks within 60s.',
+  },
+  {
+    id: '02',
+    code: 'HARD STOP-LOSS',
+    title: 'ATR(14) & Auto 1R BE',
+    status: 'ENFORCED',
+    latency: '1.1 ms',
+    detail: 'Mandatory hard SL for all positions. Automatically moves SL to Break-Even at 1R profit.',
+  },
+  {
+    id: '03',
+    code: 'USD NEWS SHIELD',
+    title: 'CPI · NFP · FOMC ±30m',
+    status: 'ARMED',
+    latency: '2.0 ms',
+    detail: 'Autonomous trade freeze window 15 minutes before and after high-impact USD economic releases.',
+  },
+  {
+    id: '04',
+    code: 'PROP DD BREAKER',
+    title: 'Daily DD Capital Guard',
+    status: 'NOMINAL',
+    latency: '0.9 ms',
+    detail: 'Autonomous circuit breaker halts trading when daily drawdown threshold is reached.',
+  },
+];
+
+export const getShieldLayers = (lang: 'vi' | 'en' = 'vi') => (lang === 'en' ? SHIELD_LAYERS_EN : SHIELD_LAYERS);
+
 export type PlanTier = 'starter' | 'growth' | 'alpha';
 
 export interface PlanConfig {

@@ -8,6 +8,7 @@ import { IconShield } from './Icons';
 import { POPULAR_BROKERS, QUANT_PLANS, PRICING_TIERS_LIST, normalizePlanTier, type PlanTier } from '../data/quantConstants';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../api/client.ts';
 import { SpotlightBento } from './ui/SpotlightBento';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface UserAccountsTabProps {
   accounts?: any[];
@@ -18,6 +19,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   accounts: externalAccounts,
   refetchAccounts: externalRefetch,
 }) => {
+  const { lang } = useLanguage();
   const { data: cloudQueryData, refetch: queryRefetch } = useCloudAccounts();
   const rawAccounts = externalAccounts ?? cloudQueryData?.accounts ?? [];
   const accounts = React.useMemo(() => {
@@ -381,9 +383,11 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
-                  Hạ Tầng Thuê Bao
+                  {lang === 'en' ? 'Subscription Infrastructure' : 'Hạ Tầng Thuê Bao'}
                 </span>
-                <h3 className="mt-0.5 text-lg font-bold text-white">Gói Cloud MT5 & Cổng SePay</h3>
+                <h3 className="mt-0.5 text-lg font-bold text-white">
+                  {lang === 'en' ? 'Cloud MT5 Subscription & Billing' : 'Gói Cloud MT5 & Cổng SePay'}
+                </h3>
               </div>
               <span
                 className={`font-mono text-xs font-bold tabular-nums ${
@@ -392,15 +396,17 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               >
                 {cloudSub?.is_active
                   ? `ACTIVE · ${String(cloudSub?.plan_tier || 'STARTER').toUpperCase()}`
-                  : `${cloudSub?.status || 'CHƯA KÍCH HOẠT'} · 0 KHE CẮM`}
+                  : `${cloudSub?.status || (lang === 'en' ? 'INACTIVE' : 'CHƯA KÍCH HOẠT')} · 0 ${lang === 'en' ? 'SLOTS' : 'KHE CẮM'}`}
               </span>
             </div>
 
             <div className="mt-4 rounded-xl border border-white/[0.07] bg-[#040710]/80 p-4 space-y-2.5">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Hạn mức khe cắm Cloud MT5</span>
+                <span className="text-slate-400">
+                  {lang === 'en' ? 'Cloud MT5 Account Slots Limit' : 'Hạn mức khe cắm Cloud MT5'}
+                </span>
                 <strong className="font-mono text-sm text-cyan-300 tabular-nums">
-                  {accounts.length} / {cloudSub?.is_active ? Number(cloudSub?.max_cloud_accounts ?? 1) : 0} KHE CẮM
+                  {accounts.length} / {cloudSub?.is_active ? Number(cloudSub?.max_cloud_accounts ?? 1) : 0} {lang === 'en' ? 'SLOTS' : 'KHE CẮM'}
                 </strong>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
@@ -423,13 +429,13 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                 const daysLeft = isActive ? Math.floor(remSec / 86400) : 0;
                 const hoursLeft = isActive ? Math.floor((remSec % 86400) / 3600) : 0;
                 const isExpiringSoon = isActive && remSec <= 7 * 86400;
-                const expText = expTs > 0 ? new Date(expTs * 1000).toLocaleString('vi-VN') : 'Chưa kích hoạt';
+                const expText = expTs > 0 ? new Date(expTs * 1000).toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN') : (lang === 'en' ? 'Inactive' : 'Chưa kích hoạt');
                 const tierNameMap: Record<string, string> = {
-                  starter: 'Khởi Đầu (Starter)',
-                  growth: 'Tăng Trưởng (Growth)',
-                  pro: 'Tăng Trưởng (Pro)',
-                  alpha: 'Thi Quỹ Alpha',
-                  institutional: 'Thi Quỹ Alpha',
+                  starter: lang === 'en' ? 'Starter Tier' : 'Khởi Đầu (Starter)',
+                  growth: lang === 'en' ? 'Growth Tier' : 'Tăng Trưởng (Growth)',
+                  pro: lang === 'en' ? 'Pro Tier' : 'Tăng Trưởng (Pro)',
+                  alpha: lang === 'en' ? 'Alpha Prop Tier' : 'Thi Quỹ Alpha',
+                  institutional: lang === 'en' ? 'Institutional Tier' : 'Thi Quỹ Alpha',
                 };
                 const tierLabel = tierNameMap[String(cloudSub?.plan_tier || 'starter').toLowerCase()] || String(cloudSub?.plan_tier || 'STARTER').toUpperCase();
 
@@ -437,7 +443,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   <div className="pt-2 border-t border-white/[0.06] space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span className="text-slate-400">
-                        Gói hiện tại: <strong className="text-white">{tierLabel}</strong>
+                        {lang === 'en' ? 'Current Plan: ' : 'Gói hiện tại: '}<strong className="text-white">{tierLabel}</strong>
                       </span>
                       <span
                         className={`font-mono font-bold tabular-nums ${
@@ -448,12 +454,16 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                             : 'text-emerald-300'
                         }`}
                       >
-                        {isActive ? `Còn ${daysLeft} ngày ${hoursLeft} giờ` : expTs > 0 ? 'Đã hết hạn' : 'Chưa có gói'}
+                        {isActive
+                          ? (lang === 'en' ? `${daysLeft}d ${hoursLeft}h remaining` : `Còn ${daysLeft} ngày ${hoursLeft} giờ`)
+                          : expTs > 0
+                          ? (lang === 'en' ? 'Expired' : 'Đã hết hạn')
+                          : (lang === 'en' ? 'No Plan' : 'Chưa có gói')}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
-                      <span>Hết hạn: <span className="text-slate-200">{expText}</span></span>
-                      <span>Chu kỳ: {cloudSub?.billing_cycle || 'MONTHLY'}</span>
+                      <span>{lang === 'en' ? 'Expires: ' : 'Hết hạn: '}<span className="text-slate-200">{expText}</span></span>
+                      <span>{lang === 'en' ? 'Cycle: ' : 'Chu kỳ: '}{cloudSub?.billing_cycle || 'MONTHLY'}</span>
                     </div>
 
                     {(isExpiringSoon || (!isActive && expTs > 0)) && (
@@ -466,8 +476,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                       >
                         <span>
                           {!isActive
-                            ? 'Gói cước đã hết hạn. Gia hạn ngay để khôi phục giao dịch.'
-                            : `Gói sắp hết hạn (còn ${daysLeft} ngày). Gia hạn để cộng dồn thời gian!`}
+                            ? (lang === 'en' ? 'Subscription expired. Renew now to restore trading.' : 'Gói cước đã hết hạn. Gia hạn ngay để khôi phục giao dịch.')
+                            : (lang === 'en' ? `Subscription expires in ${daysLeft} days. Renew now to extend!` : `Gói sắp hết hạn (còn ${daysLeft} ngày). Gia hạn để cộng dồn thời gian!`)}
                         </span>
                         <button
                           type="button"
@@ -475,7 +485,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                           onClick={() => handleCreateCheckout('SEPAY')}
                           className="rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-mono font-bold px-3 py-1 text-[11px] cursor-pointer whitespace-nowrap"
                         >
-                          Gia Hạn Ngay →
+                          {lang === 'en' ? 'Renew Now →' : 'Gia Hạn Ngay →'}
                         </button>
                       </div>
                     )}
@@ -487,7 +497,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
             <div className="mt-5 space-y-4">
               <div>
                 <label className="mb-1.5 block text-[11px] font-mono uppercase tracking-wider text-slate-400">
-                  1. Chọn Hạng Gói Định Lượng
+                  {lang === 'en' ? '1. Select Quantitative Plan Tier' : '1. Chọn Hạng Gói Định Lượng'}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {PRICING_TIERS_LIST.map((t) => (
@@ -504,7 +514,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                       <div className="font-mono text-[10px] font-bold text-cyan-300">
                         {t.name}
                       </div>
-                      <div className="mt-1 font-mono text-sm font-extrabold text-white tabular-nums">${t.baseUsd}/th</div>
+                      <div className="mt-1 font-mono text-sm font-extrabold text-white tabular-nums">${t.baseUsd}/{lang === 'en' ? 'mo' : 'th'}</div>
                       <div className="mt-0.5 text-[9px] text-slate-400">{t.badge}</div>
                     </button>
                   ))}
@@ -513,27 +523,27 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                 {/* Chi tiết quyền lợi gói đang chọn */}
                 <div className="mt-3 rounded-xl border border-cyan-500/20 bg-[#040710]/70 p-3 text-xs text-slate-300 space-y-1.5">
                   <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-cyan-300">
-                    Quyền lợi gói đang chọn (Đã gồm 01 tài khoản Cloud MT5):
+                    {lang === 'en' ? 'Selected Tier Benefits (Includes 1 Cloud MT5 Account):' : 'Quyền lợi gói đang chọn (Đã gồm 01 tài khoản Cloud MT5):'}
                   </div>
                   {subTier === 'starter' && (
                     <ul className="space-y-1 text-[11px] text-slate-300">
-                      <li>✓ Tối đa <strong className="text-white">01 tài khoản MT5</strong> (phù hợp tài khoản Cent / Standard nhỏ, không cần thuê VPS).</li>
-                      <li>✓ Tự động chia Lot theo số dư, gắn SL theo biến động ATR &amp; chặn tin đỏ ±15 phút.</li>
-                      <li>✓ Tự động cắt lỗ bảo vệ ngày <strong className="text-emerald-300">5.0%</strong> an toàn.</li>
+                      <li>{lang === 'en' ? '✓ Up to 1 MT5 account (Cent / Standard, zero VPS required).' : '✓ Tối đa 01 tài khoản MT5 (phù hợp tài khoản Cent / Standard nhỏ, không cần thuê VPS).'}</li>
+                      <li>{lang === 'en' ? '✓ Automated lot allocation, ATR-based dynamic stop loss, and red news filter ±15 mins.' : '✓ Tự động chia Lot theo số dư, gắn SL theo biến động ATR & chặn tin đỏ ±15 phút.'}</li>
+                      <li>{lang === 'en' ? '✓ Hard daily drawdown circuit breaker at 5.0% safe threshold.' : '✓ Tự động cắt lỗ bảo vệ ngày 5.0% an toàn.'}</li>
                     </ul>
                   )}
                   {subTier === 'growth' && (
                     <ul className="space-y-1 text-[11px] text-slate-300">
-                      <li>✓ Gồm sẵn 01 tài khoản Cloud (mở rộng thêm chỉ +$10/TK phụ, tối đa 3 TK).</li>
-                      <li>✓ <strong className="text-amber-300">Tự động dời Hòa Vốn (+1R) &amp; Chốt 50% TP1</strong> khóa lợi nhuận.</li>
-                      <li>✓ <strong className="text-emerald-300">Tự động Lãi Kép</strong> theo tăng trưởng vốn + Cắt lỗ ngày 5.0%.</li>
+                      <li>{lang === 'en' ? '✓ Includes 1 Cloud MT5 account (expandable up to 3 accounts at +$10/slot).' : '✓ Gồm sẵn 01 tài khoản Cloud (mở rộng thêm chỉ +$10/TK phụ, tối đa 3 TK).'}</li>
+                      <li>{lang === 'en' ? '✓ Automated Break-Even (+1R) and 50% TP1 partial close to lock in gains.' : '✓ Tự động dời Hòa Vốn (+1R) & Chốt 50% TP1 khóa lợi nhuận.'}</li>
+                      <li>{lang === 'en' ? '✓ Autonomous compounding based on capital growth + 5.0% daily DD protection.' : '✓ Tự động Lãi Kép theo tăng trưởng vốn + Cắt lỗ ngày 5.0%.'}</li>
                     </ul>
                   )}
                   {subTier === 'alpha' && (
                     <ul className="space-y-1 text-[11px] text-slate-300">
-                      <li>✓ Chuyên dụng cho thi &amp; giữ quỹ <strong className="text-white">FTMO, FundedNext, The5ers</strong> (tối đa 5 TK).</li>
-                      <li>✓ Ngắt mạch cứng <strong className="text-rose-300">Daily Drawdown 4.0%</strong> + Tự đóng lệnh trước cuối tuần (T6 21:00 UTC).</li>
-                      <li>✓ Mở khóa <strong className="text-amber-300">AI Swarm tự chủ</strong> &amp; Kiểm toán chuyên sâu MAE/MFE.</li>
+                      <li>{lang === 'en' ? '✓ Engineered for prop firm challenges & funded accounts (FTMO, FundedNext, The5ers) up to 5 accounts.' : '✓ Chuyên dụng cho thi & giữ quỹ FTMO, FundedNext, The5ers (tối đa 5 TK).'}</li>
+                      <li>{lang === 'en' ? '✓ Hard Daily Drawdown 4.0% breaker + Auto weekend close (Fri 21:00 UTC).' : '✓ Ngắt mạch cứng Daily Drawdown 4.0% + Tự đóng lệnh trước cuối tuần (T6 21:00 UTC).'}</li>
+                      <li>{lang === 'en' ? '✓ Unlocks Autonomous AI Swarm & deep MAE/MFE order auditing.' : '✓ Mở khóa AI Swarm tự chủ & Kiểm toán chuyên sâu MAE/MFE.'}</li>
                     </ul>
                   )}
                 </div>
@@ -542,22 +552,22 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-[11px] font-mono uppercase tracking-wider text-slate-400">
-                    2. Chu Kỳ Thanh Toán
+                    {lang === 'en' ? '2. Billing Cycle' : '2. Chu Kỳ Thanh Toán'}
                   </label>
                   <select
                     value={subBillingCycle}
                     onChange={(e) => setSubBillingCycle(e.target.value)}
                     className="quant-input font-mono text-xs"
                   >
-                    <option value="MONTHLY">1 Tháng (Chuẩn)</option>
-                    <option value="QUARTERLY">3 Tháng (-10%)</option>
-                    <option value="BIANNUAL">6 Tháng (-15%)</option>
-                    <option value="ANNUAL">12 Tháng (-20%)</option>
+                    <option value="MONTHLY">{lang === 'en' ? '1 Month (Standard)' : '1 Tháng (Chuẩn)'}</option>
+                    <option value="QUARTERLY">{lang === 'en' ? '3 Months (-10%)' : '3 Tháng (-10%)'}</option>
+                    <option value="BIANNUAL">{lang === 'en' ? '6 Months (-15%)' : '6 Tháng (-15%)'}</option>
+                    <option value="ANNUAL">{lang === 'en' ? '12 Months (-20%)' : '12 Tháng (-20%)'}</option>
                   </select>
                 </div>
                 <div>
                   <label className="mb-1 block text-[11px] font-mono uppercase tracking-wider text-slate-400">
-                    3. Tổng Số Tài Khoản MT5
+                    {lang === 'en' ? '3. Total MT5 Accounts' : '3. Tổng Số Tài Khoản MT5'}
                   </label>
                   <input
                     type="number"
@@ -576,14 +586,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
             <div className="flex items-center justify-between rounded-xl border border-cyan-500/20 bg-cyan-950/15 px-3.5 py-2.5">
               <div>
                 <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
-                  <span>Tỷ giá: 1 USD = {currentRate.toLocaleString('vi-VN')} VND</span>
+                  <span>{lang === 'en' ? `Exchange Rate: 1 USD = ${currentRate.toLocaleString('vi-VN')} VND` : `Tỷ giá: 1 USD = ${currentRate.toLocaleString('vi-VN')} VND`}</span>
                   <button
                     type="button"
                     onClick={refreshFxRate}
                     disabled={fxLoading}
                     className="text-cyan-400 underline hover:text-cyan-300"
                   >
-                    {fxLoading ? '...' : 'Làm mới'}
+                    {fxLoading ? '...' : (lang === 'en' ? 'Refresh' : 'Làm mới')}
                   </button>
                 </div>
                 <div className="mt-0.5 font-mono text-base font-extrabold text-emerald-400 tabular-nums">
@@ -621,17 +631,19 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-emerald-400">
                 Zero-VPS Cloud Bridge
               </span>
-              <h3 className="mt-0.5 text-lg font-bold text-white">Kết Nối Trực Tiếp Tài Khoản MT5</h3>
+              <h3 className="mt-0.5 text-lg font-bold text-white">
+                {lang === 'en' ? 'Direct MT5 Account Connection' : 'Kết Nối Trực Tiếp Tài Khoản MT5'}
+              </h3>
             </div>
             <span className="font-mono text-[11px] text-slate-400">
-              Mã hóa AES-256 · Không cần treo máy
+              {lang === 'en' ? 'AES-256 Encrypted · Zero VPS Required' : 'Mã hóa AES-256 · Không cần treo máy'}
             </span>
           </div>
 
           <form onSubmit={handleOpenCloudConnectDisclaimer} className="mt-4 space-y-4">
             <div>
               <div className="mb-1.5 text-[11px] font-mono uppercase tracking-wider text-slate-400">
-                Chọn nhanh máy chủ sàn phổ biến:
+                {lang === 'en' ? 'Popular Broker Servers:' : 'Chọn nhanh máy chủ sàn phổ biến:'}
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {POPULAR_BROKERS.map((b) => (
@@ -659,17 +671,21 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 
             <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-300">Tên gợi nhớ tài khoản</label>
+                <label className="mb-1 block text-xs font-medium text-slate-300">
+                  {lang === 'en' ? 'Account Nickname' : 'Tên gợi nhớ tài khoản'}
+                </label>
                 <input
                   type="text"
-                  placeholder="VD: Quỹ FTMO $100k #1"
+                  placeholder={lang === 'en' ? 'e.g. FTMO $100k Challenge #1' : 'VD: Quỹ FTMO $100k #1'}
                   value={cloudForm.account_name}
                   onChange={(e) => setCloudForm({ ...cloudForm, account_name: e.target.value })}
                   className="quant-input text-sm"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-300">Mã đăng nhập MT5 (Login ID)</label>
+                <label className="mb-1 block text-xs font-medium text-slate-300">
+                  {lang === 'en' ? 'MT5 Login ID' : 'Mã đăng nhập MT5 (Login ID)'}
+                </label>
                 <input
                   type="text"
                   required
@@ -680,7 +696,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-300">Mật khẩu giao dịch (Master Password)</label>
+                <label className="mb-1 block text-xs font-medium text-slate-300">
+                  {lang === 'en' ? 'Master Trading Password' : 'Mật khẩu giao dịch (Master Password)'}
+                </label>
                 <input
                   type="password"
                   required
@@ -691,7 +709,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-300">Máy chủ sàn (Broker Server)</label>
+                <label className="mb-1 block text-xs font-medium text-slate-300">
+                  {lang === 'en' ? 'Broker Server' : 'Máy chủ sàn (Broker Server)'}
+                </label>
                 <input
                   type="text"
                   required
@@ -710,7 +730,11 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                       onChange={(e) => setCloudForm({ ...cloudForm, is_prop_firm_mode: e.target.checked })}
                       className="rounded border-white/20 bg-slate-900"
                     />
-                    <span>Tài khoản Quỹ (Prop Firm Guard — bỏ tick nếu là tài khoản Cá nhân)</span>
+                    <span>
+                      {lang === 'en'
+                        ? 'Prop Firm Account (Prop Firm Guard — uncheck for personal accounts)'
+                        : 'Tài khoản Quỹ (Prop Firm Guard — bỏ tick nếu là tài khoản Cá nhân)'}
+                    </span>
                   </label>
                   {cloudForm.is_prop_firm_mode && (
                     <select
@@ -720,17 +744,22 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                       }
                       className="rounded-lg border border-amber-500/40 bg-[#050914] px-2.5 py-1 font-mono text-xs text-amber-300"
                     >
-                      <option value="CHALLENGE">Đang thi (Challenge)</option>
-                      <option value="LIVE">Tài khoản Live (Funded — Trần 1%/ý tưởng)</option>
+                      <option value="CHALLENGE">{lang === 'en' ? 'Challenge Stage' : 'Đang thi (Challenge)'}</option>
+                      <option value="LIVE">{lang === 'en' ? 'Funded Live Account (1% cap/idea)' : 'Tài khoản Live (Funded — Trần 1%/ý tưởng)'}</option>
                     </select>
                   )}
                 </div>
               </div>
               <div className="sm:col-span-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-200 flex items-center justify-between gap-3">
                 <div>
-                  <div className="inline-flex items-center gap-1.5 font-semibold text-emerald-300"><IconShield className="w-4 h-4" />Quản trị Rủi ro &amp; Chia Lot Tự Động 100%</div>
+                  <div className="inline-flex items-center gap-1.5 font-semibold text-emerald-300">
+                    <IconShield className="w-4 h-4" />
+                    {lang === 'en' ? '100% Automated Risk Management & Lot Sizing' : 'Quản trị Rủi ro & Chia Lot Tự Động 100%'}
+                  </div>
                   <div className="mt-0.5 text-[11px] text-slate-300">
-                    Hệ thống tự động nhận diện loại tài khoản (<strong className="text-white">Cent / Standard / Quỹ Prop</strong>), tự chia Lot theo số dư (<strong className="text-white">1.0x</strong>) và tự khóa cắt lỗ ngày (<strong className="text-white">4.0%</strong> cho Quỹ / <strong className="text-white">5.0%</strong> cho TK thường).
+                    {lang === 'en'
+                      ? 'Automated account type detection (Cent / Standard / Prop Firm), proportional lot sizing (1.0x), and hard daily drawdown stop (4.0% for Prop / 5.0% for Standard).'
+                      : 'Hệ thống tự động nhận diện loại tài khoản (Cent / Standard / Quỹ Prop), tự chia Lot theo số dư (1.0x) và tự khóa cắt lỗ ngày (4.0% cho Quỹ / 5.0% cho TK thường).'}
                   </div>
                 </div>
               </div>
@@ -744,14 +773,17 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <span className="text-xs text-slate-400">
-                Tự động nhận diện hậu tố cặp tiền (<code className="text-cyan-300">XAUUSDm</code>, <code className="text-cyan-300">XAUUSD.pro</code>)
+                {lang === 'en' ? 'Auto-detects symbol suffix (' : 'Tự động nhận diện hậu tố cặp tiền ('}
+                <code className="text-cyan-300">XAUUSDm</code>, <code className="text-cyan-300">XAUUSD.pro</code>)
               </span>
               <button
                 type="submit"
                 disabled={cloudBusy}
                 className="quant-btn-primary px-5 py-2.5 text-xs whitespace-nowrap shrink-0"
               >
-                {cloudBusy ? 'Đang Đồng Bộ...' : '+ Kết Nối Tài Khoản MT5'}
+                {cloudBusy
+                  ? (lang === 'en' ? 'Connecting...' : 'Đang Đồng Bộ...')
+                  : (lang === 'en' ? '+ Connect MT5 Account' : '+ Kết Nối Tài Khoản MT5')}
               </button>
             </div>
           </form>

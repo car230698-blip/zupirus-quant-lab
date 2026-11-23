@@ -7,6 +7,7 @@ import { computeOrderLedgerMetrics } from '../utils/quantMath';
 import { MetricCard, Panel, StatusBadge } from './ui/Primitives';
 import { SpotlightBento } from './ui/SpotlightBento';
 import { IconActivity, IconClose, IconReceipt, IconSearch, IconShield, IconTrendingUp } from './Icons';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface UserOrdersTabProps {
   accounts?: any[];
@@ -33,6 +34,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
   selectedOrder: externalSelectedOrder,
   setSelectedOrder: externalSetSelectedOrder,
 }) => {
+  const { lang } = useLanguage();
   const [sideFilter, setSideFilter] = useState<'ALL' | 'BUY' | 'SELL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [localSelectedOrder, setLocalSelectedOrder] = useState<any | null>(null);
@@ -102,7 +104,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
       q.set('days', '30');
       await api.downloadBlob(`/api/v1/orders/export?${q.toString()}`, `zupirus_sao_ke_lenh_${Date.now()}.csv`);
     } catch (err) {
-      alert('Lỗi xuất sao kê CSV: ' + (err instanceof Error ? err.message : String(err)));
+      alert((lang === 'en' ? 'CSV export failed: ' : 'Lỗi xuất sao kê CSV: ') + (err instanceof Error ? err.message : String(err)));
     }
   };
 
@@ -112,39 +114,41 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
         <MetricCard
           className="lg:col-span-3"
-          label="Tổng Số Lệnh Sổ Cái"
+          label={lang === 'en' ? 'Total Ledger Orders' : 'Tổng Số Lệnh Sổ Cái'}
           value={ledgerStats.totalCount}
           tone="cyan"
           icon={<IconReceipt className="w-4 h-4" />}
           subtext={
             <span className="font-mono tabular-nums">
-              Đã khớp: <strong className="text-cyan-300">{ledgerStats.filledCount}</strong>
+              {lang === 'en' ? 'Filled: ' : 'Đã khớp: '}<strong className="text-cyan-300">{ledgerStats.filledCount}</strong>
             </span>
           }
         />
         <MetricCard
           className="lg:col-span-3"
-          label="Tỷ Lệ Thắng (Win Rate)"
+          label={lang === 'en' ? 'Win Rate' : 'Tỷ Lệ Thắng (Win Rate)'}
           value={<span className="text-emerald-400">{ledgerStats.winRatePct}%</span>}
           tone="emerald"
           icon={<IconTrendingUp className="w-4 h-4" />}
           subtext={
             <span className="font-mono tabular-nums">
-              Thắng {ledgerStats.winCount} / Thua {ledgerStats.lossCount}
+              {lang === 'en'
+                ? `Wins ${ledgerStats.winCount} / Losses ${ledgerStats.lossCount}`
+                : `Thắng ${ledgerStats.winCount} / Thua ${ledgerStats.lossCount}`}
             </span>
           }
         />
         <MetricCard
           className="lg:col-span-3"
-          label="Hệ Số Lợi Nhuận (PF)"
+          label={lang === 'en' ? 'Profit Factor (PF)' : 'Hệ Số Lợi Nhuận (PF)'}
           value={<span className="text-cyan-300">{fmtNum(ledgerStats.profitFactor, 2)}</span>}
           tone="amber"
           icon={<IconActivity className="w-4 h-4" />}
-          subtext="Chuẩn R:R định lượng ≥ 1.8"
+          subtext={lang === 'en' ? 'Quant R:R target ≥ 1.8' : 'Chuẩn R:R định lượng ≥ 1.8'}
         />
         <MetricCard
           className="lg:col-span-3"
-          label="Tổng Lợi Nhuận Thực Tế"
+          label={lang === 'en' ? 'Net Realized PnL' : 'Tổng Lợi Nhuận Thực Tế'}
           value={
             <span className={ledgerStats.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
               {fmtPnL(ledgerStats.netPnl)}
@@ -152,14 +156,18 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
           }
           tone={ledgerStats.netPnl >= 0 ? 'emerald' : 'rose'}
           icon={<IconShield className="w-4 h-4" />}
-          subtext="Đối soát Ticket / Deal MT5"
+          subtext={lang === 'en' ? 'Reconciled with MT5 Deals' : 'Đối soát Ticket / Deal MT5'}
         />
       </div>
 
       {/* Header & Filter Bar */}
       <Panel
-        title="Nhật Ký Khớp Lệnh & Đối Soát MT5"
-        subtitle="Sổ cái thực thi định lượng — lọc theo tài khoản, trạng thái hoặc mã Ticket/Deal."
+        title={lang === 'en' ? 'Order Execution Ledger & MT5 Audit' : 'Nhật Ký Khớp Lệnh & Đối Soát MT5'}
+        subtitle={
+          lang === 'en'
+            ? 'Quantitative execution ledger — filter by account, order state, or Ticket/Deal ID.'
+            : 'Sổ cái thực thi định lượng — lọc theo tài khoản, trạng thái hoặc mã Ticket/Deal.'
+        }
         icon={<IconReceipt className="w-4 h-4 text-amber-300" />}
         action={
           <div className="flex items-center gap-2">
@@ -168,10 +176,10 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               onClick={handleExportCsv}
               className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-mono font-bold rounded-lg border border-slate-700 bg-[#091224] text-slate-200 hover:border-amber-400/50 hover:text-amber-300 transition cursor-pointer"
             >
-              📥 Xuất Sao Kê CSV
+              {lang === 'en' ? '📥 Export CSV Ledger' : '📥 Xuất Sao Kê CSV'}
             </button>
             <StatusBadge tone="info" dot>
-              {filteredOrders.length} lệnh
+              {lang === 'en' ? `${filteredOrders.length} orders` : `${filteredOrders.length} lệnh`}
             </StatusBadge>
           </div>
         }
@@ -186,7 +194,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm mã lệnh, Ticket, tài khoản..."
+              placeholder={lang === 'en' ? 'Search Order ID, Ticket, Account...' : 'Tìm mã lệnh, Ticket, tài khoản...'}
               className="quant-input pl-9 font-mono text-xs"
             />
           </div>
@@ -195,10 +203,10 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
             <select
               value={orderAccountFilter}
               onChange={(e) => setOrderAccountFilter(e.target.value)}
-              aria-label="Lọc theo tài khoản MT5"
+              aria-label={lang === 'en' ? 'Filter by MT5 account' : 'Lọc theo tài khoản MT5'}
               className="quant-input w-auto py-1.5 font-mono text-xs"
             >
-              <option value="all">Tất cả tài khoản MT5</option>
+              <option value="all">{lang === 'en' ? 'All MT5 Accounts' : 'Tất cả tài khoản MT5'}</option>
               {accounts.map((a: any) => {
                 const id = a.id || a.account_id || a.login;
                 return (
@@ -214,13 +222,13 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
             <select
               value={orderStateFilter}
               onChange={(e) => setOrderStateFilter(e.target.value)}
-              aria-label="Lọc theo trạng thái lệnh"
+              aria-label={lang === 'en' ? 'Filter by order status' : 'Lọc theo trạng thái lệnh'}
               className="quant-input w-auto py-1.5 font-mono text-xs"
             >
-              <option value="all">Mọi trạng thái</option>
+              <option value="all">{lang === 'en' ? 'All States' : 'Mọi trạng thái'}</option>
               {orderStates.map((st) => (
                 <option key={st} value={st}>
-                  {translateOrderStatus(st)}
+                  {translateOrderStatus(st, lang)}
                 </option>
               ))}
             </select>
@@ -238,7 +246,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                     : 'text-slate-400 hover:text-white border border-transparent'
                 }`}
               >
-                {side === 'ALL' ? 'Tất Cả' : side}
+                {side === 'ALL' ? (lang === 'en' ? 'All' : 'Tất Cả') : side}
               </button>
             ))}
           </div>
@@ -278,7 +286,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
             }}
             className="ml-auto quant-btn-secondary px-3 py-1.5 font-mono text-xs whitespace-nowrap shrink-0 disabled:opacity-40"
           >
-            Xuất CSV ({filteredOrders.length})
+            {lang === 'en' ? `Export CSV (${filteredOrders.length})` : `Xuất CSV (${filteredOrders.length})`}
           </button>
         </div>
       </Panel>
@@ -289,27 +297,29 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
           <table className="quant-table">
             <thead>
               <tr>
-                <th>Mã Lệnh / Thời Gian</th>
-                <th>Tài Khoản / Nguồn</th>
-                <th>Chiều / Cặp</th>
-                <th className="text-right">Khối Lượng</th>
-                <th className="text-right">Giá Khớp</th>
+                <th>{lang === 'en' ? 'Order ID / Time' : 'Mã Lệnh / Thời Gian'}</th>
+                <th>{lang === 'en' ? 'Account / Source' : 'Tài Khoản / Nguồn'}</th>
+                <th>{lang === 'en' ? 'Side / Pair' : 'Chiều / Cặp'}</th>
+                <th className="text-right">{lang === 'en' ? 'Volume' : 'Khối Lượng'}</th>
+                <th className="text-right">{lang === 'en' ? 'Fill Price' : 'Giá Khớp'}</th>
                 <th className="text-right">SL / TP</th>
-                <th className="text-right">PnL Thực Tế</th>
-                <th className="text-right">Trạng Thái</th>
+                <th className="text-right">{lang === 'en' ? 'Realized PnL' : 'PnL Thực Tế'}</th>
+                <th className="text-right">{lang === 'en' ? 'Status' : 'Trạng Thái'}</th>
               </tr>
             </thead>
             <tbody>
               {status === 'loading' ? (
                 <tr>
                   <td colSpan={8} className="py-10 text-center text-sm text-slate-400">
-                    Đang tải sổ cái lệnh MT5...
+                    {lang === 'en' ? 'Loading MT5 order ledger...' : 'Đang tải sổ cái lệnh MT5...'}
                   </td>
                 </tr>
               ) : filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-10 text-center text-sm text-slate-400">
-                    Chưa có bản ghi lệnh nào trong bộ lọc hiện tại.
+                    {lang === 'en'
+                      ? 'No order records found matching current filters.'
+                      : 'Chưa có bản ghi lệnh nào trong bộ lọc hiện tại.'}
                   </td>
                 </tr>
               ) : (
@@ -395,7 +405,9 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                                 : 'bg-amber-400'
                             }`}
                           />
-                          {o._isLiveOpen ? 'Đang chạy Live · Đã khớp' : translateOrderStatus(orderState)}
+                          {o._isLiveOpen
+                            ? (lang === 'en' ? 'Live · Filled' : 'Đang chạy Live · Đã khớp')
+                            : translateOrderStatus(orderState, lang)}
                         </span>
                       </td>
                     </tr>
@@ -435,8 +447,8 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 </div>
               </div>
               <div className="mt-2 flex items-center justify-between font-mono text-[11px] text-slate-400 tabular-nums">
-                <span>Giá: {fmtNum(price, 2)}</span>
-                <span>{translateOrderStatus(orderState)}</span>
+                <span>{lang === 'en' ? 'Price: ' : 'Giá: '}{fmtNum(price, 2)}</span>
+                <span>{translateOrderStatus(orderState, lang)}</span>
               </div>
             </SpotlightBento>
           );
@@ -456,7 +468,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div>
                 <span className="text-[10px] font-sans uppercase tracking-widest text-cyan-400 font-semibold">
-                  Chi Tiết Khớp Lệnh &amp; Kiểm Toán MT5
+                  {lang === 'en' ? 'Execution Details & MT5 Audit' : 'Chi Tiết Khớp Lệnh & Kiểm Toán MT5'}
                 </span>
                 <h4 className="font-mono text-base font-bold text-white tabular-nums">
                   #{selectedOrder.client_order_id || selectedOrder.id}
@@ -464,7 +476,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               </div>
               <button
                 type="button"
-                aria-label="Đóng chi tiết lệnh"
+                aria-label={lang === 'en' ? 'Close order details' : 'Đóng chi tiết lệnh'}
                 onClick={() => setSelectedOrder(null)}
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
               >
@@ -474,19 +486,19 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
 
             <div className="grid grid-cols-2 gap-3 rounded-xl border border-white/[0.07] bg-[#040710] p-4 font-mono text-xs tabular-nums">
               <div>
-                <div className="text-[10px] text-slate-500">CHIỀU / SYMBOL</div>
+                <div className="text-[10px] text-slate-500">{lang === 'en' ? 'SIDE / SYMBOL' : 'CHIỀU / SYMBOL'}</div>
                 <div className="mt-0.5 font-bold text-white">
                   {selectedOrder.side} · {selectedOrder.symbol || 'XAUUSD'}
                 </div>
               </div>
               <div>
-                <div className="text-[10px] text-slate-500">KHỐI LƯỢNG</div>
+                <div className="text-[10px] text-slate-500">{lang === 'en' ? 'VOLUME' : 'KHỐI LƯỢNG'}</div>
                 <div className="mt-0.5 font-bold text-cyan-300">
                   {fmtNum(selectedOrder.volume ?? selectedOrder.quantity ?? 0, 2)} lot
                 </div>
               </div>
               <div>
-                <div className="text-[10px] text-slate-500">GIÁ KHỚP</div>
+                <div className="text-[10px] text-slate-500">{lang === 'en' ? 'FILL PRICE' : 'GIÁ KHỚP'}</div>
                 <div className="mt-0.5 font-bold text-white">
                   {fmtNum(
                     selectedOrder.filled_price || selectedOrder.requested_price || selectedOrder.price,
@@ -495,7 +507,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 </div>
               </div>
               <div>
-                <div className="text-[10px] text-slate-500">LỢI NHUẬN (PNL)</div>
+                <div className="text-[10px] text-slate-500">{lang === 'en' ? 'PROFIT (PNL)' : 'LỢI NHUẬN (PNL)'}</div>
                 <div
                   className={`mt-0.5 font-bold ${
                     Number(selectedOrder.pnl ?? selectedOrder.profit ?? selectedOrder.realized_pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
@@ -509,20 +521,20 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 <div className="mt-0.5 text-slate-300">{selectedOrder.ticket || selectedOrder.deal || 'Auto'}</div>
               </div>
               <div>
-                <div className="text-[10px] text-slate-500">TRẠNG THÁI</div>
+                <div className="text-[10px] text-slate-500">{lang === 'en' ? 'STATUS' : 'TRẠNG THÁI'}</div>
                 <div className="mt-0.5 text-emerald-300">
-                  {translateOrderStatus(selectedOrder.status || selectedOrder.state)}
+                  {translateOrderStatus(selectedOrder.status || selectedOrder.state, lang)}
                 </div>
               </div>
             </div>
 
             <div className="rounded-xl border border-white/[0.06] bg-[#030712] p-3 font-mono text-[11px] text-slate-400 space-y-1">
               <div className="flex justify-between">
-                <span>Kiểm toán 4 Lớp Giáp</span>
+                <span>{lang === 'en' ? '4-Layer Shield Audit' : 'Kiểm toán 4 Lớp Giáp'}</span>
                 <strong className="text-emerald-400">PASSED (Redis Lock + Hard SL)</strong>
               </div>
               <div className="flex justify-between">
-                <span>Cầu nối thực thi</span>
+                <span>{lang === 'en' ? 'Execution Bridge' : 'Cầu nối thực thi'}</span>
                 <strong className="text-cyan-300">MetaApi London G2</strong>
               </div>
             </div>
@@ -533,7 +545,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 onClick={() => setSelectedOrder(null)}
                 className="quant-btn-secondary px-4 py-2 text-xs"
               >
-                Đóng Chi Tiết
+                {lang === 'en' ? 'Close Details' : 'Đóng Chi Tiết'}
               </button>
             </div>
           </div>

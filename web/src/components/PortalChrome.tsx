@@ -44,45 +44,59 @@ function renderNavIcon(key: string): ReactNode {
 
 export type Portal = 'user' | 'admin';
 
-const navigation = {
+export const getNavigation = (lang: 'vi' | 'en' = 'vi') => ({
   user: [
-    ['overview', 'Tổng quan danh mục', '01'],
-    ['accounts', 'Tài khoản Cloud MT5', '02'],
-    ['orders', 'Nhật ký khớp lệnh', '03'],
+    ['overview', lang === 'en' ? 'Portfolio Cockpit' : 'Tổng quan danh mục', '01'],
+    ['accounts', lang === 'en' ? 'Cloud MT5 Accounts' : 'Tài khoản Cloud MT5', '02'],
+    ['orders', lang === 'en' ? 'Execution Ledger' : 'Nhật ký khớp lệnh', '03'],
   ],
   admin: [
-    ['radar', 'Giám Sát AI & Cảnh Báo', '01'],
-    ['ai', 'Trí Tuệ AI & Nguồn Tín Hiệu', '02'],
-    ['business', 'Kinh Doanh & Khách Hàng', '03'],
+    ['radar', lang === 'en' ? 'AI Radar & Alerts' : 'Giám Sát AI & Cảnh Báo', '01'],
+    ['ai', lang === 'en' ? 'AI Engine & Signals' : 'Trí Tuệ AI & Nguồn Tín Hiệu', '02'],
+    ['business', lang === 'en' ? 'Billing & Customers' : 'Kinh Doanh & Khách Hàng', '03'],
   ],
-};
+});
 
-const pageTitles: Record<Portal, Record<string, string>> = {
+export const getPageTitles = (lang: 'vi' | 'en' = 'vi'): Record<Portal, Record<string, string>> => ({
   user: {
-    overview: 'Tổng Quan Danh Mục & Buồng Lái Thực Thi XAU/USD',
-    accounts: 'Quản Trị Trạm Cloud MT5 & Cấu Hình Giáp Rủi Ro',
-    orders: 'Sổ Cái Khớp Lệnh Định Lượng & Đối Soát Đám Mây',
+    overview: lang === 'en' ? 'Portfolio Cockpit & XAU/USD Execution Hub' : 'Tổng Quan Danh Mục & Buồng Lái Thực Thi XAU/USD',
+    accounts: lang === 'en' ? 'Cloud MT5 Terminal Station & Risk Shield Config' : 'Quản Trị Trạm Cloud MT5 & Cấu Hình Giáp Rủi Ro',
+    orders: lang === 'en' ? 'Quantitative Order Ledger & Cloud Settlement' : 'Sổ Cái Khớp Lệnh Định Lượng & Đối Soát Đám Mây',
   },
   admin: {
-    radar: 'Giám Sát Hoạt Động AI & Cảnh Báo Lỗi',
-    ai: 'Trí Tuệ AI & Nguồn Tín Hiệu Tự Tiến Hóa',
-    business: 'Cài Đặt Kinh Doanh, SePay & Khách Hàng',
+    radar: lang === 'en' ? 'AI Health Monitor & Error Alerts' : 'Giám Sát Hoạt Động AI & Cảnh Báo Lỗi',
+    ai: lang === 'en' ? 'Autonomous AI Intelligence & Evolving Signals' : 'Trí Tuệ AI & Nguồn Tín Hiệu Tự Tiến Hóa',
+    business: lang === 'en' ? 'Business Operations, Billing & Customers' : 'Cài Đặt Kinh Doanh, SePay & Khách Hàng',
   },
-};
+});
 
-const pageSubtitles: Record<Portal, Record<string, string>> = {
+export const getPageSubtitles = (lang: 'vi' | 'en' = 'vi'): Record<Portal, Record<string, string>> => ({
   user: {
-    overview: 'Giám sát vốn thả nổi thời gian thực, luồng nến TimescaleDB 24/5, sổ lệnh thanh khoản và trạng thái 4 lớp giáp bảo vệ vốn.',
-    accounts: 'Đấu nối trực tiếp tới máy chủ MT5 qua hạ tầng đám mây London G2 mà không cần treo VPS hay cài đặt phần mềm EA.',
-    orders: 'Truy vết minh bạch từng tín hiệu, giá khớp thực tế, mã Ticket/Deal, Profit Factor và nhật ký kiểm toán rủi ro.',
-    assistant: 'Truy vấn trực tiếp dữ liệu danh mục và giải thích lý do vào lệnh XAU/USD M15 theo thời gian thực.',
+    overview: lang === 'en'
+      ? 'Real-time floating equity monitoring, 24/5 TimescaleDB candle feed, liquidity order book, and 4-layer fail-closed capital defense.'
+      : 'Giám sát vốn thả nổi thời gian thực, luồng nến TimescaleDB 24/5, sổ lệnh thanh khoản và trạng thái 4 lớp giáp bảo vệ vốn.',
+    accounts: lang === 'en'
+      ? 'Direct cloud integration with London G2 MT5 brokers with 0 VPS setup and 0 manual EA installations.'
+      : 'Đấu nối trực tiếp tới máy chủ MT5 qua hạ tầng đám mây London G2 mà không cần treo VPS hay cài đặt phần mềm EA.',
+    orders: lang === 'en'
+      ? 'Transparent execution audit trail with exact fill price, Ticket/Deal IDs, Profit Factor, and risk sanitization logs.'
+      : 'Truy vết minh bạch từng tín hiệu, giá khớp thực tế, mã Ticket/Deal, Profit Factor và nhật ký kiểm toán rủi ro.',
+    assistant: lang === 'en'
+      ? 'Query real-time portfolio metrics and inspect XAU/USD M15 decision rationale.'
+      : 'Truy vấn trực tiếp dữ liệu danh mục và giải thích lý do vào lệnh XAU/USD M15 theo thời gian thực.',
   },
   admin: {
-    radar: 'Nhịp tim hệ thống 4 phân hệ, dòng thời gian quyết định của AI theo thời gian thực và hộp xử lý cảnh báo lỗi.',
-    ai: 'Lộ trình tự tiến hóa 3 giai đoạn, nguồn hạt giống, kỹ năng AI tự học và cấu hình Gemini API Pool.',
-    business: 'Cấu hình nhận tiền SePay, tỷ giá USD/VND, đối soát ngoại lệ đơn hàng và quản trị tài khoản khách hàng.',
+    radar: lang === 'en'
+      ? '4-subsystem cluster health, real-time AI decision timeline, and error resolution box.'
+      : 'Nhịp tim hệ thống 4 phân hệ, dòng thời gian quyết định của AI theo thời gian thực và hộp xử lý cảnh báo lỗi.',
+    ai: lang === 'en'
+      ? '3-stage self-evolution roadmap, seed signals, self-learning skills, and Gemini API pool.'
+      : 'Lộ trình tự tiến hóa 3 giai đoạn, nguồn hạt giống, kỹ năng AI tự học và cấu hình Gemini API Pool.',
+    business: lang === 'en'
+      ? 'Payment gateway settings, USD/VND conversion rates, exception settlement, and user management.'
+      : 'Cấu hình nhận tiền SePay, tỷ giá USD/VND, đối soát ngoại lệ đơn hàng và quản trị tài khoản khách hàng.',
   },
-};
+});
 
 export function Brand({ onClick, collapsed }: { onClick?: () => void; collapsed?: boolean }) {
   return (
@@ -138,7 +152,7 @@ export function PortalShell({
 }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState('');
-  const { lang, toggleLang } = useLanguage();
+  const { lang } = useLanguage();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
@@ -153,6 +167,10 @@ export function PortalShell({
   const [notifDropdownOpen, setNotifDropdownOpen] = useState<boolean>(false);
   const { data: telemetryData } = useLiveTopbarTelemetry();
   useRealtimePortalStream(portal, Boolean(email));
+
+  const navigation = getNavigation(lang);
+  const pageTitles = getPageTitles(lang);
+  const pageSubtitles = getPageSubtitles(lang);
 
   const fetchNotifications = async () => {
     try {
@@ -344,7 +362,7 @@ export function PortalShell({
               <div className="flex items-center justify-between text-[11px] text-slate-300 pb-2 border-b border-white/[0.08]">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-amber-400" />
-                  Cụm Đám Mây
+                  {lang === 'en' ? 'Cloud Cluster' : 'Cụm Đám Mây'}
                 </span>
                 <span className="text-amber-300 font-mono tabular-nums">London G2 · OK</span>
               </div>
@@ -355,7 +373,7 @@ export function PortalShell({
                   rel="noopener noreferrer"
                   className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/25 transition-colors flex items-center justify-between"
                 >
-                  <span>Cộng Đồng Discord</span>
+                  <span>{lang === 'en' ? 'Discord Community' : 'Cộng Đồng Discord'}</span>
                   <span className="text-[10px] text-indigo-300">↗</span>
                 </a>
                 <button
@@ -363,7 +381,7 @@ export function PortalShell({
                   onClick={() => setCmdOpen(true)}
                   className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-slate-200 bg-white/[0.04] hover:bg-amber-500/15 hover:text-amber-200 border border-white/10 transition-colors flex items-center justify-between cursor-pointer"
                 >
-                  <span>Bảng Lệnh Nhanh</span>
+                  <span>{lang === 'en' ? 'Quick Command' : 'Bảng Lệnh Nhanh'}</span>
                   <kbd className="text-[10px] text-amber-300">⌘K</kbd>
                 </button>
               </div>
@@ -394,27 +412,27 @@ export function PortalShell({
           <div className="flex items-center gap-4 tabular-nums">
             <span className="inline-flex items-center gap-1.5 text-amber-300 font-bold">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-              XAU/USD: {liveSpot.loaded && liveSpot.bid > 0 ? `$${liveSpot.bid.toFixed(2)} / $${liveSpot.ask.toFixed(2)}` : "Đang đồng bộ..."}
+              XAU/USD: {liveSpot.loaded && liveSpot.bid > 0 ? `$${liveSpot.bid.toFixed(2)} / $${liveSpot.ask.toFixed(2)}` : (lang === 'en' ? "Syncing..." : "Đang đồng bộ...")}
             </span>
             <span className="text-slate-600">·</span>
             <span>
-              PHIÊN:{' '}
+              {lang === 'en' ? 'SESSION: ' : 'PHIÊN: '}
               <strong className="text-emerald-400">
                 {(() => {
                   const now = new Date();
                   const day = now.getUTCDay();
                   const hour = now.getUTCHours();
-                  if (day === 0 || day === 6 || (day === 5 && hour >= 22)) return 'CUỐI TUẦN (ĐÓNG CỬA)';
+                  if (day === 0 || day === 6 || (day === 5 && hour >= 22)) return lang === 'en' ? 'WEEKEND (CLOSED)' : 'CUỐI TUẦN (ĐÓNG CỬA)';
                   if (hour >= 13 && hour < 17) return 'LONDON–NY OVERLAP';
-                  if (hour >= 7 && hour < 13) return 'PHIÊN ÂU (LONDON)';
-                  if (hour >= 17 && hour < 22) return 'PHIÊN MỸ (NEW YORK)';
-                  return 'PHIÊN Á (TOKYO)';
+                  if (hour >= 7 && hour < 13) return lang === 'en' ? 'LONDON SESSION' : 'PHIÊN ÂU (LONDON)';
+                  if (hour >= 17 && hour < 22) return lang === 'en' ? 'NEW YORK SESSION' : 'PHIÊN MỸ (NEW YORK)';
+                  return lang === 'en' ? 'TOKYO SESSION' : 'PHIÊN Á (TOKYO)';
                 })()}
               </strong>
             </span>
             <span className="text-slate-600">·</span>
             <span>
-              GIÁP VỐN: <strong className="text-cyan-300">4/4 FAIL-CLOSED</strong>
+              {lang === 'en' ? 'CAPITAL SHIELD: ' : 'GIÁP VỐN: '}<strong className="text-cyan-300">4/4 FAIL-CLOSED</strong>
             </span>
           </div>
 
@@ -453,17 +471,9 @@ export function PortalShell({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={toggleLang}
-              className="flex h-8 px-2 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 hover:text-white transition cursor-pointer text-xs font-mono font-bold"
-              title="Chuyển đổi ngôn ngữ / Switch Language (VI / EN)"
-            >
-              {lang === 'vi' ? '🇻🇳 VI' : '🇬🇧 EN'}
-            </button>
-            <button
-              type="button"
               onClick={() => setQuantTheme(quantTheme === 'gold' ? 'cyber' : 'gold')}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 hover:text-white transition cursor-pointer text-xs"
-              title="Đổi chủ đề (Gold / Cyber)"
+              title={lang === 'en' ? "Switch theme (Gold / Cyber)" : "Đổi chủ đề (Gold / Cyber)"}
             >
               {quantTheme === 'gold' ? '⚡' : '◈'}
             </button>
@@ -487,8 +497,8 @@ export function PortalShell({
             <button
               type="button"
               onClick={handleToggleSidebar}
-              title={sidebarCollapsed ? 'Mở thanh tác vụ bên trái (Ctrl+B)' : 'Thu gọn thanh tác vụ bên trái (Ctrl+B)'}
-              aria-label="Đóng mở thanh điều hướng"
+              title={sidebarCollapsed ? (lang === 'en' ? 'Open sidebar (Ctrl+B)' : 'Mở thanh tác vụ bên trái (Ctrl+B)') : (lang === 'en' ? 'Collapse sidebar (Ctrl+B)' : 'Thu gọn thanh tác vụ bên trái (Ctrl+B)')}
+              aria-label="Toggle navigation"
               className={`mr-2 flex h-9 w-9 items-center justify-center rounded-lg border transition cursor-pointer ${
                 portal === 'admin'
                   ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/60 hover:bg-cyan-500/20'
@@ -498,7 +508,7 @@ export function PortalShell({
               <IconMenu className="w-4 h-4" />
             </button>
             <span className={`hidden sm:inline font-semibold ${portal === 'admin' ? 'text-cyan-300/90' : 'text-amber-300/90'}`}>
-              {portal === 'admin' ? 'TRẠM QUẢN TRỊ' : 'CỔNG TRADER'}
+              {portal === 'admin' ? (lang === 'en' ? 'ADMIN COMMAND' : 'TRẠM QUẢN TRỊ') : (lang === 'en' ? 'TRADER PORTAL' : 'CỔNG TRADER')}
             </span>
             <span aria-hidden="true" className="text-slate-600 hidden sm:inline">/</span>
             <span className="text-white font-bold">{currentNavLabel}</span>
@@ -511,18 +521,8 @@ export function PortalShell({
             <span className="text-amber-300 font-bold tabular-nums">~{liveSpot.latency}ms</span>
           </div>
 
-          {/* Zone 3: Session Identity & Primary Action */}
+          {/* Zone 3: Session Identity & Primary Action (Language auto-detected via IP) */}
           <div className="quant-session">
-            {/* Language Switcher */}
-            <button
-              type="button"
-              onClick={toggleLang}
-              className="quant-quiet font-mono font-bold hover:border-amber-400/50 hover:text-amber-300"
-              title="Chuyển đổi ngôn ngữ / Switch Language (VI / EN)"
-            >
-              {lang === 'vi' ? '🇻🇳 VI' : '🇬🇧 EN'}
-            </button>
-
             {/* Notification Bell Dropdown */}
             <NotificationBellMenu
               notifications={notifications}
@@ -538,9 +538,9 @@ export function PortalShell({
               type="button"
               onClick={() => setCmdOpen(true)}
               className="quant-quiet hidden sm:inline-flex items-center gap-1.5"
-              title="Mở bảng điều khiển nhanh (Ctrl+K)"
+              title={lang === 'en' ? "Open Command Palette (Ctrl+K)" : "Mở bảng điều khiển nhanh (Ctrl+K)"}
             >
-              <span>Lệnh Nhanh</span>
+              <span>{lang === 'en' ? 'Quick Command' : 'Lệnh Nhanh'}</span>
               <span className="text-amber-300">⌘K</span>
             </button>
             <span className="quant-email hidden md:inline-block" title={email}>
@@ -556,13 +556,13 @@ export function PortalShell({
               }}
               className="quant-quiet hover:border-cyan-500/50 hover:text-cyan-300"
             >
-              Đổi MK
+              {lang === 'en' ? 'Password' : 'Đổi MK'}
             </button>
             <button
               className="quant-quiet hover:border-rose-500/50 hover:text-rose-300"
               onClick={logout}
             >
-              Đăng xuất
+              {lang === 'en' ? 'Sign Out' : 'Đăng xuất'}
             </button>
           </div>
         </header>
@@ -602,16 +602,16 @@ export function PortalShell({
           const active = page === key;
           const shortLabel =
             key === 'overview'
-              ? 'Tổng Quan'
+              ? (lang === 'en' ? 'Cockpit' : 'Tổng Quan')
               : key === 'accounts'
-              ? 'Tài Khoản'
+              ? (lang === 'en' ? 'Accounts' : 'Tài Khoản')
               : key === 'orders'
-              ? 'Lệnh'
+              ? (lang === 'en' ? 'Orders' : 'Lệnh')
               : key === 'radar'
               ? 'Radar'
               : key === 'ai'
               ? 'AI Lab'
-              : 'Khách Hàng';
+              : (lang === 'en' ? 'Clients' : 'Khách Hàng');
           return (
             <button
               key={key}
@@ -668,7 +668,9 @@ export function PortalShell({
               </span>
             )}
           </div>
-          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[64px]">Thông Báo</span>
+          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[64px]">
+            {lang === 'en' ? 'Alerts' : 'Thông Báo'}
+          </span>
         </button>
 
         {/* Profile / Account Drawer Tab */}
@@ -683,7 +685,9 @@ export function PortalShell({
           }`}
         >
           <User className="w-4 h-4" strokeWidth={1.75} />
-          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[64px]">Cá Nhân</span>
+          <span className="mt-1 font-mono text-[9.5px] tracking-tight truncate max-w-[64px]">
+            {lang === 'en' ? 'Profile' : 'Cá Nhân'}
+          </span>
         </button>
       </nav>
 
@@ -698,7 +702,7 @@ export function PortalShell({
               <div>
                 <div className="text-white font-bold text-sm truncate max-w-[240px]">{email}</div>
                 <div className="text-[10px] text-amber-300 mt-0.5">
-                  {portal === 'admin' ? 'ADMINISTRATOR' : 'TRADER · 4/4 SHIELD ACTIVE'}
+                  {portal === 'admin' ? 'ADMINISTRATOR' : (lang === 'en' ? 'TRADER · 4/4 SHIELD ACTIVE' : 'TRADER · 4/4 SHIELD ACTIVE')}
                 </div>
               </div>
               <button
@@ -712,7 +716,7 @@ export function PortalShell({
 
             <div className="space-y-2">
               <div className="flex items-center justify-between rounded-xl border border-white/5 bg-[#040814] p-3">
-                <span className="text-slate-300">Giao diện (Theme):</span>
+                <span className="text-slate-300">{lang === 'en' ? 'Theme:' : 'Giao diện (Theme):'}</span>
                 <div className="flex items-center gap-1 text-[10px]">
                   <button
                     type="button"
@@ -746,7 +750,7 @@ export function PortalShell({
                 }}
                 className="w-full flex items-center justify-between rounded-xl border border-white/5 bg-[#040814] p-3 text-left text-slate-200 hover:bg-white/5 transition cursor-pointer"
               >
-                <span>Đổi Mật Khẩu</span>
+                <span>{lang === 'en' ? 'Change Password' : 'Đổi Mật Khẩu'}</span>
                 <span className="text-slate-500">→</span>
               </button>
 
@@ -756,7 +760,7 @@ export function PortalShell({
                 rel="noopener noreferrer"
                 className="w-full flex items-center justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-left text-[#8EA1FF] hover:bg-indigo-500/20 transition"
               >
-                <span>Cộng Đồng Discord</span>
+                <span>{lang === 'en' ? 'Discord Community' : 'Cộng Đồng Discord'}</span>
                 <span>↗</span>
               </a>
 
@@ -768,7 +772,7 @@ export function PortalShell({
                 }}
                 className="w-full flex items-center justify-center rounded-xl border border-rose-500/30 bg-rose-950/20 p-3 text-rose-300 font-bold hover:bg-rose-500/20 transition cursor-pointer"
               >
-                Đăng Xuất
+                {lang === 'en' ? 'Sign Out' : 'Đăng Xuất'}
               </button>
             </div>
           </div>
@@ -802,14 +806,14 @@ export function PortalShell({
               type="text"
               value={cmdQuery}
               onChange={(e) => setCmdQuery(e.target.value)}
-              placeholder="Tìm nhanh mô-đun điều hướng hoặc cổng giao diện..."
+              placeholder={lang === 'en' ? "Quick search modules or navigation..." : "Tìm nhanh mô-đun điều hướng hoặc cổng giao diện..."}
               className="quant-input font-mono text-xs"
               autoFocus
             />
 
             <div className="space-y-3">
               <div className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
-                Điều Hướng Phân Hệ ({portal.toUpperCase()})
+                {lang === 'en' ? `NAVIGATION MODULES (${portal.toUpperCase()})` : `Điều Hướng Phân Hệ (${portal.toUpperCase()})`}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {filteredNavItems.map(([key, label, code]) => (
@@ -848,7 +852,7 @@ export function PortalShell({
           >
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <span className="font-mono text-xs font-bold uppercase tracking-widest text-cyan-300">
-                Đổi Mật Khẩu Bảo Mật
+                {lang === 'en' ? 'Security Password Change' : 'Đổi Mật Khẩu Bảo Mật'}
               </span>
               <button
                 type="button"
@@ -866,11 +870,11 @@ export function PortalShell({
                 setPwdMsg(null);
                 try {
                   await apiPost('/api/auth/change-password', { current_password: curPwd, new_password: newPwd });
-                  setPwdMsg('✓ Đã đổi mật khẩu thành công.');
+                  setPwdMsg(lang === 'en' ? '✓ Password changed successfully.' : '✓ Đã đổi mật khẩu thành công.');
                   setCurPwd('');
                   setNewPwd('');
                 } catch (err: any) {
-                  setPwdMsg(`Lỗi: ${err.message || String(err)}`);
+                  setPwdMsg(`${lang === 'en' ? 'Error: ' : 'Lỗi: '}${err.message || String(err)}`);
                 } finally {
                   setPwdBusy(false);
                 }
@@ -881,7 +885,7 @@ export function PortalShell({
                 required
                 value={curPwd}
                 onChange={(e) => setCurPwd(e.target.value)}
-                placeholder="Mật khẩu hiện tại"
+                placeholder={lang === 'en' ? "Current password" : "Mật khẩu hiện tại"}
                 className="quant-input text-xs"
               />
               <input
@@ -890,7 +894,7 @@ export function PortalShell({
                 minLength={12}
                 value={newPwd}
                 onChange={(e) => setNewPwd(e.target.value)}
-                placeholder="Mật khẩu mới (tối thiểu 12 ký tự)"
+                placeholder={lang === 'en' ? "New password (min 12 chars)" : "Mật khẩu mới (tối thiểu 12 ký tự)"}
                 className="quant-input text-xs"
               />
               {pwdMsg && (
@@ -904,10 +908,10 @@ export function PortalShell({
                   onClick={() => setPwdModalOpen(false)}
                   className="quant-btn-secondary px-3 py-1.5 text-xs"
                 >
-                  Đóng
+                  {lang === 'en' ? 'Close' : 'Đóng'}
                 </button>
                 <button type="submit" disabled={pwdBusy} className="quant-btn-primary px-4 py-1.5 text-xs">
-                  {pwdBusy ? 'Đang lưu...' : 'Cập nhật mật khẩu'}
+                  {pwdBusy ? (lang === 'en' ? 'Saving...' : 'Đang lưu...') : (lang === 'en' ? 'Update Password' : 'Cập nhật mật khẩu')}
                 </button>
               </div>
             </form>

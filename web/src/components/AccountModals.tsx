@@ -42,13 +42,15 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-amber-400">
-                  Xác Nhận Pháp Lý & Quản Trị Rủi Ro
+                  {lang === 'en' ? 'Legal & Risk Management Confirmation' : 'Xác Nhận Pháp Lý & Quản Trị Rủi Ro'}
                 </span>
-                <h4 className="text-base font-bold text-white">Đồng Ý Điều Khoản Thực Thi Định Lượng</h4>
+                <h4 className="text-base font-bold text-white">
+                  {lang === 'en' ? 'Quantitative Execution Terms Agreement' : 'Đồng Ý Điều Khoản Thực Thi Định Lượng'}
+                </h4>
               </div>
               <button
                 type="button"
-                aria-label="Đóng hộp thoại điều khoản"
+                aria-label={lang === 'en' ? 'Close terms dialog' : 'Đóng hộp thoại điều khoản'}
                 onClick={() => setDisclaimerModalOpen(false)}
                 className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
               >
@@ -58,10 +60,16 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
 
             <div className="space-y-2.5 rounded-xl border border-white/[0.07] bg-[#040710] p-4 text-xs leading-relaxed text-slate-300">
               <p>
-                1. <strong>Quyền kiểm soát tài khoản:</strong> ZUPIRUS Quant Lab chỉ sử dụng thông tin đăng nhập MT5 của bạn để đồng bộ vị thế XAU/USD và kiểm soát ngưỡng cắt lỗ ngày (Daily Drawdown Guard).
+                1. <strong>{lang === 'en' ? 'Account control: ' : 'Quyền kiểm soát tài khoản: '}</strong>
+                {lang === 'en'
+                  ? 'ZUPIRUS Quant Lab only uses your MT5 credentials to synchronize positions and enforce Daily Drawdown protection.'
+                  : 'ZUPIRUS Quant Lab chỉ sử dụng thông tin đăng nhập MT5 của bạn để đồng bộ vị thế XAU/USD và kiểm soát ngưỡng cắt lỗ ngày (Daily Drawdown Guard).'}
               </p>
               <p>
-                2. <strong>Cảnh báo rủi ro thị trường:</strong> Giao dịch CFD/Kim loại quý có đòn bẩy cao. Lá chắn 4 lớp giúp giới hạn rủi ro trong ngưỡng cài đặt ({maxDailyDdPct}%/ngày) nhưng không loại trừ hoàn toàn trượt giá thị trường (slippage) trong tin tức cực đoan.
+                2. <strong>{lang === 'en' ? 'Market risk warning: ' : 'Cảnh báo rủi ro thị trường: '}</strong>
+                {lang === 'en'
+                  ? `Leveraged CFD/Precious Metals trading carries high risk. The 4-layer shield limits risk within configured limits (${maxDailyDdPct}%/day) but cannot eliminate extreme market slippage during black swan news events.`
+                  : `Giao dịch CFD/Kim loại quý có đòn bẩy cao. Lá chắn 4 lớp giúp giới hạn rủi ro trong ngưỡng cài đặt (${maxDailyDdPct}%/ngày) nhưng không loại trừ hoàn toàn trượt giá thị trường (slippage) trong tin tức cực đoan.`}
               </p>
             </div>
 
@@ -73,7 +81,9 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                 className="mt-0.5 rounded border-slate-600"
               />
               <span>
-                Tôi đã đọc, hiểu rõ cơ chế Lá Chắn Rủi Ro 4 Lớp và xác nhận uỷ quyền kết nối tài khoản MT5{' '}
+                {lang === 'en'
+                  ? 'I have read, understood the 4-layer capital shield mechanism, and confirm authorization to connect MT5 account '
+                  : 'Tôi đã đọc, hiểu rõ cơ chế Lá Chắn Rủi Ro 4 Lớp và xác nhận uỷ quyền kết nối tài khoản MT5 '}
                 <strong className="font-mono text-cyan-300">#{mt5Login}</strong>.
               </span>
             </label>
@@ -84,7 +94,7 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                 onClick={() => setDisclaimerModalOpen(false)}
                 className="quant-btn-secondary px-4 py-2 text-xs"
               >
-                Huỷ Bỏ
+                {lang === 'en' ? 'Cancel' : 'Huỷ Bỏ'}
               </button>
               <button
                 type="button"
@@ -92,7 +102,7 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                 onClick={executeConnectCloudAccount}
                 className="quant-btn-primary px-5 py-2 text-xs disabled:opacity-40"
               >
-                Ký Xác Nhận & Kết Nối Cloud
+                {lang === 'en' ? 'Sign & Connect Cloud' : 'Ký Xác Nhận & Kết Nối Cloud'}
               </button>
             </div>
           </div>
@@ -107,13 +117,13 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400">
                   {checkoutOrder.payment_gateway?.startsWith('NOWPAYMENTS')
-                    ? 'CỔNG THANH TOÁN QUỐC TẾ USDT'
-                    : 'Cổng Thanh Toán Tự Động SePay'}
+                    ? (lang === 'en' ? 'INTERNATIONAL USDT PAYMENT GATEWAY' : 'CỔNG THANH TOÁN QUỐC TẾ USDT')
+                    : (lang === 'en' ? 'SePay Automated Payment Gateway' : 'Cổng Thanh Toán Tự Động SePay')}
                 </span>
                 <h4 className="text-base font-bold text-white">
                   {checkoutOrder.payment_gateway?.startsWith('NOWPAYMENTS')
-                    ? 'Thanh Toán Gói Cloud MT5 Bằng USDT'
-                    : 'Quét Mã VietQR Kích Hoạt Gói Cloud'}
+                    ? (lang === 'en' ? 'Cloud MT5 Subscription Payment with USDT' : 'Thanh Toán Gói Cloud MT5 Bằng USDT')
+                    : (lang === 'en' ? 'Scan VietQR to Activate Cloud MT5' : 'Quét Mã VietQR Kích Hoạt Gói Cloud')}
                 </h4>
               </div>
               <button
@@ -141,23 +151,25 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                   <div className="space-y-4 text-left">
                     <div className="space-y-2 rounded-xl border border-emerald-500/30 bg-[#040710] p-4 font-mono text-xs">
                       <div className="flex justify-between items-center">
-                        <span className="text-slate-400">Mã đơn hàng:</span>
+                        <span className="text-slate-400">{lang === 'en' ? 'Order ID:' : 'Mã đơn hàng:'}</span>
                         <strong className="text-cyan-300 select-all">{displayOrderId}</strong>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-slate-400">Số tiền thanh toán:</span>
+                        <span className="text-slate-400">{lang === 'en' ? 'Payment Amount:' : 'Số tiền thanh toán:'}</span>
                         <strong className="text-emerald-400 text-sm font-bold">
                           ${amountUsd.toFixed(2)} USDT
                         </strong>
                       </div>
                       <div className="flex justify-between items-center border-t border-white/[0.05] pt-2">
-                        <span className="text-slate-400">Mạng lưới hỗ trợ:</span>
+                        <span className="text-slate-400">{lang === 'en' ? 'Supported Networks:' : 'Mạng lưới hỗ trợ:'}</span>
                         <span className="text-amber-300 font-bold">TRC20 · BEP20 · ERC20</span>
                       </div>
                       <div className="flex justify-between items-center border-t border-white/[0.05] pt-2">
-                        <span className="text-slate-400">Trạng thái:</span>
+                        <span className="text-slate-400">{lang === 'en' ? 'Status:' : 'Trạng thái:'}</span>
                         <strong className={checkoutOrder.status === 'PAID' ? 'text-emerald-400 font-bold' : 'text-amber-300'}>
-                          {checkoutOrder.status === 'PAID' ? '✓ ĐÃ THANH TOÁN (KÍCH HOẠT CLOUD)' : '⏳ ĐANG CHỜ XÁC NHẬN GIAO DỊCH...'}
+                          {checkoutOrder.status === 'PAID'
+                            ? (lang === 'en' ? '✓ PAID (CLOUD ACTIVATED)' : '✓ ĐÃ THANH TOÁN (KÍCH HOẠT CLOUD)')
+                            : (lang === 'en' ? '⏳ AWAITING BLOCKCHAIN CONFIRMATION...' : '⏳ ĐANG CHỜ XÁC NHẬN GIAO DỊCH...')}
                         </strong>
                       </div>
                     </div>
@@ -170,31 +182,37 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                           rel="noopener noreferrer"
                           className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-lg hover:from-emerald-400 hover:to-teal-500 transition cursor-pointer"
                         >
-                          <span>Mở Cổng Thanh Toán NOWPayments</span>
+                          <span>{lang === 'en' ? 'Open NOWPayments Gateway' : 'Mở Cổng Thanh Toán NOWPayments'}</span>
                           <span>↗</span>
                         </a>
                         <p className="text-[11px] text-center text-slate-400">
-                          Sau khi gửi USDT trên NOWPayments, hệ thống sẽ tự động kích hoạt tài khoản trong vòng 1-3 phút.
+                          {lang === 'en'
+                            ? 'After sending USDT on NOWPayments, the system will automatically activate your subscription within 1-3 minutes.'
+                            : 'Sau khi gửi USDT trên NOWPayments, hệ thống sẽ tự động kích hoạt tài khoản trong vòng 1-3 phút.'}
                         </p>
                       </div>
                     ) : (
                       <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-3.5 text-xs text-amber-200 space-y-2">
                         <div className="font-bold flex items-center gap-1.5 text-amber-300">
-                          <span>ℹ️ Thanh Toán USDT Thủ Công (Manual Support)</span>
+                          <span>ℹ️ {lang === 'en' ? 'Manual USDT Settlement (Assisted)' : 'Thanh Toán USDT Thủ Công (Manual Support)'}</span>
                         </div>
                         <p className="text-[11px] text-slate-300 leading-relaxed">
-                          Cổng thanh toán tự động đang được thiết lập. Vui lòng liên hệ Admin qua Discord hoặc gửi email về{' '}
+                          {lang === 'en'
+                            ? 'Automatic USDT gateway is being configured. Please contact Admin via Discord or email '
+                            : 'Cổng thanh toán tự động đang được thiết lập. Vui lòng liên hệ Admin qua Discord hoặc gửi email về '}
                           <a href="mailto:support@zupirus.com" className="text-cyan-300 underline font-mono">
                             support@zupirus.com
                           </a>{' '}
-                          kèm mã đơn <strong className="text-white font-mono">{displayOrderId}</strong> để nhận địa chỉ ví USDT nạp trực tiếp trong 5 phút.
+                          {lang === 'en' ? 'with Order ID ' : 'kèm mã đơn '}
+                          <strong className="text-white font-mono">{displayOrderId}</strong>{' '}
+                          {lang === 'en' ? 'to receive dedicated deposit address within 5 minutes.' : 'để nhận địa chỉ ví USDT nạp trực tiếp trong 5 phút.'}
                         </p>
                       </div>
                     )}
 
                     {pollingPaid && checkoutOrder.status !== 'PAID' && (
                       <div className="pt-1 text-[11px] font-mono text-slate-400 text-center">
-                        Hệ thống đang tự động kiểm tra trạng thái thanh toán...
+                        {lang === 'en' ? 'System is polling blockchain payment status...' : 'Hệ thống đang tự động kiểm tra trạng thái thanh toán...'}
                       </div>
                     )}
                   </div>

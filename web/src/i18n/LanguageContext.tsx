@@ -14,19 +14,10 @@ interface LanguageContextProps {
 
 const LanguageContext = createContext<LanguageContextProps | undefined>(undefined);
 
-const STORAGE_KEY = 'zupirus_lang';
-const MANUAL_KEY = 'zupirus_lang_manual';
-
 export const detectInitialLanguage = (): Language => {
   if (typeof window === 'undefined') return 'en';
 
-  // 1. Explicit user choice (manual click on VI/EN button) takes precedence
-  const manual = localStorage.getItem(MANUAL_KEY);
-  if (manual === 'vi' || manual === 'en') {
-    return manual;
-  }
-
-  // 2. URL parameter override: ?lang=en or ?lang=vi
+  // 1. URL parameter override: ?lang=en or ?lang=vi (for manual testing/overrides)
   try {
     const params = new URLSearchParams(window.location.search);
     const qLang = params.get('lang')?.toLowerCase();
@@ -35,7 +26,7 @@ export const detectInitialLanguage = (): Language => {
     }
   } catch {}
 
-  // 3. Cookie set by server based on Cloudflare CF-IPCountry / GeoIP
+  // 2. Cookie set by server based on Cloudflare CF-IPCountry / GeoIP
   try {
     const cookies = document.cookie.split(';');
     for (const c of cookies) {
@@ -46,21 +37,18 @@ export const detectInitialLanguage = (): Language => {
     }
   } catch {}
 
-  // 4. Foreign visitor detection via Browser Language & Timezone:
-  // a) Browser Language check
+  // 3. Fallback: Browser Language & Physical Timezone check
   const navLang = (navigator.language || '').toLowerCase();
   const rawLangs = Array.isArray(navigator.languages) ? navigator.languages : [navLang];
   const hasVietnameseLang = navLang.startsWith('vi') || rawLangs.some(l => (l || '').toLowerCase().startsWith('vi'));
 
-  // b) Physical Timezone check
   let isVnTimezone = false;
   try {
     const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').toLowerCase();
     isVnTimezone = tz.includes('ho_chi_minh') || tz.includes('saigon');
   } catch {}
 
-  // If visitor's browser is NOT Vietnamese OR visitor's timezone is outside Vietnam:
-  // Automatically identify as Foreign Visitor and default to ENGLISH ('en')!
+  // If visitor is outside Vietnam (either non-VN timezone or non-VN browser):
   if (!hasVietnameseLang || !isVnTimezone) {
     return 'en';
   }
@@ -71,23 +59,33 @@ export const detectInitialLanguage = (): Language => {
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [lang, setLangState] = useState<Language>(() => detectInitialLanguage());
 
-  const setLang = useCallback((newLang: Language, isManual: boolean = true) => {
+  // Automatic background IP Geo confirmation from server
+  useEffect(() => {
+    let active = true;
+    api.get<{ language: Language; is_foreign: boolean }>('/api/v1/auth/geo')
+      .then((res) => {
+        if (!active) return;
+        if (res?.language && (res.language === 'en' || res.language === 'vi')) {
+          setLangState(res.language);
+          document.documentElement.lang = res.language;
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const setLang = useCallback((newLang: Language) => {
     setLangState(newLang);
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, newLang);
-      if (isManual) {
-        localStorage.setItem(MANUAL_KEY, newLang);
-      }
       document.documentElement.lang = newLang;
-      // Persist to backend if authenticated (silent background call)
-      api.patch('/api/v1/auth/language', { language: newLang }).catch(() => {
-        // Ignore unauthenticated or network errors
-      });
+      api.patch('/api/v1/auth/language', { language: newLang }).catch(() => {});
     }
   }, []);
 
   const toggleLang = useCallback(() => {
-    setLang(lang === 'vi' ? 'en' : 'vi', true);
+    setLang(lang === 'vi' ? 'en' : 'vi');
   }, [lang, setLang]);
 
   useEffect(() => {

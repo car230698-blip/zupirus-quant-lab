@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { fmtNum } from '../utils/strategyDecision';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface CandlestickTelemetryChartProps {
   candles: any[];
@@ -28,10 +29,14 @@ export const CandlestickTelemetryChart: React.FC<CandlestickTelemetryChartProps>
   showBbChannel,
   setShowBbChannel,
 }) => {
+  const { lang } = useLanguage();
+
   if (!valid.length) {
     return (
       <div className="flex h-72 items-center justify-center rounded-xl border border-amber-500/20 bg-[#040710]/90 text-xs font-mono uppercase tracking-[0.2em] text-amber-300">
-        Đang đồng bộ luồng nến {symbol} ({timeframe})...
+        {lang === 'en'
+          ? `Synchronizing ${symbol} (${timeframe}) candlestick feed...`
+          : `Đang đồng bộ luồng nến ${symbol} (${timeframe})...`}
       </div>
     );
   }
@@ -109,7 +114,9 @@ export const CandlestickTelemetryChart: React.FC<CandlestickTelemetryChartProps>
         <div className="mb-2.5 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300">
           <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
           <span className="font-medium">
-            Thị trường đóng cửa (Cuối tuần) · Hiển thị nến phiên gần nhất
+            {lang === 'en'
+              ? 'Market Closed (Weekend) · Showing latest session candles'
+              : 'Thị trường đóng cửa (Cuối tuần) · Hiển thị nến phiên gần nhất'}
           </span>
         </div>
       )}
@@ -133,7 +140,7 @@ export const CandlestickTelemetryChart: React.FC<CandlestickTelemetryChartProps>
             C: <strong className="text-amber-300">{fmtNum(inspectedCandle.close, 2)}</strong>
           </span>
           <span className="text-slate-400 tabular-nums hidden sm:inline shrink-0">
-            Biên độ:{' '}
+            {lang === 'en' ? 'Range: ' : 'Biên độ: '}
             <strong className="text-cyan-300">
               {fmtNum((Number(inspectedCandle.high) - Number(inspectedCandle.low)) * 10, 1)} pips
             </strong>

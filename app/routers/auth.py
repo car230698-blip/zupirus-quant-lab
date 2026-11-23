@@ -157,6 +157,18 @@ def me(u=Depends(get_current_user)):
     }
 
 
+@router.get('/api/v1/auth/geo')
+def get_geo_language(request: Request):
+    cf_country = (request.headers.get("cf-ipcountry") or "").upper()
+    accept_lang = (request.headers.get("accept-language") or "").lower()
+    is_foreign = bool((cf_country and cf_country != "VN") or ("vi" not in accept_lang and cf_country != "VN"))
+    return {
+        "country": cf_country or "UNKNOWN",
+        "is_foreign": is_foreign,
+        "language": "en" if is_foreign else "vi",
+    }
+
+
 @router.patch('/api/v1/auth/language')
 @router.patch('/api/auth/language')
 def update_user_language(p: UpdateLanguagePayload, u=Depends(get_current_user)):

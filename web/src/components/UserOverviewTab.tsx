@@ -8,6 +8,9 @@ import { apiGet } from '../api/client.ts';
 import { formatAccountMoney } from '../utils/currencyFormat.ts';
 import { SpotlightBento } from './ui/SpotlightBento';
 import { RadialRiskGauge } from './ui/RadialRiskGauge';
+import { useLanguage } from '../i18n/LanguageContext';
+import { getShieldLayers } from '../data/quantConstants';
+import { IconSettings, IconSpark } from './Icons';
 
 export interface UserOverviewTabProps {
   totalBalance?: number;
@@ -39,9 +42,6 @@ export interface UserOverviewTabProps {
   activeTabSetter?: (tab: any) => void;
 }
 
-import { SHIELD_LAYERS } from '../data/quantConstants';
-import { IconSettings, IconSpark } from './Icons';
-
 export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   totalBalance = 0,
   totalEquity = 0,
@@ -68,6 +68,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   accounts = [],
   activeTabSetter,
 }) => {
+  const { lang } = useLanguage();
   const [chartDays, setChartDays] = useState(30);
   const [localChartMode, setLocalChartMode] = useState<'candles' | 'equity'>('candles');
   const [showEmaOverlay, setShowEmaOverlay] = useState(true);
@@ -151,18 +152,19 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   }, [validCandlesForAtr]);
 
   const dynamicShieldLayers = React.useMemo(() => {
+    const baseLayers = getShieldLayers(lang);
     if (telemetryData?.shields && telemetryData.shields.length === 4) {
       return telemetryData.shields.map((s: any, i: number) => ({
         id: `0${i + 1}`,
-        code: SHIELD_LAYERS[i]?.code || s.layer,
-        title: s.name || SHIELD_LAYERS[i]?.title,
-        status: s.status || SHIELD_LAYERS[i]?.status,
+        code: baseLayers[i]?.code || s.layer,
+        title: lang === 'en' ? (baseLayers[i]?.title || s.name) : (s.name || baseLayers[i]?.title),
+        status: s.status || baseLayers[i]?.status,
         latency: `${Number(s.latency_ms ?? 0).toFixed(1)} ms`,
-        detail: s.detail || SHIELD_LAYERS[i]?.detail,
+        detail: lang === 'en' ? (baseLayers[i]?.detail || s.detail) : (s.detail || baseLayers[i]?.detail),
       }));
     }
-    return SHIELD_LAYERS;
-  }, [telemetryData]);
+    return baseLayers;
+  }, [telemetryData, lang]);
 
   const ddDanger = computedDailyDd >= maxDdLimitPct * 0.8;
   const activeShield = dynamicShieldLayers[activeShieldIdx] || dynamicShieldLayers[0];
@@ -222,14 +224,24 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                     : 'bg-emerald-500/20 text-emerald-300'
                 }`}
               >
-                {isActive ? `GÓI ${tierLabel}` : expTs > 0 ? `GÓI ${tierLabel} · HẾT HẠN` : 'CHƯA CÓ GÓI'}
+                {isActive
+                  ? (lang === 'en' ? `${tierLabel} PLAN` : `GÓI ${tierLabel}`)
+                  : expTs > 0
+                  ? (lang === 'en' ? `${tierLabel} PLAN · EXPIRED` : `GÓI ${tierLabel} · HẾT HẠN`)
+                  : (lang === 'en' ? 'NO ACTIVE PLAN' : 'CHƯA CÓ GÓI')}
               </span>
               <span className="text-slate-200 font-medium">
                 {isActive
-                  ? `Còn hiệu lực ${daysLeft} ngày ${hoursLeft} giờ${expStr ? ` (đến ${expStr})` : ''} · ${Number(subInfo.max_cloud_accounts || 1)} khe cắm Cloud MT5`
+                  ? (lang === 'en'
+                      ? `Valid for ${daysLeft}d ${hoursLeft}h${expStr ? ` (until ${expStr})` : ''} · ${Number(subInfo.max_cloud_accounts || 1)} Cloud MT5 slots`
+                      : `Còn hiệu lực ${daysLeft} ngày ${hoursLeft} giờ${expStr ? ` (đến ${expStr})` : ''} · ${Number(subInfo.max_cloud_accounts || 1)} khe cắm Cloud MT5`)
                   : expTs > 0
-                  ? `Gói đã hết hạn ngày ${expStr}. Gia hạn để tiếp tục nhận lệnh tự động.`
-                  : 'Bạn chưa kích hoạt gói Cloud MT5 nào.'}
+                  ? (lang === 'en'
+                      ? `Plan expired on ${expStr}. Renew to resume autonomous execution.`
+                      : `Gói đã hết hạn ngày ${expStr}. Gia hạn để tiếp tục nhận lệnh tự động.`)
+                  : (lang === 'en'
+                      ? 'No active Cloud MT5 subscription found.'
+                      : 'Bạn chưa kích hoạt gói Cloud MT5 nào.')}
               </span>
             </div>
             {activeTabSetter && (
@@ -242,7 +254,13 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                     : 'border border-cyan-500/40 bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25'
                 }`}
               >
-                {!isActive ? (expTs > 0 ? 'Gia Hạn Gói Ngay →' : 'Mua Gói Ngay →') : isExpiringSoon ? 'Gia Hạn Thêm →' : 'Quản Lý / Gia Hạn Gói'}
+                {!isActive
+                  ? (expTs > 0
+                      ? (lang === 'en' ? 'Renew Plan Now →' : 'Gia Hạn Gói Ngay →')
+                      : (lang === 'en' ? 'Subscribe Now →' : 'Mua Gói Ngay →'))
+                  : isExpiringSoon
+                  ? (lang === 'en' ? 'Extend Plan →' : 'Gia Hạn Thêm →')
+                  : (lang === 'en' ? 'Manage / Renew Plan' : 'Quản Lý / Gia Hạn Gói')}
               </button>
             )}
           </div>
@@ -259,7 +277,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
               <div className="min-w-0 space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] uppercase tracking-[0.18em] text-amber-300 font-bold">
-                    01 // TỔNG VỐN &amp; BUỒNG LÁI ĐỊNH LƯỢNG
+                    {lang === 'en' ? '01 // AGGREGATED CAPITAL & COCKPIT' : '01 // TỔNG VỐN & BUỒNG LÁI ĐỊNH LƯỢNG'}
                   </span>
                   <span className="rounded bg-amber-500/15 border border-amber-400/35 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-amber-300">
                     USD LIVE
@@ -281,7 +299,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                   </span>
                   {totalPositions > 0 && (
                     <span className="text-xs text-slate-400">
-                      · <span className="font-mono tabular-nums">{totalPositions}</span> lệnh mở
+                      · <span className="font-mono tabular-nums">{totalPositions}</span> {lang === 'en' ? 'open positions' : 'lệnh mở'}
                     </span>
                   )}
                 </div>
@@ -295,7 +313,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                     onClick={() => setCertModalOpen(true)}
                     className="rounded-xl border border-amber-400/45 bg-amber-500/15 px-3 py-1.5 font-mono text-xs font-bold text-amber-200 hover:bg-amber-500/25 transition whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    🏆 Pass Quỹ
+                    {lang === 'en' ? '🏆 Prop Pass' : '🏆 Pass Quỹ'}
                   </button>
                 )}
                 <div className="flex rounded-xl border border-white/10 bg-[#040710] p-0.5">
@@ -311,7 +329,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Nến {symbol}
+                    {lang === 'en' ? `${symbol} Candles` : `Nến ${symbol}`}
                   </button>
                   <button
                     type="button"
@@ -322,7 +340,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                         : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Đường Vốn
+                    {lang === 'en' ? 'Equity Curve' : 'Đường Vốn'}
                   </button>
                 </div>
 
@@ -393,13 +411,13 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             {/* Bottom Execution Telemetry Micro-Strip */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 font-mono text-xs tabular-nums border-t border-white/[0.08]">
               <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
-                <div className="text-[10px] text-slate-400">CHẾ ĐỘ THỊ TRƯỜNG</div>
+                <div className="text-[10px] text-slate-400">{lang === 'en' ? 'MARKET REGIME' : 'CHẾ ĐỘ THỊ TRƯỜNG'}</div>
                 <div className="mt-0.5 font-bold text-amber-300">EXPANSION M15</div>
               </div>
               <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
-                <div className="text-[10px] text-slate-400">BIÊN ĐỘ ATR(14)</div>
+                <div className="text-[10px] text-slate-400">{lang === 'en' ? 'ATR(14) RANGE' : 'BIÊN ĐỘ ATR(14)'}</div>
                 <div className="mt-0.5 font-bold text-cyan-300">
-                  {liveAtr14 > 0 ? `${fmtNum(liveAtr14, 2)} USD` : 'Đo ATR(14)...'}
+                  {liveAtr14 > 0 ? `${fmtNum(liveAtr14, 2)} USD` : (lang === 'en' ? 'Measuring ATR(14)...' : 'Đo ATR(14)...')}
                 </div>
               </div>
               <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
@@ -407,7 +425,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 <div className="mt-0.5 font-bold text-emerald-400">ARMED @ +1.0R</div>
               </div>
               <div className="rounded-xl border border-white/[0.07] bg-[#040710]/90 p-2.5">
-                <div className="text-[10px] text-slate-400">CHẾ ĐỘ BẢO VỆ</div>
+                <div className="text-[10px] text-slate-400">{lang === 'en' ? 'PROTECTION REGIME' : 'CHẾ ĐỘ BẢO VỆ'}</div>
                 <div className="mt-0.5 font-bold text-emerald-400 flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span>Fail-Closed 4/4</span>
@@ -424,16 +442,16 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             {/* Gauge 1: Khiên Sụt Giảm Ngày */}
             <SpotlightBento className="p-4 sm:p-5 flex-1 flex flex-col justify-between">
               <RadialRiskGauge
-                title="Khiên Sụt Giảm Ngày"
+                title={lang === 'en' ? 'Daily Drawdown Shield' : 'Khiên Sụt Giảm Ngày'}
                 value={computedDailyDd}
                 max={maxDdLimitPct}
                 tone={ddDanger ? 'rose' : 'teal'}
-                badgeLabel={ddDanger ? 'NGUY HIỂM' : 'AN TOÀN'}
+                badgeLabel={ddDanger ? (lang === 'en' ? 'DANGER' : 'NGUY HIỂM') : (lang === 'en' ? 'SAFE' : 'AN TOÀN')}
                 badgeTone={ddDanger ? 'rose' : 'teal'}
                 subtitle={
                   <div className="space-y-1 text-[11px] text-slate-300 font-sans">
-                    <div>Trần bảo vệ: <strong className="text-amber-300 font-mono tabular-nums">{fmtNum(maxDdLimitPct, 1)}%</strong></div>
-                    <div>Cơ chế: <strong className="text-emerald-300">Fail-Closed 100%</strong></div>
+                    <div>{lang === 'en' ? 'Drawdown Cap: ' : 'Trần bảo vệ: '}<strong className="text-amber-300 font-mono tabular-nums">{fmtNum(maxDdLimitPct, 1)}%</strong></div>
+                    <div>{lang === 'en' ? 'Mechanism: ' : 'Cơ chế: '}<strong className="text-emerald-300">Fail-Closed 100%</strong></div>
                   </div>
                 }
               />
@@ -453,28 +471,28 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                         onClick={() => setCertModalOpen(true)}
                         className="rounded-lg border border-amber-400/50 bg-amber-500/20 px-1.5 py-0.5 text-[9.5px] font-bold text-amber-300 hover:bg-amber-500/30 transition shrink-0 cursor-pointer font-sans"
                       >
-                        🏆 Xuất Chứng Chỉ
+                        {lang === 'en' ? '🏆 Certificate' : '🏆 Xuất Chứng Chỉ'}
                       </button>
                     )}
                   </div>
                   <RadialRiskGauge
-                    title="Mục Tiêu Pass Quỹ (8%)"
+                    title={lang === 'en' ? 'Prop Target (8%)' : 'Mục Tiêu Pass Quỹ (8%)'}
                     value={Math.max(0, propPnlPct)}
                     max={8.0}
                     tone="gold"
-                    badgeLabel={isTargetPassed ? 'ĐÃ ĐẠT TARGET' : 'PROP LIVE'}
+                    badgeLabel={isTargetPassed ? (lang === 'en' ? 'TARGET PASSED' : 'ĐÃ ĐẠT TARGET') : 'PROP LIVE'}
                     badgeTone="gold"
                     subtitle={
                       <div className="space-y-1 text-[11px] text-slate-300 font-sans">
-                        <div>Tiến độ: <strong className="text-emerald-300 font-mono tabular-nums">+{fmtNum(Math.max(0, propPnlPct), 2)}%</strong> / 8.0%</div>
-                        <div>Tài khoản: <strong className="text-cyan-300">{propAccounts.length} Quỹ Live</strong></div>
+                        <div>{lang === 'en' ? 'Progress: ' : 'Tiến độ: '}<strong className="text-emerald-300 font-mono tabular-nums">+{fmtNum(Math.max(0, propPnlPct), 2)}%</strong> / 8.0%</div>
+                        <div>{lang === 'en' ? 'Accounts: ' : 'Tài khoản: '}<strong className="text-cyan-300">{propAccounts.length} {lang === 'en' ? 'Prop Live' : 'Quỹ Live'}</strong></div>
                       </div>
                     }
                   />
                 </div>
               ) : (
                 <RadialRiskGauge
-                  title="Hạ Tầng London G2"
+                  title={lang === 'en' ? 'London G2 Cloud Node' : 'Hạ Tầng London G2'}
                   value={liveLatencyMs > 0 ? liveLatencyMs : 0}
                   max={100}
                   tone="teal"
@@ -483,8 +501,8 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                   badgeTone="teal"
                   subtitle={
                     <div className="space-y-1 text-[11px] text-slate-300 font-sans">
-                      <div>Kết nối: <strong className="text-emerald-300">Cloud MetaAPI</strong></div>
-                      <div>Độ trễ: <strong className="text-cyan-300 font-mono tabular-nums">{liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)}ms` : 'Đang đo...'}</strong></div>
+                      <div>{lang === 'en' ? 'Connection: ' : 'Kết nối: '}<strong className="text-emerald-300">Cloud MetaAPI</strong></div>
+                      <div>{lang === 'en' ? 'Latency: ' : 'Độ trễ: '}<strong className="text-cyan-300 font-mono tabular-nums">{liveLatencyMs > 0 ? `${fmtNum(liveLatencyMs, 1)}ms` : (lang === 'en' ? 'Measuring...' : 'Đang đo...')}</strong></div>
                     </div>
                   }
                 />
@@ -510,13 +528,15 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             <div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
                 <span className="font-bold uppercase tracking-wider text-amber-300">
-                  LÁ CHẮN BẢO VỆ VỐN 4 LỚP (FAIL-CLOSED)
+                  {lang === 'en' ? '4-LAYER CAPITAL DEFENSE SHIELD (FAIL-CLOSED)' : 'LÁ CHẮN BẢO VỆ VỐN 4 LỚP (FAIL-CLOSED)'}
                 </span>
                 <span>·</span>
-                <span className="font-semibold text-emerald-400">{safetyLockLabel}</span>
+                <span className="font-semibold text-emerald-400">
+                  {lang === 'en' ? '4 Layers Active' : safetyLockLabel}
+                </span>
                 <span>·</span>
                 <span className="tabular-nums">
-                  Khuyến nghị AI: <strong className="text-cyan-300">{latestAction}</strong>
+                  {lang === 'en' ? 'AI Recommendation: ' : 'Khuyến nghị AI: '}<strong className="text-cyan-300">{latestAction}</strong>
                 </span>
               </div>
               <p className="mt-1 text-xs text-slate-300">
@@ -532,7 +552,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 className="quant-btn-secondary px-3.5 py-2 text-xs whitespace-nowrap shrink-0"
               >
                 <IconSettings className="w-3.5 h-3.5" />
-                Cấu Hình Giáp Vốn
+                {lang === 'en' ? 'Capital Shield Config' : 'Cấu Hình Giáp Vốn'}
               </button>
               <button
                 type="button"
@@ -540,7 +560,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                 className="quant-btn-primary px-3.5 py-2 text-xs whitespace-nowrap shrink-0"
               >
                 <IconSpark className="w-3.5 h-3.5" />
-                Sổ Lệnh AI
+                {lang === 'en' ? 'AI Order Ledger' : 'Sổ Lệnh AI'}
               </button>
             </div>
           )}
@@ -585,7 +605,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             <div className="text-[10px] uppercase tracking-[0.18em] text-amber-300 font-bold font-mono">
               CLOUD MT5 NODES
             </div>
-            <h3 className="mt-0.5 text-base font-bold text-white">Tài Khoản MT5 Đang Ghép Nối Với Trạm Đám Mây London G2</h3>
+            <h3 className="mt-0.5 text-base font-bold text-white">
+              {lang === 'en' ? 'MT5 Terminals Synchronized with London G2 Cloud Node' : 'Tài Khoản MT5 Đang Ghép Nối Với Trạm Đám Mây London G2'}
+            </h3>
           </div>
           {activeTabSetter && (
             <button
@@ -593,16 +615,20 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
               onClick={() => activeTabSetter('accounts')}
               className="text-xs font-mono font-bold text-amber-300 hover:text-amber-200 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              Quản lý ({accounts.length}) →
+              {lang === 'en' ? `Manage (${accounts.length}) →` : `Quản lý (${accounts.length}) →`}
             </button>
           )}
         </div>
 
         {accounts.length === 0 ? (
           <div className="rounded-xl border border-dashed border-amber-500/25 bg-[#040710]/60 p-6 text-center">
-            <p className="text-sm font-semibold text-slate-200">Chưa có tài khoản MT5 nào được kết nối</p>
+            <p className="text-sm font-semibold text-slate-200">
+              {lang === 'en' ? 'No MT5 accounts connected yet' : 'Chưa có tài khoản MT5 nào được kết nối'}
+            </p>
             <p className="mt-1 text-xs text-slate-400">
-              Kết nối tài khoản MetaTrader 5 để bắt đầu nhận tín hiệu định lượng XAU/USD tự động.
+              {lang === 'en'
+                ? 'Connect your MetaTrader 5 account to begin autonomous quantitative execution on XAU/USD.'
+                : 'Kết nối tài khoản MetaTrader 5 để bắt đầu nhận tín hiệu định lượng XAU/USD tự động.'}
             </p>
           </div>
         ) : (
@@ -698,7 +724,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
             <span>{runtimeModeLabel} · {computedActiveAccounts}/{computedTotalAccounts} Online</span>
           </div>
           <span className="text-amber-300 font-bold">
-            {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : 'Đang đo...'} G2 · {isMt5Connected ? 'ĐÃ ĐỒNG BỘ' : 'CHỜ ĐỒNG BỘ'}
+            {liveLatencyMs > 0 ? `${liveLatencyMs}ms` : (lang === 'en' ? 'Measuring...' : 'Đang đo...')} G2 · {isMt5Connected ? (lang === 'en' ? 'SYNCHRONIZED' : 'ĐÃ ĐỒNG BỘ') : (lang === 'en' ? 'AWAITING SYNC' : 'CHỜ ĐỒNG BỘ')}
           </span>
         </div>
       </SpotlightBento>

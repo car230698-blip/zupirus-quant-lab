@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../api/client.ts';
 import { SpotlightBento } from './ui/SpotlightBento';
+import { useLanguage } from '../i18n/LanguageContext';
 
 interface ReferralInfo {
   referral_code: string;
@@ -24,6 +25,7 @@ interface BillingOrderItem {
 }
 
 export const UserReferralAndInvoicesSection: React.FC = () => {
+  const { lang } = useLanguage();
   const [refInfo, setRefInfo] = useState<ReferralInfo | null>(null);
   const [orders, setOrders] = useState<BillingOrderItem[]>([]);
   const [applyCode, setApplyCode] = useState('');
@@ -119,17 +121,19 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
         <div className="flex items-center justify-between gap-2">
           <div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-300">
-              CHƯƠNG TRÌNH GIỚI THIỆU (AFFILIATE)
+              {lang === 'en' ? 'AFFILIATE REFERRAL PROGRAM' : 'CHƯƠNG TRÌNH GIỚI THIỆU (AFFILIATE)'}
             </span>
-            <h3 className="mt-0.5 text-base font-bold text-white">Mời Bạn Bè — Nhận +7 Ngày Cloud MT5</h3>
+            <h3 className="mt-0.5 text-base font-bold text-white">
+              {lang === 'en' ? 'Invite Traders — Earn +7 Days Cloud MT5' : 'Mời Bạn Bè — Nhận +7 Ngày Cloud MT5'}
+            </h3>
           </div>
           <span className="rounded-lg border border-emerald-400/35 bg-emerald-500/15 px-2.5 py-1 font-mono text-xs font-bold text-emerald-300">
-            +{refInfo?.bonus_days_earned ?? 0} ngày
+            +{refInfo?.bonus_days_earned ?? 0} {lang === 'en' ? 'days' : 'ngày'}
           </span>
         </div>
 
         <p className="text-xs text-slate-300">
-          {refInfo?.reward_rule || 'Tặng +7 ngày Cloud MT5 cho người giới thiệu và +3 ngày chào mừng cho người được mời.'}
+          {refInfo?.reward_rule || (lang === 'en' ? 'Earn +7 days Cloud MT5 for each referred friend, plus +3 welcome bonus days for them.' : 'Tặng +7 ngày Cloud MT5 cho người giới thiệu và +3 ngày chào mừng cho người được mời.')}
         </p>
 
         {refInfo && (
@@ -149,14 +153,14 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
               }}
               className="quant-btn-primary px-3.5 py-2 text-xs whitespace-nowrap"
             >
-              {copied ? 'Đã Copy ✓' : `Copy (${refInfo.referral_code})`}
+              {copied ? (lang === 'en' ? 'Copied ✓' : 'Đã Copy ✓') : `Copy (${refInfo.referral_code})`}
             </button>
           </div>
         )}
 
         <div className="flex items-center justify-between border-t border-white/10 pt-3 font-mono text-xs text-slate-400">
-          <span>Đã giới thiệu thành công: <strong className="text-white">{refInfo?.referred_count ?? 0}</strong> bạn</span>
-          {refInfo?.referred_by && <span className="text-emerald-300">Đã nhập mã: {refInfo.referred_by}</span>}
+          <span>{lang === 'en' ? 'Successfully referred: ' : 'Đã giới thiệu thành công: '}<strong className="text-white">{refInfo?.referred_count ?? 0}</strong> {lang === 'en' ? 'traders' : 'bạn'}</span>
+          {refInfo?.referred_by && <span className="text-emerald-300">{lang === 'en' ? 'Referred by: ' : 'Đã nhập mã: '}{refInfo.referred_by}</span>}
         </div>
 
         {!refInfo?.referred_by && (
@@ -165,11 +169,11 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
               type="text"
               value={applyCode}
               onChange={(e) => setApplyCode(e.target.value)}
-              placeholder="Nhập mã giới thiệu (VD: ZUP-XXXXXX)"
+              placeholder={lang === 'en' ? "Enter referral code (e.g. ZUP-XXXXXX)" : "Nhập mã giới thiệu (VD: ZUP-XXXXXX)"}
               className="quant-input flex-1 font-mono text-xs uppercase"
             />
             <button type="submit" className="quant-btn-secondary px-3.5 py-2 text-xs whitespace-nowrap">
-              Áp Dụng (+3 ngày)
+              {lang === 'en' ? 'Apply (+3 days)' : 'Áp Dụng (+3 ngày)'}
             </button>
           </form>
         )}
@@ -181,16 +185,20 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300">
-              LỊCH SỬ THANH TOÁN SEPAY
+              {lang === 'en' ? 'PAYMENT & BILLING HISTORY' : 'LỊCH SỬ THANH TOÁN SEPAY'}
             </span>
-            <h3 className="mt-0.5 text-base font-bold text-white">Đơn Hàng & Hóa Đơn Điện Tử (PDF)</h3>
+            <h3 className="mt-0.5 text-base font-bold text-white">
+              {lang === 'en' ? 'Orders & Digital Invoices (PDF)' : 'Đơn Hàng & Hóa Đơn Điện Tử (PDF)'}
+            </h3>
           </div>
-          <span className="font-mono text-xs text-slate-400">{orders.length} đơn</span>
+          <span className="font-mono text-xs text-slate-400">{orders.length} {lang === 'en' ? 'orders' : 'đơn'}</span>
         </div>
 
         {orders.length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/10 bg-[#040710]/50 p-6 text-center text-xs text-slate-400">
-            Chưa có giao dịch SePay nào. Sau khi tạo đơn hoặc gia hạn gói, biên lai điện tử sẽ xuất hiện tại đây.
+            {lang === 'en'
+              ? 'No billing transactions found. Once you subscribe or renew, digital invoices will appear here.'
+              : 'Chưa có giao dịch SePay nào. Sau khi tạo đơn hoặc gia hạn gói, biên lai điện tử sẽ xuất hiện tại đây.'}
           </div>
         ) : (
           <div className="space-y-2 max-h-56 overflow-y-auto pr-1 font-mono text-xs tabular-nums">
@@ -216,7 +224,7 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
                   onClick={() => handlePrintInvoice(ord)}
                   className="quant-btn-secondary px-2.5 py-1 text-[11px] whitespace-nowrap"
                 >
-                  In / Tải PDF
+                  {lang === 'en' ? 'Print / PDF' : 'In / Tải PDF'}
                 </button>
               </div>
             ))}

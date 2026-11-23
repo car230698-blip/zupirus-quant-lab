@@ -2,6 +2,7 @@ import React from 'react';
 import { fmtNum } from '../utils/strategyDecision';
 import { formatAccountBalance, formatAccountEquity } from '../utils/currencyFormat';
 import { SpotlightBento } from './ui/SpotlightBento';
+import { useLanguage } from '../i18n/LanguageContext';
 
 export interface EditAccountConfigForm {
   lot_multiplier: string;
@@ -45,20 +46,21 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
   handleDeleteAccount,
   handleSaveAccountConfig,
 }) => {
+  const { lang } = useLanguage();
   const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
   return (
     <SpotlightBento className="p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
           <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-cyan-400">
-            Danh Sách Trạm Đầu Cuối
+            {lang === 'en' ? 'TERMINAL NODE DIRECTORY' : 'Danh Sách Trạm Đầu Cuối'}
           </span>
           <h3 className="mt-0.5 text-lg font-bold text-white">
-            Quản Trị Tài Khoản MT5 & Lá Chắn Quỹ (Prop Firm Guard)
+            {lang === 'en' ? 'MT5 Account Management & Prop Firm Guard' : 'Quản Trị Tài Khoản MT5 & Lá Chắn Quỹ (Prop Firm Guard)'}
           </h3>
         </div>
         <span className="font-mono text-xs text-slate-400 tabular-nums">
-          Tổng cộng: {accounts.length} tài khoản
+          {lang === 'en' ? `Total: ${accounts.length} accounts` : `Tổng cộng: ${accounts.length} tài khoản`}
         </span>
       </div>
 
@@ -70,7 +72,9 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
 
       {accounts.length === 0 ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-[#040710]/50 p-8 text-center text-sm text-slate-400">
-          Chưa có tài khoản MT5 nào. Hãy điền thông tin ở biểu mẫu phía trên để khởi chạy trạm Cloud MT5 đầu tiên.
+          {lang === 'en'
+            ? 'No MT5 accounts yet. Fill in the form above to launch your first Cloud MT5 terminal node.'
+            : 'Chưa có tài khoản MT5 nào. Hãy điền thông tin ở biểu mẫu phía trên để khởi chạy trạm Cloud MT5 đầu tiên.'}
         </div>
       ) : (
         <div className="space-y-3">
@@ -133,27 +137,27 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       </span>
                       <span className="text-slate-600">·</span>
                       <span>
-                        Hệ số Lot:{' '}
-                            <strong className="text-emerald-300">
-                              x{fmtNum(acc.lot_multiplier || acc.risk_multiplier || 1, 2)}
-                            </strong>
-                          </span>
-                          <span className="text-slate-600">·</span>
-                          <span>
-                            Daily DD:{' '}
-                            <strong className="text-amber-300">
-                              {fmtNum(
-                                acc.daily_dd_pct ??
-                                  (Number(acc.balance) > 0 && Number(acc.equity) < Number(acc.balance)
-                                    ? ((Number(acc.balance) - Number(acc.equity)) / Number(acc.balance)) * 100
-                                    : 0),
-                                2
-                              )}
-                              %
-                            </strong>{' '}
-                            / {fmtNum(acc.prop_daily_dd_limit_pct || acc.max_daily_dd_pct || acc.max_daily_drawdown_pct || 4, 1)}%
-                          </span>
-                        </div>
+                        {lang === 'en' ? 'Lot Multiplier: ' : 'Hệ số Lot: '}
+                        <strong className="text-emerald-300">
+                          x{fmtNum(acc.lot_multiplier || acc.risk_multiplier || 1, 2)}
+                        </strong>
+                      </span>
+                      <span className="text-slate-600">·</span>
+                      <span>
+                        Daily DD:{' '}
+                        <strong className="text-amber-300">
+                          {fmtNum(
+                            acc.daily_dd_pct ??
+                              (Number(acc.balance) > 0 && Number(acc.equity) < Number(acc.balance)
+                                ? ((Number(acc.balance) - Number(acc.equity)) / Number(acc.balance)) * 100
+                                : 0),
+                            2
+                          )}
+                          %
+                        </strong>{' '}
+                        / {fmtNum(acc.prop_daily_dd_limit_pct || acc.max_daily_dd_pct || acc.max_daily_drawdown_pct || 4, 1)}%
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -162,9 +166,9 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       disabled={cloudBusy}
                       onClick={() => handleSyncAccount(id)}
                       className="quant-btn-secondary px-3 py-1.5 text-xs whitespace-nowrap shrink-0"
-                      title="Đồng bộ Balance/Equity từ MetaApi"
+                      title={lang === 'en' ? 'Sync Balance/Equity from MetaApi' : 'Đồng bộ Balance/Equity từ MetaApi'}
                     >
-                      Đồng bộ
+                      {lang === 'en' ? 'Sync' : 'Đồng bộ'}
                     </button>
 
                     <button
@@ -172,7 +176,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       onClick={() => handleOpenEditConfig(acc)}
                       className="quant-btn-secondary px-3 py-1.5 text-xs whitespace-nowrap shrink-0"
                     >
-                      {isExpanded ? 'Đóng Cấu Hình' : 'Cấu Hình Rủi Ro'}
+                      {isExpanded ? (lang === 'en' ? 'Close Config' : 'Đóng Cấu Hình') : (lang === 'en' ? 'Risk Config' : 'Cấu Hình Rủi Ro')}
                     </button>
 
                     <button
@@ -181,7 +185,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       onClick={() => handleCloudDeployToggle(id, isDeployed ? 'undeploy' : 'deploy')}
                       className="quant-btn-secondary px-3 py-1.5 text-xs whitespace-nowrap shrink-0"
                     >
-                      {isDeployed ? 'Ngắt Cloud' : 'Bật Cloud'}
+                      {isDeployed ? (lang === 'en' ? 'Disconnect' : 'Ngắt Cloud') : (lang === 'en' ? 'Connect' : 'Bật Cloud')}
                     </button>
 
                     <button
@@ -193,7 +197,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                           : 'border border-emerald-500/35 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
                       }`}
                     >
-                      {isActive ? 'Tạm Dừng Copy' : 'Kích Hoạt Copy'}
+                      {isActive ? (lang === 'en' ? 'Pause Execution' : 'Tạm Dừng Copy') : (lang === 'en' ? 'Enable Execution' : 'Kích Hoạt Copy')}
                     </button>
 
                     {confirmDeleteId === id ? (
@@ -207,7 +211,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                           }}
                           className="rounded-xl px-2.5 py-1.5 text-xs font-bold transition whitespace-nowrap shrink-0 border border-rose-400 bg-rose-600 text-white hover:bg-rose-500"
                         >
-                          Xác nhận Xoá
+                          {lang === 'en' ? 'Confirm Delete' : 'Xác nhận Xoá'}
                         </button>
                         <button
                           type="button"
@@ -215,7 +219,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                           onClick={() => setConfirmDeleteId(null)}
                           className="rounded-xl px-2 py-1.5 text-xs font-semibold transition whitespace-nowrap shrink-0 border border-white/15 bg-slate-900 text-slate-300 hover:text-white"
                         >
-                          Huỷ
+                          {lang === 'en' ? 'Cancel' : 'Huỷ'}
                         </button>
                       </div>
                     ) : (
@@ -224,9 +228,9 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                         disabled={cloudBusy}
                         onClick={() => setConfirmDeleteId(id)}
                         className="rounded-xl px-2.5 py-1.5 text-xs font-bold transition whitespace-nowrap shrink-0 border border-rose-500/40 bg-rose-950/30 text-rose-300 hover:bg-rose-900/50 hover:text-white"
-                        title="Xoá và ngắt kết nối tài khoản"
+                        title={lang === 'en' ? 'Delete and disconnect account' : 'Xoá và ngắt kết nối tài khoản'}
                       >
-                        Xoá
+                        {lang === 'en' ? 'Delete' : 'Xoá'}
                       </button>
                     )}
                   </div>
@@ -235,11 +239,15 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                 {isExpanded && (
                   <div className="mt-4 border-t border-white/[0.08] pt-4">
                     <div className="mb-3 text-xs font-mono uppercase tracking-wider text-cyan-300">
-                      Tham Số Quản Trị Rủi Ro & Prop Firm Guard — Tài Khoản #{id}
+                      {lang === 'en'
+                        ? `Risk Management Parameters & Prop Firm Guard — Account #${id}`
+                        : `Tham Số Quản Trị Rủi Ro & Prop Firm Guard — Tài Khoản #${id}`}
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
                       <div>
-                        <label className="mb-1 block text-[11px] text-slate-400">Hệ Số Nhân Lot (x)</label>
+                        <label className="mb-1 block text-[11px] text-slate-400">
+                          {lang === 'en' ? 'Lot Multiplier (x)' : 'Hệ Số Nhân Lot (x)'}
+                        </label>
                         <input
                           type="number"
                           step="0.1"
@@ -251,7 +259,9 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-[11px] text-slate-400">Trần Lỗ Ngày (%)</label>
+                        <label className="mb-1 block text-[11px] text-slate-400">
+                          {lang === 'en' ? 'Max Daily DD (%)' : 'Trần Lỗ Ngày (%)'}
+                        </label>
                         <input
                           type="number"
                           step="0.5"
@@ -263,7 +273,9 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-[11px] text-slate-400">Lot Tối Đa / Lệnh</label>
+                        <label className="mb-1 block text-[11px] text-slate-400">
+                          {lang === 'en' ? 'Max Lot / Order' : 'Lot Tối Đa / Lệnh'}
+                        </label>
                         <input
                           type="number"
                           step="0.1"
@@ -273,7 +285,9 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-[11px] text-slate-400">Mục Tiêu Lãi Ngày ($)</label>
+                        <label className="mb-1 block text-[11px] text-slate-400">
+                          {lang === 'en' ? 'Daily Profit Target ($)' : 'Mục Tiêu Lãi Ngày ($)'}
+                        </label>
                         <input
                           type="number"
                           step="10"
@@ -288,10 +302,12 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-[11px] text-slate-400">Mã Symbol Sàn (Tuỳ chọn)</label>
+                        <label className="mb-1 block text-[11px] text-slate-400">
+                          {lang === 'en' ? 'Broker Symbol (Optional)' : 'Mã Symbol Sàn (Tuỳ chọn)'}
+                        </label>
                         <input
                           type="text"
-                          placeholder="VD: XAUUSDm"
+                          placeholder={lang === 'en' ? 'e.g. XAUUSDm' : 'VD: XAUUSDm'}
                           value={editConfigForm.symbol_mapping_custom}
                           onChange={(e) =>
                             setEditConfigForm({
@@ -303,10 +319,12 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                         />
                       </div>
                       <div>
-                        <label className="mb-1 block text-[11px] text-slate-400">Phân Bổ Chiến Lược</label>
+                        <label className="mb-1 block text-[11px] text-slate-400">
+                          {lang === 'en' ? 'Strategy Routing' : 'Phân Bổ Chiến Lược'}
+                        </label>
                         <input
                           type="text"
-                          placeholder="all hoặc smc, price_action"
+                          placeholder={lang === 'en' ? 'all or smc, price_action' : 'all hoặc smc, price_action'}
                           value={editConfigForm.allowed_strategy_ids || ''}
                           onChange={(e) =>
                             setEditConfigForm({
@@ -328,7 +346,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                               setEditConfigForm({ ...editConfigForm, is_prop_firm_mode: e.target.checked })
                             }
                           />
-                          <span>Chế độ Quỹ (Prop Firm)</span>
+                          <span>{lang === 'en' ? 'Prop Firm Mode' : 'Chế độ Quỹ (Prop Firm)'}</span>
                         </label>
                         {editConfigForm.is_prop_firm_mode && (
                           <select
@@ -341,8 +359,8 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                             }
                             className="rounded-lg border border-amber-500/40 bg-[#050914] px-2 py-1 font-mono text-[11px] text-amber-300"
                           >
-                            <option value="CHALLENGE">Đang thi (Challenge)</option>
-                            <option value="LIVE">Live (Funded — Trần 1%)</option>
+                            <option value="CHALLENGE">{lang === 'en' ? 'Challenge' : 'Đang thi (Challenge)'}</option>
+                            <option value="LIVE">{lang === 'en' ? 'Live Funded (1% cap)' : 'Live (Funded — Trần 1%)'}</option>
                           </select>
                         )}
                       </div>
@@ -352,14 +370,14 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                           onClick={() => setExpandedConfigId(null)}
                           className="quant-btn-secondary px-3.5 py-1.5 text-xs"
                         >
-                          Huỷ
+                          {lang === 'en' ? 'Cancel' : 'Huỷ'}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleSaveAccountConfig(acc)}
                           className="quant-btn-primary px-4 py-1.5 text-xs"
                         >
-                          Lưu Tham Số Bảo Vệ
+                          {lang === 'en' ? 'Save Shield Parameters' : 'Lưu Tham Số Bảo Vệ'}
                         </button>
                       </div>
                     </div>
