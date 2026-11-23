@@ -28,16 +28,29 @@ class MetaApiClient:
 
     def __init__(self, token: Optional[str] = None):
         self.token = token or os.getenv("METAAPI_TOKEN", "").strip()
-        self.is_mock = not bool(self.token) or self.token.lower() in ("mock", "test", "demo", "none")
+        app_env = os.getenv("APP_ENV", "dev").strip().lower()
+        enable_mock = os.getenv("ENABLE_MOCK_TRADING", "false").strip().lower() in ("true", "1", "yes")
+
+        if app_env == "production":
+            if not self.token or self.token.lower() in ("mock", "test", "demo", "none"):
+                if not enable_mock:
+                    raise RuntimeError("CRITICAL: METAAPI_TOKEN is missing or invalid in production! Mock mode is prohibited.")
+            self.is_mock = False
+        else:
+            self.is_mock = (not bool(self.token) or self.token.lower() in ("mock", "test", "demo", "none")) or enable_mock
+
         if self.is_mock:
-            logger.info("MetaApi running in Mock/Simulated Cloud Execution mode (METAAPI_TOKEN not set).")
+            logger.info("MetaApi running in Mock/Simulated Cloud Execution mode (Non-production test harness).")
 
     def _is_mock_account(self, metaapi_account_id: Optional[str] = None) -> bool:
-        """Return True if client is in global mock mode OR if this specific account ID is a simulated/sandbox account."""
+        """Return True if explicitly in mock mode AND account is sandbox/mock."""
+        app_env = os.getenv("APP_ENV", "dev").strip().lower()
+        if app_env == "production" and not os.getenv("ENABLE_MOCK_TRADING", "").lower() in ("true", "1"):
+            return False
         if self.is_mock:
             return True
         mid = str(metaapi_account_id or "").strip().lower()
-        return mid.startswith(("mock_", "sim_", "metaapi_", "demo_"))
+        return mid.startswith(("mock_", "sim_", "demo_"))
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -216,6 +229,9 @@ class MetaApiClient:
                 "latency_ms": latency_ms,
                 "volume": volume
             }
+
+        if not self.token:
+            raise RuntimeError(f"Cannot execute live order on {metaapi_account_id}: METAAPI_TOKEN is missing.")
 
         from app.services.symbol_precision import digits_for_symbol
         dec = digits_for_symbol(symbol)

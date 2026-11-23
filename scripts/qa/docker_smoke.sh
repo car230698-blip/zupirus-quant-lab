@@ -168,8 +168,8 @@ echo "=== 10. Verifying TimescaleDB Backup and Restore ==="
 export COMPOSE_FILE=compose.yaml:compose.smoke.yaml COMPOSE_PROJECT_NAME="$project"
 unset DATABASE_URL
 docker compose exec -T timescaledb sh -ec 'createdb -U "$POSTGRES_USER" restore_smoke'
-backup_file=$(bash scripts/backup_postgres.sh "$backup_dir")
-bash scripts/restore_postgres.sh "$backup_file" restore_smoke
+backup_file=$(python3 scripts/ops/backup_postgres.py --database "$POSTGRES_DB" --out "$backup_dir")
+python3 scripts/ops/restore_postgres.py --backup "$backup_file" --database restore_smoke
 restored=$(docker compose exec -T timescaledb sh -ec '
     exec psql -XAt -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d restore_smoke -v tick="$1"
 ' restore-smoke "$smoke_ts" <<'SQL'
@@ -179,7 +179,7 @@ SQL
 )
 [[ "$restored" == $'1\n1' ]]
 # A second restore must fail because the target now contains application tables.
-if bash scripts/restore_postgres.sh "$backup_file" restore_smoke; then
+if python3 scripts/ops/restore_postgres.py --backup "$backup_file" --database restore_smoke; then
     echo "Restore unexpectedly accepted an occupied database" >&2
     exit 1
 fi

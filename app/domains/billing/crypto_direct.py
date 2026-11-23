@@ -478,8 +478,11 @@ async def verify_and_fulfill_crypto_order(
     # Underpaid branch
     if not valid and details.get("underpaid"):
         with tx() as c:
+            curr_row = c.execute(f"SELECT status FROM orders WHERE id = ?{for_update}", (order["id"],)).fetchone()
+            if curr_row and curr_row[0] == "PAID":
+                return {"ok": True, "already_paid": True, "message": "Đơn hàng đã được xác nhận thanh toán trước đó."}
             c.execute(
-                "UPDATE orders SET status = 'UNDERPAID', tx_hash = ?, payment_status = 'UNDERPAID' WHERE id = ?",
+                "UPDATE orders SET status = 'UNDERPAID', tx_hash = ?, payment_status = 'UNDERPAID' WHERE id = ? AND status != 'PAID'",
                 (tx_hash, order["id"])
             )
         # Notify user via email
@@ -504,14 +507,24 @@ async def verify_and_fulfill_crypto_order(
     if not valid:
         return {"ok": False, "message": msg}
 
-    # 4. Fulfill order atomically
-    from app.domains.billing.service import fulfill_order_entitlements
+    # 4. Fulfill order atomically with re-verification under row lock
+    from app.domains.billing.service import apply_subscription_entitlements_tx, _deploy_with_retries
     tx_id = f"tx_crypto_{secrets.token_hex(8)}"
     actual_amount = float(details.get("amount", expected_amount))
+    accounts_to_deploy = []
+    new_sub_exp = now_ts + 86400 * 30
+    user_email = None
+    user_lang = "en"
 
     with tx() as c:
-        # Atomic deduplication via tx_hash insert
-        c.execute(
+        re_row = c.execute(f"SELECT * FROM orders WHERE LOWER(id) = ?{for_update}", (order["id"].lower(),)).fetchone()
+        if not re_row:
+            return {"ok": False, "message": f"Không tìm thấy đơn hàng {order['id']}."}
+        re_order = dict(re_row)
+        if re_order["status"] == "PAID" and re_order.get("entitlement_status") == "GRANTED":
+            return {"ok": True, "already_paid": True, "message": "Đơn hàng đã được xác nhận thanh toán thành công trước đó."}
+
+        ins_cur = c.execute(
             """
             INSERT INTO payment_transactions (
                 id, sepay_id, user_id, amount, currency, gateway, content, status, created_at, tx_hash
@@ -529,8 +542,10 @@ async def verify_and_fulfill_crypto_order(
                 tx_hash,
             )
         )
+        if getattr(ins_cur, "rowcount", 1) <= 0:
+            return {"ok": False, "message": "Mã giao dịch này đã được ghi nhận trước đó cho một thanh toán khác."}
 
-        c.execute(
+        upd_cur = c.execute(
             """
             UPDATE orders SET
                 status = 'PAID',
@@ -538,13 +553,39 @@ async def verify_and_fulfill_crypto_order(
                 entitlement_status = 'GRANTED',
                 paid_at = ?,
                 tx_hash = ?
-            WHERE id = ?
+            WHERE id = ? AND (status != 'PAID' OR entitlement_status != 'GRANTED')
             """,
             (now_ts, tx_hash, order["id"])
         )
+        if getattr(upd_cur, "rowcount", 1) <= 0 and re_order.get("entitlement_status") == "GRANTED":
+            return {"ok": True, "already_paid": True, "message": "Đơn hàng đã được xác nhận bởi tiến trình khác."}
 
-    # 5. Grant subscription & extend MT5 cloud instances
-    await fulfill_order_entitlements(order["id"])
+        new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, re_order, now_ts)
+
+        usr_row = c.execute("SELECT email, preferred_language FROM users WHERE id = ?", (order["user_id"],)).fetchone()
+        if usr_row:
+            usr = dict(usr_row)
+            user_email = usr.get("email")
+            user_lang = usr.get("preferred_language") or "en"
+
+    # 5. Background MetaApi deployment
+    if accounts_to_deploy:
+        await _deploy_with_retries(accounts_to_deploy, order_id=order["id"], max_retries=3, delay=1)
+
+    try:
+        from app.redis_client import publish_realtime_event
+        publish_realtime_event(
+            f"user:{order['user_id']}",
+            "payment_paid",
+            {"order_id": order["id"], "plan_tier": order["plan_tier"], "expires_at": new_sub_exp},
+        )
+        publish_realtime_event(
+            "admin",
+            "billing_paid",
+            {"order_id": order["id"], "user_id": order["user_id"], "plan_tier": order["plan_tier"]},
+        )
+    except Exception:
+        pass
 
     # 6. Referral bonus +7 days
     try:
@@ -554,25 +595,22 @@ async def verify_and_fulfill_crypto_order(
         pass
 
     # 7. Send receipt email
-    try:
-        from app.mailer import send_payment_receipt_email
-        with tx() as c:
-            usr_row = c.execute("SELECT email, preferred_language FROM users WHERE id = ?", (order["user_id"],)).fetchone()
-        if usr_row:
-            usr = dict(usr_row)
+    if user_email:
+        try:
+            from app.mailer import send_payment_receipt_email
             send_payment_receipt_email(
-                email=usr["email"],
+                email=user_email,
                 order_id=order["id"],
                 plan_tier=order["plan_tier"],
                 amount_vnd=int(order.get("amount_vnd") or 0),
                 cloud_slots=int(order.get("cloud_slots_count") or 1),
-                expires_at=now_ts + 86400 * 30,
-                lang=usr.get("preferred_language") or "en",
+                expires_at=new_sub_exp,
+                lang=user_lang,
                 amount_usd=actual_amount,
                 currency="USDT",
             )
-    except Exception as e:
-        logger.warning(f"Failed sending receipt email: {e}")
+        except Exception as e:
+            logger.warning(f"Failed sending receipt email: {e}")
 
     return {
         "ok": True,
@@ -582,5 +620,6 @@ async def verify_and_fulfill_crypto_order(
         "tx_hash": tx_hash,
         "amount": actual_amount,
         "network": gateway,
+        "expires_at": new_sub_exp,
         "message": "Xác minh thanh toán Direct USDT thành công! Tài khoản đã được kích hoạt.",
     }

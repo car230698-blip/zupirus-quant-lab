@@ -4,12 +4,12 @@ import { queryClient } from './lib/queryClient.ts';
 import { apiGet, apiPost } from './api/client.ts';
 import { useOrderQuery } from './hooks/useOrderQuery.ts';
 import { PortalAuth, PortalShell } from './components/PortalChrome.tsx';
-import { UserOverviewTab } from './components/UserOverviewTab.tsx';
-import { UserAccountsTab } from './components/UserAccountsTab.tsx';
-import { UserOrdersTab } from './components/UserOrdersTab.tsx';
-import { AdminCommandRadarTab } from './components/AdminCommandRadarTab.tsx';
-import { AdminAIEvolutionTab } from './components/AdminAIEvolutionTab.tsx';
-import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTab.tsx';
+const UserOverviewTab = lazy(() => import('./components/UserOverviewTab.tsx').then((m) => ({ default: m.UserOverviewTab })));
+const UserAccountsTab = lazy(() => import('./components/UserAccountsTab.tsx').then((m) => ({ default: m.UserAccountsTab })));
+const UserOrdersTab = lazy(() => import('./components/UserOrdersTab.tsx').then((m) => ({ default: m.UserOrdersTab })));
+const AdminCommandRadarTab = lazy(() => import('./components/AdminCommandRadarTab.tsx').then((m) => ({ default: m.AdminCommandRadarTab })));
+const AdminAIEvolutionTab = lazy(() => import('./components/AdminAIEvolutionTab.tsx').then((m) => ({ default: m.AdminAIEvolutionTab })));
+const AdminBusinessCustomersTab = lazy(() => import('./components/AdminBusinessCustomersTab.tsx').then((m) => ({ default: m.AdminBusinessCustomersTab })));
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
 import { normalizeCentToUsd } from './utils/currencyFormat.ts';
 import { LanguageProvider, useLanguage } from './i18n/LanguageContext.tsx';
@@ -372,6 +372,7 @@ const AppContent: React.FC = () => {
         onClose={() => setNotice(null)}
       />
 
+      <Suspense fallback={<div className="quant-status">Đang tải mô-đun…</div>}>
       {/* USER PORTAL VIEWS */}
       {portal === 'user' && (
         <>
@@ -435,6 +436,7 @@ const AppContent: React.FC = () => {
           )}
         </>
       )}
+      </Suspense>
     </PortalShell>
   );
 };

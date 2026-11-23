@@ -6,6 +6,7 @@ Ensures zero-compromise risk management for all ingested signals:
 4. Lớp 4: Entry Slippage Guard (<= 20 pips)
 Also snapshots real-time market context for Tabula Rasa observational & inductive learning.
 """
+import os
 import secrets
 import time
 import json
@@ -125,6 +126,16 @@ def check_news_shield(current_time: float) -> Tuple[bool, Optional[str]]:
     """Lớp 3: Lá chắn tin tức đỏ USD (CPI, NFP, FOMC) trong khung giờ ±15 phút."""
     window_sec = NEWS_SHIELD_MINUTES * 60
     with tx() as c:
+        app_env = os.getenv("APP_ENV", "dev").strip().lower()
+        if app_env == "production":
+            cnt_row = c.execute("SELECT count(*) FROM news").fetchone()
+            cnt = cnt_row[0] if cnt_row else 0
+            sync_row = c.execute("SELECT value FROM kv WHERE key = 'news_last_synced_at'").fetchone()
+            last_sync = float(sync_row[0]) if sync_row and sync_row[0] else 0.0
+            if cnt == 0 and (current_time - last_sync > 86400):
+                reason = "REJECTED_NEWS_SHIELD: Macro calendar unverified (Fail-Closed active, no calendar sync in 24h)"
+                logger.warning(reason)
+                return False, reason
         row = c.execute(
             """
             SELECT title, currency FROM news

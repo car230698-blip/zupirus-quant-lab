@@ -197,7 +197,15 @@ def readyz():
         except Exception:
             pass
 
-    overall_ready = db_ok and redis_ok and (engine_ok if has_hb_records else True) and (research_ok if has_hb_records else True)
+    timescale_ok = True
+    if is_postgres():
+        timescale_ok = bool(timescale_info.get("timescaledb_available"))
+    app_env = os.getenv("APP_ENV", "dev").strip().lower()
+    if is_postgres() or app_env == "production":
+        workers_ok = engine_ok and research_ok
+    else:
+        workers_ok = (engine_ok if has_hb_records else True) and (research_ok if has_hb_records else True)
+    overall_ready = db_ok and timescale_ok and redis_ok and workers_ok
     payload = {
         'status': 'ready' if overall_ready else 'not_ready',
         'database': {

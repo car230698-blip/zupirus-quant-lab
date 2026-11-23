@@ -30,6 +30,8 @@ def client(tmp_path,monkeypatch):
     monkeypatch.setattr(core_db,'DB',tmp_path/'lab.sqlite3')
     monkeypatch.setattr(core_db,'DATA',tmp_path)
     monkeypatch.setattr(research,'DATA',tmp_path)
+    from app.db import init as init_app_db
+    init_app_db()
     with TestClient(main.app) as c:
         c.headers.update({'X-Zupirus':'1'})
         yield c

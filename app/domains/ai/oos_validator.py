@@ -59,7 +59,8 @@ def simulate_strategy_on_candles(
     symbol: str = "XAUUSD",
 ) -> List[Dict[str, Any]]:
     """Simulate strategy execution on chronological candles with exact fee deduction."""
-    pip_size = 0.10 if ("XAU" in symbol.upper() or "GOLD" in symbol.upper()) else 0.0001
+    from app.services.symbol_precision import pip_size_for_symbol
+    pip_size = pip_size_for_symbol(symbol)
     trades: List[Dict[str, Any]] = []
     active_pos: Optional[Dict[str, Any]] = None
 

@@ -178,7 +178,7 @@ async def execute_fan_out_for_signal(
                 canon_sym = canonical_symbol(symbol)
                 with tx() as c:
                     q_row = c.execute(
-                        "SELECT bid, ask, ts FROM quotes WHERE symbol = ? AND (? - ts) < 120 ORDER BY ts DESC LIMIT 1",
+                        "SELECT bid, ask, ts FROM quotes WHERE symbol = ? AND source NOT IN ('YAHOO', 'YAHOO_REFERENCE', 'SIMULATED') AND (? - ts) < 120 ORDER BY ts DESC LIMIT 1",
                         (canon_sym, time.time())
                     ).fetchone()
                     if q_row and q_row[0] and q_row[1]:

@@ -136,6 +136,7 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
             )
             added += 1
 
+    c.execute("INSERT INTO kv (key, value) VALUES ('news_last_synced_at', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(time.time()),))
     logger.info(f"Economic calendar sync complete: {added} new events added, {existing} already tracked.")
     return added, existing
 

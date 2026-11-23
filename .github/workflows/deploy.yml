@@ -40,8 +40,9 @@ jobs:
 
             PREV_SHA=$(git rev-parse HEAD)
             echo "Current commit before deployment: $PREV_SHA"
-            echo "Running best-effort pre-deployment database backup..."
-            python3 scripts/ops/backup_postgres.py || true
+            echo "Running mandatory pre-deployment database backup..."
+            BACKUP_FILE=$(python3 scripts/ops/backup_postgres.py --out ./backups)
+            echo "Pre-deployment backup created at: $BACKUP_FILE"
 
             git fetch origin main
             git checkout -B main "$TARGET_SHA"
@@ -61,10 +62,14 @@ jobs:
             echo "================================================================="
             # Allow uvicorn and background workers time to finish initial startup
             sleep 8
-            if ! (docker exec zupirus-prod-api-1 python -m cli healthcheck --json || curl -f http://127.0.0.1:8080/readyz); then
+            if ! docker exec zupirus-prod-api-1 python -m cli healthcheck --json || ! curl -fsS http://127.0.0.1:8080/readyz; then
               echo "[CRITICAL] Deployment healthcheck failed for $TARGET_SHA! Executing auto-rollback to $PREV_SHA..."
               git checkout "$PREV_SHA"
               docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --build --remove-orphans
+              if [ -n "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ]; then
+                echo "Restoring database state from $BACKUP_FILE..."
+                python3 scripts/ops/restore_postgres.py --backup "$BACKUP_FILE" --database "${POSTGRES_DB:-zupirus}" || true
+              fi
               echo "[ROLLBACK COMPLETE] Successfully restored previous stable commit $PREV_SHA."
               exit 1
             fi

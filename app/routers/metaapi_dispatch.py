@@ -157,6 +157,29 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
             "fanout_elapsed_ms": 0
         }
 
+    # 4-Layer Safety Sanitizer (Deduplication, Mandatory SL, News Shield, Entry Slippage)
+    from app.domains.signals.ingestion.sanitizer import sanitize_and_audit_signal
+    from app.schemas.signals import NormalizedSignalSchema
+    norm_sig = NormalizedSignalSchema(
+        id=signal_id,
+        source="ADMIN_MANUAL",
+        symbol=p.symbol.upper(),
+        action=p.action.upper(),
+        entry_price=p.entry_price,
+        stop_loss=p.sl,
+        take_profit=p.tp,
+        strategy_tier="STANDARD",
+        created_at=now_ts,
+    )
+    ok_san, reason_san, validated_sig = sanitize_and_audit_signal(norm_sig, live_price=p.entry_price, current_time=now_ts)
+    if not ok_san:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tín hiệu bị từ chối bởi 4 Lớp Giáp Bảo Vệ: {reason_san}"
+        )
+    if validated_sig.stop_loss and not p.sl:
+        p.sl = validated_sig.stop_loss
+
     from app.metaapi import MetaApiClient, execute_fan_out_for_signal
     client = MetaApiClient()
 

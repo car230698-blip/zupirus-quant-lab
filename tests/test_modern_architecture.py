@@ -496,4 +496,28 @@ def test_spa_fallback_and_api_pure_json(client):
     assert 'detail' in unauth_data
 
 
+def test_usdjpy_pip_precision_and_fee_simulation():
+    """Verify OOS validator uses accurate pip size (0.01) for USDJPY with fee deduction."""
+    from app.domains.ai.oos_validator import simulate_strategy_on_candles
+    from app.services.symbol_precision import pip_size_for_symbol
+    assert pip_size_for_symbol("USDJPY") == 0.01
+
+    now = 1700000000
+    candles = []
+    for i in range(70):
+        p = 150.00 + (i * 0.005)
+        candles.append({
+            "time": now + i * 900,
+            "open": p,
+            "high": p + 0.01,
+            "low": p - 0.01,
+            "close": p,
+            "volume": 100
+        })
+    trades = simulate_strategy_on_candles(candles, strategy_name="trend_following", fee_pips=0.8, symbol="USDJPY")
+    assert isinstance(trades, list)
+    for tr in trades:
+        assert abs(tr["pnl_pips"]) < 200.0
+
+
 

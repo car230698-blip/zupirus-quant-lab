@@ -10,8 +10,13 @@ def run(tool, *args, database_url=None, database=None, **kwargs):
         if not (tool == "pg_restore" and "--list" in args):
             command.extend(("--dbname", database_url))
     else:
-        command = [
-            "docker", "compose", "exec", "-T", "timescaledb", "sh", "-ec",
+        import os
+        compose_cmd = ["docker", "compose"]
+        proj = os.getenv("COMPOSE_PROJECT_NAME", "zupirus-prod" if os.getenv("APP_ENV") == "production" else "").strip()
+        if proj:
+            compose_cmd.extend(["-p", proj])
+        command = compose_cmd + [
+            "exec", "-T", "timescaledb", "sh", "-ec",
             'export PGPASSWORD="$POSTGRES_PASSWORD"; '
             'target=${1:-$POSTGRES_DB}; shift; tool=$1; shift; '
             'if [ "$tool" = pg_restore ] && [ "${1:-}" = --list ]; then exec "$tool" "$@"; fi; '

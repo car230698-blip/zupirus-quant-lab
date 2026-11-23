@@ -70,7 +70,7 @@ zupirus-quant-lab/
 │   ├── verify_package.py             # Script kiểm tra toàn vẹn kiến trúc & AST
 │   └── worker_health.py              # Script healthcheck cho Docker containers
 ├── data/                             # Dữ liệu tĩnh, schema di trú và snapshots
-├── tests/                            # Bộ kiểm thử tự động pytest (152 bài test)
+├── tests/                            # Bộ kiểm thử tự động pytest (203+ bài test)
 ├── compose.yaml                      # Cấu hình dịch vụ Docker Compose nền tảng
 ├── compose.prod.yaml                 # Cấu hình khóa bảo mật Production trên VPS
 ├── Dockerfile                        # Multi-stage production container build
@@ -105,7 +105,7 @@ zupirus-quant-lab/
 Mọi tín hiệu giao dịch trước khi phân phối (Fan-out) đến tài khoản người dùng đều phải vượt qua 4 chốt kiểm duyệt fail-closed:
 1. **Lớp 1 — Lọc Khử Trùng Lặp (Deduplication Guard):** Chặn các tín hiệu cùng hướng trong khoảng thời gian ngắn trên cùng cặp tiền.
 2. **Lớp 2 — Kiểm Tra Bắt Buộc Stop Loss (Mandatory Stop Loss Guard):** Tuyệt đối từ chối mọi lệnh không có Stop Loss hoặc Stop Loss = 0. Tự động gắn ATR SL dự phòng nếu được bật.
-3. **Lớp 3 — Khiên Chặn Tin Tức Vĩ Mô (Macro News Shield):** Tự động đóng băng mở lệnh mới trong khoảng ±30 phút quanh thời điểm công bố tin tức USD High-Impact (CPI, NFP, FOMC).
+3. **Lớp 3 — Khiên Chặn Tin Tức Vĩ Mô (Macro News Shield):** Tự động đóng băng mở lệnh mới trong khoảng ±15 phút quanh thời điểm công bố tin tức USD High-Impact (CPI, NFP, FOMC).
 4. **Lớp 4 — Kiểm Tra Trượt Giá Thực Tế (Max Slippage Guard):** Đối chiếu giá yêu cầu với nến M1 hiện tại, từ chối vào lệnh nếu trượt giá vượt quá `MAX_ENTRY_SLIPPAGE_PIPS` (3.0 pips).
 
 ### 3. Chu Trình Tiến Hóa AI 3 Giai Đoạn (Tabula Rasa Loop)
@@ -196,7 +196,7 @@ ruff check app/ cli/ tests/ --select E9,F63,F7,F82
 # 2. Kiểm tra tĩnh cấu trúc, compose, bảo mật CSP và AST
 python scripts/verify_package.py
 
-# 3. Chạy toàn bộ Unit & Integration tests phía backend (152 tests)
+# 3. Chạy toàn bộ Unit & Integration tests phía backend (203+ tests)
 pytest tests/ -v
 
 # 4. Chạy linter, unit test frontend và build Vite production
