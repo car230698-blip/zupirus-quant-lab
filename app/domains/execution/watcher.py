@@ -114,6 +114,10 @@ def is_account_drawdown_halted(c, account_id: str, date_str: Optional[str] = Non
         return True
     if getkv(c, f"account_locked:{account_id}"):
         return True
+    if getkv(c, f"emergency_close_pending:{account_id}"):
+        return True
+    if getkv(c, f"hwm_close_pending:{account_id}"):
+        return True
     return False
 
 

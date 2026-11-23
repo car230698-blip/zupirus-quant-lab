@@ -33,9 +33,16 @@ def get_live_xauusd_quote(db_cursor: Optional[Any] = None, require_broker_feed: 
             val_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
             parts = val_str.split(":")
             if len(parts) >= 2:
+                q_ts = float(parts[2]) if len(parts) >= 3 and parts[2] else 0.0
                 q_source = parts[3] if len(parts) >= 4 else "UNKNOWN"
+                age_sec = now_ts - q_ts if q_ts > 0 else 0.0
+                stale_threshold = 120.0 if require_broker_feed else 180.0
+                is_stale = (age_sec > stale_threshold) or (q_ts <= 0.0 and require_broker_feed)
+
                 if require_broker_feed and q_source in ("YAHOO", "YAHOO_REFERENCE", "SIMULATED", "UNKNOWN"):
                     pass  # Skip non-broker source when broker feed is strictly required
+                elif require_broker_feed and is_stale:
+                    pass  # Reject stale quotes from Redis when broker feed is strictly required
                 else:
                     bid, ask = float(parts[0]), float(parts[1])
                     spread_pips = round(max(abs(ask - bid), 0.10) * 10, 1)
@@ -44,10 +51,11 @@ def get_live_xauusd_quote(db_cursor: Optional[Any] = None, require_broker_feed: 
                         "ask": ask,
                         "mid": round((bid + ask) / 2, 2),
                         "spread_pips": spread_pips,
-                        "live": True,
+                        "live": not is_stale,
                         "data_available": True,
-                        "stale": False,
+                        "stale": is_stale,
                         "source": f"REDIS_STREAM_{q_source}",
+                        "age_seconds": round(age_sec, 1),
                     }
     except Exception:
         pass

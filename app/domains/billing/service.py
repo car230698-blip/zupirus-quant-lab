@@ -184,7 +184,19 @@ def create_checkout_order(
     with tx() as c:
         if is_usdt:
             from app.domains.billing.crypto_direct import allocate_unique_usdt_amount
-            expected_usdt = allocate_unique_usdt_amount(total_usd, gateway, db_cursor=c)
+            for attempt in range(10):
+                expected_usdt = allocate_unique_usdt_amount(total_usd, gateway, db_cursor=c)
+                hold_key = f"usdt_hold:{gateway}:{expected_usdt:.2f}"
+                existing_hold = c.execute("SELECT value FROM kv WHERE key = ?", (hold_key,)).fetchone()
+                if existing_hold and existing_hold[0] != order_id:
+                    ord_chk = c.execute("SELECT status, expires_at FROM orders WHERE id = ?", (existing_hold[0],)).fetchone()
+                    if ord_chk and ord_chk[0] == "PENDING" and float(ord_chk[1] or 0) > now_ts:
+                        continue  # collision with active hold: retry next amount
+                c.execute(
+                    "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (hold_key, order_id)
+                )
+                break
 
         try:
             c.execute(

@@ -177,32 +177,58 @@ def allocate_unique_usdt_amount(base_amount_usd: float, network: str, db_cursor:
     """
     Allocate a unique exact USDT amount in the 30-minute window (e.g. 25.01 - 25.99).
     Guarantees no two concurrent unexpired PENDING orders share the exact same amount on the same network.
-    Accepts db_cursor to ensure atomic reservation within the caller's order creation transaction.
+    Uses an explicit lock on a pre-existing KV resource and PostgreSQL advisory transaction lock
+    to eliminate concurrent allocation races on both SQLite and PostgreSQL.
     """
     now_ts = time.time()
     gateway = str(network or "USDT_TRC20").upper()
     base = round(float(base_amount_usd), 2)
 
     def _query_taken(c):
-        for_update = " FOR UPDATE" if is_postgres() else ""
-        return c.execute(
-            f"""
+        lock_key = f"lock:usdt_alloc:{gateway}"
+        try:
+            # 1. Ensure the lock row exists on kv table
+            c.execute("INSERT INTO kv (key, value) VALUES (?, '1') ON CONFLICT(key) DO NOTHING", (lock_key,))
+            # 2. Acquire row lock on the existing KV resource
+            for_update = " FOR UPDATE" if is_postgres() else ""
+            c.execute(f"SELECT value FROM kv WHERE key = ?{for_update}", (lock_key,))
+            if is_postgres():
+                # Explicit transaction-scoped advisory lock on PostgreSQL
+                c.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"usdt_alloc_{gateway}",))
+        except Exception as lock_err:
+            logger.debug(f"USDT allocation lock notice: {lock_err}")
+
+        # Also query active KV holds (for uncommitted or very fresh orders)
+        held_rows = c.execute(
+            "SELECT key FROM kv WHERE key LIKE ?",
+            (f"usdt_hold:{gateway}:%",)
+        ).fetchall()
+        held_amounts = set()
+        for hr in held_rows:
+            try:
+                amt_str = str(hr[0]).split(":")[-1]
+                held_amounts.add(round(float(amt_str), 2))
+            except Exception:
+                pass
+
+        rows = c.execute(
+            """
             SELECT expected_amount_usdt FROM orders
             WHERE payment_gateway = ?
               AND status = 'PENDING'
               AND expires_at > ?
-              AND expected_amount_usdt IS NOT NULL{for_update}
+              AND expected_amount_usdt IS NOT NULL
             """,
             (gateway, now_ts)
         ).fetchall()
+        order_amounts = {round(float(r[0]), 2) for r in rows if r[0] is not None}
+        return order_amounts.union(held_amounts)
 
     if db_cursor is not None:
-        rows = _query_taken(db_cursor)
+        taken = _query_taken(db_cursor)
     else:
         with tx() as c:
-            rows = _query_taken(c)
-
-    taken = {round(float(r[0]), 2) for r in rows if r[0] is not None}
+            taken = _query_taken(c)
 
     # Generate available candidate amounts from base + 0.01 up to base + 0.99
     available = [

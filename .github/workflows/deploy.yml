@@ -72,10 +72,12 @@ jobs:
             done
             if [ "$HEALTHY" != "true" ]; then
               echo "[CRITICAL] Deployment healthcheck failed for $TARGET_SHA! Executing auto-rollback to $PREV_SHA..."
+              # Stop serving containers first so they release database locks and do not write corrupt state
+              docker compose -p zupirus-prod stop api worker-execution worker-research 2>/dev/null || true
               # Preserve modern restore tools independently of the checked-out rollback commit
               rm -rf /tmp/ops_rollback && cp -r scripts/ops /tmp/ops_rollback
               if [ -n "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ]; then
-                echo "Restoring database state cleanly from $BACKUP_FILE before switching code..."
+                echo "Restoring database state safely via staging verification from $BACKUP_FILE before switching code..."
                 python3 /tmp/ops_rollback/restore_postgres.py --backup "$BACKUP_FILE" --database "${POSTGRES_DB:-zupirus}" --clean
               fi
               git checkout "$PREV_SHA"

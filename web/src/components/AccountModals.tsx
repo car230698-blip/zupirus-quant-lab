@@ -6,13 +6,15 @@ import { verifyCryptoOrderTx } from '../api/client';
 
 function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
   const [svgHtml, setSvgHtml] = useState<string>('');
+  const [renderMode, setRenderMode] = useState<'loading' | 'svg' | 'canvas'>('loading');
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
-  const [useCanvas, setUseCanvas] = useState(false);
 
   useEffect(() => {
     let active = true;
     if (!text) return;
-    setUseCanvas(false);
+    setRenderMode('loading');
+    setSvgHtml('');
+
     QRCode.toString(text, {
       type: 'svg',
       margin: 1,
@@ -22,10 +24,14 @@ function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
       },
     })
       .then((svg) => {
-        if (active) setSvgHtml(svg);
+        if (active) {
+          setSvgHtml(svg);
+          setRenderMode('svg');
+        }
       })
       .catch((err) => {
         console.error('SVG QR generation failed, attempting canvas fallback:', err);
+        // Paint directly onto the persistent canvas mounted in the DOM
         if (active && canvasRef.current) {
           QRCode.toCanvas(canvasRef.current, text, {
             width: 240,
@@ -33,7 +39,7 @@ function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
             color: { dark: '#000000ff', light: '#ffffffff' },
           })
             .then(() => {
-              if (active) setUseCanvas(true);
+              if (active) setRenderMode('canvas');
             })
             .catch((cErr) => {
               console.error('Canvas QR fallback also failed:', cErr);
@@ -46,25 +52,27 @@ function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
     };
   }, [text]);
 
-  if (!svgHtml && !useCanvas) {
-    return (
-      <div className="w-36 h-36 flex items-center justify-center text-xs text-slate-400 font-mono animate-pulse">
-        QR Code...
-        <canvas ref={canvasRef} className="hidden" />
-      </div>
-    );
-  }
-
-  if (useCanvas) {
-    return <canvas ref={canvasRef} className="w-full h-full object-contain" aria-label={alt} />;
-  }
-
   return (
-    <div
-      className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
-      dangerouslySetInnerHTML={{ __html: svgHtml }}
-      aria-label={alt}
-    />
+    <div className="w-full h-full flex items-center justify-center relative">
+      {renderMode === 'svg' && svgHtml && (
+        <div
+          className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
+          dangerouslySetInnerHTML={{ __html: svgHtml }}
+          aria-label={alt}
+        />
+      )}
+      {/* Single persistent canvas node that remains mounted across states so drawn pixels are never wiped */}
+      <canvas
+        ref={canvasRef}
+        className={`w-full h-full object-contain ${renderMode === 'canvas' ? 'block' : 'hidden'}`}
+        aria-label={alt}
+      />
+      {renderMode === 'loading' && (
+        <div className="w-36 h-36 flex items-center justify-center text-xs text-slate-400 font-mono animate-pulse">
+          QR Code...
+        </div>
+      )}
+    </div>
   );
 }
 

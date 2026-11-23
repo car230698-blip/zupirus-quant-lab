@@ -550,10 +550,16 @@ async def execute_fan_out_for_signal(
             with tx() as c:
                 # Row lock if Postgres
                 is_pg_conn = bool(getattr(c, "_is_pg", False))
-                if is_pg_conn:
-                    c.execute("SELECT 1 FROM trading_accounts WHERE id = ? FOR UPDATE", (acc_id,))
+                # Re-verify latest trading_accounts status with row lock
+                acc_row = c.execute(
+                    "SELECT auto_trade, deployment_state FROM trading_accounts WHERE id = ?" + (" FOR UPDATE" if is_pg_conn else ""),
+                    (acc_id,)
+                ).fetchone()
+                if not acc_row or int(acc_row[0] or 0) != 1 or str(acc_row[1] or "") != "DEPLOYED":
+                    logger.warning(f"Account {acc_id} skipped: auto_trade disabled or state is {acc_row[1] if acc_row else 'NONE'}.")
+                    continue
 
-                # Check account drawdown or safety halt
+                # Check account drawdown or safety halt (including emergency_close_pending)
                 if is_account_drawdown_halted(c, acc_id):
                     logger.warning(f"Account {acc_id} skipped: Account is halted/locked.")
                     continue
