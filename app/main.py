@@ -133,7 +133,7 @@ async def perimeter(request: Request, call_next):
     response.headers['Content-Security-Policy'] = (
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://qr.sepay.vn https://*.sepay.vn "
-        "https://img.vietqr.io https://api.vietqr.io https://*.vietqr.io https://vietqr.net; connect-src 'self'; "
+        "https://img.vietqr.io https://api.vietqr.io https://*.vietqr.io https://vietqr.net https://api.qrserver.com; connect-src 'self'; "
         "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     )
     response.headers['Referrer-Policy'] = 'no-referrer'

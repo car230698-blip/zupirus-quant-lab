@@ -1,7 +1,47 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { IconClose } from './Icons';
 import { useLanguage } from '../i18n/LanguageContext';
 import { verifyCryptoOrderTx } from '../api/client';
+
+function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
+  const [dataUrl, setDataUrl] = useState<string>('');
+
+  useEffect(() => {
+    let active = true;
+    if (!text) return;
+    QRCode.toDataURL(text, {
+      width: 240,
+      margin: 1,
+      color: {
+        dark: '#000000ff',
+        light: '#ffffffff',
+      },
+    })
+      .then((url) => {
+        if (active) setDataUrl(url);
+      })
+      .catch(() => {
+        if (active) {
+          setDataUrl(`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(text)}`);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [text]);
+
+  if (!dataUrl) {
+    return (
+      <div className="w-36 h-36 flex items-center justify-center text-xs text-slate-400 font-mono animate-pulse">
+        QR Code...
+      </div>
+    );
+  }
+
+  return <img src={dataUrl} alt={alt} className="w-full h-full object-contain" />;
+}
 
 export interface AccountModalsProps {
   disclaimerModalOpen: boolean;
@@ -161,9 +201,6 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                 const amountUsdt = Number(checkoutOrder.expected_amount_usdt || checkoutOrder.amount_usdt || checkoutOrder.amount_usd || 0);
                 const network = checkoutOrder.crypto_network || (checkoutOrder.payment_gateway?.includes('BEP20') ? 'BEP20' : 'TRC20');
                 const walletAddress = checkoutOrder.wallet_address || '';
-                const qrUrl = walletAddress
-                  ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(walletAddress)}`
-                  : null;
 
                 const handleVerifyTx = async (e: React.FormEvent) => {
                   e.preventDefault();
@@ -250,11 +287,9 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                     {/* QR Code and Wallet Address */}
                     {walletAddress ? (
                       <div className="rounded-xl border border-slate-800 bg-[#070D18] p-4 text-center space-y-3">
-                        {qrUrl && (
-                          <div className="mx-auto w-36 h-36 bg-white p-2 rounded-xl shadow-lg inline-block">
-                            <img src={qrUrl} alt="Wallet Address QR" className="w-full h-full object-contain" />
-                          </div>
-                        )}
+                        <div className="mx-auto w-40 h-40 bg-white p-2 rounded-xl shadow-lg inline-block">
+                          <CryptoQrCode text={walletAddress} alt="Wallet Address QR" />
+                        </div>
 
                         <div className="space-y-1 text-left">
                           <span className="text-[11px] text-slate-400 font-medium block">
