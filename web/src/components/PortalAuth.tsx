@@ -29,7 +29,7 @@ export function PortalAuth({
   const [otpSending, setOtpSending] = useState(false);
   const [otpCountdown, setOtpCountdown] = useState(0);
   const [otpNotice, setOtpNotice] = useState<string | null>(null);
-  const { lang, toggleLang } = useLanguage();
+  const { lang } = useLanguage();
 
   useEffect(() => {
     if (otpCountdown <= 0) return;
@@ -41,7 +41,11 @@ export function PortalAuth({
 
   async function handleSendOtp() {
     if (!emailInput || !emailInput.includes('@')) {
-      setOtpNotice('Vui lòng nhập địa chỉ email hợp lệ trước khi yêu cầu mã OTP.');
+      setOtpNotice(
+        lang === 'en'
+          ? 'Please enter a valid email address before requesting an OTP code.'
+          : 'Vui lòng nhập địa chỉ email hợp lệ trước khi yêu cầu mã OTP.'
+      );
       return;
     }
     setOtpSending(true);
@@ -52,12 +56,20 @@ export function PortalAuth({
       if (data?.ok) {
         setOtpSent(true);
         setOtpCountdown(60);
-        setOtpNotice('✓ Mã xác thực OTP 6 chữ số đã được gửi tới hộp thư email của bạn.');
+        setOtpNotice(
+          lang === 'en'
+            ? '✓ A 6-digit verification code has been dispatched to your email.'
+            : '✓ Mã xác thực OTP 6 chữ số đã được gửi tới hộp thư email của bạn.'
+        );
       } else {
-        setOtpNotice(data?.detail || data?.message || 'Không thể gửi mã OTP. Vui lòng thử lại.');
+        setOtpNotice(
+          data?.detail ||
+          data?.message ||
+          (lang === 'en' ? 'Unable to send OTP. Please try again.' : 'Không thể gửi mã OTP. Vui lòng thử lại.')
+        );
       }
     } catch (err: any) {
-      setOtpNotice(`Lỗi kết nối: ${err.message || String(err)}`);
+      setOtpNotice(`${lang === 'en' ? 'Connection error' : 'Lỗi kết nối'}: ${err.message || String(err)}`);
     } finally {
       setOtpSending(false);
     }
@@ -71,7 +83,11 @@ export function PortalAuth({
 
     if (forgotMode) {
       if (!resetOtp || resetOtp.length !== 6) {
-        setOtpNotice('Vui lòng nhập đủ mã OTP 6 chữ số gửi về email.');
+        setOtpNotice(
+          lang === 'en'
+            ? 'Please enter the complete 6-digit OTP code sent to your email.'
+            : 'Vui lòng nhập đủ mã OTP 6 chữ số gửi về email.'
+        );
         return;
       }
       setResetBusy(true);
@@ -83,9 +99,13 @@ export function PortalAuth({
         setPasswordInput('');
         setOtpSent(false);
         setOtpCountdown(0);
-        setOtpNotice('✓ Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.');
+        setOtpNotice(
+          lang === 'en'
+            ? '✓ Password reset successful! Please sign in with your new password.'
+            : '✓ Đặt lại mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.'
+        );
       } catch (err: any) {
-        setOtpNotice(`Lỗi kết nối: ${err.message || String(err)}`);
+        setOtpNotice(`${lang === 'en' ? 'Connection error' : 'Lỗi kết nối'}: ${err.message || String(err)}`);
       } finally {
         setResetBusy(false);
       }
@@ -95,9 +115,14 @@ export function PortalAuth({
     const otp = register ? String(data.get('otp') || '') : undefined;
 
     if (register && !otp) {
-      setOtpNotice('Vui lòng bấm "Gửi mã OTP" và nhập mã xác thực 6 số từ email để tạo tài khoản.');
+      setOtpNotice(
+        lang === 'en'
+          ? 'Please click "Send OTP Code" and enter the 6-digit verification code from your email to create an account.'
+          : 'Vui lòng bấm "Gửi mã OTP" và nhập mã xác thực 6 số từ email để tạo tài khoản.'
+      );
       return;
     }
+
     void onSubmit(email, password, register, otp);
   }
 
@@ -109,14 +134,6 @@ export function PortalAuth({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Brand />
-              <button
-                type="button"
-                onClick={toggleLang}
-                className="flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#090e1d] px-2.5 py-1 font-mono text-[11px] font-bold text-slate-300 hover:border-amber-400/50 hover:text-amber-300 transition cursor-pointer"
-                title="Chuyển đổi ngôn ngữ / Switch Language (VI / EN)"
-              >
-                <span>{lang === 'vi' ? '🇻🇳 VI' : '🇬🇧 EN'}</span>
-              </button>
             </div>
             {onClosePreview && (
               <button
@@ -124,7 +141,7 @@ export function PortalAuth({
                 onClick={onClosePreview}
                 className="text-xs font-mono text-slate-400 hover:text-white transition"
               >
-                ← Quay lại Dashboard
+                {lang === 'en' ? '← Back to Dashboard' : '← Quay lại Dashboard'}
               </button>
             )}
           </div>
@@ -132,23 +149,33 @@ export function PortalAuth({
           <div className="my-auto py-8 max-w-md w-full mx-auto space-y-6">
             <div>
               <div className="font-mono text-xs font-semibold text-[#12B5A6] uppercase tracking-wider">
-                {portal === 'admin' ? 'TRẠM CHỈ HUY QUẢN TRỊ' : 'CỔNG GIAO DỊCH ĐỊNH LƯỢNG'}
+                {portal === 'admin'
+                  ? (lang === 'en' ? 'ADMIN COMMAND RADAR' : 'TRẠM CHỈ HUY QUẢN TRỊ')
+                  : (lang === 'en' ? 'QUANT TRADING PORTAL' : 'CỔNG GIAO DỊCH ĐỊNH LƯỢNG')}
               </div>
               <h1 className="mt-1.5 text-2xl sm:text-3xl font-bold text-white tracking-tight">
                 {forgotMode
-                  ? 'Khôi Phục Mật Khẩu'
+                  ? (lang === 'en' ? 'Reset Password' : 'Khôi Phục Mật Khẩu')
                   : register
-                  ? 'Đăng Ký Tài Khoản OTP'
-                  : 'Đăng Nhập Hệ Thống'}
+                  ? (lang === 'en' ? 'Create Account (OTP)' : 'Đăng Ký Tài Khoản OTP')
+                  : (lang === 'en' ? 'Sign In to Terminal' : 'Đăng Nhập Hệ Thống')}
               </h1>
               <p className="mt-1 text-xs text-[#94A3B8] leading-relaxed">
                 {portal === 'admin'
-                  ? 'Xác thực phân quyền quản trị viên vận hành hệ thống định lượng.'
+                  ? (lang === 'en'
+                      ? 'Authenticate administrative credentials for quant infrastructure operations.'
+                      : 'Xác thực phân quyền quản trị viên vận hành hệ thống định lượng.')
                   : forgotMode
-                  ? 'Nhập email để nhận mã OTP khôi phục mật khẩu bảo mật.'
+                  ? (lang === 'en'
+                      ? 'Enter your registered email to receive a secure recovery code.'
+                      : 'Nhập email để nhận mã OTP khôi phục mật khẩu bảo mật.')
                   : register
-                  ? 'Xác thực email qua OTP 6 số để kích hoạt không gian quản lý Cloud MT5.'
-                  : 'Truy cập danh mục tài khoản MT5, cấu hình rủi ro và sổ lệnh đám mây.'}
+                  ? (lang === 'en'
+                      ? 'Verify email via 6-digit OTP to provision your Cloud MT5 workspace.'
+                      : 'Xác thực email qua OTP 6 số để kích hoạt không gian quản lý Cloud MT5.')
+                  : (lang === 'en'
+                      ? 'Access MT5 terminal portfolio, risk configuration, and cloud execution ledger.'
+                      : 'Truy cập danh mục tài khoản MT5, cấu hình rủi ro và sổ lệnh đám mây.')}
               </p>
             </div>
 
@@ -172,7 +199,7 @@ export function PortalAuth({
             <form onSubmit={submit} className="space-y-4">
               <div>
                 <label htmlFor="auth-email" className="block text-xs font-medium text-slate-300 mb-1.5">
-                  ĐỊA CHỈ EMAIL
+                  {lang === 'en' ? 'EMAIL ADDRESS' : 'ĐỊA CHỈ EMAIL'}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -194,12 +221,12 @@ export function PortalAuth({
                       className="h-11 rounded-xl bg-[#12B5A6] hover:bg-[#14C9B8] disabled:opacity-50 text-[#042F2E] font-bold text-xs px-4 transition cursor-pointer whitespace-nowrap"
                     >
                       {otpSending
-                        ? 'Đang gửi...'
+                        ? (lang === 'en' ? 'Sending...' : 'Đang gửi...')
                         : otpCountdown > 0
-                        ? `Chờ (${otpCountdown}s)`
+                        ? (lang === 'en' ? `Wait (${otpCountdown}s)` : `Chờ (${otpCountdown}s)`)
                         : otpSent
-                        ? 'Gửi lại OTP'
-                        : 'Gửi mã OTP'}
+                        ? (lang === 'en' ? 'Resend OTP' : 'Gửi lại OTP')
+                        : (lang === 'en' ? 'Send OTP Code' : 'Gửi mã OTP')}
                     </button>
                   )}
                 </div>
@@ -208,7 +235,7 @@ export function PortalAuth({
               {register && (
                 <div>
                   <label htmlFor="auth-otp" className="block text-xs font-medium text-slate-300 mb-1.5">
-                    MÃ XÁC THỰC OTP (6 CHỮ SỐ)
+                    {lang === 'en' ? 'OTP VERIFICATION CODE (6 DIGITS)' : 'MÃ XÁC THỰC OTP (6 CHỮ SỐ)'}
                   </label>
                   <input
                     id="auth-otp"
@@ -226,7 +253,7 @@ export function PortalAuth({
               {forgotMode && (
                 <div>
                   <label htmlFor="auth-reset-otp" className="block text-xs font-medium text-slate-300 mb-1.5">
-                    MÃ OTP KHÔI PHỤC (6 CHỮ SỐ)
+                    {lang === 'en' ? 'RECOVERY OTP CODE (6 DIGITS)' : 'MÃ OTP KHÔI PHỤC (6 CHỮ SỐ)'}
                   </label>
                   <input
                     id="auth-reset-otp"
@@ -246,7 +273,9 @@ export function PortalAuth({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label htmlFor="auth-password" className="text-xs font-medium text-slate-300">
-                    {forgotMode ? 'MẬT KHẨU MỚI' : 'MẬT KHẨU'}
+                    {forgotMode
+                      ? (lang === 'en' ? 'NEW PASSWORD' : 'MẬT KHẨU MỚI')
+                      : (lang === 'en' ? 'PASSWORD' : 'MẬT KHẨU')}
                   </label>
                   {portal === 'user' && !register && !forgotMode && (
                     <button
@@ -259,7 +288,7 @@ export function PortalAuth({
                       }}
                       className="text-[11px] font-mono text-[#12B5A6] hover:underline cursor-pointer"
                     >
-                      Quên mật khẩu?
+                      {lang === 'en' ? 'Forgot password?' : 'Quên mật khẩu?'}
                     </button>
                   )}
                 </div>
@@ -271,7 +300,11 @@ export function PortalAuth({
                   onChange={(e) => setPasswordInput(e.target.value)}
                   autoComplete={register || forgotMode ? 'new-password' : 'current-password'}
                   minLength={forgotMode || register ? 8 : undefined}
-                  placeholder={forgotMode || register ? 'Tối thiểu 8 ký tự' : 'Nhập mật khẩu'}
+                  placeholder={
+                    forgotMode || register
+                      ? (lang === 'en' ? 'Minimum 8 characters' : 'Tối thiểu 8 ký tự')
+                      : (lang === 'en' ? 'Enter password' : 'Nhập mật khẩu')
+                  }
                   required
                   className="h-11 w-full rounded-xl border border-slate-800 bg-[#10192B] px-3.5 text-sm text-white placeholder-slate-500 focus:border-[#12B5A6] focus:outline-none"
                 />
@@ -284,14 +317,14 @@ export function PortalAuth({
               >
                 <span>
                   {resetBusy
-                    ? 'Đang đặt lại...'
+                    ? (lang === 'en' ? 'Resetting...' : 'Đang đặt lại...')
                     : loading
-                    ? 'Đang xác thực…'
+                    ? (lang === 'en' ? 'Authenticating…' : 'Đang xác thực…')
                     : forgotMode
-                    ? 'Xác Nhận Đặt Lại Mật Khẩu'
+                    ? (lang === 'en' ? 'Confirm Password Reset' : 'Xác Nhận Đặt Lại Mật Khẩu')
                     : register
-                    ? 'Xác Nhận OTP & Tạo Tài Khoản'
-                    : 'Đăng Nhập Vào Hệ Thống'}
+                    ? (lang === 'en' ? 'Verify OTP & Create Account' : 'Xác Nhận OTP & Tạo Tài Khoản')
+                    : (lang === 'en' ? 'Sign In to Terminal' : 'Đăng Nhập Vào Hệ Thống')}
                 </span>
                 <span>→</span>
               </button>
@@ -310,7 +343,7 @@ export function PortalAuth({
                     }}
                     disabled={resetBusy}
                   >
-                    ← Quay lại đăng nhập
+                    {lang === 'en' ? '← Back to Sign In' : '← Quay lại đăng nhập'}
                   </button>
                 ) : (
                   <button
@@ -324,8 +357,8 @@ export function PortalAuth({
                     disabled={loading}
                   >
                     {register
-                      ? '← Đã có tài khoản? Đăng nhập ngay'
-                      : 'Chưa có tài khoản? Đăng ký mới với OTP email →'}
+                      ? (lang === 'en' ? '← Already have an account? Sign In' : '← Đã có tài khoản? Đăng nhập ngay')
+                      : (lang === 'en' ? "Don't have an account? Register with OTP email →" : 'Chưa có tài khoản? Đăng ký mới với OTP email →')}
                   </button>
                 )}
               </div>
@@ -333,7 +366,11 @@ export function PortalAuth({
           </div>
 
           <div className="text-xs text-slate-500 font-mono">
-            <span>© 2026 ZUPIRUS Quant Lab · Chuẩn Quỹ Định Lượng</span>
+            <span>
+              {lang === 'en'
+                ? '© 2026 ZUPIRUS Quant Lab · Institutional Quant Standards'
+                : '© 2026 ZUPIRUS Quant Lab · Chuẩn Quỹ Định Lượng'}
+            </span>
           </div>
         </div>
 
@@ -346,13 +383,17 @@ export function PortalAuth({
           <div className="space-y-8 max-w-lg">
             <div>
               <span className="font-mono text-xs font-semibold uppercase tracking-wider text-[#12B5A6]">
-                TIÊU CHUẨN AN TOÀN FINTECH
+                {lang === 'en' ? 'FINTECH SECURITY STANDARDS' : 'TIÊU CHUẨN AN TOÀN FINTECH'}
               </span>
               <h2 className="mt-2 text-3xl font-bold text-white tracking-tight leading-snug">
-                Hạ tầng định lượng chuẩn tổ chức, bảo vệ nguồn vốn kỷ luật.
+                {lang === 'en'
+                  ? 'Institutional-grade quant infrastructure with disciplined capital preservation.'
+                  : 'Hạ tầng định lượng chuẩn tổ chức, bảo vệ nguồn vốn kỷ luật.'}
               </h2>
               <p className="mt-2 text-sm text-[#94A3B8] leading-relaxed">
-                Được thiết kế cho nhà giao dịch cá nhân và quỹ cấp vốn Prop Firm. Loại bỏ hoàn toàn sự cố treo máy VPS và gồng lỗ cảm tính.
+                {lang === 'en'
+                  ? 'Engineered for retail quants and funded prop firm traders. Eliminates VPS crashes and emotional drawdown.'
+                  : 'Được thiết kế cho nhà giao dịch cá nhân và quỹ cấp vốn Prop Firm. Loại bỏ hoàn toàn sự cố treo máy VPS và gồng lỗ cảm tính.'}
               </p>
             </div>
 
@@ -365,7 +406,9 @@ export function PortalAuth({
                 <div>
                   <div className="text-sm font-bold text-white">100% Zero EA · Zero VPS</div>
                   <div className="mt-0.5 text-xs text-[#94A3B8] leading-relaxed">
-                    Đấu nối trực tiếp máy chủ London G2 với độ trễ 24ms, không cần cài đặt phần mềm ngoài vào máy tính.
+                    {lang === 'en'
+                      ? 'Direct connection to London G2 cloud engine with 24ms latency. No local software or VPS rental required.'
+                      : 'Đấu nối trực tiếp máy chủ London G2 với độ trễ 24ms, không cần cài đặt phần mềm ngoài vào máy tính.'}
                   </div>
                 </div>
               </div>
@@ -375,9 +418,13 @@ export function PortalAuth({
                   <IconShield className="w-4 h-4 text-[#12B5A6]" />
                 </div>
                 <div>
-                  <div className="text-sm font-bold text-white">Mã hóa mật khẩu MT5 AES-256</div>
+                  <div className="text-sm font-bold text-white">
+                    {lang === 'en' ? 'AES-256 MT5 Credential Encryption' : 'Mã hóa mật khẩu MT5 AES-256'}
+                  </div>
                   <div className="mt-0.5 text-xs text-[#94A3B8] leading-relaxed">
-                    Thông tin đăng nhập giao dịch được mã hóa tầng sâu trước khi lưu trữ, không bao giờ xuất hiện ở dạng thô.
+                    {lang === 'en'
+                      ? 'Trade credentials are encrypted at rest with deep AES-256 HSM keys. Never stored in plaintext.'
+                      : 'Thông tin đăng nhập giao dịch được mã hóa tầng sâu trước khi lưu trữ, không bao giờ xuất hiện ở dạng thô.'}
                   </div>
                 </div>
               </div>
@@ -387,9 +434,13 @@ export function PortalAuth({
                   <IconReceipt className="w-4 h-4 text-[#12B5A6]" />
                 </div>
                 <div>
-                  <div className="text-sm font-bold text-white">Tiền nằm 100% tại sàn của bạn</div>
+                  <div className="text-sm font-bold text-white">
+                    {lang === 'en' ? '100% Direct Broker Custody' : 'Tiền nằm 100% tại sàn của bạn'}
+                  </div>
                   <div className="mt-0.5 text-xs text-[#94A3B8] leading-relaxed">
-                    ZUPIRUS không giữ tiền nạp hay ủy thác. Tài sản và lợi nhuận rút nạp trực tiếp qua tài khoản sàn MT5 của bạn.
+                    {lang === 'en'
+                      ? 'ZUPIRUS does not take fund custody or manage pooled assets. Deposits and withdrawals occur directly at your broker.'
+                      : 'ZUPIRUS không giữ tiền nạp hay ủy thác. Tài sản và lợi nhuận rút nạp trực tiếp qua tài khoản sàn MT5 của bạn.'}
                   </div>
                 </div>
               </div>
@@ -398,7 +449,9 @@ export function PortalAuth({
 
           <div className="flex items-center justify-between text-xs font-mono text-slate-500 border-t border-slate-800/80 pt-6">
             <span>MetaApi London G2 Gateway</span>
-            <span className="text-[#12B5A6]">4 Lớp Giáp Fail-Closed Armed</span>
+            <span className="text-[#12B5A6]">
+              {lang === 'en' ? '4 Fail-Closed Shield Layers Armed' : '4 Lớp Giáp Fail-Closed Armed'}
+            </span>
           </div>
         </div>
       </div>

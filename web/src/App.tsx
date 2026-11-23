@@ -12,7 +12,7 @@ import { AdminAIEvolutionTab } from './components/AdminAIEvolutionTab.tsx';
 import { AdminBusinessCustomersTab } from './components/AdminBusinessCustomersTab.tsx';
 import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
 import { normalizeCentToUsd } from './utils/currencyFormat.ts';
-import { LanguageProvider } from './i18n/LanguageContext.tsx';
+import { LanguageProvider, useLanguage } from './i18n/LanguageContext.tsx';
 
 const LandingPage = lazy(() =>
   import('./components/LandingPage.tsx').then((m) => ({ default: m.LandingPage }))
@@ -28,6 +28,7 @@ interface UserInfo {
 }
 
 const AppContent: React.FC = () => {
+  const { lang } = useLanguage();
   const [portal, setPortal] = useState<PortalType>(() => {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname.toLowerCase();
@@ -328,11 +329,15 @@ const AppContent: React.FC = () => {
     return (
       <div className="quant-app quant-admin quant-loading">
         <div className="quant-auth-box">
-          <h2>Cần quyền quản trị</h2>
-          <p>Tài khoản hiện tại không có quyền truy cập Trạm Chỉ Huy Điều Hành.</p>
+          <h2>{lang === 'en' ? 'Admin Authorization Required' : 'Cần quyền quản trị'}</h2>
+          <p>
+            {lang === 'en'
+              ? 'Current account does not have permission to access the Admin Command Station.'
+              : 'Tài khoản hiện tại không có quyền truy cập Trạm Chỉ Huy Điều Hành.'}
+          </p>
           <div className="flex gap-3">
             <button className="quant-primary flex-1" onClick={handleLogout}>
-              Đổi Tài Khoản
+              {lang === 'en' ? 'Switch Account' : 'Đổi Tài Khoản'}
             </button>
           </div>
         </div>
