@@ -1,11 +1,14 @@
 .env
 runtime/
+app/runtime/
 __pycache__/
+**/__pycache__/
 .pytest_cache/
 .venv/
 *.pyc
 node_modules/
 dist/
+web/dist/
 *.egg-info/
 data/*.sqlite3*
 data/snapshots/
