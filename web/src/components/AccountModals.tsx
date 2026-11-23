@@ -6,10 +6,13 @@ import { verifyCryptoOrderTx } from '../api/client';
 
 function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
   const [svgHtml, setSvgHtml] = useState<string>('');
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const [useCanvas, setUseCanvas] = useState(false);
 
   useEffect(() => {
     let active = true;
     if (!text) return;
+    setUseCanvas(false);
     QRCode.toString(text, {
       type: 'svg',
       margin: 1,
@@ -22,7 +25,20 @@ function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
         if (active) setSvgHtml(svg);
       })
       .catch((err) => {
-        console.error('QR code generation failed:', err);
+        console.error('SVG QR generation failed, attempting canvas fallback:', err);
+        if (active && canvasRef.current) {
+          QRCode.toCanvas(canvasRef.current, text, {
+            width: 240,
+            margin: 1,
+            color: { dark: '#000000ff', light: '#ffffffff' },
+          })
+            .then(() => {
+              if (active) setUseCanvas(true);
+            })
+            .catch((cErr) => {
+              console.error('Canvas QR fallback also failed:', cErr);
+            });
+        }
       });
 
     return () => {
@@ -30,12 +46,17 @@ function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
     };
   }, [text]);
 
-  if (!svgHtml) {
+  if (!svgHtml && !useCanvas) {
     return (
       <div className="w-36 h-36 flex items-center justify-center text-xs text-slate-400 font-mono animate-pulse">
         QR Code...
+        <canvas ref={canvasRef} className="hidden" />
       </div>
     );
+  }
+
+  if (useCanvas) {
+    return <canvas ref={canvasRef} className="w-full h-full object-contain" aria-label={alt} />;
   }
 
   return (

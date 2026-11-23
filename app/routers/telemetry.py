@@ -62,8 +62,23 @@ def get_live_xauusd_quote(db_cursor: Optional[Any] = None, require_broker_feed: 
             ask = float(q_row[1])
             quote_ts = float(q_row[2]) if q_row[2] else 0.0
             age_seconds = now_ts - quote_ts
-            is_stale = age_seconds > 180.0  # Older than 3 minutes
+            stale_threshold = 120.0 if require_broker_feed else 180.0
+            is_stale = age_seconds > stale_threshold
             spread_pips = round(max(abs(ask - bid), 0.10) * 10, 1)
+
+            if require_broker_feed and is_stale:
+                return {
+                    "bid": None,
+                    "ask": None,
+                    "mid": None,
+                    "spread_pips": None,
+                    "live": False,
+                    "data_available": False,
+                    "stale": True,
+                    "source": "DB_QUOTES_STALE",
+                    "age_seconds": round(age_seconds, 1),
+                }
+
             return {
                 "bid": bid,
                 "ask": ask,
@@ -76,7 +91,10 @@ def get_live_xauusd_quote(db_cursor: Optional[Any] = None, require_broker_feed: 
                 "age_seconds": round(age_seconds, 1),
             }
 
-        # 3. Fallback to latest closed candle
+        # 3. Fallback to latest closed candle (only permitted for telemetry display, strictly rejected for broker execution feed)
+        if require_broker_feed:
+            return None
+
         c_row = c.execute(
             "SELECT close, time FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1"
         ).fetchone()

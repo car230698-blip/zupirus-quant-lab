@@ -194,10 +194,10 @@ def readyz():
                 rhb_val = float(rhb[0]) if rhb and rhb[0] else 0.0
 
                 if app_env_check == "production" and not in_pytest:
-                    # In production, verify heartbeats were generated after THIS container startup
-                    if hb and hb_val >= (APP_BOOT_TIME - 2.0) and (now_ts - hb_val) < 30.0:
+                    # In production, verify heartbeats were generated strictly after THIS container startup
+                    if hb and hb_val >= APP_BOOT_TIME and (now_ts - hb_val) < 30.0:
                         engine_ok = True
-                    if rhb and rhb_val >= (APP_BOOT_TIME - 2.0) and (now_ts - rhb_val) < 45.0:
+                    if rhb and rhb_val >= APP_BOOT_TIME and (now_ts - rhb_val) < 45.0:
                         research_ok = True
                 else:
                     if hb and (now_ts - hb_val) < 30.0:

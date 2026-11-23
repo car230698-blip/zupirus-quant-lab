@@ -939,6 +939,11 @@ class PositionWatcher:
                         f"PROP FIRM BREACH: Account {acc_id} daily DD reached {drawdown_pct:.2f}% (limit: {prop_dd_limit:.2f}%, pending: {is_pending_close}). "
                         f"Emergency closing bot positions only."
                     )
+                    # Persist circuit breaker and disable new orders immediately before calling broker
+                    with tx() as c:
+                        c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
+                        setkv(c, f"emergency_close_pending:{acc_id}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
+
                     close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
                     close_st = str(close_res.get("status") or "")
                     close_ok = (
@@ -963,13 +968,19 @@ class PositionWatcher:
                         })
                         try:
                             from app.domains.notifications.service import emit_notification
+                            n_title = "Ngắt Khẩn Cấp: Đã Xác Nhận Đóng Vị Thế" if close_ok else "Ngắt Khẩn Cấp: Đang Tiến Hành Đóng Lệnh"
+                            n_body = (
+                                f"Tài khoản {acc.get('account_name') or acc_id} chạm sụt giảm {drawdown_pct:.1f}% >= giới hạn {prop_dd_limit:.1f}%. Toàn bộ vị thế của Bot đã được đóng an toàn."
+                                if close_ok else
+                                f"Tài khoản {acc.get('account_name') or acc_id} chạm sụt giảm {drawdown_pct:.1f}% >= giới hạn {prop_dd_limit:.1f}%. Đã ngắt auto_trade và đang tiếp tục thử đóng lại các vị thế còn lại."
+                            )
                             emit_notification(
                                 c,
                                 user_id=acc.get("user_id"),
                                 role="user",
                                 severity="CRITICAL",
-                                title="Ngắt Khẩn Cấp: Vi Phạm Drawdown",
-                                body=f"Tài khoản {acc.get('account_name') or acc_id} chạm sụt giảm {drawdown_pct:.1f}% >= giới hạn {prop_dd_limit:.1f}%. Các vị thế của Bot đã được đóng.",
+                                title=n_title,
+                                body=n_body,
                                 send_email=True,
                                 cooldown_key=f"user_dd_breach_{acc_id}_{date_str}",
                                 cooldown_sec=3600,
@@ -1064,6 +1075,11 @@ class PositionWatcher:
                         logger.warning(
                             f"PROP HWM BREACH: Account {acc_id} trailing DD {trailing_dd_pct:.2f}% >= 8.0% (HWM={hwm_equity:.2f}, pending: {is_pending_hwm}). Closing bot positions only."
                         )
+                        # Persist circuit breaker and disable new orders immediately before calling broker
+                        with tx() as c:
+                            c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
+                            setkv(c, f"hwm_close_pending:{acc_id}", f"HWM_TRAILING_DD_{trailing_dd_pct:.2f}")
+
                         close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
                         close_st = str(close_res.get("status") or "")
                         close_ok = (

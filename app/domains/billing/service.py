@@ -180,9 +180,12 @@ def create_checkout_order(
 
         gateway = f"USDT_{network}"
         currency = "USDT"
-        expected_usdt = allocate_unique_usdt_amount(total_usd, gateway)
 
     with tx() as c:
+        if is_usdt:
+            from app.domains.billing.crypto_direct import allocate_unique_usdt_amount
+            expected_usdt = allocate_unique_usdt_amount(total_usd, gateway, db_cursor=c)
+
         try:
             c.execute(
                 """

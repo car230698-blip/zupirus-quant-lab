@@ -112,13 +112,16 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
 
         gw = str(d.get("payment_gateway") or "").upper()
         if gw.startswith("USDT"):
-            from app.domains.billing.crypto_direct import get_crypto_wallets_config
-            cfg = get_crypto_wallets_config(db_cursor=c)
             net = "BEP20" if "BEP20" in gw else "TRC20"
             d["crypto_network"] = net
             # Read saved destination wallet from kv (consistent with checkout and verification)
             saved_w = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_wallet:{d['id']}",)).fetchone()
-            d["wallet_address"] = (saved_w[0] if saved_w and saved_w[0] else None) or (cfg.get("bep20_address") if net == "BEP20" else cfg.get("trc20_address"))
+            wallet_addr = saved_w[0] if saved_w and saved_w[0] else None
+            if not wallet_addr:
+                from app.domains.billing.crypto_direct import get_crypto_wallets_config
+                cfg = get_crypto_wallets_config(db_cursor=c)
+                wallet_addr = cfg.get("bep20_address") if net == "BEP20" else cfg.get("trc20_address")
+            d["wallet_address"] = wallet_addr
             d["amount_usdt"] = d.get("expected_amount_usdt") or d.get("amount_usd")
             d["payment_content"] = f"USDT {d['id']}"
         else:

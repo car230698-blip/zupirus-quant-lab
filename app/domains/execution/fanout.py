@@ -190,7 +190,7 @@ async def execute_fan_out_for_signal(
             try:
                 from app.routers.telemetry import get_live_xauusd_quote
                 lq = get_live_xauusd_quote(require_broker_feed=True)
-                if lq.get("spread_pips"):
+                if lq.get("live") and not lq.get("stale") and lq.get("spread_pips"):
                     broker_spread = float(lq["spread_pips"])
             except Exception as exc:
                 logger.debug(f"Could not retrieve live quote spread for {symbol} (acc {acc_id}): {exc}")

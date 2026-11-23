@@ -113,15 +113,15 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
     live_price_val = None
     if canonical_symbol(p.symbol) == "XAUUSD":
         lq = get_live_xauusd_quote(require_broker_feed=True)
-        if lq.get("mid"):
+        if lq.get("live") and lq.get("mid") and not lq.get("stale"):
             live_price_val = float(lq["mid"])
     else:
         with tx() as c_quote:
             q_row = c_quote.execute(
-                "SELECT bid, ask FROM quotes WHERE symbol = ? AND source NOT IN ('YAHOO', 'YAHOO_REFERENCE', 'SIMULATED') ORDER BY ts DESC LIMIT 1",
+                "SELECT bid, ask, ts FROM quotes WHERE symbol = ? AND source NOT IN ('YAHOO', 'YAHOO_REFERENCE', 'SIMULATED') ORDER BY ts DESC LIMIT 1",
                 (canonical_symbol(p.symbol),)
             ).fetchone()
-            if q_row and q_row[0] and q_row[1]:
+            if q_row and q_row[0] and q_row[1] and (now_ts - float(q_row[2] or 0)) <= 120.0:
                 live_price_val = (float(q_row[0]) + float(q_row[1])) / 2.0
 
     if live_price_val is None:

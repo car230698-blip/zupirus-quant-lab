@@ -5,6 +5,7 @@
    `PositionWatcher` continues protecting open trades (BE 1R, TP1 50%, DD 4.5%) until closed.
 3. Retries any `DEPLOY_PENDING` accounts whose initial Cloud deploy failed transiently.
 """
+import asyncio
 import logging
 import sys
 import time
@@ -183,16 +184,23 @@ async def run_subscription_lifecycle_cycle(
                     logger.warning(f"EXPIRED ACCOUNT PROTECTED: Broker read unverified for {acc['id']} (is_read_ok=False). Keeping EXPIRED_PROTECTING.")
                     continue
 
-                has_blocking_items = bool(unverified_reqs) or bool(open_positions) or bool(open_orders)
+                has_live_broker_items = bool(open_positions) or bool(open_orders) or (not is_read_ok)
+                has_blocking_items = has_live_broker_items or bool(unverified_reqs)
                 is_24h_expired = (now - exp) >= 86400
 
-                if has_blocking_items and not is_24h_expired:
+                # Never undeploy terminal while broker still has open positions, open orders, or unverified read state
+                if has_live_broker_items or (bool(unverified_reqs) and not is_24h_expired):
                     with tx() as c:
                         c.execute(
                             "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
                             (acc["id"],),
                         )
                     stats["protecting_open"] += 1
+                    if is_24h_expired and has_live_broker_items:
+                        logger.warning(
+                            f"EXPIRED ACCOUNT > 24H: Account {acc['id']} has live positions/orders or unverified read. "
+                            f"Preserving EXPIRED_PROTECTING to keep risk watcher active until positions close."
+                        )
                     continue
 
                 # Re-verify latest expiration from DB right before undeploy to eliminate race with concurrent renewals
@@ -225,7 +233,8 @@ async def run_subscription_lifecycle_cycle(
                         )
                         was_updated = getattr(upd_res, "rowcount", 0) > 0
                         if not was_updated:
-                            logger.info(f"Account {acc['id']} was renewed during undeploy call! Triggering immediate re-deploy.")
+                            logger.info(f"Account {acc['id']} was renewed during undeploy call! Setting DEPLOY_PENDING and triggering immediate re-deploy.")
+                            c.execute("UPDATE trading_accounts SET deployment_state = 'DEPLOY_PENDING' WHERE id = ?", (acc["id"],))
                             if meta_id:
                                 asyncio.create_task(meta_client.deploy_account(meta_id))
                             continue

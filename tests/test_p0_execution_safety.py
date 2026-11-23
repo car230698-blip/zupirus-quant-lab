@@ -554,9 +554,18 @@ async def test_a6_operational_invariants_and_edge_cases(tmp_path, monkeypatch):
             ) VALUES ('ex_unver_exp', 'sig_e', 'acc_exp', 'meta_exp', 'XAUUSD', 'BUY', 0.1, 2000.0, 'UNKNOWN_EXECUTION', 'BOT', ?)
         """, (now - 86400 * 2,))
 
+    # 5a. With live open positions on broker, MUST stay in EXPIRED_PROTECTING even after 24h expired
     mock_client.get_positions_verified = AsyncMock(return_value=(True, [{"id": "pos_rem"}], {"synchronized": True}))
     mock_client.get_open_orders_verified = AsyncMock(return_value=(True, [], {"status_code": 200}))
+    mock_client.undeploy_account = AsyncMock(return_value=True)
 
+    await run_subscription_lifecycle_cycle(meta_client=mock_client, now_ts=now)
+    with tx() as c:
+        row = c.execute("SELECT deployment_state FROM trading_accounts WHERE id = 'acc_exp'").fetchone()
+        assert row[0] == "EXPIRED_PROTECTING", "Live positions on broker must prevent undeploy even after 24h"
+
+    # 5b. When broker positions close (0 open positions and orders), undeploy after 24h and dispatch handover alerts
+    mock_client.get_positions_verified = AsyncMock(return_value=(True, [], {"synchronized": True}))
     dispatched_emails = []
     from app.core import mailer
     monkeypatch.setattr(mailer, "send_resend_email", lambda *args, **kwargs: dispatched_emails.append(kwargs) or {"ok": True})
@@ -565,7 +574,7 @@ async def test_a6_operational_invariants_and_edge_cases(tmp_path, monkeypatch):
     stats_handover = await run_subscription_lifecycle_cycle(meta_client=mock_client, now_ts=now)
     with tx() as c:
         row = c.execute("SELECT deployment_state FROM trading_accounts WHERE id = 'acc_exp'").fetchone()
-        assert row[0] == "UNDEPLOYED", "Account expired > 24h must be undeployed"
+        assert row[0] == "UNDEPLOYED", "Account expired > 24h with 0 broker positions must be undeployed"
     assert len(dispatched_emails) >= 2, "Handover alerts must be dispatched to BOTH admin and customer"
 
     # 6. Shared Broker Circuit Breaker across accounts

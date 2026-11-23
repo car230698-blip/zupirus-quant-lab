@@ -10,6 +10,7 @@ Features:
 - Atomic idempotent fulfillment with double-spending prevention
 - Zero private keys stored on server
 """
+import os
 import re
 import time
 import json
@@ -19,9 +20,13 @@ import logging
 import urllib.request
 import urllib.error
 from typing import Dict, Any, Tuple, Optional
-from app.db import tx, audit
+from app.db import tx, audit, is_postgres
 
 logger = logging.getLogger("zupirus.billing.crypto_direct")
+
+# Fallback default receiving wallet addresses from environment
+DEFAULT_TRC20_WALLET = os.getenv("USDT_TRC20_ADDRESS", "").strip()
+DEFAULT_BEP20_WALLET = os.getenv("USDT_BEP20_ADDRESS", "").strip()
 
 # Official USDT Smart Contract Addresses
 USDT_TRC20_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
@@ -77,8 +82,9 @@ def get_crypto_wallets_config(db_cursor: Optional[Any] = None) -> Dict[str, Any]
                 if isinstance(data, dict):
                     trc20 = str(data.get("usdt_trc20_address") or data.get("trc20_address") or "").strip()
                     bep20 = str(data.get("usdt_bep20_address") or data.get("bep20_address") or "").strip()
+                    has_wallets = bool(trc20 or bep20)
                     return {
-                        "enabled": bool(data.get("enabled", True)),
+                        "enabled": bool(data.get("enabled", True)) and has_wallets,
                         "trc20_address": trc20,
                         "bep20_address": bep20,
                         "usdt_trc20_address": trc20,
@@ -88,8 +94,9 @@ def get_crypto_wallets_config(db_cursor: Optional[Any] = None) -> Dict[str, Any]
                     }
             except Exception as e:
                 logger.warning(f"Failed parsing crypto_wallets config: {e}")
+        has_default_wallets = bool(DEFAULT_TRC20_WALLET or DEFAULT_BEP20_WALLET)
         return {
-            "enabled": True,
+            "enabled": has_default_wallets,
             "trc20_address": DEFAULT_TRC20_WALLET,
             "bep20_address": DEFAULT_BEP20_WALLET,
             "usdt_trc20_address": DEFAULT_TRC20_WALLET,
@@ -102,16 +109,6 @@ def get_crypto_wallets_config(db_cursor: Optional[Any] = None) -> Dict[str, Any]
         return _read_from_cursor(db_cursor)
     with tx() as c:
         return _read_from_cursor(c)
-
-    return {
-        "enabled": False,
-        "trc20_address": "",
-        "bep20_address": "",
-        "usdt_trc20_address": "",
-        "usdt_bep20_address": "",
-        "has_trc20": False,
-        "has_bep20": False,
-    }
 
 
 def save_crypto_wallets_config(
@@ -176,26 +173,34 @@ def get_active_billing_methods() -> Dict[str, bool]:
     }
 
 
-def allocate_unique_usdt_amount(base_amount_usd: float, network: str) -> float:
+def allocate_unique_usdt_amount(base_amount_usd: float, network: str, db_cursor: Optional[Any] = None) -> float:
     """
     Allocate a unique exact USDT amount in the 30-minute window (e.g. 25.01 - 25.99).
     Guarantees no two concurrent unexpired PENDING orders share the exact same amount on the same network.
+    Accepts db_cursor to ensure atomic reservation within the caller's order creation transaction.
     """
     now_ts = time.time()
     gateway = str(network or "USDT_TRC20").upper()
     base = round(float(base_amount_usd), 2)
 
-    with tx() as c:
-        rows = c.execute(
-            """
+    def _query_taken(c):
+        for_update = " FOR UPDATE" if is_postgres() else ""
+        return c.execute(
+            f"""
             SELECT expected_amount_usdt FROM orders
             WHERE payment_gateway = ?
               AND status = 'PENDING'
               AND expires_at > ?
-              AND expected_amount_usdt IS NOT NULL
+              AND expected_amount_usdt IS NOT NULL{for_update}
             """,
             (gateway, now_ts)
         ).fetchall()
+
+    if db_cursor is not None:
+        rows = _query_taken(db_cursor)
+    else:
+        with tx() as c:
+            rows = _query_taken(c)
 
     taken = {round(float(r[0]), 2) for r in rows if r[0] is not None}
 
