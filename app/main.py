@@ -186,11 +186,11 @@ def readyz():
                 rhb = c.execute("SELECT value FROM kv WHERE key='research_heartbeat'").fetchone()
                 if hb is not None or rhb is not None:
                     has_hb_records = True
-                if hb and now_ts - float(hb[0]) < 120:
+                if hb and now_ts - float(hb[0]) < 30.0:
                     engine_ok = True
                 elif hb is None and not is_postgres():
                     engine_ok = True
-                if rhb and now_ts - float(rhb[0]) < 120:
+                if rhb and now_ts - float(rhb[0]) < 45.0:
                     research_ok = True
                 elif rhb is None and not is_postgres():
                     research_ok = True

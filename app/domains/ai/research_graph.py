@@ -338,22 +338,7 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
             "min_slope": latest_fold.get("tuned_slope", rules.get("min_slope", 0.20)),
             "tp_points": round(base_sl * latest_fold.get("tuned_rr", 2.0), 2),
         }
-        # Evaluate the fixed final rule-set across all OOS test windows so reported metrics validate the exact saved rules
-        fixed_returns: List[float] = []
-        for start in range(0, len(prices) - 180 + 1, 60):
-            test_win = prices[start + 120:start + 180]
-            _, f_rets = score_candidate_on_window(test_win, rules)
-            fixed_returns.extend(f_rets)
-        if fixed_returns:
-            all_returns = fixed_returns
-            equity = peak = dd = 0.0
-            for value in all_returns:
-                equity += value
-                peak = max(peak, equity)
-                dd = max(dd, peak - equity)
-            net_oos = round(sum(all_returns), 4)
-            max_dd = round(dd, 4)
-            max_dd_pct = round((dd / max(base_price, 1.0)) * 100.0, 2)
+        # Keep all_returns as the true walk-forward concatenated OOS returns to avoid look-ahead leakage
 
     trades_count = len(all_returns)
     wins = sum(1 for r in all_returns if r > 0)

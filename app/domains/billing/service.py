@@ -231,6 +231,11 @@ def create_checkout_order(
             "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (f"order_cycle:{order_id}", cycle_u),
         )
+        if wallet_address:
+            c.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"order_wallet:{order_id}", wallet_address),
+            )
 
     # Sepay VietQR generation (Configured account: VietinBank)
     bank_name, bank_acc, bank_holder = get_effective_sepay_config()
@@ -390,8 +395,15 @@ async def process_successful_payment(
         new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, order, now_ts)
 
         user_row = c.execute("SELECT email, preferred_language FROM users WHERE id = ?", (order["user_id"],)).fetchone()
-        user_email = user_row[0] if user_row else None
-        user_lang = user_row[1] if user_row and len(user_row) > 1 and user_row[1] else "vi"
+        user_email = None
+        user_lang = "vi"
+        if user_row:
+            if hasattr(user_row, "get"):
+                user_email = user_row.get("email")
+                user_lang = user_row.get("preferred_language") or "vi"
+            else:
+                user_email = user_row[0]
+                user_lang = user_row[1] if len(user_row) > 1 and user_row[1] else "vi"
 
     # 5. Background MetaApi deployment
     if accounts_to_deploy:
@@ -443,7 +455,9 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
     cycle_days = BILLING_CYCLE_CONFIG.get(cycle_u, BILLING_CYCLE_CONFIG["MONTHLY"])["days"]
     duration_sec = cycle_days * 86400
 
-    sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
+    from app.core.db import is_postgres
+    for_update = " FOR UPDATE" if is_postgres() else ""
+    sub = c.execute(f"SELECT * FROM subscriptions WHERE user_id = ?{for_update}", (user_id,)).fetchone()
     sub_d = dict(sub) if sub else None
     current_sub_exp = float(sub_d["service_expires_at"] or 0) if sub_d and sub_d.get("service_expires_at") else 0.0
     _tier_rank = {"starter": 1, "growth": 2, "alpha": 3}
@@ -530,12 +544,17 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
         dep_st = str(a.get("deployment_state") or "").upper()
         was_expired_or_undeployed = dep_st in ("UNDEPLOYED", "EXPIRED_PROTECTING", "DEPLOY_PENDING") or (curr_c_exp > 0 and curr_c_exp <= now_ts)
         next_auto_trade = 1 if was_expired_or_undeployed else int(a.get("auto_trade") if a.get("auto_trade") is not None else 1)
-        c.execute(
-            "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = ? WHERE id = ? AND user_id = ?",
-            (new_c_exp, next_auto_trade, a["id"], user_id),
-        )
         if a.get("metaapi_account_id") and (was_expired_or_undeployed or dep_st != "DEPLOYED"):
+            c.execute(
+                "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = ?, deployment_state = 'DEPLOY_PENDING' WHERE id = ? AND user_id = ?",
+                (new_c_exp, next_auto_trade, a["id"], user_id),
+            )
             accounts_to_deploy.append((a["id"], a["metaapi_account_id"]))
+        else:
+            c.execute(
+                "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = ? WHERE id = ? AND user_id = ?",
+                (new_c_exp, next_auto_trade, a["id"], user_id),
+            )
 
     if not accounts_to_deploy:
         c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))

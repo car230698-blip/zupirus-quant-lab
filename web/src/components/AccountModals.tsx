@@ -5,26 +5,24 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { verifyCryptoOrderTx } from '../api/client';
 
 function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
-  const [dataUrl, setDataUrl] = useState<string>('');
+  const [svgHtml, setSvgHtml] = useState<string>('');
 
   useEffect(() => {
     let active = true;
     if (!text) return;
-    QRCode.toDataURL(text, {
-      width: 240,
+    QRCode.toString(text, {
+      type: 'svg',
       margin: 1,
       color: {
         dark: '#000000ff',
         light: '#ffffffff',
       },
     })
-      .then((url) => {
-        if (active) setDataUrl(url);
+      .then((svg) => {
+        if (active) setSvgHtml(svg);
       })
-      .catch(() => {
-        if (active) {
-          setDataUrl(`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(text)}`);
-        }
+      .catch((err) => {
+        console.error('QR code generation failed:', err);
       });
 
     return () => {
@@ -32,7 +30,7 @@ function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
     };
   }, [text]);
 
-  if (!dataUrl) {
+  if (!svgHtml) {
     return (
       <div className="w-36 h-36 flex items-center justify-center text-xs text-slate-400 font-mono animate-pulse">
         QR Code...
@@ -40,7 +38,13 @@ function CryptoQrCode({ text, alt }: { text: string; alt: string }) {
     );
   }
 
-  return <img src={dataUrl} alt={alt} className="w-full h-full object-contain" />;
+  return (
+    <div
+      className="w-full h-full flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
+      dangerouslySetInnerHTML={{ __html: svgHtml }}
+      aria-label={alt}
+    />
+  );
 }
 
 export interface AccountModalsProps {

@@ -15,7 +15,7 @@ logger = logging.getLogger("zupirus.telemetry")
 router = APIRouter(prefix="/api/v1/telemetry", tags=["Telemetry"])
 
 
-def get_live_xauusd_quote(db_cursor: Optional[Any] = None) -> Dict[str, Any]:
+def get_live_xauusd_quote(db_cursor: Optional[Any] = None, require_broker_feed: bool = False) -> Dict[str, Any]:
     """Retrieve real-time XAUUSD quote strictly from authentic market sources:
     1. Redis live quote cache (updated by MetaApi streamer)
     2. TimescaleDB/Postgres latest quote tick
@@ -49,8 +49,9 @@ def get_live_xauusd_quote(db_cursor: Optional[Any] = None) -> Dict[str, Any]:
         pass
 
     def _read_from_cursor(c):
+        source_filter = "AND source NOT IN ('YAHOO', 'YAHOO_REFERENCE', 'SIMULATED')" if require_broker_feed else ""
         q_row = c.execute(
-            "SELECT bid, ask, ts FROM quotes WHERE symbol = 'XAUUSD' ORDER BY ts DESC LIMIT 1"
+            f"SELECT bid, ask, ts FROM quotes WHERE symbol = 'XAUUSD' {source_filter} ORDER BY ts DESC LIMIT 1"
         ).fetchone()
         if q_row and q_row[0] and q_row[1]:
             bid = float(q_row[0])

@@ -103,7 +103,47 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
 
         audit(c, u.get("email") if isinstance(u, dict) else getattr(u, "email", "admin"), "admin_dispatch_signal", f"Signal {signal_id} {p.action} {p.symbol} @ {p.entry_price} SL={p.sl} TP={p.tp}")
 
-    # 4. Also enqueue into Direct MT5 EA Bridge (dispatches) for any connected & enabled DEMO EA terminals
+    # 4-Layer Safety Sanitizer (Deduplication, Mandatory SL, News Shield, Entry Slippage)
+    from app.domains.signals.ingestion.sanitizer import sanitize_and_audit_signal
+    from app.schemas.signals import NormalizedSignalSchema
+    from app.routers.telemetry import get_live_xauusd_quote
+    from app.services.symbol_mapper import canonical_symbol
+
+    live_price_val = float(p.entry_price)
+    if canonical_symbol(p.symbol) == "XAUUSD":
+        lq = get_live_xauusd_quote(require_broker_feed=True)
+        if lq.get("mid"):
+            live_price_val = float(lq["mid"])
+    else:
+        with tx() as c_quote:
+            q_row = c_quote.execute(
+                "SELECT bid, ask FROM quotes WHERE symbol = ? AND source NOT IN ('YAHOO', 'YAHOO_REFERENCE', 'SIMULATED') ORDER BY ts DESC LIMIT 1",
+                (canonical_symbol(p.symbol),)
+            ).fetchone()
+            if q_row and q_row[0] and q_row[1]:
+                live_price_val = (float(q_row[0]) + float(q_row[1])) / 2.0
+
+    norm_sig = NormalizedSignalSchema(
+        id=signal_id,
+        source="ADMIN_MANUAL",
+        symbol=p.symbol.upper(),
+        action=p.action.upper(),
+        entry_price=p.entry_price,
+        stop_loss=p.sl,
+        take_profit=p.tp,
+        strategy_tier="STANDARD",
+        created_at=now_ts,
+    )
+    ok_san, reason_san, validated_sig = sanitize_and_audit_signal(norm_sig, live_price=live_price_val, current_time=now_ts)
+    if not ok_san:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tín hiệu bị từ chối bởi 4 Lớp Giáp Bảo Vệ: {reason_san}"
+        )
+    if validated_sig.stop_loss and not p.sl:
+        p.sl = validated_sig.stop_loss
+
+    # 4. Enqueue into Direct MT5 EA Bridge (dispatches) for connected DEMO EA terminals ONLY AFTER sanitizer validation
     ea_queued = 0
     try:
         from app.routers.ea import _ensure_ea_tables
@@ -156,29 +196,6 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
             "ea_bridge_queued": ea_queued,
             "fanout_elapsed_ms": 0
         }
-
-    # 4-Layer Safety Sanitizer (Deduplication, Mandatory SL, News Shield, Entry Slippage)
-    from app.domains.signals.ingestion.sanitizer import sanitize_and_audit_signal
-    from app.schemas.signals import NormalizedSignalSchema
-    norm_sig = NormalizedSignalSchema(
-        id=signal_id,
-        source="ADMIN_MANUAL",
-        symbol=p.symbol.upper(),
-        action=p.action.upper(),
-        entry_price=p.entry_price,
-        stop_loss=p.sl,
-        take_profit=p.tp,
-        strategy_tier="STANDARD",
-        created_at=now_ts,
-    )
-    ok_san, reason_san, validated_sig = sanitize_and_audit_signal(norm_sig, live_price=p.entry_price, current_time=now_ts)
-    if not ok_san:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Tín hiệu bị từ chối bởi 4 Lớp Giáp Bảo Vệ: {reason_san}"
-        )
-    if validated_sig.stop_loss and not p.sl:
-        p.sl = validated_sig.stop_loss
 
     from app.metaapi import MetaApiClient, execute_fan_out_for_signal
     client = MetaApiClient()

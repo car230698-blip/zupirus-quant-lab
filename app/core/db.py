@@ -97,6 +97,12 @@ class RowDictWrapper:
     def __iter__(self):
         return iter(self._dict)
 
+    def __len__(self) -> int:
+        return len(self._dict)
+
+    def __contains__(self, key: Any) -> bool:
+        return key in self._dict
+
     def keys(self):
         return self._dict.keys()
 

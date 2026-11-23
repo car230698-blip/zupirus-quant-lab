@@ -619,7 +619,7 @@ class PositionWatcher:
             return {
                 "status": "UNVERIFIED_READ_ERROR",
                 "closed_count": 0,
-                "failed_count": 0,
+                "failed_count": -1,
                 "non_bot_count": 0,
                 "meta": meta
             }
@@ -934,9 +934,10 @@ class PositionWatcher:
                             f"Emergency closing bot positions only."
                         )
                         close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
+                        close_st = str(close_res.get("status") or "")
                         close_ok = (
-                            close_res.get("status") in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                            or (int(close_res.get("failed_count", 0)) == 0)
+                            close_st in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                            and int(close_res.get("failed_count", 0)) == 0
                         )
                         halt_key = get_drawdown_halt_key(acc_id, date_str)
                         with tx() as c:
@@ -1094,9 +1095,10 @@ class PositionWatcher:
                     if is_read_ok and cur_open:
                         logger.info(f"WEEKEND CLOSE: Account {acc_id} closing bot positions before Friday close.")
                         close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
+                        close_st = str(close_res.get("status") or "")
                         close_ok = (
-                            close_res.get("status") in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                            or (int(close_res.get("failed_count", 0)) == 0)
+                            close_st in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                            and int(close_res.get("failed_count", 0)) == 0
                         )
                         with tx() as c:
                             audit(c, "weekend_guard", "friday_weekend_close", {

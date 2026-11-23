@@ -12,7 +12,7 @@ from pathlib import Path
 from postgres_tools import run
 
 
-def restore(database_url: str | None, backup_file: Path, database: str | None = None):
+def restore(database_url: str | None, backup_file: Path, database: str | None = None, clean: bool = False):
     target = dict(database_url=database_url, database=database)
 
     def query(sql):
@@ -28,6 +28,9 @@ def restore(database_url: str | None, backup_file: Path, database: str | None = 
         else:
             run("pg_restore", "--list", stdin=contents, stdout=subprocess.DEVNULL, **target)
 
+    if clean:
+        query("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public;")
+
     occupied = query("""
         SELECT EXISTS (
             SELECT FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -41,7 +44,7 @@ def restore(database_url: str | None, backup_file: Path, database: str | None = 
         )
     """)
     if occupied != "f":
-        raise RuntimeError("Restore target already contains data structures. Use a fresh database.")
+        raise RuntimeError("Restore target already contains data structures. Use a fresh database or pass --clean.")
 
     query("CREATE EXTENSION IF NOT EXISTS timescaledb")
     query("SELECT timescaledb_pre_restore()")
@@ -66,11 +69,12 @@ def main():
     parser.add_argument("--url", default=os.getenv("DATABASE_URL"))
     parser.add_argument("--database", help="Empty target database inside the Compose service")
     parser.add_argument("--backup", "--file", dest="backup", required=True)
+    parser.add_argument("--clean", action="store_true", help="Drop existing public schema before restore to allow in-place rollbacks")
     args = parser.parse_args()
     if not (args.url or args.database):
         parser.error("Set --database for the empty Compose target, or select it with --url.")
     try:
-        restore(args.url, Path(args.backup), args.database)
+        restore(args.url, Path(args.backup), args.database, clean=args.clean)
     except Exception as exc:
         print(f"Restore failed: {exc}", file=sys.stderr)
         return 1

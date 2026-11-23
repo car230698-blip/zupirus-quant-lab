@@ -60,15 +60,23 @@ jobs:
             echo "================================================================="
             echo " [4/4] Verifying Post-Deployment Health & Direct-to-User Engine"
             echo "================================================================="
-            # Allow uvicorn and background workers time to finish initial startup
-            sleep 8
-            if ! docker exec zupirus-prod-api-1 python -m cli healthcheck --json || ! curl -fsS http://127.0.0.1:8080/readyz; then
+            # Wait for background workers to initialize and readyz to report healthy
+            HEALTHY=false
+            for i in $(seq 1 10); do
+              sleep 3
+              if docker exec zupirus-prod-api-1 python -m cli healthcheck --json && curl -fsS http://127.0.0.1:8080/readyz > /dev/null 2>&1; then
+                HEALTHY=true
+                echo "[HEALTHCHECK OK] Production API and workers verified on attempt $i."
+                break
+              fi
+            done
+            if [ "$HEALTHY" != "true" ]; then
               echo "[CRITICAL] Deployment healthcheck failed for $TARGET_SHA! Executing auto-rollback to $PREV_SHA..."
               git checkout "$PREV_SHA"
               docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --build --remove-orphans
               if [ -n "$BACKUP_FILE" ] && [ -f "$BACKUP_FILE" ]; then
-                echo "Restoring database state from $BACKUP_FILE..."
-                python3 scripts/ops/restore_postgres.py --backup "$BACKUP_FILE" --database "${POSTGRES_DB:-zupirus}" || true
+                echo "Restoring database state cleanly from $BACKUP_FILE..."
+                python3 scripts/ops/restore_postgres.py --backup "$BACKUP_FILE" --database "${POSTGRES_DB:-zupirus}" --clean
               fi
               echo "[ROLLBACK COMPLETE] Successfully restored previous stable commit $PREV_SHA."
               exit 1

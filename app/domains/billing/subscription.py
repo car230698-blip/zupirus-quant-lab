@@ -185,6 +185,17 @@ async def run_subscription_lifecycle_cycle(
                     stats["protecting_open"] += 1
                     continue
 
+                # Re-verify latest expiration from DB right before undeploy to eliminate race with concurrent renewals
+                with tx() as c:
+                    fresh_sub = c.execute("SELECT service_expires_at FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
+                    fresh_exp = float(fresh_sub[0] or 0) if fresh_sub and fresh_sub[0] else 0.0
+                    fresh_acc = c.execute("SELECT cloud_expires_at FROM trading_accounts WHERE id = ?", (acc["id"],)).fetchone()
+                    fresh_acc_exp = float(fresh_acc[0] or 0) if fresh_acc and fresh_acc[0] else 0.0
+
+                if fresh_exp > now or fresh_acc_exp > now:
+                    logger.info(f"Account {acc['id']} was renewed concurrently. Skipping undeploy.")
+                    continue
+
                 undeploy_ok = True
                 try:
                     if meta_id:

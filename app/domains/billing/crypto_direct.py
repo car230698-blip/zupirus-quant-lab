@@ -448,6 +448,12 @@ async def verify_and_fulfill_crypto_order(
     if order["status"] == "PAID":
         return {"ok": True, "already_paid": True, "message": "Đơn hàng đã được xác nhận thanh toán thành công trước đó."}
 
+    # Verify expiration (allow 48h grace period for blockchain transfer delays)
+    now_ts = time.time()
+    order_expires_at = float(order.get("expires_at") or 0)
+    if order_expires_at > 0 and now_ts > (order_expires_at + 172800):
+        return {"ok": False, "message": "Đơn hàng đã hết hạn thanh toán quá thời gian ân hạn (48 giờ). Vui lòng tạo đơn mới."}
+
     # 2. Check if tx_hash already used by another order or transaction
     with tx() as c:
         dup = c.execute("SELECT id FROM payment_transactions WHERE tx_hash = ?", (tx_hash,)).fetchone()
@@ -456,19 +462,21 @@ async def verify_and_fulfill_crypto_order(
         dup_ord = c.execute("SELECT id FROM orders WHERE tx_hash = ? AND id != ?", (tx_hash, order["id"])).fetchone()
         if dup_ord:
             return {"ok": False, "message": "Mã giao dịch này đã được gán cho một đơn hàng khác."}
+        saved_wallet_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_wallet:{order['id']}",)).fetchone()
+        saved_dest_wallet = saved_wallet_row[0] if saved_wallet_row and saved_wallet_row[0] else None
 
-    # 3. Read admin destination wallet
+    # 3. Read admin destination wallet (saved at checkout, fallback to current config)
     cfg = get_crypto_wallets_config()
     gateway = str(order.get("payment_gateway") or "USDT_TRC20").upper()
     expected_amount = float(order.get("expected_amount_usdt") or order.get("amount_usd") or 25.0)
 
     if gateway == "USDT_TRC20":
-        dest_wallet = cfg.get("usdt_trc20_address")
+        dest_wallet = saved_dest_wallet or cfg.get("usdt_trc20_address")
         if not dest_wallet:
             return {"ok": False, "message": "Ví nhận USDT TRC20 của hệ thống chưa được cấu hình."}
         valid, msg, details = verify_trc20_transaction(tx_hash, dest_wallet, expected_amount)
     elif gateway == "USDT_BEP20":
-        dest_wallet = cfg.get("usdt_bep20_address")
+        dest_wallet = saved_dest_wallet or cfg.get("usdt_bep20_address")
         if not dest_wallet:
             return {"ok": False, "message": "Ví nhận USDT BEP20 của hệ thống chưa được cấu hình."}
         valid, msg, details = verify_bep20_transaction(tx_hash, dest_wallet, expected_amount)
