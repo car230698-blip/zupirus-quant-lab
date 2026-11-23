@@ -325,3 +325,28 @@ def test_geoip_language_detection(client, monkeypatch):
     assert r_local_vi.json()["language"] == "vi"
     assert r_local_vi.json()["is_foreign"] is False
 
+
+def test_english_seo_pages(client):
+    """Test English international SEO SSR endpoints and hreflang metadata."""
+    # 1. English overview landing page
+    r_en = client.get("/en")
+    assert r_en.status_code == 200
+    assert 'lang="en"' in r_en.text
+    assert 'hreflang="en"' in r_en.text
+    assert "ZUPIRUS — Institutional Gold" in r_en.text
+    assert "4-Layer Fail-Closed Shield" in r_en.text
+
+    # 2. English guides list
+    r_guides = client.get("/en/guides")
+    assert r_guides.status_code == 200
+    assert 'lang="en"' in r_guides.text
+    assert "Quantitative Trading &amp; Prop Firm Risk Management Guides" in r_guides.text
+
+    # 3. English guide detail
+    r_detail = client.get("/en/guides/ftmo-the5ers-automated-pass-guide")
+    assert r_detail.status_code == 200
+    assert 'lang="en"' in r_detail.text
+    assert "How to Pass FTMO, The5ers &amp; FundedNext" in r_detail.text
+    assert "Article" in r_detail.text
+
+

@@ -94,6 +94,39 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     if (typeof window !== 'undefined') {
       document.documentElement.lang = lang;
+      if (lang === 'en') {
+        document.title = 'ZUPIRUS — Institutional Gold (XAU/USD) & Forex Cloud MT5 Quant Trading OS';
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (metaDesc) {
+          metaDesc.setAttribute(
+            'content',
+            'Zero-VPS Cloud MT5 quantitative trading system for Gold (XAU/USD) & Forex. 4-layer Fail-Closed capital shield engineered for FTMO, The5ers & FundedNext prop firms.'
+          );
+        }
+        const metaKw = document.querySelector('meta[name="keywords"]');
+        if (metaKw) {
+          metaKw.setAttribute(
+            'content',
+            'ZUPIRUS, gold trading bot XAUUSD, automated forex trading, cloud MT5 zero VPS, pass FTMO challenge, The5ers, FundedNext, prop firm capital shield, quantitative gold trading'
+          );
+        }
+      } else {
+        document.title = 'ZUPIRUS — Bot Trade Vàng XAU/USD & Forex Cloud MT5 Chuẩn Quỹ';
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (metaDesc) {
+          metaDesc.setAttribute(
+            'content',
+            'Bot trade định lượng Vàng XAU/USD & Forex (EUR/USD, GBP/USD, USD/JPY) trên Cloud MT5 không cần VPS. 4 lớp giáp Fail-Closed chuẩn quỹ FTMO, The5ers, FundedNext. Kích hoạt SePay 24/7.'
+          );
+        }
+        const metaKw = document.querySelector('meta[name="keywords"]');
+        if (metaKw) {
+          metaKw.setAttribute(
+            'content',
+            'ZUPIRUS, bot trade vàng XAUUSD, bot trade forex, EURUSD, GBPUSD, USDJPY, Cloud MT5 không cần VPS, pass quỹ FTMO, The5ers, FundedNext, Prop Firm Guard, copy trade MT5 tự động, giao dịch định lượng XAU/USD'
+          );
+        }
+      }
     }
   }, [lang]);
 

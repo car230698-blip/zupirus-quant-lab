@@ -367,10 +367,14 @@ def _render_shell(
   <meta name="keywords" content="{esc_kw}" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
   <link rel="canonical" href="{esc_canon}" />
+  <link rel="alternate" hreflang="vi" href="https://zupirus.com/" />
+  <link rel="alternate" hreflang="en" href="https://zupirus.com/?lang=en" />
+  <link rel="alternate" hreflang="x-default" href="https://zupirus.com/?lang=en" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="ZUPIRUS Quant Lab" />
   <meta property="og:locale" content="{locale_val}" />
+  <meta property="og:locale:alternate" content="{'vi_VN' if is_en else 'en_US'}" />
   <meta property="og:url" content="{esc_canon}" />
   <meta property="og:title" content="{esc_title}" />
   <meta property="og:description" content="{esc_desc}" />
@@ -1082,3 +1086,275 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
             lang=effective_lang,
         )
     )
+
+
+ENGLISH_GUIDES: List[Dict[str, object]] = [
+    {
+        "slug": "ftmo-the5ers-automated-pass-guide",
+        "title": "Automated FTMO & The5ers Challenge Pass Guide | ZUPIRUS Quant Lab",
+        "meta_description": "Comprehensive guide to passing FTMO, The5ers, and FundedNext evaluations with automated Prop Firm Guard. 4.0% daily DD cap, 8.0% HWM lock, and 0.75% risk sizing.",
+        "keywords": "pass FTMO challenge automated, FTMO trading bot, The5ers pass bot, FundedNext bot, prop firm risk management bot",
+        "h1": "How to Pass FTMO, The5ers & FundedNext Prop Firm Challenges with Automated Quant Systems",
+        "read_time": "6 min read",
+        "badge": "PROP FIRM · CHALLENGE PASS",
+        "sections": [
+            (
+                "1. Why 90% of Traders Fail Prop Firm Evaluations",
+                "Traders rarely fail prop firm challenges due to lack of profitable setups. The overwhelming majority fail because of emotional overleveraging and violating the Daily Drawdown (5%/day) or Max Trailing Drawdown (10%) rule during high-volatility sessions (NFP, CPI, FOMC). When emotional revenge trading occurs, doubling down lot sizes breaches challenge rules within minutes."
+            ),
+            (
+                "2. Three-Tier Prop Firm Guard Architecture on ZUPIRUS",
+                "ZUPIRUS enforces institutional risk architecture designed specifically for CHALLENGE and FUNDED stages: (1) Hard Daily Drawdown Circuit-Breaker at 4.0% (safely below the 5.0% prop firm threshold to absorb broker spread spikes and slippage), (2) High-Water Mark Trailing Drawdown Lock at 8.0% from peak equity, and (3) Dynamic Risk De-escalation (50% lot reduction once 80% of the target profit is secured)."
+            ),
+            (
+                "3. Disciplined Rules for Funded Live Accounts",
+                "Once funded, ZUPIRUS locks risk at a maximum 1.0% per trading idea with a strict minimum R:R of 1.8. Live system audits across multiple prop accounts ($100K FTMO, $100K The5ers, $200K FundedNext) demonstrate consistent low drawdown under 1.5% while achieving steady, repeatable capital growth."
+            ),
+        ],
+    },
+    {
+        "slug": "cloud-mt5-gold-trading-bot-zero-vps",
+        "title": "Cloud MT5 Gold Trading Bot (XAU/USD) Zero-VPS Architecture | ZUPIRUS",
+        "meta_description": "Discover how the ZUPIRUS Cloud MT5 quantitative bot executes XAU/USD trades with zero VPS, 4-layer Fail-Closed capital shield, ATR(14) stop loss, and news filters.",
+        "keywords": "gold trading bot XAUUSD, cloud MT5 trading bot, zero VPS forex bot, automated gold trading MT5",
+        "h1": "How Cloud MT5 Gold (XAU/USD) Trading Bots Operate Without a VPS",
+        "read_time": "5 min read",
+        "badge": "CLOUD MT5 · XAU/USD",
+        "sections": [
+            (
+                "1. The Hidden Risks of Manual Gold Trading and Traditional Windows VPS",
+                "Gold (XAU/USD) has an average daily range of 150–350 pips. When quants trade manually or host .ex5 Expert Advisors on cheap virtual private servers (VPS), the three most common causes of catastrophic account loss are: (1) emotional stop-loss manipulation, (2) unexpected VPS freezes or reboots during high-impact news releases, and (3) broker slippage during liquidity gaps."
+            ),
+            (
+                "2. ZUPIRUS Zero-VPS London G2 Cloud Infrastructure",
+                "Instead of requiring traders to install complex software or maintain Windows VPS instances, ZUPIRUS connects directly to broker MT5 server bridges via a dedicated London G2 Cloud cluster with ~10ms execution latency. Trading credentials are encrypted at rest with deep AES-256 keys, and funds remain 100% under your direct broker custody."
+            ),
+            (
+                "3. Four-Layer Fail-Closed Capital Protection Shield",
+                "Every M15 signal passes through 4 mandatory automated checkpoints before execution: L1 Idempotency Lock (prevents duplicate orders via Redis + DB), L2 Enforced Hard Stop Loss calculated from ATR(14) with strict spread filtering, L3 High-Impact News Filter (blocks new positions ±15 minutes around red-folder USD events), and L4 Slippage Guard (rejects fills if slippage exceeds 20 pips)."
+            ),
+        ],
+    },
+    {
+        "slug": "prop-firm-risk-management-drawdown",
+        "title": "Quant Lot Sizing Formula & Daily Drawdown Management for Prop Firms | ZUPIRUS",
+        "meta_description": "Accurate lot sizing formula for Standard, Cent, and Prop firm accounts. Maintain daily drawdown below 4.0% and maximize risk-adjusted returns.",
+        "keywords": "lot size formula gold, prop firm daily drawdown management, MT5 lot calculator, FTMO drawdown rules",
+        "h1": "Dynamic Lot Sizing & Prop Firm Daily Drawdown Control for Quantitative Traders",
+        "read_time": "5 min read",
+        "badge": "CAPITAL RISK · LOT SIZING",
+        "sections": [
+            (
+                "1. Formula-Driven Lot Sizing Based on Stop-Loss Distance",
+                "Rather than trading fixed lot sizes regardless of volatility, quantitative execution sizes every trade based on a fixed percentage risk budget: Lot = (Equity × Risk%) / (SL_Points × Point_Size × Contract_Size). This guarantees that regardless of whether the stop loss is 35 pips or 70 pips, the dollar risk is strictly capped."
+            ),
+            (
+                "2. Handling Standard vs. Cent (USC) Accounts Seamlessly",
+                "On Cent accounts, contract sizes differ significantly from Standard accounts (100 oz vs. 1 oz). ZUPIRUS automatically recognizes account denominations and contract specifications, preventing devastating decimal order errors."
+            ),
+            (
+                "3. Auto Break-Even and Multi-Trade Loss Streak Resilience",
+                "With 0.75% risk per idea and a 4.0% daily loss limit, a prop firm portfolio can absorb more than 5 consecutive losses in a single day without breaching the firm's daily drawdown ceiling. Automated break-even adjustment at +1.0R further protects unrealized profits."
+            ),
+        ],
+    },
+]
+ENGLISH_GUIDE_BY_SLUG: Dict[str, Dict[str, object]] = {g["slug"]: g for g in ENGLISH_GUIDES}  # type: ignore[misc]
+
+
+@router.get("/en", response_class=HTMLResponse)
+def seo_english_landing(request: Request) -> HTMLResponse:
+    canonical = "https://zupirus.com/en"
+    title = "ZUPIRUS — Institutional Gold (XAU/USD) & Forex Cloud MT5 Quant Trading OS"
+    desc = "Zero-VPS Cloud MT5 quantitative trading system for Gold (XAU/USD) & Forex. 4-layer Fail-Closed capital shield engineered for FTMO, The5ers & FundedNext prop firms."
+    keywords = "gold trading bot XAUUSD, automated forex trading, cloud MT5 zero VPS, pass FTMO challenge, The5ers, FundedNext, prop firm capital shield, quantitative gold trading"
+    json_ld = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "SoftwareApplication",
+                "name": "ZUPIRUS Cloud MT5 Quant OS",
+                "applicationCategory": "FinanceApplication",
+                "operatingSystem": "Web, Cloud MT5",
+                "url": "https://zupirus.com/en",
+                "description": desc,
+                "offers": {"@type": "AggregateOffer", "priceCurrency": "USD", "lowPrice": "25", "highPrice": "59", "offerCount": "3"}
+            },
+            {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://zupirus.com/"},
+                    {"@type": "ListItem", "position": 2, "name": "Global English", "item": canonical},
+                ],
+            },
+        ],
+    }
+    cards = "".join(
+        f"""<div class="card">
+          <span class="badge">{html.escape(str(g['badge']))} · {html.escape(str(g['read_time']))}</span>
+          <h2><a href="/en/guides/{g['slug']}">{html.escape(str(g['h1']))}</a></h2>
+          <p>{html.escape(str(g['meta_description']))}</p>
+          <a href="/en/guides/{g['slug']}" style="font-weight:700;font-size:13.5px">Read Full Guide →</a>
+        </div>"""
+        for g in ENGLISH_GUIDES
+    )
+    body = f"""
+      <div class="crumb"><a href="https://zupirus.com/">Home</a> / Global English Overview</div>
+      <span class="badge">INSTITUTIONAL QUANT OS · ZERO VPS</span>
+      <h1>Institutional Gold (XAU/USD) &amp; Forex Quantitative Trading on Cloud MT5</h1>
+      <p>Direct broker bridge to London G2 cloud servers. Zero Expert Advisors to configure, zero Windows VPS to rent. 4-layer Fail-Closed capital protection engineered specifically for FTMO, The5ers, and funded prop firm portfolios.</p>
+
+      <div class="grid">
+        <div class="card">
+          <span class="badge">RISK ARCHITECTURE</span>
+          <h2>4-Layer Fail-Closed Shield</h2>
+          <p>Every trade order is strictly audited before execution: Idempotency locks, mandatory ATR(14) Stop Loss, ±15m high-impact news filter, and slippage rejection.</p>
+        </div>
+        <div class="card">
+          <span class="badge">PROP FIRM DISCIPLINE</span>
+          <h2>Hard 1.0% Risk Cap &amp; Daily DD Shield</h2>
+          <p>Automated circuit breaker cuts exposure at 4.0% daily drawdown and caps risk to 1.0% per idea to guarantee 100% compliance with prop firm rules.</p>
+        </div>
+        <div class="card">
+          <span class="badge">ZERO-CUSTODY SECURITY</span>
+          <h2>100% Direct Broker Custody</h2>
+          <p>ZUPIRUS never takes custody of investor funds. Deposits and withdrawals occur directly through your MT5 broker (FTMO, Exness, ICMarkets).</p>
+        </div>
+      </div>
+
+      <h2 style="margin-top:48px">Institutional Knowledge Hub &amp; Guides</h2>
+      <div class="grid">{cards}</div>
+
+      <div class="cta-box">
+        <div>
+          <strong style="color:#fff;font-size:18px">Launch Your Cloud MT5 Quant Terminal</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Connect your MT5 account in under 3 minutes. Instant USDT (TRC20/BEP20) activation.</p>
+        </div>
+        <a class="cta" href="https://app.zupirus.com/">Launch Terminal →</a>
+      </div>
+    """
+    return HTMLResponse(_render_shell(title, desc, canonical, keywords, json_ld, body, lang="en"))
+
+
+@router.get("/en/guides", response_class=HTMLResponse)
+def seo_english_guides(request: Request) -> HTMLResponse:
+    canonical = "https://zupirus.com/en/guides"
+    title = "Quantitative Trading & Prop Firm Knowledge Hub | ZUPIRUS"
+    desc = "Explore in-depth research, quantitative trading architecture, and prop firm risk management guides for FTMO, The5ers, and Cloud MT5."
+    keywords = "prop firm trading guides, pass FTMO challenge automated, gold trading bot XAUUSD, cloud MT5 guides"
+    json_ld = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "CollectionPage",
+                "name": title,
+                "description": desc,
+                "url": canonical,
+                "publisher": {"@type": "Organization", "name": "ZUPIRUS Quant Lab", "url": "https://zupirus.com/"},
+            },
+            {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://zupirus.com/"},
+                    {"@type": "ListItem", "position": 2, "name": "Guides", "item": canonical},
+                ],
+            },
+        ],
+    }
+    cards = "".join(
+        f"""<div class="card">
+          <span class="badge">{html.escape(str(g['badge']))} · {html.escape(str(g['read_time']))}</span>
+          <h2><a href="/en/guides/{g['slug']}">{html.escape(str(g['h1']))}</a></h2>
+          <p>{html.escape(str(g['meta_description']))}</p>
+          <a href="/en/guides/{g['slug']}" style="font-weight:700;font-size:13.5px">Read Guide →</a>
+        </div>"""
+        for g in ENGLISH_GUIDES
+    )
+    body = f"""
+      <div class="crumb"><a href="https://zupirus.com/">Home</a> / <a href="/en">Global English</a> / Guides</div>
+      <span class="badge">QUANT KNOWLEDGE HUB</span>
+      <h1>Quantitative Trading &amp; Prop Firm Risk Management Guides</h1>
+      <p>Institutional analysis, algorithmic architectures, and disciplined risk guidelines for systematic gold (XAU/USD) traders.</p>
+      <div class="grid">{cards}</div>
+      <div class="cta-box">
+        <div>
+          <strong style="color:#fff;font-size:17px">Ready to automate your trading with disciplined risk?</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Connect your MetaTrader 5 account to ZUPIRUS Cloud engine in 3 minutes.</p>
+        </div>
+        <a class="cta" href="https://app.zupirus.com/">Launch Terminal →</a>
+      </div>
+    """
+    return HTMLResponse(_render_shell(title, desc, canonical, keywords, json_ld, body, lang="en"))
+
+
+@router.get("/en/guides/{slug}", response_class=HTMLResponse)
+def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
+    g = ENGLISH_GUIDE_BY_SLUG.get(slug)
+    if not g:
+        raise HTTPException(status_code=404, detail="Guide not found")
+
+    canonical = f"https://zupirus.com/en/guides/{slug}"
+    json_ld = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "Article",
+                "headline": g["h1"],
+                "description": g["meta_description"],
+                "datePublished": PUBLISHED_DATE,
+                "dateModified": PUBLISHED_DATE,
+                "author": {"@type": "Organization", "name": "ZUPIRUS Quant Lab"},
+                "publisher": {"@type": "Organization", "name": "ZUPIRUS Quant Lab", "url": "https://zupirus.com/"},
+                "mainEntityOfPage": canonical,
+            },
+            {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://zupirus.com/"},
+                    {"@type": "ListItem", "position": 2, "name": "Guides", "item": "https://zupirus.com/en/guides"},
+                    {"@type": "ListItem", "position": 3, "name": g["h1"], "item": canonical},
+                ],
+            },
+        ],
+    }
+
+    sections_html = "".join(
+        f"<h2>{html.escape(heading)}</h2><p>{html.escape(content)}</p>"
+        for heading, content in g["sections"]  # type: ignore[misc]
+    )
+    related_html = "".join(
+        f'<li><a href="/en/guides/{other["slug"]}">{html.escape(str(other["h1"]))}</a></li>'
+        for other in ENGLISH_GUIDES
+        if other["slug"] != slug
+    )
+
+    body = f"""
+      <div class="crumb"><a href="https://zupirus.com/">Home</a> / <a href="/en/guides">Guides</a> / {html.escape(slug)}</div>
+      <span class="badge">{html.escape(str(g['badge']))} · {html.escape(str(g['read_time']))}</span>
+      <h1>{html.escape(str(g['h1']))}</h1>
+      <p style="color:#94a3b8;font-size:13px">Updated: {PUBLISHED_DATE} · Author: ZUPIRUS Quant Lab</p>
+      <article class="card">{sections_html}</article>
+      <div class="card">
+        <h2 style="margin-top:0;font-size:17px">Related Research &amp; Guides</h2>
+        <ul style="margin:8px 0 0;padding-left:20px;line-height:2">{related_html}</ul>
+      </div>
+      <div class="cta-box">
+        <div>
+          <strong style="color:#fff;font-size:17px">Experience Zero-VPS Cloud MT5 &amp; Prop Firm Guard</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Transparent verified track record · Instant USDT activation.</p>
+        </div>
+        <a class="cta" href="https://app.zupirus.com/">Launch Terminal →</a>
+      </div>
+    """
+    return HTMLResponse(
+        _render_shell(
+            str(g["title"]),
+            str(g["meta_description"]),
+            canonical,
+            str(g["keywords"]),
+            json_ld,
+            body,
+            lang="en",
+        )
+    )
+
