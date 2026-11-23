@@ -257,8 +257,29 @@ export async function updateUserLanguage(language: 'vi' | 'en'): Promise<{ ok: b
   return api.patch<{ ok: boolean; preferred_language: string }>('/api/v1/auth/language', { language });
 }
 
-export async function fetchPaymentGateways(): Promise<{ sepay: boolean; usdt: boolean; supported_currencies: string[] }> {
-  return api.get<{ sepay: boolean; usdt: boolean; supported_currencies: string[] }>('/api/v1/billing/gateways');
+export async function fetchPaymentGateways(): Promise<{ sepay: boolean; usdt: boolean; usdt_trc20?: boolean; usdt_bep20?: boolean; supported_currencies: string[] }> {
+  return api.get<{ sepay: boolean; usdt: boolean; usdt_trc20?: boolean; usdt_bep20?: boolean; supported_currencies: string[] }>('/api/v1/billing/gateways');
 }
+
+export interface CryptoWalletsConfig {
+  enabled: boolean;
+  trc20_address: string;
+  bep20_address: string;
+  has_trc20?: boolean;
+  has_bep20?: boolean;
+}
+
+export async function fetchCryptoWalletsConfig(): Promise<CryptoWalletsConfig> {
+  return api.get<CryptoWalletsConfig>('/api/v1/admin/billing/crypto-wallets');
+}
+
+export async function updateCryptoWalletsConfig(payload: { enabled: boolean; trc20_address?: string; bep20_address?: string }): Promise<CryptoWalletsConfig> {
+  return api.put<CryptoWalletsConfig>('/api/v1/admin/billing/crypto-wallets', payload);
+}
+
+export async function verifyCryptoOrderTx(orderId: string, txHash: string): Promise<{ ok: boolean; status: string; message: string }> {
+  return api.post<{ ok: boolean; status: string; message: string }>(`/api/v1/billing/orders/${encodeURIComponent(orderId)}/verify-tx`, { tx_hash: txHash });
+}
+
 
 

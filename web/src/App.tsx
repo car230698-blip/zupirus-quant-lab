@@ -270,7 +270,8 @@ const AppContent: React.FC = () => {
         admin: 'adm.zupirus.com',
       };
       if (window.location.hostname !== hostMap[target]) {
-        window.location.assign(`https://${hostMap[target]}`);
+        const queryLang = lang === 'en' ? '?lang=en' : '';
+        window.location.assign(`https://${hostMap[target]}${queryLang}`);
         return;
       }
     }

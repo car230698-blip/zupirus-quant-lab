@@ -231,11 +231,15 @@ def me(u=Depends(get_current_user)):
 
 @router.get('/api/v1/auth/geo')
 def get_geo_language(request: Request):
+    q_lang = (request.query_params.get("lang") or "").lower()
     client_ip = _client_ip(request)
     cf_country = (request.headers.get("cf-ipcountry") or "").strip().upper()
     accept_lang = (request.headers.get("accept-language") or "").lower()
 
-    if cf_country and cf_country not in ("XX", "T1", "UNKNOWN"):
+    if q_lang in ("en", "vi"):
+        country = "OVERRIDE"
+        is_foreign = (q_lang == "en")
+    elif cf_country and cf_country not in ("XX", "T1", "UNKNOWN"):
         country = cf_country
         is_foreign = (country != "VN")
     else:
@@ -253,10 +257,13 @@ def get_geo_language(request: Request):
         "language": language,
         "client_ip": client_ip,
     })
+    host = (request.headers.get("host") or "").lower().split(":")[0]
+    cookie_domain = ".zupirus.com" if host.endswith("zupirus.com") else None
     resp.set_cookie(
         key="zupirus_geo_lang",
         value=language,
         max_age=604800,
+        domain=cookie_domain,
         httponly=False,
         samesite="lax",
         secure=SECURE,

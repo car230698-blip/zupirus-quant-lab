@@ -634,6 +634,44 @@ def apply_migration_024(c, is_pg: bool):
             pass
 
 
+def apply_migration_025(c, is_pg: bool):
+    """025_direct_usdt_billing: Add expected_amount_usdt and tx_hash columns with unique indexes for Direct On-Chain USDT."""
+    if is_pg:
+        c.execute("""
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS expected_amount_usdt DOUBLE PRECISION;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+        ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_tx_hash_uniq ON orders(tx_hash) WHERE tx_hash IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_tx_hash_uniq ON payment_transactions(tx_hash) WHERE tx_hash IS NOT NULL;
+        """)
+    else:
+        o_cols = [r[1] for r in c.execute("PRAGMA table_info(orders)").fetchall()]
+        if "expected_amount_usdt" not in o_cols:
+            try:
+                c.execute("ALTER TABLE orders ADD COLUMN expected_amount_usdt REAL")
+            except Exception:
+                pass
+        if "tx_hash" not in o_cols:
+            try:
+                c.execute("ALTER TABLE orders ADD COLUMN tx_hash TEXT")
+            except Exception:
+                pass
+
+        p_cols = [r[1] for r in c.execute("PRAGMA table_info(payment_transactions)").fetchall()]
+        if "tx_hash" not in p_cols:
+            try:
+                c.execute("ALTER TABLE payment_transactions ADD COLUMN tx_hash TEXT")
+            except Exception:
+                pass
+
+        try:
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_tx_hash_uniq ON orders(tx_hash) WHERE tx_hash IS NOT NULL")
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_tx_hash_uniq ON payment_transactions(tx_hash) WHERE tx_hash IS NOT NULL")
+        except Exception:
+            pass
+
+
+
 
 
 

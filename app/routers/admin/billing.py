@@ -586,3 +586,33 @@ def admin_link_payment_user(tx_id: str, p: LinkPaymentPayload, u=Depends(get_cur
         audit(c, u['id'], 'payment_linked_user', {'tx_id': tx_id, 'user_id': user_row['id'], 'user_email': email_clean})
 
     return {"ok": True, "message": f"Đã liên kết giao dịch {tx_id} với tài khoản {email_clean}"}
+
+
+class UpdateCryptoWalletsPayload(BaseModel):
+    enabled: bool = True
+    trc20_address: Optional[str] = None
+    bep20_address: Optional[str] = None
+
+
+@router.get('/api/v1/admin/billing/crypto-wallets')
+@router.get('/api/admin/billing/crypto-wallets')
+def admin_get_crypto_wallets(u=Depends(get_current_admin)):
+    from app.domains.billing.crypto_direct import get_crypto_wallets_config
+    return get_crypto_wallets_config()
+
+
+@router.put('/api/v1/admin/billing/crypto-wallets')
+@router.put('/api/admin/billing/crypto-wallets')
+def admin_save_crypto_wallets(p: UpdateCryptoWalletsPayload, u=Depends(get_current_admin)):
+    from app.domains.billing.crypto_direct import save_crypto_wallets_config
+    try:
+        updated = save_crypto_wallets_config(
+            enabled=p.enabled,
+            trc20_address=p.trc20_address,
+            bep20_address=p.bep20_address,
+            admin_id=u['id']
+        )
+        return updated
+    except ValueError as err:
+        fail(400, str(err))
+

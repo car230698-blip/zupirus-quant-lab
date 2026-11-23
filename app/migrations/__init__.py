@@ -126,6 +126,11 @@ MIGRATIONS = [
         "version": 24,
         "name": "024_user_language_and_intl_billing",
         "description": "Add preferred_language to users, and currency, external_payment_id, invoice_url to orders & payment_transactions"
+    },
+    {
+        "version": 25,
+        "name": "025_direct_usdt_billing",
+        "description": "Add expected_amount_usdt and tx_hash columns with unique indexes for Direct On-Chain USDT"
     }
 ]
 
@@ -144,6 +149,7 @@ from .seed_and_fixes import (
     apply_migration_016, apply_migration_017, apply_migration_018,
     apply_migration_019, apply_migration_020, apply_migration_021,
     apply_migration_022, apply_migration_023, apply_migration_024,
+    apply_migration_025,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -176,6 +182,7 @@ def run_all_migrations(c, is_pg: bool):
         22: apply_migration_022,
         23: apply_migration_023,
         24: apply_migration_024,
+        25: apply_migration_025,
     }
 
     for m in MIGRATIONS:

@@ -2,6 +2,7 @@
 import time
 from typing import Optional
 from urllib.parse import quote
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends
 from app.db import tx
 from app.routers.deps import get_current_user, get_current_admin, fail
@@ -50,14 +51,24 @@ def force_refresh_exchange_rate(admin=Depends(get_current_admin)):
     )
 
 
+@router.get("/methods")
+def get_billing_methods():
+    """Retrieve currently active and available billing methods."""
+    from app.domains.billing.crypto_direct import get_active_billing_methods
+    return get_active_billing_methods()
+
+
 @router.get("/gateways")
 def get_available_gateways():
     """Retrieve available payment gateways and their live enablement state."""
-    from app.domains.billing.nowpayments import get_nowpayments_api_key
-    has_np = bool(get_nowpayments_api_key())
+    from app.domains.billing.crypto_direct import get_crypto_wallets_config
+    cfg = get_crypto_wallets_config()
+    has_usdt = cfg.get("enabled", False) and bool(cfg.get("trc20_address") or cfg.get("bep20_address"))
     return {
         "sepay": True,
-        "usdt": has_np,
+        "usdt": has_usdt,
+        "usdt_trc20": bool(cfg.get("trc20_address")),
+        "usdt_bep20": bool(cfg.get("bep20_address")),
         "supported_currencies": ["VND", "USD", "USDT"],
     }
 
@@ -71,7 +82,7 @@ def get_my_subscription(u=Depends(get_current_user)):
 
 @router.post("/checkout", response_model=OrderResponse)
 def checkout(p: CreateOrderRequest, u=Depends(get_current_user)):
-    """Create checkout order with locked FX rate, SePay VietQR (VND) or NOWPayments (USDT)."""
+    """Create checkout order with locked FX rate, SePay VietQR (VND) or Direct USDT (TRC20/BEP20)."""
     order_data = create_checkout_order(
         user_id=u["id"],
         plan_tier=p.plan_tier,
@@ -99,16 +110,46 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
             d["status"] = "EXPIRED"
             d["payment_status"] = "EXPIRED"
 
-        content_memo = f"ZP {d['id'][-6:].upper()}"
-        encoded_memo = quote(content_memo)
-        bank_name, bank_acc, bank_holder = get_effective_sepay_config()
-        qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={d['amount_vnd']}&des={encoded_memo}"
-        d["qr_code_url"] = qr_url
-        d["account_number"] = bank_acc
-        d["bank_name"] = bank_name
-        d["account_holder"] = bank_holder
-        d["payment_content"] = content_memo
+        gw = str(d.get("payment_gateway") or "").upper()
+        if gw.startswith("USDT"):
+            from app.domains.billing.crypto_direct import get_crypto_wallets_config
+            cfg = get_crypto_wallets_config()
+            net = "BEP20" if "BEP20" in gw else "TRC20"
+            d["crypto_network"] = net
+            d["wallet_address"] = cfg.get("bep20_address") if net == "BEP20" else cfg.get("trc20_address")
+            d["amount_usdt"] = d.get("expected_amount_usdt") or d.get("amount_usd")
+        else:
+            content_memo = f"ZP {d['id'][-6:].upper()}"
+            encoded_memo = quote(content_memo)
+            bank_name, bank_acc, bank_holder = get_effective_sepay_config()
+            qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={d['amount_vnd']}&des={encoded_memo}"
+            d["qr_code_url"] = qr_url
+            d["account_number"] = bank_acc
+            d["bank_name"] = bank_name
+            d["account_holder"] = bank_holder
+            d["payment_content"] = content_memo
         return OrderResponse(**d)
+
+
+class VerifyTxPayload(BaseModel):
+    tx_hash: str
+
+
+@router.post("/orders/{order_id}/verify-tx")
+async def verify_order_crypto_tx(order_id: str, p: VerifyTxPayload, u=Depends(get_current_user)):
+    """User submission of blockchain transaction hash for immediate verification and fulfillment."""
+    from app.domains.billing.crypto_direct import verify_and_fulfill_crypto_order
+    with tx() as c:
+        row = c.execute("SELECT user_id FROM orders WHERE LOWER(id) = ?", (order_id.strip().lower(),)).fetchone()
+        if not row:
+            fail(404, "Đơn hàng không tồn tại.")
+        if u["role"] != "admin" and row["user_id"] != u["id"]:
+            fail(403, "Không có quyền xác minh đơn hàng này.")
+
+    result = await verify_and_fulfill_crypto_order(order_id, p.tx_hash)
+    if not result.get("ok"):
+        fail(400, result.get("message", "Xác minh giao dịch thất bại."))
+    return result
 
 
 @router.post("/simulate-pay/{order_id}")

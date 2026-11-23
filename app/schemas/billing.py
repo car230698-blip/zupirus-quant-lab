@@ -65,6 +65,11 @@ class OrderResponse(BaseModel):
     cloud_deploy_status: str = "PENDING"
     currency: Optional[str] = "VND"
     payment_gateway: Optional[str] = "SEPAY"
+    expected_amount_usdt: Optional[float] = None
+    amount_usdt: Optional[float] = None
+    wallet_address: Optional[str] = None
+    crypto_network: Optional[str] = None
+    tx_hash: Optional[str] = None
     invoice_url: Optional[str] = None
     external_payment_id: Optional[str] = None
     qr_code_url: Optional[str] = None

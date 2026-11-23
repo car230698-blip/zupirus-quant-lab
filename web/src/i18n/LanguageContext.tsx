@@ -22,6 +22,9 @@ export const detectInitialLanguage = (): Language => {
     const params = new URLSearchParams(window.location.search);
     const qLang = params.get('lang')?.toLowerCase();
     if (qLang === 'vi' || qLang === 'en') {
+      try {
+        localStorage.setItem('zupirus_geo_lang', qLang);
+      } catch {}
       return qLang;
     }
   } catch {}
@@ -37,7 +40,15 @@ export const detectInitialLanguage = (): Language => {
     }
   } catch {}
 
-  // 3. Fallback: Browser Language & Physical Timezone check
+  // 3. LocalStorage persistence
+  try {
+    const saved = localStorage.getItem('zupirus_geo_lang');
+    if (saved === 'vi' || saved === 'en') {
+      return saved as Language;
+    }
+  } catch {}
+
+  // 4. Fallback: Browser Language & Physical Timezone check
   const navLang = (navigator.language || '').toLowerCase();
   const rawLangs = Array.isArray(navigator.languages) ? navigator.languages : [navLang];
   const hasVietnameseLang = navLang.startsWith('vi') || rawLangs.some(l => (l || '').toLowerCase().startsWith('vi'));
@@ -69,7 +80,10 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           setLangState(res.language);
           document.documentElement.lang = res.language;
           try {
-            document.cookie = `zupirus_geo_lang=${res.language}; path=/; max-age=604800; SameSite=Lax`;
+            const isZupirus = typeof window !== 'undefined' && window.location.hostname.endsWith('zupirus.com');
+            const domainAttr = isZupirus ? '; domain=.zupirus.com' : '';
+            document.cookie = `zupirus_geo_lang=${res.language}; path=/${domainAttr}; max-age=604800; SameSite=Lax`;
+            localStorage.setItem('zupirus_geo_lang', res.language);
           } catch {}
         }
       })

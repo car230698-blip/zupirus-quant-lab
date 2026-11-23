@@ -18,6 +18,19 @@ export const AdminBillingSettingsTab: React.FC = () => {
   const [msg, setMsg] = useState('');
   const [previewUsd, setPreviewUsd] = useState(59);
 
+  // Direct USDT On-Chain State
+  const [cryptoWallets, setCryptoWallets] = useState<{
+    enabled: boolean;
+    trc20_address: string;
+    bep20_address: string;
+  }>({
+    enabled: true,
+    trc20_address: '',
+    bep20_address: '',
+  });
+  const [cryptoBusy, setCryptoBusy] = useState(false);
+  const [cryptoMsg, setCryptoMsg] = useState('');
+
   const fetchSettings = async () => {
     setLoading(true);
     try {
@@ -34,10 +47,56 @@ export const AdminBillingSettingsTab: React.FC = () => {
           sepay_account_holder: holder || prev.sepay_account_holder || 'LE NGUYEN NHU THUY',
         }));
       }
+
+      // Fetch Crypto Wallets Config
+      try {
+        const cData = await api.get('/api/v1/admin/billing/crypto-wallets');
+        if (cData && typeof cData === 'object') {
+          setCryptoWallets({
+            enabled: cData.enabled !== false,
+            trc20_address: cData.trc20_address || '',
+            bep20_address: cData.bep20_address || '',
+          });
+        }
+      } catch {}
     } catch (e: any) {
       setMsg(`Lỗi tải cấu hình SePay: ${e?.message || 'Không thể kết nối API'}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveCryptoWallets = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCryptoBusy(true);
+    setCryptoMsg('');
+
+    const trc20 = cryptoWallets.trc20_address.trim();
+    const bep20 = cryptoWallets.bep20_address.trim();
+
+    if (trc20 && !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(trc20)) {
+      setCryptoMsg('❌ Địa chỉ ví USDT TRC20 không hợp lệ (phải bắt đầu bằng chữ T và dài 34 ký tự).');
+      setCryptoBusy(false);
+      return;
+    }
+
+    if (bep20 && !/^0x[a-fA-F0-9]{40}$/.test(bep20)) {
+      setCryptoMsg('❌ Địa chỉ ví USDT BEP20 không hợp lệ (phải bắt đầu bằng 0x và dài 42 ký tự).');
+      setCryptoBusy(false);
+      return;
+    }
+
+    try {
+      await api.put('/api/v1/admin/billing/crypto-wallets', {
+        enabled: cryptoWallets.enabled,
+        trc20_address: trc20,
+        bep20_address: bep20,
+      });
+      setCryptoMsg('✓ Đã lưu cài đặt ví USDT on-chain thành công!');
+    } catch (err: any) {
+      setCryptoMsg(`❌ Lỗi lưu ví USDT: ${err?.message || 'Không thể kết nối API'}`);
+    } finally {
+      setCryptoBusy(false);
     }
   };
 
@@ -326,6 +385,114 @@ export const AdminBillingSettingsTab: React.FC = () => {
             Webhook URL: <code className="text-cyan-300">/api/webhooks/sepay</code>
           </div>
         </div>
+      </div>
+
+      {/* DIRECT USDT ON-CHAIN WALLET CONFIGURATION CARD */}
+      <div className="rounded-2xl border border-emerald-500/30 bg-[#10192B] p-6 shadow-xl space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs uppercase tracking-wider text-emerald-400 font-bold">
+                THANH TOÁN QUỐC TẾ TRỰC TIẾP (DIRECT USDT ON-CHAIN)
+              </span>
+              <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-300">
+                0% PHÍ TRUNG GIAN · TIỀN VỀ THẲNG VÍ
+              </span>
+            </div>
+            <h3 className="mt-1 text-lg font-bold text-white">
+              Cấu Hình Địa Chỉ Ví Nhận USDT (TRC20 &amp; BEP20)
+            </h3>
+            <p className="mt-1 text-xs text-slate-400 leading-relaxed max-w-2xl">
+              Hệ thống xác minh giao dịch trực tiếp trên hợp đồng thông minh USDT chính thức (TronGrid &amp; BSC RPC). 
+              Khách quốc tế chuyển USDT vào đúng ví của Admin, không lưu trữ Private Key trên VPS.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <span className="text-xs font-semibold text-slate-300">
+              {cryptoWallets.enabled ? 'Cổng USDT đang BẬT' : 'Cổng USDT đang TẮT'}
+            </span>
+            <input
+              type="checkbox"
+              checked={cryptoWallets.enabled}
+              onChange={(e) => setCryptoWallets((prev) => ({ ...prev, enabled: e.target.checked }))}
+              className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-400 cursor-pointer"
+            />
+          </label>
+        </div>
+
+        {cryptoMsg && (
+          <div
+            className={`rounded-xl border p-3.5 text-xs font-medium ${
+              cryptoMsg.startsWith('✓')
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+            }`}
+          >
+            {cryptoMsg}
+          </div>
+        )}
+
+        <form onSubmit={handleSaveCryptoWallets} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* TRC20 Wallet */}
+            <div className="rounded-xl border border-slate-800 bg-[#080E1A] p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-200">
+                  Địa Chỉ Ví USDT (TRC20 - Mạng TRON)
+                </label>
+                <span className="font-mono text-[10px] text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded">
+                  Phổ biến nhất
+                </span>
+              </div>
+              <input
+                type="text"
+                value={cryptoWallets.trc20_address}
+                onChange={(e) => setCryptoWallets((prev) => ({ ...prev, trc20_address: e.target.value }))}
+                placeholder="Ví dụ: TQ3g...xyz (bắt đầu bằng T, dài 34 ký tự)"
+                className="w-full rounded-xl border border-slate-800 bg-[#10192B] px-3.5 py-2.5 font-mono text-xs text-white placeholder-slate-600 focus:border-emerald-400 focus:outline-none"
+              />
+              <p className="font-mono text-[11px] text-slate-500">
+                Official Contract: <span className="text-slate-400">TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t</span>
+              </p>
+            </div>
+
+            {/* BEP20 Wallet */}
+            <div className="rounded-xl border border-slate-800 bg-[#080E1A] p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-200">
+                  Địa Chỉ Ví USDT (BEP20 - BNB Smart Chain)
+                </label>
+                <span className="font-mono text-[10px] text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded">
+                  Phí gas rẻ
+                </span>
+              </div>
+              <input
+                type="text"
+                value={cryptoWallets.bep20_address}
+                onChange={(e) => setCryptoWallets((prev) => ({ ...prev, bep20_address: e.target.value }))}
+                placeholder="Ví dụ: 0x71...abc (bắt đầu bằng 0x, dài 42 ký tự)"
+                className="w-full rounded-xl border border-slate-800 bg-[#10192B] px-3.5 py-2.5 font-mono text-xs text-white placeholder-slate-600 focus:border-emerald-400 focus:outline-none"
+              />
+              <p className="font-mono text-[11px] text-slate-500">
+                Official Contract: <span className="text-slate-400">0x55d398326f99059fF775485246999027B3197955</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+            <div className="text-xs text-slate-400">
+              💡 Lưu ý: Hệ thống phân bổ số lẻ (VD: $25.01 - $25.99) để xác minh tự động khớp lệnh trong 30 phút.
+            </div>
+            <button
+              type="submit"
+              disabled={cryptoBusy}
+              className="rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-2.5 text-xs font-bold text-[#042F2E] hover:from-emerald-400 hover:to-teal-400 transition cursor-pointer disabled:opacity-50 shadow-md"
+            >
+              {cryptoBusy ? 'Đang lưu ví USDT...' : 'Lưu Cài Đặt Ví USDT On-Chain'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

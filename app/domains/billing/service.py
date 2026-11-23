@@ -136,7 +136,7 @@ def create_checkout_order(
         cycle_u = "MONTHLY"
 
     method_u = str(payment_method or "SEPAY").strip().upper()
-    is_usdt = method_u in ("USDT", "NOWPAYMENTS")
+    is_usdt = method_u in ("USDT", "USDT_TRC20", "USDT_BEP20", "CRYPTO_DIRECT", "NOWPAYMENTS")
 
     total_usd, amount_vnd, locked_rate = calculate_order_totals(plan_tier, cloud_slots, billing_cycle=cycle_u)
     now_ts = time.time()
@@ -144,25 +144,43 @@ def create_checkout_order(
     order_id = f"ord_{secrets.token_hex(6)}"
     content_memo = f"ZP {order_id[-6:].upper()}"
 
-    gateway = "NOWPAYMENTS" if is_usdt else "SEPAY"
-    currency = "USDT" if is_usdt else "VND"
-    invoice_url: Optional[str] = None
-    external_payment_id: Optional[str] = None
+    gateway = "SEPAY"
+    currency = "VND"
+    expected_usdt = None
+    wallet_address: Optional[str] = None
+    network: Optional[str] = None
 
     if is_usdt:
-        from app.domains.billing.nowpayments import get_nowpayments_api_key, create_nowpayments_invoice
-        if get_nowpayments_api_key():
-            inv = create_nowpayments_invoice(
-                order_id=order_id,
-                price_amount=total_usd,
-                price_currency="usd",
-                order_description=f"ZUPIRUS Quant Lab - {plan_tier.upper()} Plan ({cloud_slots} MT5)",
-            )
-            if inv.get("ok"):
-                invoice_url = inv.get("invoice_url")
-                external_payment_id = str(inv.get("invoice_id") or "")
+        from app.domains.billing.crypto_direct import (
+            get_crypto_wallets_config,
+            allocate_unique_usdt_amount,
+        )
+        crypto_cfg = get_crypto_wallets_config()
+        if not crypto_cfg.get("enabled"):
+            from app.routers.deps import fail
+            fail(400, "Cổng thanh toán USDT on-chain hiện chưa được bật.")
+
+        if "BEP20" in method_u or "BSC" in method_u:
+            network = "BEP20"
+        elif "TRC20" in method_u or "TRON" in method_u:
+            network = "TRC20"
         else:
-            gateway = "NOWPAYMENTS_MANUAL"
+            if crypto_cfg.get("trc20_address"):
+                network = "TRC20"
+            elif crypto_cfg.get("bep20_address"):
+                network = "BEP20"
+            else:
+                from app.routers.deps import fail
+                fail(400, "Admin chưa cài đặt địa chỉ ví nhận USDT.")
+
+        wallet_address = crypto_cfg.get("trc20_address") if network == "TRC20" else crypto_cfg.get("bep20_address")
+        if not wallet_address:
+            from app.routers.deps import fail
+            fail(400, f"Chưa cấu hình địa chỉ ví USDT {network}.")
+
+        gateway = f"USDT_{network}"
+        currency = "USDT"
+        expected_usdt = allocate_unique_usdt_amount(total_usd, gateway)
 
     with tx() as c:
         try:
@@ -171,14 +189,30 @@ def create_checkout_order(
                 INSERT INTO orders (
                     id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
                     plan_tier, cloud_slots_count, status, payment_gateway,
-                    created_at, expires_at, currency, external_payment_id, invoice_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?)
+                    created_at, expires_at, currency, expected_amount_usdt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)
                 """,
                 (
                     order_id, user_id, total_usd, locked_rate, amount_vnd,
                     plan_tier.lower(), cloud_slots, gateway, now_ts, expires_at,
-                    currency, external_payment_id, invoice_url
-                )
+                    currency, expected_usdt
+                ),
+            )
+        except Exception:
+            # Fallback if expected_amount_usdt column not present
+            c.execute(
+                """
+                INSERT INTO orders (
+                    id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
+                    plan_tier, cloud_slots_count, status, payment_gateway,
+                    created_at, expires_at, currency
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)
+                """,
+                (
+                    order_id, user_id, total_usd, locked_rate, amount_vnd,
+                    plan_tier.lower(), cloud_slots, gateway, now_ts, expires_at,
+                    currency
+                ),
             )
         except Exception:
             # Fallback if migration 024 columns aren't ready
@@ -218,8 +252,10 @@ def create_checkout_order(
         "status": "PENDING",
         "currency": currency,
         "payment_gateway": gateway,
-        "invoice_url": invoice_url,
-        "external_payment_id": external_payment_id,
+        "expected_amount_usdt": expected_usdt,
+        "amount_usdt": expected_usdt,
+        "wallet_address": wallet_address,
+        "crypto_network": network,
         "qr_code_url": qr_url,
         "qr_url": qr_url,
         "account_number": bank_acc,
@@ -350,15 +386,52 @@ async def process_successful_payment(
             logger.info(f"Order {order['id']} was already fulfilled by another concurrent worker.")
             return True
 
+        user_row = c.execute("SELECT email FROM users WHERE id = ?", (order["user_id"],)).fetchone()
+        user_email = user_row[0] if user_row else None
+
+    # 5. Fulfill subscription & trading accounts entitlements
+    await fulfill_order_entitlements(order["id"])
+
+    # 6. Dispatch automated payment receipt email via Resend
+    if user_email:
+        try:
+            from app.mailer import send_payment_receipt_email
+            send_payment_receipt_email(
+                email=user_email,
+                order_id=order["id"],
+                plan_tier=order["plan_tier"],
+                amount_vnd=int(new_paid_total),
+                cloud_slots=int(order["cloud_slots_count"]),
+                expires_at=now_ts + 86400 * 30,
+            )
+        except Exception as mail_err:
+            logger.warning(f"Failed sending payment receipt email to {user_email}: {mail_err}")
+
+    return True
+
+
+async def fulfill_order_entitlements(order_id: str) -> bool:
+    """Grant subscription tier, cloud slots, extend trading_accounts cloud expiration,
+    trigger MetaAPI deployment, and publish real-time events.
+    """
+    now_ts = time.time()
+    accounts_to_deploy = []
+    from app.db import is_postgres
+    for_update = " FOR UPDATE" if is_postgres() else ""
+    with tx() as c:
+        row = c.execute(f"SELECT * FROM orders WHERE LOWER(id) = ?{for_update}", (order_id.strip().lower(),)).fetchone()
+        if not row:
+            logger.error(f"Order {order_id} not found for entitlement fulfillment.")
+            return False
+        order = dict(row)
         user_id = order["user_id"]
-        tier = order["plan_tier"].lower()
-        cloud_slots = order["cloud_slots_count"]
+        tier = str(order["plan_tier"] or "starter").lower()
+        cloud_slots = int(order["cloud_slots_count"] or 1)
         cycle_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_cycle:{order['id']}",)).fetchone()
         cycle_u = str(cycle_row[0]).upper() if cycle_row and cycle_row[0] else "MONTHLY"
         cycle_days = BILLING_CYCLE_CONFIG.get(cycle_u, BILLING_CYCLE_CONFIG["MONTHLY"])["days"]
         duration_sec = cycle_days * 86400
 
-        # 5. Update or create subscription
         sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
         sub_d = dict(sub) if sub else None
         current_sub_exp = float(sub_d["service_expires_at"] or 0) if sub_d and sub_d.get("service_expires_at") else 0.0
@@ -371,10 +444,8 @@ async def process_successful_payment(
                 effective_tier = existing_tier
                 is_lower_tier_on_active = True
 
-        # Prevent stacking cheap lower-tier days onto an active higher-tier subscription
         if is_lower_tier_on_active:
             if (now_ts + duration_sec) > current_sub_exp:
-                # If the new lower-tier cycle extends beyond the remaining high-tier window, switch tier to the purchased plan
                 effective_tier = tier
                 new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
             else:
@@ -436,7 +507,6 @@ async def process_successful_payment(
                 )
             )
 
-        # 6. Extend cloud_expires_at on user's trading_accounts (only re-enable auto_trade if account was expired/undeployed, preserving user manual pause)
         acc_rows = c.execute(
             "SELECT id, metaapi_account_id, cloud_expires_at, deployment_state, auto_trade FROM trading_accounts WHERE user_id = ? LIMIT ?",
             (user_id, max_accounts)
@@ -458,44 +528,26 @@ async def process_successful_payment(
         if not accounts_to_deploy:
             c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))
 
-        user_row = c.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
-        user_email = user_row[0] if user_row else None
-
-    # 7. MetaApi Auto-Deploy with 3 retries and truthful status persistence
+    # MetaApi Auto-Deploy with 3 retries and truthful status persistence
     if accounts_to_deploy:
         await _deploy_with_retries(accounts_to_deploy, order_id=order["id"], max_retries=3, delay=1)
-
-    # 8. Dispatch automated payment receipt email via Resend
-    if user_email:
-        try:
-            from app.mailer import send_payment_receipt_email
-            send_payment_receipt_email(
-                email=user_email,
-                order_id=order["id"],
-                plan_tier=tier,
-                amount_vnd=int(new_paid_total),
-                cloud_slots=int(max_accounts),
-                expires_at=new_sub_exp,
-            )
-        except Exception as mail_err:
-            logger.warning(f"Failed sending payment receipt email to {user_email}: {mail_err}")
 
     try:
         from app.redis_client import publish_realtime_event
         publish_realtime_event(
-            f"user:{order['user_id']}",
+            f"user:{user_id}",
             "payment_paid",
             {"order_id": order["id"], "plan_tier": tier, "expires_at": new_sub_exp},
         )
         publish_realtime_event(
             "admin",
             "billing_paid",
-            {"order_id": order["id"], "user_id": order["user_id"], "plan_tier": tier},
+            {"order_id": order["id"], "user_id": user_id, "plan_tier": tier},
         )
     except Exception:
         pass
 
-    logger.info(f"Order {order['id']} fulfilled successfully for user {order['user_id']}.")
+    logger.info(f"Order {order['id']} entitlements fulfilled successfully for user {user_id}.")
     return True
 
 

@@ -36,6 +36,7 @@ from app.routers import (
 )
 from app.routers.growth import router as growth_router
 from app.routers.seo_pages import router as seo_pages_router
+from app.routers.auth import _client_ip, resolve_ip_country
 
 logger = logging.getLogger("zupirus.api")
 
@@ -321,18 +322,62 @@ async def spa_fallback(request: Request, full_path: str):
                 resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
             # GeoIP & Accept-Language auto-detection for international visitors
             if not full_path or full_path.endswith('.html') or '.' not in full_path:
-                cf_country = (request.headers.get("cf-ipcountry") or "").upper()
-                accept_lang = (request.headers.get("accept-language") or "").lower()
-                is_foreign = bool((cf_country and cf_country != "VN") or ("vi" not in accept_lang and cf_country != "VN"))
-                resp.set_cookie("zupirus_geo_lang", "en" if is_foreign else "vi", max_age=86400 * 30, path="/", httponly=False, samesite="lax")
+                q_lang = (request.query_params.get("lang") or "").lower()
+                if q_lang in ("en", "vi"):
+                    is_foreign = (q_lang == "en")
+                else:
+                    client_ip = _client_ip(request)
+                    cf_country = (request.headers.get("cf-ipcountry") or "").strip().upper()
+                    if cf_country and cf_country not in ("XX", "T1", "UNKNOWN"):
+                        is_foreign = (cf_country != "VN")
+                    else:
+                        country, is_foreign_ip = resolve_ip_country(client_ip)
+                        if country in ("LOCAL", "UNKNOWN"):
+                            accept_lang = (request.headers.get("accept-language") or "").lower()
+                            is_foreign = bool("vi" not in accept_lang)
+                        else:
+                            is_foreign = is_foreign_ip
+                host_clean = host.split(":")[0]
+                cookie_domain = ".zupirus.com" if host_clean.endswith("zupirus.com") else None
+                resp.set_cookie(
+                    "zupirus_geo_lang",
+                    "en" if is_foreign else "vi",
+                    max_age=86400 * 30,
+                    path="/",
+                    domain=cookie_domain,
+                    httponly=False,
+                    samesite="lax",
+                )
             return resp
     if (ROOT / 'index.html').exists():
         resp = FileResponse(ROOT / 'index.html', headers=_NO_CACHE_HEADERS)
         if is_admin_host:
             resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
-        cf_country = (request.headers.get("cf-ipcountry") or "").upper()
-        accept_lang = (request.headers.get("accept-language") or "").lower()
-        is_foreign = bool((cf_country and cf_country != "VN") or ("vi" not in accept_lang and cf_country != "VN"))
-        resp.set_cookie("zupirus_geo_lang", "en" if is_foreign else "vi", max_age=86400 * 30, path="/", httponly=False, samesite="lax")
+        q_lang = (request.query_params.get("lang") or "").lower()
+        if q_lang in ("en", "vi"):
+            is_foreign = (q_lang == "en")
+        else:
+            client_ip = _client_ip(request)
+            cf_country = (request.headers.get("cf-ipcountry") or "").strip().upper()
+            if cf_country and cf_country not in ("XX", "T1", "UNKNOWN"):
+                is_foreign = (cf_country != "VN")
+            else:
+                country, is_foreign_ip = resolve_ip_country(client_ip)
+                if country in ("LOCAL", "UNKNOWN"):
+                    accept_lang = (request.headers.get("accept-language") or "").lower()
+                    is_foreign = bool("vi" not in accept_lang)
+                else:
+                    is_foreign = is_foreign_ip
+        host_clean = host.split(":")[0]
+        cookie_domain = ".zupirus.com" if host_clean.endswith("zupirus.com") else None
+        resp.set_cookie(
+            "zupirus_geo_lang",
+            "en" if is_foreign else "vi",
+            max_age=86400 * 30,
+            path="/",
+            domain=cookie_domain,
+            httponly=False,
+            samesite="lax",
+        )
         return resp
     return JSONResponse({'detail': 'Not Found'}, status_code=404)

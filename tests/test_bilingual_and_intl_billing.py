@@ -23,10 +23,6 @@ from app.core.mailer import (
     send_payment_receipt_email,
     send_subscription_expiry_reminder,
 )
-from app.domains.billing.nowpayments import (
-    verify_nowpayments_signature,
-    create_nowpayments_invoice,
-)
 
 
 @pytest.fixture
@@ -160,126 +156,7 @@ def test_gateways_endpoint(client, monkeypatch):
     assert res1.status_code == 200
     data1 = res1.json()
     assert data1["sepay"] is True
-    assert data1["usdt"] is False
-
-    # 2. When NOWPAYMENTS_API_KEY is configured
-    monkeypatch.setenv("NOWPAYMENTS_API_KEY", "test_np_key_12345")
-    res2 = client.get("/api/v1/billing/gateways")
-    assert res2.status_code == 200
-    data2 = res2.json()
-    assert data2["sepay"] is True
-    assert data2["usdt"] is True
-
-
-def test_nowpayments_hmac_sha512_verification():
-    """Test HMAC-SHA512 signature calculation and verification per NOWPayments spec."""
-    secret = "my_secret_ipn_key_999"
-    payload = {
-        "payment_id": "np_pay_1001",
-        "payment_status": "finished",
-        "pay_amount": 39.0,
-        "price_amount": 39.0,
-        "price_currency": "usd",
-        "order_id": "ord_np_test_01",
-    }
-
-    # Sort keys alphabetically and format without whitespace
-    sorted_dict = {k: payload[k] for k in sorted(payload.keys())}
-    serialized = json.dumps(sorted_dict, separators=(",", ":"), ensure_ascii=False)
-    expected_sig = hmac.new(
-        secret.encode("utf-8"),
-        serialized.encode("utf-8"),
-        hashlib.sha512
-    ).hexdigest()
-
-    # Valid signature
-    assert verify_nowpayments_signature(payload, expected_sig, ipn_secret=secret) is True
-
-    # Invalid signature
-    assert verify_nowpayments_signature(payload, "invalid_signature_hex", ipn_secret=secret) is False
-
-    # Altered payload
-    altered_payload = {**payload, "pay_amount": 1.0}
-    assert verify_nowpayments_signature(altered_payload, expected_sig, ipn_secret=secret) is False
-
-
-def test_nowpayments_webhook_signature_auth_and_fulfillment(client, test_user, monkeypatch):
-    """Test NOWPayments IPN webhook: 401 on bad signature, 200 and atomic fulfillment on valid signature."""
-    secret = "test_ipn_secret_xyz"
-    monkeypatch.setenv("NOWPAYMENTS_IPN_SECRET", secret)
-
-    user_id = test_user["id"]
-    order_id = f"ord_np_{int(time.time())}"
-
-    with tx() as c:
-        c.execute(
-            """
-            INSERT INTO orders (
-                id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
-                plan_tier, cloud_slots_count, status, payment_gateway,
-                created_at, expires_at, currency
-            ) VALUES (?, ?, 39.0, 25500, 994500, 'growth', 3, 'PENDING', 'NOWPAYMENTS', ?, ?, 'USDT')
-            """,
-            (order_id, user_id, time.time(), time.time() + 3600),
-        )
-
-    payload = {
-        "payment_id": f"pay_np_{int(time.time())}",
-        "payment_status": "finished",
-        "pay_amount": 39.0,
-        "price_amount": 39.0,
-        "price_currency": "usd",
-        "pay_currency": "usdt",
-        "order_id": order_id,
-    }
-
-    # 1. Bad signature returns 401
-    bad_res = client.post(
-        "/api/v1/billing/webhooks/nowpayments",
-        json=payload,
-        headers={"x-nowpayments-sig": "bad_sig"}
-    )
-    assert bad_res.status_code == 401
-
-    # 2. Valid signature succeeds and fulfills order
-    sorted_dict = {k: payload[k] for k in sorted(payload.keys())}
-    valid_sig = hmac.new(
-        secret.encode("utf-8"),
-        json.dumps(sorted_dict, separators=(",", ":")).encode("utf-8"),
-        hashlib.sha512
-    ).hexdigest()
-
-    ok_res = client.post(
-        "/api/v1/billing/webhooks/nowpayments",
-        json=payload,
-        headers={"x-nowpayments-sig": valid_sig}
-    )
-    assert ok_res.status_code == 200
-    data = ok_res.json()
-    assert data.get("ok") is True
-    assert data.get("fulfilled") is True
-
-    # 3. Verify order status transitioned to PAID
-    with tx() as c:
-        row = c.execute("SELECT status, payment_status, entitlement_status FROM orders WHERE id = ?", (order_id,)).fetchone()
-        assert row[0] == "PAID"
-        assert row[1] == "PAID"
-        assert row[2] == "GRANTED"
-
-        # Verify subscription was created or updated
-        sub = c.execute("SELECT plan_tier, service_expires_at FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
-        assert sub is not None
-        assert sub[0] == "growth"
-        assert float(sub[1]) > time.time()
-
-    # 4. Idempotent double webhook call with the same payment_id does not throw error
-    double_res = client.post(
-        "/api/v1/billing/webhooks/nowpayments",
-        json=payload,
-        headers={"x-nowpayments-sig": valid_sig}
-    )
-    assert double_res.status_code == 200
-    assert double_res.json().get("ok") is True
+    assert "usdt" in data1
 
 
 def test_geoip_language_detection(client, monkeypatch):

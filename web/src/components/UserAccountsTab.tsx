@@ -163,7 +163,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     return () => clearInterval(interval);
   }, [checkoutModalOpen, checkoutOrder?.id, checkoutOrder?.status]);
 
-  const handleCreateCheckout = async (paymentMethod: 'SEPAY' | 'USDT' = 'SEPAY') => {
+  const handleCreateCheckout = async (paymentMethod: 'SEPAY' | 'USDT' | 'USDT_TRC20' | 'USDT_BEP20' = 'SEPAY') => {
     setCloudBusy(true);
     setCloudMsg('');
     try {
@@ -180,10 +180,10 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         setCheckoutOrder(orderData);
         setCheckoutModalOpen(true);
       } else {
-        setCloudMsg(`Lỗi khởi tạo đơn thanh toán: Không nhận được dữ liệu đơn hàng.`);
+        setCloudMsg(lang === 'en' ? 'Checkout initiation error: No order data returned.' : 'Lỗi khởi tạo đơn thanh toán: Không nhận được dữ liệu đơn hàng.');
       }
     } catch (e: any) {
-      setCloudMsg(`Lỗi kết nối: ${e.message}`);
+      setCloudMsg(`${lang === 'en' ? 'Connection error' : 'Lỗi kết nối'}: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -193,12 +193,14 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     e.preventDefault();
     if (!cloudSub?.is_active || Number(cloudSub?.max_cloud_accounts ?? 0) <= 0) {
       setCloudMsg(
-        'Bạn chưa kích hoạt gói thuê bao Cloud MT5 (0 khe cắm khả dụng). Vui lòng bấm "Tạo Mã QR SePay" ở khung bên trái và hoàn tất thanh toán trước khi liên kết tài khoản MT5.'
+        lang === 'en'
+          ? 'You have not activated a Cloud MT5 plan (0 slots available). Please select a plan and complete payment before connecting accounts.'
+          : 'Bạn chưa kích hoạt gói thuê bao Cloud MT5 (0 khe cắm khả dụng). Vui lòng bấm "Tạo Mã QR SePay" ở khung bên trái và hoàn tất thanh toán trước khi liên kết tài khoản MT5.'
       );
       return;
     }
     if (!cloudForm.mt5_login || !cloudForm.mt5_password || !cloudForm.mt5_server) {
-      setCloudMsg('Vui lòng điền đầy đủ mã tài khoản MT5 Login, Mật khẩu và Máy chủ Broker.');
+      setCloudMsg(lang === 'en' ? 'Please fill in MT5 Login, Password and Broker Server.' : 'Vui lòng điền đầy đủ mã tài khoản MT5 Login, Mật khẩu và Máy chủ Broker.');
       return;
     }
     setDisclaimerAccepted(false);
@@ -208,7 +210,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const executeConnectCloudAccount = async () => {
     setDisclaimerModalOpen(false);
     setCloudBusy(true);
-    setCloudMsg('Đang mã hóa thông tin và khởi tạo trạm Cloud MT5...');
+    setCloudMsg(lang === 'en' ? 'Encrypting credentials and provisioning Cloud MT5 station...' : 'Đang mã hóa thông tin và khởi tạo trạm Cloud MT5...');
     try {
       const mult = Number(cloudForm.lot_multiplier) || 1.0;
       const dd = Number(cloudForm.max_daily_dd_pct) || 4.0;
@@ -230,7 +232,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         max_daily_dd_pct: dd,
         disclaimer_accepted: true,
       });
-      setCloudMsg('Đã kết nối và đồng bộ tài khoản Cloud MT5 thành công!');
+      setCloudMsg(lang === 'en' ? 'Cloud MT5 station connected and synchronized successfully!' : 'Đã kết nối và đồng bộ tài khoản Cloud MT5 thành công!');
       setCloudForm({
         account_name: '',
         mt5_login: '',
@@ -244,7 +246,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       refetchAccounts();
       fetchCloudSub();
     } catch (e: any) {
-      setCloudMsg(`Lỗi: ${e.message}`);
+      setCloudMsg(`${lang === 'en' ? 'Error' : 'Lỗi'}: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -254,10 +256,10 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     setCloudBusy(true);
     try {
       await apiPost(`/api/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
-      setCloudMsg(`Đã đồng bộ số dư mới nhất từ sàn cho tài khoản #${accountId}.`);
+      setCloudMsg(lang === 'en' ? `Latest balance synced from broker for account #${accountId}.` : `Đã đồng bộ số dư mới nhất từ sàn cho tài khoản #${accountId}.`);
       refetchAccounts();
     } catch (e: any) {
-      setCloudMsg(`Lỗi kết nối đồng bộ: ${e.message}`);
+      setCloudMsg(`${lang === 'en' ? 'Sync error' : 'Lỗi kết nối đồng bộ'}: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -269,12 +271,12 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       await apiPost(`/api/v1/accounts/cloud/${encodeURIComponent(accountId)}/${action}`, {});
       setCloudMsg(
         action === 'deploy'
-          ? `Đã kích hoạt trạm Cloud cho tài khoản #${accountId}`
-          : `Đã tạm ngưng trạm Cloud cho tài khoản #${accountId}`
+          ? (lang === 'en' ? `Cloud station resumed for account #${accountId}` : `Đã kích hoạt trạm Cloud cho tài khoản #${accountId}`)
+          : (lang === 'en' ? `Cloud station paused for account #${accountId}` : `Đã tạm ngưng trạm Cloud cho tài khoản #${accountId}`)
       );
       refetchAccounts();
     } catch (e: any) {
-      setCloudMsg(`Lỗi kết nối Cloud: ${e.message}`);
+      setCloudMsg(`${lang === 'en' ? 'Cloud error' : 'Lỗi kết nối Cloud'}: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -287,7 +289,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
       await apiPost(`/api/v1/accounts/${encodeURIComponent(accountId)}/toggle`, { is_active: !currentActive });
       refetchAccounts();
     } catch (e: any) {
-      setCloudMsg(`Lỗi kết nối: ${e.message}`);
+      setCloudMsg(`${lang === 'en' ? 'Connection error' : 'Lỗi kết nối'}: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -297,11 +299,11 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     setCloudBusy(true);
     try {
       await apiDelete(`/api/v1/accounts/${encodeURIComponent(accountId)}`);
-      setCloudMsg(`Đã xoá tài khoản #${accountId} thành công.`);
+      setCloudMsg(lang === 'en' ? `Account #${accountId} deleted successfully.` : `Đã xoá tài khoản #${accountId} thành công.`);
       refetchAccounts();
       fetchCloudSub();
     } catch (e: any) {
-      setCloudMsg(`Lỗi xoá tài khoản: ${e.message}`);
+      setCloudMsg(`${lang === 'en' ? 'Delete error' : 'Lỗi xoá tài khoản'}: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -345,10 +347,10 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         allowed_strategy_ids: (editConfigForm.allowed_strategy_ids || '').trim(),
       });
       setExpandedConfigId(null);
-      setCloudMsg(`Đã lưu cấu hình quản trị rủi ro cho tài khoản #${id}`);
+      setCloudMsg(lang === 'en' ? `Risk management configuration saved for #${id}` : `Đã lưu cấu hình quản trị rủi ro cho tài khoản #${id}`);
       refetchAccounts();
     } catch (e: any) {
-      setCloudMsg(`Lỗi kết nối: ${e.message}`);
+      setCloudMsg(`${lang === 'en' ? 'Connection error' : 'Lỗi kết nối'}: ${e.message}`);
     } finally {
       setCloudBusy(false);
     }
@@ -607,18 +609,27 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   disabled={cloudBusy}
                   onClick={() => handleCreateCheckout('SEPAY')}
                   className="quant-btn-primary px-3 py-2 text-xs whitespace-nowrap shrink-0"
-                  title="Thanh toán qua SePay VietQR (VND)"
+                  title={lang === 'en' ? 'Pay via VietQR (VND)' : 'Thanh toán qua SePay VietQR (VND)'}
                 >
                   VietQR (VND)
                 </button>
                 <button
                   type="button"
                   disabled={cloudBusy}
-                  onClick={() => handleCreateCheckout('USDT')}
+                  onClick={() => handleCreateCheckout('USDT_TRC20')}
                   className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition whitespace-nowrap shrink-0 cursor-pointer"
-                  title="Thanh toán bằng USDT Crypto (NOWPayments)"
+                  title={lang === 'en' ? 'Direct USDT TRC20 On-Chain' : 'Thanh toán trực tiếp USDT TRC20 On-Chain'}
                 >
-                  USDT (Crypto)
+                  USDT (TRC20)
+                </button>
+                <button
+                  type="button"
+                  disabled={cloudBusy}
+                  onClick={() => handleCreateCheckout('USDT_BEP20')}
+                  className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition whitespace-nowrap shrink-0 cursor-pointer"
+                  title={lang === 'en' ? 'Direct USDT BEP20 On-Chain' : 'Thanh toán trực tiếp USDT BEP20 On-Chain'}
+                >
+                  USDT (BEP20)
                 </button>
               </div>
             </div>
