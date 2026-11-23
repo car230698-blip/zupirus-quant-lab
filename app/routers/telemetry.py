@@ -33,18 +33,22 @@ def get_live_xauusd_quote(db_cursor: Optional[Any] = None, require_broker_feed: 
             val_str = cached.decode("utf-8") if isinstance(cached, bytes) else str(cached)
             parts = val_str.split(":")
             if len(parts) >= 2:
-                bid, ask = float(parts[0]), float(parts[1])
-                spread_pips = round(max(abs(ask - bid), 0.10) * 10, 1)
-                return {
-                    "bid": bid,
-                    "ask": ask,
-                    "mid": round((bid + ask) / 2, 2),
-                    "spread_pips": spread_pips,
-                    "live": True,
-                    "data_available": True,
-                    "stale": False,
-                    "source": "REDIS_STREAM",
-                }
+                q_source = parts[3] if len(parts) >= 4 else "UNKNOWN"
+                if require_broker_feed and q_source in ("YAHOO", "YAHOO_REFERENCE", "SIMULATED", "UNKNOWN"):
+                    pass  # Skip non-broker source when broker feed is strictly required
+                else:
+                    bid, ask = float(parts[0]), float(parts[1])
+                    spread_pips = round(max(abs(ask - bid), 0.10) * 10, 1)
+                    return {
+                        "bid": bid,
+                        "ask": ask,
+                        "mid": round((bid + ask) / 2, 2),
+                        "spread_pips": spread_pips,
+                        "live": True,
+                        "data_available": True,
+                        "stale": False,
+                        "source": f"REDIS_STREAM_{q_source}",
+                    }
     except Exception:
         pass
 

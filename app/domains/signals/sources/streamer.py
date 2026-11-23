@@ -249,7 +249,8 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
         # Only cache in Redis as live quote if timestamp is genuinely fresh (<180s)
         if (time.time() - float(now_ts)) < 180.0:
             rc = get_redis_client()
-            rc.set(f"quote:{symbol}:live", f"{bid}:{ask}:{now_ts}", ex=180)
+            rc.set(f"quote:{symbol}:live", f"{bid}:{ask}:{now_ts}:{source_name}", ex=180)
+            rc.set(f"quote:{symbol}:reference", f"{bid}:{ask}:{now_ts}:{source_name}", ex=180)
     except Exception:
         pass
 

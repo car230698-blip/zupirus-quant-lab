@@ -67,9 +67,9 @@ def validate_crypto_address(address: str, network: str) -> bool:
     return False
 
 
-def get_crypto_wallets_config() -> Dict[str, Any]:
+def get_crypto_wallets_config(db_cursor: Optional[Any] = None) -> Dict[str, Any]:
     """Retrieve active Admin receiving wallet addresses from kv store."""
-    with tx() as c:
+    def _read_from_cursor(c):
         row = c.execute("SELECT value FROM kv WHERE key = 'billing:crypto_wallets'").fetchone()
         if row and row[0]:
             try:
@@ -88,6 +88,20 @@ def get_crypto_wallets_config() -> Dict[str, Any]:
                     }
             except Exception as e:
                 logger.warning(f"Failed parsing crypto_wallets config: {e}")
+        return {
+            "enabled": True,
+            "trc20_address": DEFAULT_TRC20_WALLET,
+            "bep20_address": DEFAULT_BEP20_WALLET,
+            "usdt_trc20_address": DEFAULT_TRC20_WALLET,
+            "usdt_bep20_address": DEFAULT_BEP20_WALLET,
+            "has_trc20": bool(DEFAULT_TRC20_WALLET),
+            "has_bep20": bool(DEFAULT_BEP20_WALLET),
+        }
+
+    if db_cursor is not None:
+        return _read_from_cursor(db_cursor)
+    with tx() as c:
+        return _read_from_cursor(c)
 
     return {
         "enabled": False,

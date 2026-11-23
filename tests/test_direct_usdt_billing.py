@@ -146,3 +146,16 @@ async def test_crypto_order_fulfillment_and_double_spend():
         assert res2["ok"] is False
         assert "đã được sử dụng" in res2["message"]
 
+        # 3. Test polling GET /orders/{order_id} on USDT order doesn't throw 500 and returns saved wallet
+        from app.routers.billing import get_order_status
+        user_dict = {"id": user_id, "role": "customer", "email": "test@example.com"}
+        with tx() as c:
+            c.execute("INSERT INTO kv (key, value) VALUES (?, ?)", (f"order_wallet:{order_id_2}", "TSavedWallet1234567890123456789012"))
+        
+        polled_order = get_order_status(order_id_2, u=user_dict)
+        assert polled_order.id == order_id_2
+        assert polled_order.payment_content is not None
+        assert polled_order.payment_content == f"USDT {order_id_2}"
+        assert polled_order.wallet_address == "TSavedWallet1234567890123456789012"
+        assert polled_order.crypto_network == "TRC20"
+

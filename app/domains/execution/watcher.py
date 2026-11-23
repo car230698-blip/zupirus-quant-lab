@@ -926,72 +926,81 @@ class PositionWatcher:
                         setkv(c, day_key, str(day_anchor_init))
 
                 # 2. Universal Daily Drawdown Check (Circuit Breaker for all accounts)
-                if day_start_balance > 0 and prop_dd_limit > 0:
+                drawdown_pct = 0.0
+                if day_start_balance > 0:
                     drawdown_pct = ((day_start_balance - current_equity) / day_start_balance) * 100.0
-                    if drawdown_pct >= prop_dd_limit:
-                        logger.warning(
-                            f"PROP FIRM BREACH: Account {acc_id} daily DD reached {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. "
-                            f"Emergency closing bot positions only."
-                        )
-                        close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
-                        close_st = str(close_res.get("status") or "")
-                        close_ok = (
-                            close_st in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                            and int(close_res.get("failed_count", 0)) == 0
-                        )
-                        halt_key = get_drawdown_halt_key(acc_id, date_str)
-                        with tx() as c:
-                            c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
-                            if close_ok:
-                                setkv(c, halt_key, f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
-                                setkv(c, f"drawdown_locked:{acc_id}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
-                            audit(c, "prop_guard", "circuit_breaker_triggered", {
-                                "account_id": acc_id,
-                                "drawdown_pct": round(drawdown_pct, 2),
-                                "day_start_balance": day_start_balance,
-                                "equity": current_equity,
-                                "close_result": close_res
-                            })
-                            try:
-                                from app.domains.notifications.service import emit_notification
-                                emit_notification(
-                                    c,
-                                    user_id=acc.get("user_id"),
-                                    role="user",
-                                    severity="CRITICAL",
-                                    title="Ngắt Khẩn Cấp: Vi Phạm Drawdown",
-                                    body=f"Tài khoản {acc.get('account_name') or acc_id} chạm sụt giảm {drawdown_pct:.1f}% >= giới hạn {prop_dd_limit:.1f}%. Các vị thế của Bot đã được đóng.",
-                                    send_email=True,
-                                    cooldown_key=f"user_dd_breach_{acc_id}_{date_str}",
-                                    cooldown_sec=3600,
-                                )
-                            except Exception as ne:
-                                logger.debug(f"Failed to emit drawdown breach notification: {ne}")
-                        if not close_ok:
-                            logger.error(f"PROP FIRM BREACH close incomplete for {acc_id}: {close_res} — will retry next cycle.")
-                        results["prop_breakers_triggered"] += 1
-                        results["details"].append({
+
+                with tx() as c:
+                    pending_close_reason = getkv(c, f"emergency_close_pending:{acc_id}")
+                is_pending_close = bool(pending_close_reason)
+
+                if (day_start_balance > 0 and prop_dd_limit > 0 and drawdown_pct >= prop_dd_limit) or is_pending_close:
+                    logger.warning(
+                        f"PROP FIRM BREACH: Account {acc_id} daily DD reached {drawdown_pct:.2f}% (limit: {prop_dd_limit:.2f}%, pending: {is_pending_close}). "
+                        f"Emergency closing bot positions only."
+                    )
+                    close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
+                    close_st = str(close_res.get("status") or "")
+                    close_ok = (
+                        close_st in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                        and int(close_res.get("failed_count", 0)) == 0
+                    )
+                    halt_key = get_drawdown_halt_key(acc_id, date_str)
+                    with tx() as c:
+                        c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
+                        if close_ok:
+                            setkv(c, halt_key, f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
+                            setkv(c, f"drawdown_locked:{acc_id}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
+                            setkv(c, f"emergency_close_pending:{acc_id}", "")
+                        else:
+                            setkv(c, f"emergency_close_pending:{acc_id}", f"DRAWDOWN_LIMIT_{drawdown_pct:.2f}")
+                        audit(c, "prop_guard", "circuit_breaker_triggered", {
                             "account_id": acc_id,
-                            "action": "PROP_CIRCUIT_BREAKER_LOCKED" if close_ok else "PROP_CIRCUIT_BREAKER_CLOSE_INCOMPLETE",
+                            "drawdown_pct": round(drawdown_pct, 2),
+                            "day_start_balance": day_start_balance,
+                            "equity": current_equity,
+                            "close_result": close_res
                         })
                         try:
-                            from app.mailer import send_admin_alert_email
-                            if close_ok:
-                                await asyncio.to_thread(
-                                    send_admin_alert_email,
-                                    f"Ngắt mạch Prop DD tài khoản {acc_id}",
-                                    f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. Hệ thống đã đóng lệnh bot và khóa giao dịch.",
-                                )
-                            else:
-                                await asyncio.to_thread(
-                                    send_admin_alert_email,
-                                    f"KHẨN: Ngắt mạch Prop DD {acc_id} chưa đóng hết lệnh",
-                                    f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}%. Đã tắt auto_trade và sẽ thử đóng lại ở chu kỳ sau. Chi tiết: {close_res}",
-                                )
-                        except Exception as exc:
-                            logger.warning(f"Failed to send admin alert email for Prop DD account {acc_id}: {exc}")
-                        continue
-                    elif drawdown_pct >= 0.75 * prop_dd_limit:
+                            from app.domains.notifications.service import emit_notification
+                            emit_notification(
+                                c,
+                                user_id=acc.get("user_id"),
+                                role="user",
+                                severity="CRITICAL",
+                                title="Ngắt Khẩn Cấp: Vi Phạm Drawdown",
+                                body=f"Tài khoản {acc.get('account_name') or acc_id} chạm sụt giảm {drawdown_pct:.1f}% >= giới hạn {prop_dd_limit:.1f}%. Các vị thế của Bot đã được đóng.",
+                                send_email=True,
+                                cooldown_key=f"user_dd_breach_{acc_id}_{date_str}",
+                                cooldown_sec=3600,
+                            )
+                        except Exception as ne:
+                            logger.debug(f"Failed to emit drawdown breach notification: {ne}")
+                    if not close_ok:
+                        logger.error(f"PROP FIRM BREACH close incomplete for {acc_id}: {close_res} — will retry next cycle.")
+                    results["prop_breakers_triggered"] += 1
+                    results["details"].append({
+                        "account_id": acc_id,
+                        "action": "PROP_CIRCUIT_BREAKER_LOCKED" if close_ok else "PROP_CIRCUIT_BREAKER_CLOSE_INCOMPLETE",
+                    })
+                    try:
+                        from app.mailer import send_admin_alert_email
+                        if close_ok:
+                            await asyncio.to_thread(
+                                send_admin_alert_email,
+                                f"Ngắt mạch Prop DD tài khoản {acc_id}",
+                                f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}% >= {prop_dd_limit:.2f}%. Hệ thống đã đóng lệnh bot và khóa giao dịch.",
+                            )
+                        else:
+                            await asyncio.to_thread(
+                                send_admin_alert_email,
+                                f"KHẨN: Ngắt mạch Prop DD {acc_id} chưa đóng hết lệnh",
+                                f"Tài khoản {acc_id} chạm drawdown ngày {drawdown_pct:.2f}%. Đã tắt auto_trade và sẽ thử đóng lại ở chu kỳ sau. Chi tiết: {close_res}",
+                            )
+                    except Exception as exc:
+                        logger.warning(f"Failed to send admin alert email for Prop DD account {acc_id}: {exc}")
+                    continue
+                elif drawdown_pct >= 0.75 * prop_dd_limit:
                         with tx() as c:
                             try:
                                 from app.domains.notifications.service import emit_notification
@@ -1043,21 +1052,31 @@ class PositionWatcher:
                             setkv(c, f"prop_target_throttle:{acc_id}", "0")
 
                     # Max Overall / Trailing Drawdown >= 8.0% from HWM
+                    trailing_dd_pct = 0.0
                     if hwm_equity > 0:
                         trailing_dd_pct = ((hwm_equity - current_equity) / hwm_equity) * 100.0
-                        if trailing_dd_pct >= 8.0:
-                            logger.warning(
-                                f"PROP HWM BREACH: Account {acc_id} trailing DD {trailing_dd_pct:.2f}% >= 8.0% (HWM={hwm_equity:.2f}). Closing bot positions only."
-                            )
-                            close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
-                            close_ok = (
-                                close_res.get("status") in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
-                                or (int(close_res.get("failed_count", 0)) == 0)
-                            )
-                            with tx() as c:
-                                c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
-                                if close_ok:
-                                    setkv(c, f"drawdown_locked:{acc_id}", f"HWM_TRAILING_DD_{trailing_dd_pct:.2f}")
+                    
+                    with tx() as c:
+                        pending_hwm = getkv(c, f"hwm_close_pending:{acc_id}")
+                    is_pending_hwm = bool(pending_hwm)
+
+                    if (hwm_equity > 0 and trailing_dd_pct >= 8.0) or is_pending_hwm:
+                        logger.warning(
+                            f"PROP HWM BREACH: Account {acc_id} trailing DD {trailing_dd_pct:.2f}% >= 8.0% (HWM={hwm_equity:.2f}, pending: {is_pending_hwm}). Closing bot positions only."
+                        )
+                        close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
+                        close_st = str(close_res.get("status") or "")
+                        close_ok = (
+                            close_st in ("ALL_POSITIONS_CLOSED", "ALL_BOT_POSITIONS_CLOSED", "NO_OPEN_POSITIONS")
+                            and int(close_res.get("failed_count", 0)) == 0
+                        )
+                        with tx() as c:
+                            c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE id = ?", (acc_id,))
+                            if close_ok:
+                                setkv(c, f"drawdown_locked:{acc_id}", f"HWM_TRAILING_DD_{trailing_dd_pct:.2f}")
+                                setkv(c, f"hwm_close_pending:{acc_id}", "")
+                            else:
+                                setkv(c, f"hwm_close_pending:{acc_id}", f"HWM_TRAILING_DD_{trailing_dd_pct:.2f}")
                                 audit(c, "prop_guard", "hwm_trailing_dd_triggered", {
                                     "account_id": acc_id,
                                     "trailing_dd_pct": round(trailing_dd_pct, 2),

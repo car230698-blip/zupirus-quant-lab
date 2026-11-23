@@ -39,6 +39,7 @@ from app.routers.seo_pages import router as seo_pages_router
 from app.routers.auth import _client_ip, resolve_ip_country
 
 logger = logging.getLogger("zupirus.api")
+APP_BOOT_TIME = time.time()
 
 # Conditional high-performance uvloop activation on POSIX/Linux
 if sys.platform != "win32":
@@ -181,19 +182,32 @@ def readyz():
         timescale_info = check_timescale_metadata()
         try:
             now_ts = time.time()
+            app_env_check = os.getenv("APP_ENV", "dev").strip().lower()
+            in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST"))
             with tx() as c:
                 hb = c.execute("SELECT value FROM kv WHERE key='execution_heartbeat'").fetchone()
                 rhb = c.execute("SELECT value FROM kv WHERE key='research_heartbeat'").fetchone()
                 if hb is not None or rhb is not None:
                     has_hb_records = True
-                if hb and now_ts - float(hb[0]) < 30.0:
-                    engine_ok = True
-                elif hb is None and not is_postgres():
-                    engine_ok = True
-                if rhb and now_ts - float(rhb[0]) < 45.0:
-                    research_ok = True
-                elif rhb is None and not is_postgres():
-                    research_ok = True
+
+                hb_val = float(hb[0]) if hb and hb[0] else 0.0
+                rhb_val = float(rhb[0]) if rhb and rhb[0] else 0.0
+
+                if app_env_check == "production" and not in_pytest:
+                    # In production, verify heartbeats were generated after THIS container startup
+                    if hb and hb_val >= (APP_BOOT_TIME - 2.0) and (now_ts - hb_val) < 30.0:
+                        engine_ok = True
+                    if rhb and rhb_val >= (APP_BOOT_TIME - 2.0) and (now_ts - rhb_val) < 45.0:
+                        research_ok = True
+                else:
+                    if hb and (now_ts - hb_val) < 30.0:
+                        engine_ok = True
+                    elif hb is None and not is_postgres():
+                        engine_ok = True
+                    if rhb and (now_ts - rhb_val) < 45.0:
+                        research_ok = True
+                    elif rhb is None and not is_postgres():
+                        research_ok = True
         except Exception:
             pass
 

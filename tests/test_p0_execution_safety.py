@@ -554,7 +554,7 @@ async def test_a6_operational_invariants_and_edge_cases(tmp_path, monkeypatch):
             ) VALUES ('ex_unver_exp', 'sig_e', 'acc_exp', 'meta_exp', 'XAUUSD', 'BUY', 0.1, 2000.0, 'UNKNOWN_EXECUTION', 'BOT', ?)
         """, (now - 86400 * 2,))
 
-    mock_client.get_positions_verified = AsyncMock(return_value=(False, [], {"synchronized": False}))
+    mock_client.get_positions_verified = AsyncMock(return_value=(True, [{"id": "pos_rem"}], {"synchronized": True}))
     mock_client.get_open_orders_verified = AsyncMock(return_value=(True, [], {"status_code": 200}))
 
     dispatched_emails = []

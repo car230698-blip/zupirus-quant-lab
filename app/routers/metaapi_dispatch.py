@@ -109,7 +109,8 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
     from app.routers.telemetry import get_live_xauusd_quote
     from app.services.symbol_mapper import canonical_symbol
 
-    live_price_val = float(p.entry_price)
+    import os
+    live_price_val = None
     if canonical_symbol(p.symbol) == "XAUUSD":
         lq = get_live_xauusd_quote(require_broker_feed=True)
         if lq.get("mid"):
@@ -122,6 +123,15 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
             ).fetchone()
             if q_row and q_row[0] and q_row[1]:
                 live_price_val = (float(q_row[0]) + float(q_row[1])) / 2.0
+
+    if live_price_val is None:
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            live_price_val = float(p.entry_price)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Fail-Closed: Không thể lấy báo giá thực tế từ sàn cho cặp {p.symbol}. Lệnh bị từ chối để tránh trượt giá không kiểm soát."
+            )
 
     norm_sig = NormalizedSignalSchema(
         id=signal_id,

@@ -173,7 +173,17 @@ async def run_subscription_lifecycle_cycle(
                     last_ver_row = c.execute("SELECT last_verified_at FROM trading_accounts WHERE id = ?", (acc["id"],)).fetchone()
                     last_verified_ts = (last_ver_row[0] if last_ver_row and last_ver_row[0] else None) or 0
 
-                has_blocking_items = bool(unverified_reqs) or bool(open_positions) or bool(open_orders) or (not is_read_ok)
+                if not is_read_ok:
+                    with tx() as c:
+                        c.execute(
+                            "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
+                            (acc["id"],),
+                        )
+                    stats["protecting_open"] += 1
+                    logger.warning(f"EXPIRED ACCOUNT PROTECTED: Broker read unverified for {acc['id']} (is_read_ok=False). Keeping EXPIRED_PROTECTING.")
+                    continue
+
+                has_blocking_items = bool(unverified_reqs) or bool(open_positions) or bool(open_orders)
                 is_24h_expired = (now - exp) >= 86400
 
                 if has_blocking_items and not is_24h_expired:
@@ -206,10 +216,20 @@ async def run_subscription_lifecycle_cycle(
 
                 with tx() as c:
                     if undeploy_ok:
-                        c.execute(
-                            "UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0 WHERE id = ?",
-                            (acc["id"],),
+                        upd_res = c.execute(
+                            """
+                            UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0
+                            WHERE id = ? AND (cloud_expires_at IS NULL OR cloud_expires_at <= ?)
+                            """,
+                            (acc["id"], now),
                         )
+                        was_updated = getattr(upd_res, "rowcount", 0) > 0
+                        if not was_updated:
+                            logger.info(f"Account {acc['id']} was renewed during undeploy call! Triggering immediate re-deploy.")
+                            if meta_id:
+                                asyncio.create_task(meta_client.deploy_account(meta_id))
+                            continue
+
                         audit(c, "subscription_lifecycle", "expired_account_undeployed", {
                             "account_id": acc["id"],
                             "user_id": user_id,

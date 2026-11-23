@@ -77,7 +77,7 @@ class OrderResponse(BaseModel):
     account_number: Optional[str] = None
     bank_name: Optional[str] = None
     account_holder: Optional[str] = None
-    payment_content: str
+    payment_content: Optional[str] = None
     expires_at: float
     created_at: float
 
