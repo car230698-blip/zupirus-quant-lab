@@ -554,10 +554,3 @@ async def handle_sepay_webhook(
         "matched_user": matched_email or matched_user_id,
         "message": "Payment verified and recorded successfully"
     }
-
-
-@router.post("/api/v1/billing/webhooks/nowpayments")
-@router.post("/api/webhooks/nowpayments")
-async def handle_nowpayments_webhook(request: Request):
-    """Deprecated: NOWPayments has been replaced by Direct On-Chain USDT verification."""
-    return {"ok": False, "message": "Deprecated: NOWPayments replaced by Direct USDT"}

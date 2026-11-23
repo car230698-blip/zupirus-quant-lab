@@ -77,7 +77,7 @@ export const vi = {
   billing: {
     paymentMethod: 'Phương Thức Thanh Toán',
     vietqr: 'VietQR / SePay (VND)',
-    usdt: 'USDT Crypto (NOWPayments)',
+    usdt: 'Direct USDT (TRC20 / BEP20)',
     usdtManual: 'Thanh Toán USDT Thủ Công',
     usdtManualNotice: 'Cổng tự động đang bảo trì. Vui lòng liên hệ Admin qua Discord hoặc Email: support@zupirus.com để nhận địa chỉ ví USDT (TRC20 / BEP20) xử lý thủ công trong 5 phút.',
     orderExpiresIn: 'Đơn hàng hết hạn sau',

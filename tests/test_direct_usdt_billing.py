@@ -1,3 +1,4 @@
+import json
 import pytest
 import time
 from unittest.mock import patch, MagicMock
@@ -178,22 +179,25 @@ def test_redis_quote_rejects_stale_under_require_broker_feed():
     from app.redis_client import get_redis_client
     now_ts = time.time()
     rc = get_redis_client()
-    # Write a 150-second old quote to Redis
-    stale_ts = now_ts - 150.0
-    rc.set("quote:XAUUSD:live", f"2750.50:2750.70:{stale_ts}:METAAPI_STREAM", ex=180)
+    try:
+        # Write a 150-second old quote to Redis
+        stale_ts = now_ts - 150.0
+        rc.set("quote:XAUUSD:live", f"2750.50:2750.70:{stale_ts}:METAAPI_STREAM", ex=180)
 
-    # When require_broker_feed=True, stale quote (> 120s) must NOT be returned as valid live feed
-    lq = get_live_xauusd_quote(require_broker_feed=True)
-    # If returned from Redis, it must either be skipped or not marked live without mid
-    assert lq.get("live") is not True or lq.get("stale") is True or lq.get("source") != "REDIS_STREAM_METAAPI_STREAM"
+        # When require_broker_feed=True, stale quote (> 120s) must NOT be returned as valid live feed
+        lq = get_live_xauusd_quote(require_broker_feed=True)
+        # If returned from Redis, it must either be skipped or not marked live without mid
+        assert lq.get("live") is not True or lq.get("stale") is True or lq.get("source") != "REDIS_STREAM_METAAPI_STREAM"
 
-    # When fresh (10s old), must be accepted
-    fresh_ts = now_ts - 10.0
-    rc.set("quote:XAUUSD:live", f"2750.50:2750.70:{fresh_ts}:METAAPI_STREAM", ex=180)
-    lq_fresh = get_live_xauusd_quote(require_broker_feed=True)
-    assert lq_fresh.get("live") is True
-    assert lq_fresh.get("stale") is False
-    assert lq_fresh.get("mid") == 2750.60
+        # When fresh (10s old), must be accepted
+        fresh_ts = now_ts - 10.0
+        rc.set("quote:XAUUSD:live", f"2750.50:2750.70:{fresh_ts}:METAAPI_STREAM", ex=180)
+        lq_fresh = get_live_xauusd_quote(require_broker_feed=True)
+        assert lq_fresh.get("live") is True
+        assert lq_fresh.get("stale") is False
+        assert lq_fresh.get("mid") == 2750.60
+    finally:
+        rc.delete("quote:XAUUSD:live")
 
 
 def test_is_account_drawdown_halted_emergency_pending():
@@ -208,4 +212,141 @@ def test_is_account_drawdown_halted_emergency_pending():
         c.execute("INSERT INTO kv (key, value) VALUES ('hwm_close_pending:acc_test_halt', 'HWM_TRAILING_DD_8.00') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
         assert is_account_drawdown_halted(c, "acc_test_halt") is True
         c.execute("DELETE FROM kv WHERE key = 'hwm_close_pending:acc_test_halt'")
+
+
+def test_trc20_base58_and_hex_matching():
+    """Verify that TronGrid returning EVM Hex (0x...) or 41-prefixed Hex matches Base58Check expected_to."""
+    from app.domains.billing.crypto_direct import normalize_tron_address, tron_base58_to_hex
+    base58_addr = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+    evm_hex = tron_base58_to_hex(base58_addr)
+    assert evm_hex == "0xa614f803b6fd780986a42c78ec9c7f77e6ded13c"
+
+    # Verify normalize_tron_address equates all representations
+    assert normalize_tron_address(base58_addr) == evm_hex
+    assert normalize_tron_address(evm_hex) == evm_hex
+    assert normalize_tron_address("41a614f803b6fd780986a42c78ec9c7f77e6ded13c") == evm_hex
+
+    # Mock TronGrid events returning 0x... EVM hex format for result.to
+    mock_events_response = {
+        "success": True,
+        "data": [
+            {
+                "event_name": "Transfer",
+                "contract_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+                "result": {
+                    "to": evm_hex,  # TronGrid Hex return
+                    "value": "25010000",  # 25.01 USDT
+                }
+            }
+        ]
+    }
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(mock_events_response).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        ok, msg, data = verify_trc20_transaction(
+            tx_hash="a" * 64,
+            expected_to=base58_addr,  # Admin Base58 input
+            expected_amount=25.01
+        )
+        assert ok is True
+        assert data["amount"] == 25.01
+
+
+def test_bep20_confirmations_check():
+    """Verify BEP20 requires >= 3 confirmations."""
+    admin_wallet = "0x55d398326f99059fF775485246999027B3197955"
+    admin_unpadded = admin_wallet.lower().replace("0x", "")
+    exact_topic_2 = "0x" + admin_unpadded.zfill(64)
+
+    mock_receipt = {
+        "status": "0x1",
+        "blockNumber": "0x64",  # Block 100
+        "logs": [
+            {
+                "address": "0x55d398326f99059ff775485246999027b3197955",
+                "topics": [
+                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                    "0x" + "1" * 64,
+                    exact_topic_2,
+                ],
+                "data": hex(int(25.01 * 10**18)),
+            }
+        ]
+    }
+
+    # 1. When latest block is 101 -> confirmations = 101 - 100 + 1 = 2 (< 3) -> should reject
+    with patch("app.domains.billing.crypto_direct._call_bsc_rpc") as mock_rpc:
+        def rpc_side_effect(method, params):
+            if method == "eth_getTransactionReceipt":
+                return mock_receipt
+            if method == "eth_blockNumber":
+                return "0x65"  # Block 101 -> 2 confirmations
+            return None
+        mock_rpc.side_effect = rpc_side_effect
+
+        ok, msg, data = verify_bep20_transaction("0x" + "b" * 64, admin_wallet, 25.01)
+        assert ok is False
+        assert "xác nhận khối" in msg
+
+    # 2. When latest block is 104 -> confirmations = 104 - 100 + 1 = 5 (>= 3) -> should accept
+    with patch("app.domains.billing.crypto_direct._call_bsc_rpc") as mock_rpc:
+        def rpc_side_effect(method, params):
+            if method == "eth_getTransactionReceipt":
+                return mock_receipt
+            if method == "eth_blockNumber":
+                return "0x68"  # Block 104 -> 5 confirmations
+            return None
+        mock_rpc.side_effect = rpc_side_effect
+
+        ok, msg, data = verify_bep20_transaction("0x" + "b" * 64, admin_wallet, 25.01)
+        assert ok is True
+        assert data["amount"] == 25.01
+
+
+@pytest.mark.asyncio
+async def test_scan_and_reconcile_pending_crypto_orders():
+    """Verify background worker auto-fulfills pending orders when on-chain transfer is detected."""
+    from app.domains.billing.crypto_direct import scan_and_reconcile_pending_crypto_orders
+    now_ts = time.time()
+    user_id = "test_scan_user"
+    order_id = f"ord_scan_{int(now_ts)}"
+
+    with tx() as c:
+        c.execute("DELETE FROM orders WHERE user_id = ?", (user_id,))
+        c.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        c.execute("INSERT INTO users (id, email, password, role) VALUES (?, 'scan_user@example.com', 'pwd_hash_123', 'customer')", (user_id,))
+        c.execute("""
+            INSERT INTO orders (id, user_id, amount_usd, amount_vnd, locked_exchange_rate, plan_tier, cloud_slots_count, status, payment_gateway, created_at, expires_at, expected_amount_usdt)
+            VALUES (?, ?, 25.0, 637500, 25500.0, 'starter', 1, 'PENDING', 'USDT_TRC20', ?, ?, 25.42)
+        """, (order_id, user_id, now_ts, now_ts + 1800))
+        c.execute("INSERT INTO kv (key, value) VALUES (?, ?)", (f"order_wallet:{order_id}", "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"))
+
+    # Mock TronGrid account transactions response containing 25.42 USDT transfer
+    mock_acc_transfers = {
+        "success": True,
+        "data": [
+            {
+                "transaction_id": "tx_auto_scan_1234567890abcdef",
+                "value": "25420000",  # 25.42 USDT
+                "to": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+            }
+        ]
+    }
+
+    with patch("urllib.request.urlopen") as mock_urlopen, \
+         patch("app.domains.billing.crypto_direct.verify_and_fulfill_crypto_order") as mock_fulfill:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(mock_acc_transfers).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+        mock_fulfill.return_value = {"ok": True, "status": "PAID"}
+
+        stats = await scan_and_reconcile_pending_crypto_orders()
+        assert stats["scanned"] >= 1
+        assert stats["fulfilled"] >= 1
+        assert order_id in stats["orders"]
+        mock_fulfill.assert_called_once_with(order_id, "tx_auto_scan_1234567890abcdef")
 

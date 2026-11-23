@@ -79,7 +79,7 @@ export const en: TranslationType = {
   billing: {
     paymentMethod: 'Payment Method',
     vietqr: 'VietQR / SePay (VND)',
-    usdt: 'USDT Crypto (NOWPayments)',
+    usdt: 'Direct USDT (TRC20 / BEP20)',
     usdtManual: 'Manual USDT Payment',
     usdtManualNotice: 'Automated gateway is under maintenance. Please contact support on Discord or Email: support@zupirus.com for a dedicated USDT (TRC20 / BEP20) address. Orders are credited within 5 minutes.',
     orderExpiresIn: 'Order expires in',

@@ -555,8 +555,15 @@ async def execute_fan_out_for_signal(
                     "SELECT auto_trade, deployment_state FROM trading_accounts WHERE id = ?" + (" FOR UPDATE" if is_pg_conn else ""),
                     (acc_id,)
                 ).fetchone()
-                if not acc_row or int(acc_row[0] or 0) != 1 or str(acc_row[1] or "") != "DEPLOYED":
-                    logger.warning(f"Account {acc_id} skipped: auto_trade disabled or state is {acc_row[1] if acc_row else 'NONE'}.")
+                if acc_row is not None:
+                    if int(acc_row[0] or 0) != 1 or str(acc_row[1] or "") != "DEPLOYED":
+                        logger.warning(f"Account {acc_id} skipped: auto_trade disabled or state is {acc_row[1]}.")
+                        continue
+                elif acc.get("deployment_state") and acc.get("deployment_state") != "DEPLOYED":
+                    logger.warning(f"Account {acc_id} skipped: state is {acc.get('deployment_state')}.")
+                    continue
+                elif "auto_trade" in acc and not acc.get("auto_trade"):
+                    logger.warning(f"Account {acc_id} skipped: auto_trade disabled.")
                     continue
 
                 # Check account drawdown or safety halt (including emergency_close_pending)

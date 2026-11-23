@@ -48,6 +48,39 @@ TRC20_REGEX = re.compile(r"^T[1-9A-HJ-NP-Za-km-z]{33}$")
 BEP20_REGEX = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 
+def _call_bsc_rpc_impl(method: str, params: list) -> Any:
+    payload = json.dumps({
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": params,
+        "id": 1,
+    }).encode("utf-8")
+    for rpc_url in BSC_RPC_ENDPOINTS:
+        try:
+            req = urllib.request.Request(
+                rpc_url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "ZupirusQuantLab/0.2.0"}
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                if "result" in res:
+                    return res["result"]
+        except Exception as e:
+            logger.debug(f"BSC RPC {rpc_url} failed for {method}: {e}")
+            continue
+    return None
+
+
+def call_bsc_rpc(method: str, params: list) -> Any:
+    """Execute a JSON-RPC call against Binance Smart Chain RPC endpoints with fallback."""
+    return _call_bsc_rpc(method, params)
+
+
+def _call_bsc_rpc(method: str, params: list) -> Any:
+    return _call_bsc_rpc_impl(method, params)
+
+
 def validate_trc20_address(address: str) -> bool:
     """Validate TRON Base58 address format (starts with T, length 34)."""
     if not address or not isinstance(address, str):
@@ -250,6 +283,61 @@ def allocate_unique_usdt_amount(base_amount_usd: float, network: str, db_cursor:
     return round(base + 0.01, 2)
 
 
+ALPHABET_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def tron_base58_to_hex(b58: str) -> str:
+    """Decode a TRON Base58Check address (starting with T, length 34) to lowercase EVM hex (0x...)."""
+    if not b58 or not isinstance(b58, str):
+        return ""
+    s = b58.strip()
+    if not (s.startswith("T") and len(s) == 34):
+        return s.lower()
+    try:
+        import hashlib
+        n = 0
+        for c in s:
+            idx = ALPHABET_B58.index(c)
+            n = n * 58 + idx
+        h = f"{n:x}"
+        if len(h) % 2:
+            h = "0" + h
+        raw = bytes.fromhex(h)
+        pad = 0
+        for c in s:
+            if c == "1":
+                pad += 1
+            else:
+                break
+        raw = (b"\x00" * pad) + raw
+        if len(raw) != 25:
+            return s.lower()
+        body, checksum = raw[:21], raw[21:]
+        expected_cs = hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4]
+        if checksum != expected_cs:
+            return s.lower()
+        # body[0] is 0x41 (TRON network byte), body[1:] is 20-byte EVM address
+        return f"0x{body[1:].hex().lower()}"
+    except Exception as exc:
+        logger.debug(f"tron_base58_to_hex fallback: {exc}")
+        return s.lower()
+
+
+def normalize_tron_address(addr: str) -> str:
+    """Normalize any TRON address representation (Base58, 0x hex, or 41-prefixed hex) to lowercase 0x hex."""
+    if not addr or not isinstance(addr, str):
+        return ""
+    a = addr.strip()
+    if a.startswith("T") and len(a) == 34:
+        return tron_base58_to_hex(a)
+    clean = a.lower().replace("0x", "")
+    if len(clean) == 42 and clean.startswith("41"):
+        return f"0x{clean[2:]}"
+    if len(clean) == 40:
+        return f"0x{clean}"
+    return a.lower()
+
+
 # =========================================================================
 # Blockchain Verification: TRC20 (TronGrid) & BEP20 (BNB Smart Chain RPC)
 # =========================================================================
@@ -319,8 +407,10 @@ def verify_trc20_transaction(
             # USDT TRC20 has 6 decimals
             actual_usdt = value_raw / 1_000_000.0
 
-            # Compare recipient (Tron addresses are case-sensitive Base58)
-            if to_addr == expected_to:
+            # Compare recipient: handles TronGrid EVM Hex 0x..., Tron 41..., and Base58Check T...
+            norm_actual = normalize_tron_address(to_addr)
+            norm_expected = normalize_tron_address(expected_to)
+            if norm_actual == norm_expected or to_addr == expected_to:
                 diff = abs(actual_usdt - expected_amount)
                 if diff <= 0.001:
                     return True, "Xác minh giao dịch USDT TRC20 thành công.", {
@@ -368,39 +458,32 @@ def verify_bep20_transaction(
     if not tx_hash or not tx_hash.startswith("0x") or len(tx_hash) != 66:
         return False, "Mã giao dịch (tx_hash) BEP20 không hợp lệ (phải bắt đầu bằng 0x và dài 66 ký tự).", {}
 
-    payload = json.dumps({
-        "jsonrpc": "2.0",
-        "method": "eth_getTransactionReceipt",
-        "params": [tx_hash],
-        "id": 1,
-    }).encode("utf-8")
-
-    receipt = None
-    last_err = None
-
-    for rpc_url in BSC_RPC_ENDPOINTS:
-        try:
-            req = urllib.request.Request(
-                rpc_url,
-                data=payload,
-                headers={"Content-Type": "application/json", "User-Agent": "ZupirusQuantLab/0.2.0"}
-            )
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                res = json.loads(resp.read().decode("utf-8"))
-                receipt = res.get("result")
-                if receipt:
-                    break
-        except Exception as e:
-            last_err = e
-            continue
-
+    receipt = _call_bsc_rpc("eth_getTransactionReceipt", [tx_hash])
     if not receipt:
-        return False, f"Không thể tra cứu biên nhận giao dịch BSC (RPC error: {last_err})", {}
+        return False, "Không thể tra cứu biên nhận giao dịch BSC (RPC timeout hoặc giao dịch chưa được xác nhận).", {}
 
     # Check status: '0x1' is success on EVM
     status_hex = str(receipt.get("status") or "")
     if status_hex != "0x1":
         return False, "Giao dịch trên BNB Smart Chain đã thất bại (Reverted / Failed).", {}
+
+    # Check block confirmations (require >= 3 confirmations on BSC)
+    block_hex = receipt.get("blockNumber")
+    if block_hex:
+        try:
+            tx_block = int(block_hex, 16) if isinstance(block_hex, str) else int(block_hex)
+            latest_block_hex = _call_bsc_rpc("eth_blockNumber", [])
+            if latest_block_hex:
+                latest_block = int(latest_block_hex, 16) if isinstance(latest_block_hex, str) else int(latest_block_hex)
+                confirmations = max(0, latest_block - tx_block + 1)
+                if confirmations < 3:
+                    return False, f"Giao dịch mới có {confirmations}/3 xác nhận khối BSC. Vui lòng thử lại sau vài giây.", {
+                        "confirmations": confirmations,
+                        "required": 3,
+                        "tx_hash": tx_hash,
+                    }
+        except Exception as conf_err:
+            logger.debug(f"Confirmations check notice: {conf_err}")
 
     logs = receipt.get("logs") or []
     usdt_contract_clean = USDT_BEP20_CONTRACT.lower()
@@ -417,8 +500,10 @@ def verify_bep20_transaction(
 
         # Topic 2 contains the recipient address (padded to 32 bytes)
         if len(topics) >= 3:
-            recipient_topic = topics[2].lower()
-            if expected_to_unpadded in recipient_topic:
+            recipient_topic = str(topics[2]).lower()
+            expected_topic_2 = "0x" + expected_to_unpadded.lower().zfill(64)
+            # Exact 32-byte EVM topic comparison
+            if recipient_topic == expected_topic_2:
                 data_hex = log.get("data") or "0x0"
                 try:
                     raw_val = int(data_hex, 16)
@@ -676,3 +761,96 @@ async def verify_and_fulfill_crypto_order(
         "expires_at": new_sub_exp,
         "message": "Xác minh thanh toán Direct USDT thành công! Tài khoản đã được kích hoạt.",
     }
+
+
+async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
+    """
+    Background worker: scan public blockchain for incoming transfers to Admin wallets
+    matching active PENDING USDT orders, auto-fulfilling orders without requiring manual tx hash entry.
+    """
+    now_ts = time.time()
+    with tx() as c:
+        rows = c.execute(
+            """
+            SELECT id, user_id, expected_amount_usdt, payment_gateway, expires_at
+            FROM orders
+            WHERE payment_gateway LIKE 'USDT%'
+              AND status = 'PENDING'
+              AND expires_at > ?
+              AND expected_amount_usdt IS NOT NULL
+            """,
+            (now_ts,)
+        ).fetchall()
+
+    if not rows:
+        return {"scanned": 0, "fulfilled": 0}
+
+    stats = {"scanned": len(rows), "fulfilled": 0, "orders": []}
+    cfg = get_crypto_wallets_config()
+    trc20_admin = cfg.get("trc20_address")
+    bep20_admin = cfg.get("bep20_address")
+
+    trc20_targets = {}
+    bep20_targets = {}
+    for r in rows:
+        d = dict(r) if hasattr(r, "keys") else {"id": r[0], "user_id": r[1], "expected_amount_usdt": r[2], "payment_gateway": r[3], "expires_at": r[4]}
+        amt = round(float(d["expected_amount_usdt"]), 2)
+        gw = str(d["payment_gateway"]).upper()
+        if "TRC20" in gw:
+            trc20_targets[amt] = d["id"]
+        elif "BEP20" in gw:
+            bep20_targets[amt] = d["id"]
+
+    # 1. Scan TRC20 incoming transfers via TronGrid
+    if trc20_targets and trc20_admin:
+        try:
+            url = f"{TRONGRID_API_URL}/v1/accounts/{trc20_admin}/transactions/trc20?contract_address={USDT_TRC20_CONTRACT}&only_to=true&limit=25"
+            req = urllib.request.Request(url, headers={"User-Agent": "ZupirusQuantLab/0.2.0 (BackgroundScanner)"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                transfers = data.get("data") or []
+                for tr in transfers:
+                    val_raw = float(tr.get("value") or 0.0)
+                    amt = round(val_raw / 1_000_000.0, 2)
+                    tx_id = tr.get("transaction_id")
+                    if amt in trc20_targets and tx_id:
+                        ord_id = trc20_targets[amt]
+                        fulfill_res = await verify_and_fulfill_crypto_order(ord_id, tx_id)
+                        if fulfill_res.get("ok"):
+                            stats["fulfilled"] += 1
+                            stats["orders"].append(ord_id)
+                            logger.info(f"AUTO-FULFILLED USDT TRC20 Order {ord_id} via background scanner with tx {tx_id}")
+        except Exception as e:
+            logger.debug(f"Background TRC20 scan note: {e}")
+
+    # 2. Scan BEP20 incoming transfers via BSC RPC eth_getLogs
+    if bep20_targets and bep20_admin:
+        try:
+            admin_padded = "0x" + bep20_admin.lower().replace("0x", "").zfill(64)
+            latest_blk_hex = _call_bsc_rpc("eth_blockNumber", [])
+            if latest_blk_hex:
+                latest_blk = int(latest_blk_hex, 16) if isinstance(latest_blk_hex, str) else int(latest_blk_hex)
+                from_blk_hex = hex(max(0, latest_blk - 120))  # Last ~6 minutes of BSC blocks
+                logs_params = [{
+                    "fromBlock": from_blk_hex,
+                    "toBlock": "latest",
+                    "address": USDT_BEP20_CONTRACT.lower(),
+                    "topics": [TRANSFER_TOPIC, None, admin_padded]
+                }]
+                logs = _call_bsc_rpc("eth_getLogs", logs_params) or []
+                for lg in logs:
+                    data_hex = lg.get("data") or "0x0"
+                    raw_val = int(data_hex, 16)
+                    amt = round(raw_val / 10**18, 2)
+                    tx_hash = lg.get("transactionHash")
+                    if amt in bep20_targets and tx_hash:
+                        ord_id = bep20_targets[amt]
+                        fulfill_res = await verify_and_fulfill_crypto_order(ord_id, tx_hash)
+                        if fulfill_res.get("ok"):
+                            stats["fulfilled"] += 1
+                            stats["orders"].append(ord_id)
+                            logger.info(f"AUTO-FULFILLED USDT BEP20 Order {ord_id} via background scanner with tx {tx_hash}")
+        except Exception as e:
+            logger.debug(f"Background BEP20 scan note: {e}")
+
+    return stats

@@ -1,12 +1,10 @@
 """
-Comprehensive tests for Bilingual VI/EN and NOWPayments USDT international gateway.
+Comprehensive tests for Bilingual VI/EN and Direct On-Chain USDT international gateway.
 Tests:
 1. Migration 024 schema additions.
 2. Language update endpoint PATCH /api/v1/auth/language and /api/me response.
 3. Bilingual emails (OTP, receipt, expiry reminder, 24h handover).
-4. NOWPayments HMAC-SHA512 signature verification (valid & invalid 401).
-5. Webhook idempotency (duplicate payment_id).
-6. Gateways listing endpoint GET /api/v1/billing/gateways.
+4. Gateways listing endpoint GET /api/v1/billing/gateways honors enabled toggle.
 """
 import hmac
 import hashlib
@@ -148,15 +146,37 @@ def test_bilingual_emails():
     assert exp_en.get("ok") is True
 
 
-def test_gateways_endpoint(client, monkeypatch):
-    """Test GET /api/v1/billing/gateways returns truthful status for SePay and USDT."""
-    # 1. When NOWPAYMENTS_API_KEY is not set
-    monkeypatch.delenv("NOWPAYMENTS_API_KEY", raising=False)
+def test_gateways_endpoint(client):
+    """Test GET /api/v1/billing/gateways returns truthful status and respects enabled toggle."""
+    from app.domains.billing.crypto_direct import save_crypto_wallets_config
+    # 1. When enabled with valid wallets
+    save_crypto_wallets_config(
+        enabled=True,
+        trc20_address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        bep20_address="0x55d398326f99059fF775485246999027B3197955",
+        admin_id="adm-test"
+    )
     res1 = client.get("/api/v1/billing/gateways")
     assert res1.status_code == 200
     data1 = res1.json()
     assert data1["sepay"] is True
-    assert "usdt" in data1
+    assert data1["usdt"] is True
+    assert data1["usdt_trc20"] is True
+    assert data1["usdt_bep20"] is True
+
+    # 2. When disabled by admin (enabled=False), all USDT gateways must be False even if addresses are stored
+    save_crypto_wallets_config(
+        enabled=False,
+        trc20_address="TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+        bep20_address="0x55d398326f99059fF775485246999027B3197955",
+        admin_id="adm-test"
+    )
+    res2 = client.get("/api/v1/billing/gateways")
+    assert res2.status_code == 200
+    data2 = res2.json()
+    assert data2["usdt"] is False
+    assert data2["usdt_trc20"] is False
+    assert data2["usdt_bep20"] is False
 
 
 def test_geoip_language_detection(client, monkeypatch):

@@ -829,10 +829,11 @@ def is_weekend_market_closed(now_ts: Optional[float] = None) -> bool:
 
 
 _last_sub_lifecycle_ts = 0.0
+_last_crypto_scan_ts = 0.0
 
 
 def tick():
-    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts, _last_sub_lifecycle_ts
+    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts, _last_sub_lifecycle_ts, _last_crypto_scan_ts
     market_closed = is_weekend_market_closed()
 
     with tx() as c:
@@ -892,6 +893,15 @@ def tick():
             _run_coro(run_subscription_lifecycle_cycle(now_ts=now))
         except Exception as e:
             logger.debug(f"Subscription lifecycle cycle error: {e}")
+
+    # 5. Run Background Blockchain Scanner for PENDING USDT Direct Orders every 30s
+    if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_crypto_scan_ts >= 30.0:
+        _last_crypto_scan_ts = now
+        try:
+            from app.domains.billing.crypto_direct import scan_and_reconcile_pending_crypto_orders
+            _run_coro(scan_and_reconcile_pending_crypto_orders())
+        except Exception as e:
+            logger.debug(f"Background crypto scan error: {e}")
 
 
 def main():

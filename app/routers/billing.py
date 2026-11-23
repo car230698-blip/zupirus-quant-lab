@@ -63,12 +63,14 @@ def get_available_gateways():
     """Retrieve available payment gateways and their live enablement state."""
     from app.domains.billing.crypto_direct import get_crypto_wallets_config
     cfg = get_crypto_wallets_config()
-    has_usdt = cfg.get("enabled", False) and bool(cfg.get("trc20_address") or cfg.get("bep20_address"))
+    is_enabled = bool(cfg.get("enabled", False))
+    has_trc20 = is_enabled and bool(cfg.get("trc20_address"))
+    has_bep20 = is_enabled and bool(cfg.get("bep20_address"))
     return {
         "sepay": True,
-        "usdt": has_usdt,
-        "usdt_trc20": bool(cfg.get("trc20_address")),
-        "usdt_bep20": bool(cfg.get("bep20_address")),
+        "usdt": bool(has_trc20 or has_bep20),
+        "usdt_trc20": has_trc20,
+        "usdt_bep20": has_bep20,
         "supported_currencies": ["VND", "USD", "USDT"],
     }
 
