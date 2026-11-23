@@ -1,7 +1,9 @@
 import os,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-os.environ.pop('DATABASE_URL', None)
+# Only default to SQLite if DATABASE_URL is not set in environment (preserves CI PostgreSQL/TimescaleDB setup)
+if not os.environ.get('DATABASE_URL'):
+    os.environ.pop('DATABASE_URL', None)
 os.environ.setdefault('ADMIN_PASSWORD','test-only-admin-password-123')
 os.environ['COOKIE_SECURE']='false'
 os.environ['ALLOWED_ORIGINS']='http://testserver,http://localhost:8080'
@@ -20,15 +22,19 @@ def client(tmp_path,monkeypatch):
     if TestClient is None or main is None:
         pytest.skip("FastAPI runtime dependencies not installed")
     from app.core import db as core_db
-    monkeypatch.delenv('DATABASE_URL', raising=False)
-    monkeypatch.setattr(db,'DATABASE_URL','')
-    monkeypatch.setattr(db,'_pg_pool',None)
-    monkeypatch.setattr(db,'DB',tmp_path/'lab.sqlite3')
-    monkeypatch.setattr(db,'DATA',tmp_path)
-    monkeypatch.setattr(core_db,'DATABASE_URL','')
-    monkeypatch.setattr(core_db,'_pg_pool',None)
-    monkeypatch.setattr(core_db,'DB',tmp_path/'lab.sqlite3')
-    monkeypatch.setattr(core_db,'DATA',tmp_path)
+    if not os.environ.get('DATABASE_URL'):
+        monkeypatch.delenv('DATABASE_URL', raising=False)
+        monkeypatch.setattr(db,'DATABASE_URL','')
+        monkeypatch.setattr(db,'_pg_pool',None)
+        monkeypatch.setattr(db,'DB',tmp_path/'lab.sqlite3')
+        monkeypatch.setattr(db,'DATA',tmp_path)
+        monkeypatch.setattr(core_db,'DATABASE_URL','')
+        monkeypatch.setattr(core_db,'_pg_pool',None)
+        monkeypatch.setattr(core_db,'DB',tmp_path/'lab.sqlite3')
+        monkeypatch.setattr(core_db,'DATA',tmp_path)
+    else:
+        monkeypatch.setattr(db,'DATA',tmp_path)
+        monkeypatch.setattr(core_db,'DATA',tmp_path)
     monkeypatch.setattr(research,'DATA',tmp_path)
     from app.db import init as init_app_db
     init_app_db()

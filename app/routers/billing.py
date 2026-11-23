@@ -129,7 +129,7 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
         else:
             content_memo = f"ZP {d['id'][-6:].upper()}"
             encoded_memo = quote(content_memo)
-            bank_name, bank_acc, bank_holder = get_effective_sepay_config()
+            bank_name, bank_acc, bank_holder = get_effective_sepay_config(db_cursor=c)
             qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={d['amount_vnd']}&des={encoded_memo}"
             d["qr_code_url"] = qr_url
             d["account_number"] = bank_acc

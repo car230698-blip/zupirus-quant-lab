@@ -93,14 +93,15 @@ def calculate_order_totals(
     })
 
 
-def get_effective_sepay_config() -> Tuple[str, str, str]:
+def get_effective_sepay_config(db_cursor=None) -> Tuple[str, str, str]:
     """Retrieve active SePay bank configuration from dynamic kv settings or environment config."""
     bank_name = SEPAY_BANK_NAME or ""
     acc_num = SEPAY_ACCOUNT_NUMBER or ""
     holder = SEPAY_ACCOUNT_HOLDER or ""
 
     try:
-        with tx() as c:
+        def _read(c):
+            nonlocal bank_name, acc_num, holder
             row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
             if row and row[0]:
                 d = json.loads(row[0])
@@ -110,6 +111,12 @@ def get_effective_sepay_config() -> Tuple[str, str, str]:
                     acc_num = str(d["account_number"]).strip()
                 if d.get("account_holder"):
                     holder = str(d["account_holder"]).strip().upper()
+
+        if db_cursor is not None:
+            _read(db_cursor)
+        else:
+            with tx() as c:
+                _read(c)
     except Exception as e:
         logger.warning(f"Failed to read billing:settings from kv: {e}")
 

@@ -469,21 +469,36 @@ def verify_bep20_transaction(
 
     # Check block confirmations (require >= 3 confirmations on BSC)
     block_hex = receipt.get("blockNumber")
-    if block_hex:
-        try:
-            tx_block = int(block_hex, 16) if isinstance(block_hex, str) else int(block_hex)
-            latest_block_hex = _call_bsc_rpc("eth_blockNumber", [])
-            if latest_block_hex:
-                latest_block = int(latest_block_hex, 16) if isinstance(latest_block_hex, str) else int(latest_block_hex)
-                confirmations = max(0, latest_block - tx_block + 1)
-                if confirmations < 3:
-                    return False, f"Giao dịch mới có {confirmations}/3 xác nhận khối BSC. Vui lòng thử lại sau vài giây.", {
-                        "confirmations": confirmations,
-                        "required": 3,
-                        "tx_hash": tx_hash,
-                    }
-        except Exception as conf_err:
-            logger.debug(f"Confirmations check notice: {conf_err}")
+    if not block_hex:
+        return False, "Giao dịch chưa được ghi nhận vào khối trên BSC. Vui lòng thử lại sau vài giây.", {
+            "retry_later": True,
+            "tx_hash": tx_hash,
+        }
+
+    try:
+        tx_block = int(block_hex, 16) if isinstance(block_hex, str) else int(block_hex)
+    except (ValueError, TypeError):
+        return False, "Không thể đọc số khối của giao dịch BSC.", {}
+
+    latest_block_hex = _call_bsc_rpc("eth_blockNumber", [])
+    if not latest_block_hex:
+        return False, "Không thể tra cứu chiều cao khối mới nhất trên BSC để xác minh đủ 3 xác nhận. Vui lòng thử lại sau vài giây.", {
+            "retry_later": True,
+            "tx_hash": tx_hash,
+        }
+
+    try:
+        latest_block = int(latest_block_hex, 16) if isinstance(latest_block_hex, str) else int(latest_block_hex)
+        confirmations = max(0, latest_block - tx_block + 1)
+        if confirmations < 3:
+            return False, f"Giao dịch mới có {confirmations}/3 xác nhận khối BSC. Vui lòng thử lại sau vài giây.", {
+                "confirmations": confirmations,
+                "required": 3,
+                "tx_hash": tx_hash,
+            }
+    except Exception as conf_err:
+        logger.warning(f"Confirmations calculation error: {conf_err}")
+        return False, "Lỗi tính toán số xác nhận khối BSC. Vui lòng thử lại sau vài giây.", {}
 
     logs = receipt.get("logs") or []
     usdt_contract_clean = USDT_BEP20_CONTRACT.lower()

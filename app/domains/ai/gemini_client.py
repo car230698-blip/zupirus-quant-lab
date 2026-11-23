@@ -284,7 +284,7 @@ def call_gemini(
                     cooldown_key="ai_quota_80",
                     cooldown_sec=3600,
                 )
-            if c:
+            if c is not None:
                 _emit_80(c)
             else:
                 from app.db import tx
@@ -307,7 +307,7 @@ def call_gemini(
                     cooldown_sec=1800,
                     send_email=True,
                 )
-            if c:
+            if c is not None:
                 _emit_100(c)
             else:
                 from app.db import tx

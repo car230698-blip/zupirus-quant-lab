@@ -251,6 +251,9 @@ class ConnectionWrapper:
             self._conn.close()
 
 
+_sqlite_local = threading.local()
+
+
 @contextmanager
 def tx():
     """Transaction context manager ensuring atomic execution with rollback on error.
@@ -273,12 +276,30 @@ def tx():
         finally:
             wrapped.close()
     else:
-        # SQLite transaction (test mode only)
+        # SQLite transaction with thread-local reentrancy (prevents self-deadlock on nested tx() calls)
+        active = getattr(_sqlite_local, "active_conn", None)
+        if active is not None and not getattr(active, "_closed", False):
+            sp_id = getattr(_sqlite_local, "sp_counter", 0) + 1
+            _sqlite_local.sp_counter = sp_id
+            sp_name = f"sp_nested_{sp_id}"
+            try:
+                active.execute(f"SAVEPOINT {sp_name}")
+                yield active
+                active.execute(f"RELEASE SAVEPOINT {sp_name}")
+            except BaseException:
+                try:
+                    active.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+                except Exception:
+                    pass
+                raise
+            return
+
         c = sqlite3.connect(DB, timeout=30)
         c.row_factory = sqlite3.Row
         c.execute('PRAGMA foreign_keys=ON')
         c.execute('PRAGMA busy_timeout=30000')
         wrapped = ConnectionWrapper(c, is_pg=False)
+        _sqlite_local.active_conn = wrapped
         try:
             c.execute('BEGIN IMMEDIATE')
             yield wrapped
@@ -287,6 +308,7 @@ def tx():
             wrapped.rollback()
             raise
         finally:
+            _sqlite_local.active_conn = None
             wrapped.close()
 
 

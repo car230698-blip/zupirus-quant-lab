@@ -305,6 +305,21 @@ def test_bep20_confirmations_check():
         assert ok is True
         assert data["amount"] == 25.01
 
+    # 3. Fail-Closed: When latest block is None (RPC failure) -> MUST reject and NOT approve
+    with patch("app.domains.billing.crypto_direct._call_bsc_rpc") as mock_rpc:
+        def rpc_side_effect(method, params):
+            if method == "eth_getTransactionReceipt":
+                return mock_receipt
+            if method == "eth_blockNumber":
+                return None  # RPC failure
+            return None
+        mock_rpc.side_effect = rpc_side_effect
+
+        ok, msg, data = verify_bep20_transaction("0x" + "b" * 64, admin_wallet, 25.01)
+        assert ok is False
+        assert "xác nhận" in msg
+        assert data.get("retry_later") is True
+
 
 @pytest.mark.asyncio
 async def test_scan_and_reconcile_pending_crypto_orders():
@@ -349,4 +364,35 @@ async def test_scan_and_reconcile_pending_crypto_orders():
         assert stats["fulfilled"] >= 1
         assert order_id in stats["orders"]
         mock_fulfill.assert_called_once_with(order_id, "tx_auto_scan_1234567890abcdef")
+
+
+def test_sqlite_nested_tx_and_sepay_order_polling(client):
+    """Verify that nested tx() calls reuse thread connection via SAVEPOINT and don't deadlock."""
+    from app.db import tx
+    with tx() as c1:
+        c1.execute("INSERT INTO kv (key, value) VALUES ('nested_k1', 'v1') ON CONFLICT(key) DO UPDATE SET value = 'v1'")
+        # Nested tx() within the same thread
+        with tx() as c2:
+            c2.execute("INSERT INTO kv (key, value) VALUES ('nested_k2', 'v2') ON CONFLICT(key) DO UPDATE SET value = 'v2'")
+            row2 = c2.execute("SELECT value FROM kv WHERE key = 'nested_k2'").fetchone()
+            assert row2[0] == 'v2'
+        row1 = c1.execute("SELECT value FROM kv WHERE key = 'nested_k1'").fetchone()
+        assert row1[0] == 'v1'
+
+    # Verify GET /orders/{order_id} with SePay does not deadlock
+    from app.domains.billing.service import create_checkout_order
+    user_id = "test_sepay_deadlock_user"
+    with tx() as c:
+        c.execute("INSERT INTO users (id, email, password, role) VALUES (?, 'deadlock_u@example.com', 'pwd_hash', 'customer') ON CONFLICT(id) DO NOTHING", (user_id,))
+    order = create_checkout_order(user_id=user_id, plan_tier="starter", payment_method="SEPAY")
+    ord_id = order["order_id"]
+
+    # Poll order as admin
+    client.post('/api/login', json={'email': 'admin@zupirus.local', 'password': 'test-only-admin-password-123'})
+    resp = client.get(f"/api/v1/billing/orders/{ord_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == ord_id
+    assert "qr.sepay.vn" in data.get("qr_code_url", "")
+
 

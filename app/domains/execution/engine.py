@@ -830,10 +830,11 @@ def is_weekend_market_closed(now_ts: Optional[float] = None) -> bool:
 
 _last_sub_lifecycle_ts = 0.0
 _last_crypto_scan_ts = 0.0
+_crypto_scan_in_flight = False
 
 
 def tick():
-    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts, _last_sub_lifecycle_ts, _last_crypto_scan_ts
+    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts, _last_sub_lifecycle_ts, _last_crypto_scan_ts, _crypto_scan_in_flight
     market_closed = is_weekend_market_closed()
 
     with tx() as c:
@@ -894,14 +895,25 @@ def tick():
         except Exception as e:
             logger.debug(f"Subscription lifecycle cycle error: {e}")
 
-    # 5. Run Background Blockchain Scanner for PENDING USDT Direct Orders every 30s
+    # 5. Run Background Blockchain Scanner for PENDING USDT Direct Orders every 30s (non-blocking thread)
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_crypto_scan_ts >= 30.0:
-        _last_crypto_scan_ts = now
-        try:
-            from app.domains.billing.crypto_direct import scan_and_reconcile_pending_crypto_orders
-            _run_coro(scan_and_reconcile_pending_crypto_orders())
-        except Exception as e:
-            logger.debug(f"Background crypto scan error: {e}")
+        if not _crypto_scan_in_flight:
+            _last_crypto_scan_ts = now
+
+            def _async_crypto_sweep():
+                global _crypto_scan_in_flight
+                _crypto_scan_in_flight = True
+                try:
+                    import asyncio
+                    from app.domains.billing.crypto_direct import scan_and_reconcile_pending_crypto_orders
+                    asyncio.run(scan_and_reconcile_pending_crypto_orders())
+                except Exception as e:
+                    logger.debug(f"Background crypto scan error: {e}")
+                finally:
+                    _crypto_scan_in_flight = False
+
+            import threading
+            threading.Thread(target=_async_crypto_sweep, daemon=True, name="CryptoScanWorker").start()
 
 
 def main():
