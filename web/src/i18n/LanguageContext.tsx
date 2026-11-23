@@ -62,12 +62,15 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Automatic background IP Geo confirmation from server
   useEffect(() => {
     let active = true;
-    api.get<{ language: Language; is_foreign: boolean }>('/api/v1/auth/geo')
+    api.get<{ language: Language; is_foreign: boolean; country?: string }>('/api/v1/auth/geo')
       .then((res) => {
         if (!active) return;
         if (res?.language && (res.language === 'en' || res.language === 'vi')) {
           setLangState(res.language);
           document.documentElement.lang = res.language;
+          try {
+            document.cookie = `zupirus_geo_lang=${res.language}; path=/; max-age=604800; SameSite=Lax`;
+          } catch {}
         }
       })
       .catch(() => {});

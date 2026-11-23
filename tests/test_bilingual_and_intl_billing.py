@@ -280,3 +280,48 @@ def test_nowpayments_webhook_signature_auth_and_fulfillment(client, test_user, m
     )
     assert double_res.status_code == 200
     assert double_res.json().get("ok") is True
+
+
+def test_geoip_language_detection(client, monkeypatch):
+    """Test IP and GeoIP based language detection for foreign visitors."""
+    # 1. Cloudflare header for foreign country
+    r_cf_nl = client.get("/api/v1/auth/geo", headers={"cf-ipcountry": "NL"})
+    assert r_cf_nl.status_code == 200
+    assert r_cf_nl.json()["country"] == "NL"
+    assert r_cf_nl.json()["is_foreign"] is True
+    assert r_cf_nl.json()["language"] == "en"
+
+    # 2. Cloudflare header for Vietnam
+    r_cf_vn = client.get("/api/v1/auth/geo", headers={"cf-ipcountry": "VN"})
+    assert r_cf_vn.status_code == 200
+    assert r_cf_vn.json()["country"] == "VN"
+    assert r_cf_vn.json()["is_foreign"] is False
+    assert r_cf_vn.json()["language"] == "vi"
+
+    # 3. Direct IP lookup for foreign IP (Netherlands IP 51.158.254.166)
+    # Even if browser Accept-Language is Vietnamese!
+    r_ip_nl = client.get(
+        "/api/v1/auth/geo",
+        headers={
+            "X-Forwarded-For": "51.158.254.166",
+            "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8",
+        }
+    )
+    assert r_ip_nl.status_code == 200
+    assert r_ip_nl.json()["country"] == "NL"
+    assert r_ip_nl.json()["is_foreign"] is True
+    assert r_ip_nl.json()["language"] == "en"
+    assert "zupirus_geo_lang=en" in r_ip_nl.headers.get("set-cookie", "")
+
+    # 4. Local loopback fallback to Accept-Language
+    r_local_vi = client.get(
+        "/api/v1/auth/geo",
+        headers={
+            "X-Forwarded-For": "127.0.0.1",
+            "Accept-Language": "vi-VN,vi;q=0.9",
+        }
+    )
+    assert r_local_vi.status_code == 200
+    assert r_local_vi.json()["language"] == "vi"
+    assert r_local_vi.json()["is_foreign"] is False
+

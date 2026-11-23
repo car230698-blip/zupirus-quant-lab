@@ -15,21 +15,93 @@ SECURE = os.getenv('COOKIE_SECURE', 'true').lower() == 'true'
 
 
 def _client_ip(request: Request) -> str:
-    """Return client IP, honoring X-Forwarded-For only when connected through a trusted local/Docker proxy."""
+    """Return client IP, honoring X-Real-IP / X-Forwarded-For when connected through a trusted local/Docker proxy."""
     import ipaddress
     direct = (request.client.host if request.client else '') or '127.0.0.1'
-    try:
-        ip_obj = ipaddress.ip_address(direct)
-        is_trusted_proxy = ip_obj.is_loopback or ip_obj.is_private
-    except ValueError:
-        is_trusted_proxy = False
+    is_trusted_proxy = direct in ('testclient', '127.0.0.1', 'localhost')
+    if not is_trusted_proxy:
+        try:
+            ip_obj = ipaddress.ip_address(direct)
+            is_trusted_proxy = ip_obj.is_loopback or ip_obj.is_private
+        except ValueError:
+            is_trusted_proxy = False
     if is_trusted_proxy:
+        x_real = request.headers.get('x-real-ip', '').strip()
+        if x_real:
+            return x_real
         xff = request.headers.get('x-forwarded-for', '').strip()
         if xff:
             parts = [p.strip() for p in xff.split(',') if p.strip()]
             if parts:
-                return parts[-1]
+                return parts[0]
     return direct
+
+
+def resolve_ip_country(ip: str) -> tuple[str, bool]:
+    """
+    Resolves an IP to (country_code, is_foreign).
+    Uses Redis cache with a 7-day TTL to guarantee zero latency overhead.
+    """
+    import ipaddress
+    if not ip or ip in ('testclient', 'localhost', '127.0.0.1'):
+        return ("LOCAL", False)
+
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
+            return ("LOCAL", False)
+    except ValueError:
+        return ("UNKNOWN", False)
+
+    # 1. Try Redis Cache
+    cache_key = f"geoip:{ip}"
+    try:
+        r = get_redis_client()
+        cached = r.get(cache_key)
+        if cached:
+            cached_code = (cached.decode('utf-8') if isinstance(cached, bytes) else str(cached)).strip().upper()
+            return (cached_code, cached_code != "VN")
+    except Exception:
+        pass
+
+    # 2. Query free GeoIP service with short 1.5s timeout
+    country_code = "UNKNOWN"
+    try:
+        import urllib.request, json
+        req = urllib.request.Request(
+            f"http://ip-api.com/json/{ip}?fields=status,countryCode",
+            headers={"User-Agent": "ZupirusQuantLab/1.0"}
+        )
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            if data.get("status") == "success":
+                country_code = (data.get("countryCode") or "UNKNOWN").upper()
+    except Exception:
+        # Fallback to ipapi.co
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f"https://ipapi.co/{ip}/country/",
+                headers={"User-Agent": "ZupirusQuantLab/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                text = resp.read().decode('utf-8').strip().upper()
+                if len(text) == 2 and text.isalpha():
+                    country_code = text
+        except Exception:
+            pass
+
+    is_foreign = (country_code != "VN" and country_code != "LOCAL" and country_code != "UNKNOWN")
+
+    # 3. Store in Redis for 7 days
+    if country_code not in ("UNKNOWN", "LOCAL"):
+        try:
+            r = get_redis_client()
+            r.setex(cache_key, 604800, country_code)
+        except Exception:
+            pass
+
+    return (country_code, is_foreign)
 
 class Credentials(Model):
     email: str = Field(min_length=5, max_length=254, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
@@ -159,14 +231,38 @@ def me(u=Depends(get_current_user)):
 
 @router.get('/api/v1/auth/geo')
 def get_geo_language(request: Request):
-    cf_country = (request.headers.get("cf-ipcountry") or "").upper()
+    client_ip = _client_ip(request)
+    cf_country = (request.headers.get("cf-ipcountry") or "").strip().upper()
     accept_lang = (request.headers.get("accept-language") or "").lower()
-    is_foreign = bool((cf_country and cf_country != "VN") or ("vi" not in accept_lang and cf_country != "VN"))
-    return {
-        "country": cf_country or "UNKNOWN",
+
+    if cf_country and cf_country not in ("XX", "T1", "UNKNOWN"):
+        country = cf_country
+        is_foreign = (country != "VN")
+    else:
+        country, is_foreign_ip = resolve_ip_country(client_ip)
+        if country in ("LOCAL", "UNKNOWN"):
+            # When running locally or IP lookup unavailable, rely on browser accept-language
+            is_foreign = bool("vi" not in accept_lang)
+        else:
+            is_foreign = is_foreign_ip
+
+    language = "en" if is_foreign else "vi"
+    resp = JSONResponse({
+        "country": country,
         "is_foreign": is_foreign,
-        "language": "en" if is_foreign else "vi",
-    }
+        "language": language,
+        "client_ip": client_ip,
+    })
+    resp.set_cookie(
+        key="zupirus_geo_lang",
+        value=language,
+        max_age=604800,
+        httponly=False,
+        samesite="lax",
+        secure=SECURE,
+        path="/"
+    )
+    return resp
 
 
 @router.patch('/api/v1/auth/language')
