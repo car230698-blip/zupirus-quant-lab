@@ -53,7 +53,7 @@ export function PortalAuth({
     try {
       const endpoint = forgotMode ? '/api/auth/forgot-password' : '/api/auth/send-otp';
       const data = await apiPost<any>(endpoint, { email: emailInput });
-      if (data?.ok) {
+      if (data?.ok && data?.delivery?.ok !== false) {
         setOtpSent(true);
         setOtpCountdown(60);
         setOtpNotice(
@@ -63,6 +63,7 @@ export function PortalAuth({
         );
       } else {
         setOtpNotice(
+          data?.delivery?.error ||
           data?.detail ||
           data?.message ||
           (lang === 'en' ? 'Unable to send OTP. Please try again.' : 'Không thể gửi mã OTP. Vui lòng thử lại.')

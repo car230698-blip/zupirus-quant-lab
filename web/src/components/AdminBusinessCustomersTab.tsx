@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import { api } from '../api/client';
 import { AdminBillingSettingsTab } from './AdminBillingSettingsTab.tsx';
 import { ToastNotification } from './ToastNotification.tsx';
@@ -16,6 +17,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   const [summary, setSummary] = useState<any>({ orders: { paid_revenue_vnd: 0 } });
   const [orders, setOrders] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const { lang } = useLanguage();
   const [activeSubTab, setActiveSubTab] = useState<'orders' | 'customers' | 'settings'>('orders');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'EXCEPTIONS' | 'PAID'>('ALL');
   const [searchUserQuery, setSearchUserQuery] = useState('');
@@ -252,10 +254,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
               <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6]">
-                ĐỐI SOÁT TỰ ĐỘNG SEPAY
+                {lang === 'en' ? 'AUTOMATED BILLING RECONCILIATION' : 'ĐỐI SOÁT TỰ ĐỘNG SEPAY'}
               </div>
               <h3 className="mt-0.5 text-base font-bold text-white">
-                Danh Sách Đơn Hàng Gói Dịch Vụ
+                {lang === 'en' ? 'Service Plan Orders' : 'Danh Sách Đơn Hàng Gói Dịch Vụ'}
               </h3>
             </div>
             <div className="flex items-center gap-3">
@@ -271,7 +273,11 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                         : 'bg-[#080E1A] text-slate-400 hover:text-white border border-slate-800'
                     }`}
                   >
-                    {f === 'ALL' ? 'Tất cả' : f === 'EXCEPTIONS' ? 'Chờ / Ngoại lệ' : 'Đã thanh toán'}
+                    {f === 'ALL'
+                      ? (lang === 'en' ? 'All' : 'Tất cả')
+                      : f === 'EXCEPTIONS'
+                      ? (lang === 'en' ? 'Pending / Exceptions' : 'Chờ / Ngoại lệ')
+                      : (lang === 'en' ? 'Paid' : 'Đã thanh toán')}
                   </button>
                 ))}
               </div>
@@ -282,7 +288,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-800 text-[11px] uppercase text-slate-400 font-mono">
-                  <th className="py-2.5 pr-4">Mã Đơn</th>
+                  <th className="py-2.5 pr-4">{lang === 'en' ? 'Order ID' : 'Mã Đơn'}</th>
                   <th className="py-2.5 pr-4">Khách Hàng</th>
                   <th className="py-2.5 pr-4">Gói Thuê Bao</th>
                   <th className="py-2.5 pr-4 text-right">Số Tiền (VND)</th>

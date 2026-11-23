@@ -142,6 +142,8 @@ def simulate_strategy_on_candles(
                     continue
 
         # 2. Check for new signal if no active position
+        if active_pos is not None:
+            continue
         window = candles[: i + 1]
         sig = None
         if strategy_name == "strat_trend_breakout":

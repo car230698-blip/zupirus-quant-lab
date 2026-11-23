@@ -508,17 +508,24 @@ class MetaApiClient:
                     data = resp.json()
                     data["latency_ms"] = lat
                     return data
-                # Fallback to POSITION_CLOSE with volume
-                fallback_payload = {
-                    "actionType": "POSITION_CLOSE",
-                    "positionId": position_id,
-                    "volume": vol
-                }
-                resp2 = await client.post(url, headers=self._headers(), json=fallback_payload)
-                if resp2.status_code in (200, 201):
-                    data = resp2.json()
-                    data["latency_ms"] = int((time.time() - start_ts) * 1000)
-                    return data
+
+                # Only fallback to POSITION_CLOSE if broker explicitly rejects POSITION_PARTIAL as unsupported (400, 422)
+                err_text = resp.text.lower()
+                is_unsupported = resp.status_code in (400, 422) and any(
+                    k in err_text for k in ("unsupported", "invalid action", "unknown action", "not supported", "actiontype")
+                )
+                if is_unsupported:
+                    fallback_payload = {
+                        "actionType": "POSITION_CLOSE",
+                        "positionId": position_id,
+                        "volume": vol
+                    }
+                    resp2 = await client.post(url, headers=self._headers(), json=fallback_payload)
+                    if resp2.status_code in (200, 201):
+                        data = resp2.json()
+                        data["latency_ms"] = int((time.time() - start_ts) * 1000)
+                        return data
+
                 return {
                     "numericCode": resp.status_code,
                     "stringCode": "CLOSE_PARTIAL_ERROR",

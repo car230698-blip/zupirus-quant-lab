@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   apiPost,
   fetchStrategyHistory,
@@ -41,6 +42,7 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
   setMsg,
 }) => {
   const [strategyHistory, setStrategyHistory] = useState<StrategyHistoryItem[]>([]);
+  const { lang } = useLanguage();
   const [rollingBackId, setRollingBackId] = useState<string | null>(null);
   const [rollbackConfirmCandidate, setRollbackConfirmCandidate] = useState<StrategyHistoryItem | null>(null);
 
@@ -219,13 +221,21 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
               Có {candidates.length} chiến lược Walk-Forward Optimization (WFO) đang chờ phê duyệt
             </span>
           </div>
-          <span className="text-slate-400 font-sans">
-            Xem bảng so sánh Diff chi tiết &amp; phê duyệt tại <strong className="text-cyan-300">Tab Trạm Điều Hành (Needs Me)</strong>
-          </span>
+          {lang === 'en' ? (
+            <span className="text-slate-400 font-sans">
+              Review detailed Diff &amp; approve at <strong className="text-cyan-300">Command Radar Tab (Needs Me)</strong>
+            </span>
+          ) : (
+            <span className="text-slate-400 font-sans">
+              Xem bảng so sánh Diff chi tiết &amp; phê duyệt tại <strong className="text-cyan-300">Tab Trạm Điều Hành (Needs Me)</strong>
+            </span>
+          )}
         </div>
       ) : (
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-3 text-center text-xs font-mono text-slate-500">
-          0 chiến lược chờ duyệt · Hệ thống tự động lọc và đề xuất khi đạt ngưỡng chất lượng
+          {lang === 'en'
+            ? '0 strategies awaiting approval · System automatically filters and proposes when quality threshold is met'
+            : '0 chiến lược chờ duyệt · Hệ thống tự động lọc và đề xuất khi đạt ngưỡng chất lượng'}
         </div>
       )}
 
@@ -237,25 +247,25 @@ export const AdminAiOverviewPanel: React.FC<AdminAiOverviewPanelProps> = ({
               VERSION CONTROL // 1-CLICK ROLLBACK
             </div>
             <h3 className="text-base font-bold text-white mt-0.5 font-sans">
-              Lịch Sử Phiên Bản Chiến Lược &amp; Điểm Khôi Phục
+              {lang === 'en' ? 'Strategy Version History & Restore Points' : 'Lịch Sử Phiên Bản Chiến Lược & Điểm Khôi Phục'}
             </h3>
           </div>
           <span className="text-[11px] font-mono text-slate-400">
-            Lưu trữ tối đa 10 phiên bản gần nhất
+            {lang === 'en' ? 'Retains up to 10 most recent versions' : 'Lưu trữ tối đa 10 phiên bản gần nhất'}
           </span>
         </div>
 
         {strategyHistory.length === 0 ? (
           <div className="p-6 text-center text-xs text-slate-500 font-mono">
-            Chưa có lịch sử phiên bản nào được lưu trữ.
+            {lang === 'en' ? 'No version history stored yet.' : 'Chưa có lịch sử phiên bản nào được lưu trữ.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-mono border-collapse">
               <thead>
                 <tr className="border-b border-white/10 text-slate-400 text-[11px]">
-                  <th className="py-2.5 px-3">PHIÊN BẢN &amp; TÊN</th>
-                  <th className="py-2.5 px-3">TRẠNG THÁI</th>
+                  <th className="py-2.5 px-3">{lang === 'en' ? 'VERSION & NAME' : 'PHIÊN BẢN & TÊN'}</th>
+                  <th className="py-2.5 px-3">{lang === 'en' ? 'STATUS' : 'TRẠNG THÁI'}</th>
                   <th className="py-2.5 px-3">WIN RATE</th>
                   <th className="py-2.5 px-3">PROFIT FACTOR</th>
                   <th className="py-2.5 px-3">MAX DD</th>

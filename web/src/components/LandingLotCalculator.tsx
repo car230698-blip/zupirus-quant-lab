@@ -72,6 +72,8 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
               <strong className="text-white tabular-nums">${calcBalance.toLocaleString('en-US')}</strong>
             </div>
             <input
+              id="calc-balance-slider"
+              aria-label={t.calculator.balanceLabel}
               type="range"
               min={1000}
               max={200000}
@@ -88,6 +90,8 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
               <strong className="text-[#12B5A6] tabular-nums">{calcRiskPct.toFixed(1)}%</strong>
             </div>
             <input
+              id="calc-risk-slider"
+              aria-label={t.calculator.riskLabel}
               type="range"
               min={0.25}
               max={3.0}
@@ -104,6 +108,8 @@ export const LandingLotCalculator: React.FC<LandingLotCalculatorProps> = ({
               <strong className="text-[#F5B700] tabular-nums">{calcSlPips} pips</strong>
             </div>
             <input
+              id="calc-sl-slider"
+              aria-label={t.calculator.slLabel}
               type="range"
               min={15}
               max={80}

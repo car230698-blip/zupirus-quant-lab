@@ -238,7 +238,7 @@ def reconcile_account_positions(
     # Build deals lookup by positionId and orderId
     deals_by_pos: Dict[str, List[Dict[str, Any]]] = {}
     for dl in (deals or []):
-        if str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", ""):
+        if str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2", "3", ""):
             pid = str(dl.get("positionId") or dl.get("orderId") or "")
             if pid:
                 deals_by_pos.setdefault(pid, []).append(dl)
@@ -286,11 +286,17 @@ def reconcile_account_positions(
                         pass
                 prev_ids = set(str(x) for x in (prev_ev.get("partial_deals", []) + prev_ev.get("deal_ids", [])))
 
-                # Strictly deduplicate: only count volume from new deals not already accounted for
-                new_deals = [dl for dl in matching_deals if str(dl.get("id") or "") not in prev_ids]
+                # Strictly deduplicate: only count volume from new deals not already accounted for, and unique within batch
+                seen_in_batch = set(prev_ids)
+                new_deals = []
+                for dl in matching_deals:
+                    d_id = str(dl.get("id") or "")
+                    if d_id and d_id not in seen_in_batch:
+                        seen_in_batch.add(d_id)
+                        new_deals.append(dl)
                 new_deal_vol = sum(float(dl.get("volume") or 0.0) for dl in new_deals)
                 total_closed = round(min(total_vol, cur_closed_vol + new_deal_vol), 4)
-                all_dl_ids = list(prev_ids.union(set(dl_ids)))
+                all_dl_ids = list(seen_in_batch)
 
                 if total_closed >= total_vol - 0.001:
                     is_sys_closed = bool(prev_ev.get("system_closed") or prev_ev.get("closed_by_system"))
@@ -1320,7 +1326,7 @@ class PositionWatcher:
                         with tx() as c:
                             setkv(c, f"deals_sync_ts:{acc_id}", str(time.time()))
                             for dl in deals or []:
-                                if str(dl.get("entryType") or "").upper() not in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", ""):
+                                if str(dl.get("entryType") or "").upper() not in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2", "3", ""):
                                     continue
                                 dl_id = str(dl.get("id") or "")
                                 if not dl_id or getkv(c, f"deal_synced:{dl_id}"):
@@ -1362,7 +1368,7 @@ class PositionWatcher:
                                                 exit_reason="BROKER_PARTIAL_CLOSED" if is_still_open_partial else "BROKER_DEAL_CLOSED",
                                                 accumulate_pnl=True,
                                             )
-                                setkv(c, f"deal_synced:{dl_id}", "1")
+                                        setkv(c, f"deal_synced:{dl_id}", "1")
                 except Exception as ds_err:
                     logger.debug(f"Deal history sync note for {acc_id}: {ds_err}")
 

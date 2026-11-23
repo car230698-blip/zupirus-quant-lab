@@ -1,6 +1,6 @@
 """Deterministic execution. Integrated with Redis Streams, Pub/Sub, Distributed Locks,
 and Multi-Strategy Coordinator (Trend Following, Mean Reversion, Breakout)."""
-import os, time, hashlib, math, json, logging
+import os, time, hashlib, math, json, logging, threading
 from typing import Dict, Any, Optional
 from app.db import tx, init, audit, setkv, ROOT
 from app.redis_client import publish_signal_event, acquire_dispatch_lock, release_dispatch_lock
@@ -18,7 +18,7 @@ STRATEGY_VERSION = "2.1.0"
 STRATEGY_VERSION = "tabula_rasa_2.2.0"
 
 
-def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dict[str, Any]:
+def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol: Optional[str] = None, candidate: Optional[dict] = None) -> Dict[str, Any]:
     """Tabula Rasa Policy Coordinator:
     - Giai đoạn 1 (EXTERNAL_FEED): Đội Agent ở trạng thái trang giấy trắng, quan sát và ghi nhận
       dữ liệu thực chiến từ nguồn ngoài. Tuyệt đối không tự phát lệnh.
@@ -63,6 +63,26 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
     # Query approved strategy candidate
     try:
         def _get_cand(cursor):
+            if symbol:
+                sym_u = symbol.strip().upper()
+                rows = cursor.execute(
+                    """
+                    SELECT id, name, rules_json, win_rate, profit_factor, updated_at
+                    FROM strategy_candidates
+                    WHERE status = 'APPROVED_FOR_PROD'
+                    ORDER BY updated_at DESC
+                    """
+                ).fetchall()
+                for r in rows:
+                    rd = dict(r)
+                    try:
+                        rj = json.loads(rd.get("rules_json") or "{}")
+                    except Exception:
+                        rj = {}
+                    rsym = str(rj.get("symbol") or "XAUUSD").strip().upper()
+                    if rsym == sym_u or rsym in ("ANY", "ALL"):
+                        return rd
+                return None
             return cursor.execute(
                 """
                 SELECT id, name, rules_json, win_rate, profit_factor, updated_at
@@ -72,7 +92,9 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None) -> Dic
                 """
             ).fetchone()
 
-        if db_cursor is not None:
+        if candidate is not None:
+            cand = candidate
+        elif db_cursor is not None:
             cand = _get_cand(db_cursor)
         else:
             with tx() as c:
@@ -558,18 +580,17 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 cand_rules = rj
 
         if not cand:
-            # Fallback to the latest approved candidate if none explicitly matched
-            cand = dict(cands[0])
-            try:
-                cand_rules = json.loads(cand.get("rules_json") or "{}")
-            except Exception:
-                cand_rules = {}
+            return {"status": "SKIPPED", "reason": f"NO_APPROVED_STRATEGY_FOR_SYMBOL_{sym_u}"}
 
         rules = cand_rules
         cand_d = cand
 
         bars = c.execute(
-            "SELECT time, open, high, low, close FROM candles WHERE symbol = ? AND timeframe = 'M15' ORDER BY time DESC LIMIT 40",
+            """
+            SELECT time, open, high, low, close FROM candles
+            WHERE symbol = ? AND timeframe = 'M15' AND (source IS NULL OR source != 'YAHOO_REFERENCE')
+            ORDER BY time DESC LIMIT 40
+            """,
             (sym_u,),
         ).fetchall()
         if not bars:
@@ -583,6 +604,8 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         if len(bars_asc) < 25:
             return {"status": "SKIPPED", "reason": f"INSUFFICIENT_M15_CANDLES_{sym_u}"}
         latest_bar_ts = to_epoch_ts(bars_asc[-1]["time"])
+        if (now - latest_bar_ts) > 14400.0 and not os.getenv("PYTEST_CURRENT_TEST"):
+            return {"status": "SKIPPED", "reason": f"STALE_CANDLES_{sym_u}"}
         last_eval_row = c.execute("SELECT value FROM kv WHERE key = ?", (last_ts_key,)).fetchone()
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:
             return {"status": "SKIPPED", "reason": "CANDLE_ALREADY_EVALUATED"}
@@ -612,7 +635,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         except Exception as r_err:
             logger.debug(f"Regime classifier & shadow router evaluation note: {r_err}")
 
-        decision = coordinate_strategies(bars_asc, timeframe="M15", db_cursor=c)
+        decision = coordinate_strategies(bars_asc, timeframe="M15", db_cursor=c, symbol=sym_u, candidate=cand)
         side = force_side or decision.get("side")
         if not side:
             setkv(c, last_ts_key, str(latest_bar_ts))
@@ -627,7 +650,10 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         from app.services.symbol_precision import digits_for_symbol
         dec = digits_for_symbol(sym_u)
         entry_price = round(float(fresh_price), dec)
-        setkv(c, last_ts_key, str(latest_bar_ts))
+
+        atr_val = get_market_atr14(c, sym_u, "M15")
+        if atr_val <= 0.0:
+            atr_val = 5.0 if "XAU" in sym_u else (0.35 if "JPY" in sym_u else 0.0020)
 
     # Trigger AI Swarm (Sentinel + Alpha + Risk Guardian) & MCP cross-asset context check
     swarm_report = {}
@@ -636,6 +662,12 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         swarm_report = trigger_swarm_cycle()
         if swarm_report.get("sentinel", {}).get("blackout"):
             return {"status": "BLOCKED", "reason": "SWARM_SENTINEL_NEWS_BLACKOUT"}
+        alpha_info = swarm_report.get("alpha", {})
+        if alpha_info.get("paused") or alpha_info.get("status") in ("PAUSED", "BLOCKED", "HALTED"):
+            return {"status": "BLOCKED", "reason": "SWARM_ALPHA_PAUSED_OR_BLOCKED"}
+        guardian_info = swarm_report.get("risk_guardian", {})
+        if guardian_info.get("paused") or guardian_info.get("status") in ("PAUSED", "BLOCKED", "HALTED", "LIMIT_EXCEEDED"):
+            return {"status": "BLOCKED", "reason": "SWARM_RISK_GUARDIAN_HALTED"}
     except Exception as sw_err:
         logger.debug(f"Swarm cycle note: {sw_err}")
 
@@ -645,10 +677,6 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
         from app.metaapi import MetaApiClient, execute_fan_out_for_signal
         from app.redis_client import get_redis_client
-
-        atr_val = get_market_atr14(c, sym_u, "M15")
-        if atr_val <= 0.0:
-            atr_val = 5.0 if "XAU" in sym_u else (0.35 if "JPY" in sym_u else 0.0025)
         sl_mult = float(rules.get("atr_sl_mult", 1.5))
         tp_mult = float(rules.get("atr_tp_mult", sl_mult * 2.0))
         sl_pts = float(rules.get("sl_points", round(atr_val * sl_mult, dec)))
@@ -770,7 +798,11 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 metaapi_client=MetaApiClient(),
                 redis_client=redis_cli,
             )
+            with tx() as c_up:
+                setkv(c_up, last_ts_key, str(latest_bar_ts))
             return {"status": "DISPATCHED", "signal_id": sanitized.id, "report": report}
+        with tx() as c_up:
+            setkv(c_up, last_ts_key, str(latest_bar_ts))
         return {"status": "APPROVED_NO_ACCOUNTS", "signal_id": sanitized.id}
     except Exception as e:
         logger.warning(f"Autonomous agent dispatch error: {e}")
@@ -802,10 +834,10 @@ def autonomous_agent_step(force_side: Optional[str] = None, symbol: Optional[str
 
     async def _run_all_pairs():
         from app.services.sources.streamer import SUPPORTED_SYMBOLS
-        last_res: Dict[str, Any] = {"status": "SKIPPED"}
+        results: Dict[str, Any] = {}
         for sym in SUPPORTED_SYMBOLS:
-            last_res = await autonomous_agent_step_async(force_side=force_side, symbol=sym)
-        return last_res
+            results[sym] = await autonomous_agent_step_async(force_side=force_side, symbol=sym)
+        return {"status": "BATCH_COMPLETE", "results": results}
 
     return _run_coro(_run_all_pairs())
 
@@ -831,6 +863,17 @@ def is_weekend_market_closed(now_ts: Optional[float] = None) -> bool:
 _last_sub_lifecycle_ts = 0.0
 _last_crypto_scan_ts = 0.0
 _crypto_scan_in_flight = False
+_agent_step_in_flight = False
+
+
+def _run_agent_step_bg():
+    global _agent_step_in_flight
+    try:
+        autonomous_agent_step()
+    except Exception as e:
+        logger.error(f"Autonomous agent step error: {e}")
+    finally:
+        _agent_step_in_flight = False
 
 
 def tick():
@@ -878,13 +921,13 @@ def tick():
         except Exception as e:
             logger.debug(f"Position watcher cycle error: {e}")
 
-    # 3. Run Autonomous AI Agent Signal Evaluation every 30s (skip when market closed)
+    # 3. Run Autonomous AI Agent Signal Evaluation every 30s (skip when market closed, non-blocking thread)
     if not os.getenv("PYTEST_CURRENT_TEST") and not market_closed and now - _last_agent_eval_ts >= 30.0:
-        _last_agent_eval_ts = now
-        try:
-            autonomous_agent_step()
-        except Exception as e:
-            logger.error(f"Autonomous agent step error: {e}")
+        if not _agent_step_in_flight:
+            _last_agent_eval_ts = now
+            _agent_step_in_flight = True
+            t = threading.Thread(target=_run_agent_step_bg, name="ZupirusAutonomousAgentStep", daemon=True)
+            t.start()
 
     # 4. Run Subscription Lifecycle Worker (reminders, expiry undeploy, pending retries) every 1 hour
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_sub_lifecycle_ts >= 3600.0:

@@ -352,7 +352,6 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                         type="button"
                         onClick={() => {
                           setTimeframe(tf);
-                          if (loadCandles) loadCandles(tf);
                         }}
                         className={`rounded-lg px-2 py-1 font-mono text-xs font-bold transition whitespace-nowrap cursor-pointer ${
                           timeframe === tf

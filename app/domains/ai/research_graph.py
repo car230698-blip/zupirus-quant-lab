@@ -449,10 +449,17 @@ def graph(saver):
         return {'report': report}
 
     def approval(s):
+        rep = s.get('report', {})
+        is_prod_qualified = bool(rep.get('production_qualified', False))
+        notice_text = (
+            "Approval promotes strategy to APPROVED_FOR_PROD for live trading."
+            if is_prod_qualified
+            else "Approval archives a research candidate for demo review only. No live promotion."
+        )
         answer = interrupt({
             'kind': 'admin_approval',
             'report': s['report'],
-            'notice': 'Approval archives a research candidate only. No live promotion.'
+            'notice': notice_text
         })
         is_app = bool(answer.get('approved', False))
         trace_langgraph_step("admin_review", {"report_summary": s['report']['oos_net_price_units']}, {"approved": is_app})

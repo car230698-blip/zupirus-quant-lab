@@ -523,6 +523,39 @@ async def execute_fan_out_for_signal(
             )
             rounded_sl = round(c_sl, dec_places)
             rounded_tp = round(c_tp, dec_places)
+
+            # Recalculate lot size if Stop-Loss distance was widened/adjusted by compliance constraints
+            from app.domains.execution.symbol_precision import point_size_for_symbol
+            adjusted_sl_dist = abs(entry_price - rounded_sl)
+            adjusted_sl_points = max(1.0, adjusted_sl_dist / point_size_for_symbol(sym_u))
+            if adjusted_sl_points > sl_points + 1e-4:
+                volume = calculate_normalized_lot_size(
+                    equity=base_capital,
+                    risk_pct=effective_risk_pct,
+                    sl_distance_points=adjusted_sl_points,
+                    contract_size=c_size,
+                    tick_value=t_val,
+                    risk_multiplier=effective_mult,
+                    max_lot=max_lot,
+                    is_cent=is_cent_acc,
+                    symbol=symbol,
+                    entry_price=entry_price,
+                )
+                if is_prop_mode and volume > 0:
+                    min_vol = float(broker_spec.get("minVolume") or 0.01)
+                    vol_step = float(broker_spec.get("volumeStep") or 0.01)
+                    volume, _jitter_delay = apply_execution_jitter_and_micro_variance(
+                        volume=volume,
+                        min_vol=min_vol,
+                        vol_step=vol_step,
+                    )
+                    if max_lot > 0:
+                        volume = min(volume, max_lot)
+                    volume = round(volume, 2)
+
+                if volume <= 0:
+                    logger.info(f"Account {acc_id} skipped after SL adjustment: calculated volume={volume} <= 0.")
+                    continue
         else:
             rounded_sl = round(sl, dec_places) if sl is not None else None
             rounded_tp = round(tp, dec_places) if tp is not None else None

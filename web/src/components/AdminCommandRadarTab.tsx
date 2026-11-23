@@ -213,14 +213,9 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
     }
   }, []);
 
-  // Sync mode from system info on mount
+  // Sync mode and control plane on mount
   useEffect(() => {
     loadAllControlPlaneData();
-    api.get<any>('/api/v1/system/info').then((info: any) => {
-      if (info?.signal_mode) {
-        setSignalMode(info.signal_mode as any);
-      }
-    }).catch(() => {});
   }, [loadAllControlPlaneData]);
 
   // Polling every 15s
@@ -235,7 +230,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
   useEffect(() => {
     let es: EventSource | null = null;
     try {
-      es = new EventSource('/api/v1/telemetry/stream');
+      es = new EventSource('/api/v1/stream/admin');
       es.onopen = () => setSseLive(true);
       es.onerror = () => setSseLive(false);
       es.addEventListener('radar', (e) => {
@@ -338,7 +333,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
 
   const handleSwitchSignalMode = async (mode: 'EXTERNAL_FEED' | 'HYBRID_AGENT_SCORER' | 'ZUPIRUS_AGENT') => {
     try {
-      await api.post('/api/admin/system/signal-mode', { mode });
+      await api.post('/api/admin/sources/signal-mode', { mode });
       setSignalMode(mode);
       setMsg(`✓ Đã chuyển chế độ tín hiệu sang: ${mode}`);
     } catch (err: any) {

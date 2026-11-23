@@ -2,7 +2,10 @@
 Captures real-time market snapshots whenever an external signal is ingested.
 """
 import datetime
+import logging
 from typing import Dict, Any, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 def get_trading_session(ts: float) -> str:
@@ -23,14 +26,16 @@ def get_trading_session(ts: float) -> str:
 
 def get_market_atr14(c, symbol: str = "XAUUSD", timeframe: str = "M15") -> float:
     """Calculate live ATR(14) from closed candles in TimescaleDB or fallback safely."""
+    sym_u = (symbol or "XAUUSD").strip().upper()
+    default_atr = 5.0 if "XAU" in sym_u else (0.35 if "JPY" in sym_u else 0.0020)
     try:
         rows = c.execute(
             """
             SELECT high, low, close FROM candles
-            WHERE symbol = ? AND timeframe = ?
+            WHERE symbol = ? AND timeframe = ? AND (source IS NULL OR source != 'YAHOO_REFERENCE')
             ORDER BY time DESC LIMIT 15
             """,
-            (symbol, timeframe)
+            (sym_u, timeframe)
         ).fetchall()
         if rows and len(rows) >= 5:
             trs = []
@@ -46,10 +51,10 @@ def get_market_atr14(c, symbol: str = "XAUUSD", timeframe: str = "M15") -> float
                 trs.append(tr)
             if trs:
                 from app.services.symbol_precision import digits_for_symbol
-                return round(sum(trs) / len(trs), digits_for_symbol(symbol))
-    except Exception:
-        pass
-    return 3.50  # Default institutional ATR on XAUUSD (~35 pips)
+                return round(sum(trs) / len(trs), digits_for_symbol(sym_u))
+    except Exception as e:
+        logger.warning(f"Failed to calculate ATR(14) for {sym_u} ({timeframe}): {e}")
+    return default_atr
 
 
 def get_nearest_news_info(c, current_time: float) -> Tuple[float, Optional[str]]:
@@ -109,7 +114,7 @@ def get_fresh_live_price(c, symbol: str = "XAUUSD", max_age_sec: float = 120.0) 
     # 1. Check TimescaleDB/Postgres quotes hypertable
     try:
         q = c.execute(
-            "SELECT bid, ask, ts FROM quotes WHERE symbol = ? ORDER BY ts DESC LIMIT 1",
+            "SELECT bid, ask, ts FROM quotes WHERE symbol = ? AND (source IS NULL OR source != 'YAHOO_REFERENCE') ORDER BY ts DESC LIMIT 1",
             (sym_u,),
         ).fetchone()
         if q:

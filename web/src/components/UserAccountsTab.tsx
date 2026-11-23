@@ -83,6 +83,17 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     allowed_strategy_ids: '',
   });
 
+  const [gateways, setGateways] = useState<{ usdt_trc20?: boolean; usdt_bep20?: boolean; sepay?: boolean } | null>(null);
+
+  const fetchGateways = async () => {
+    try {
+      const g = await apiGet<any>('/api/v1/billing/gateways');
+      if (g) setGateways(g);
+    } catch {
+      // ignore
+    }
+  };
+
   const fetchFxRate = async () => {
     setFxLoading(true);
     try {
@@ -136,6 +147,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   useEffect(() => {
     fetchCloudSub();
     fetchFxRate();
+    fetchGateways();
   }, []);
 
   useEffect(() => {
@@ -585,7 +597,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
           </div>
 
           <div className="mt-5 space-y-3 border-t border-white/[0.06] pt-4">
-            <div className="flex items-center justify-between rounded-xl border border-cyan-500/20 bg-cyan-950/15 px-3.5 py-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-cyan-500/20 bg-cyan-950/15 px-3.5 py-2.5">
               <div>
                 <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
                   <span>{lang === 'en' ? `Exchange Rate: 1 USD = ${currentRate.toLocaleString('vi-VN')} VND` : `Tỷ giá: 1 USD = ${currentRate.toLocaleString('vi-VN')} VND`}</span>
@@ -603,34 +615,40 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                   <span className="text-xs font-normal text-slate-400">(${fmtNum(estimatedUsd, 2)})</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={cloudBusy}
-                  onClick={() => handleCreateCheckout('SEPAY')}
-                  className="quant-btn-primary px-3 py-2 text-xs whitespace-nowrap shrink-0"
-                  title={lang === 'en' ? 'Pay via VietQR (VND)' : 'Thanh toán qua SePay VietQR (VND)'}
-                >
-                  VietQR (VND)
-                </button>
-                <button
-                  type="button"
-                  disabled={cloudBusy}
-                  onClick={() => handleCreateCheckout('USDT_TRC20')}
-                  className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition whitespace-nowrap shrink-0 cursor-pointer"
-                  title={lang === 'en' ? 'Direct USDT TRC20 On-Chain' : 'Thanh toán trực tiếp USDT TRC20 On-Chain'}
-                >
-                  USDT (TRC20)
-                </button>
-                <button
-                  type="button"
-                  disabled={cloudBusy}
-                  onClick={() => handleCreateCheckout('USDT_BEP20')}
-                  className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition whitespace-nowrap shrink-0 cursor-pointer"
-                  title={lang === 'en' ? 'Direct USDT BEP20 On-Chain' : 'Thanh toán trực tiếp USDT BEP20 On-Chain'}
-                >
-                  USDT (BEP20)
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {gateways?.sepay !== false && (
+                  <button
+                    type="button"
+                    disabled={cloudBusy}
+                    onClick={() => handleCreateCheckout('SEPAY')}
+                    className="quant-btn-primary px-3 py-2 text-xs whitespace-nowrap shrink-0"
+                    title={lang === 'en' ? 'Pay via VietQR (VND)' : 'Thanh toán qua SePay VietQR (VND)'}
+                  >
+                    VietQR (VND)
+                  </button>
+                )}
+                {gateways?.usdt_trc20 !== false && (
+                  <button
+                    type="button"
+                    disabled={cloudBusy}
+                    onClick={() => handleCreateCheckout('USDT_TRC20')}
+                    className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 transition whitespace-nowrap shrink-0 cursor-pointer"
+                    title={lang === 'en' ? 'Direct USDT TRC20 On-Chain' : 'Thanh toán trực tiếp USDT TRC20 On-Chain'}
+                  >
+                    USDT (TRC20)
+                  </button>
+                )}
+                {gateways?.usdt_bep20 !== false && (
+                  <button
+                    type="button"
+                    disabled={cloudBusy}
+                    onClick={() => handleCreateCheckout('USDT_BEP20')}
+                    className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition whitespace-nowrap shrink-0 cursor-pointer"
+                    title={lang === 'en' ? 'Direct USDT BEP20 On-Chain' : 'Thanh toán trực tiếp USDT BEP20 On-Chain'}
+                  >
+                    USDT (BEP20)
+                  </button>
+                )}
               </div>
             </div>
           </div>

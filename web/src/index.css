@@ -636,6 +636,12 @@ input[type="range"] {
   width: calc(100% - var(--sidebar-w-collapsed));
 }
 
+@media (max-width: 1023px) {
+  .quant-topbar {
+    display: none !important;
+  }
+}
+
 .quant-topbar {
   min-height: 62px;
   padding: 0 clamp(16px, 2.2vw, 32px);

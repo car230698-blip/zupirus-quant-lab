@@ -23,9 +23,18 @@ export const detectInitialLanguage = (): Language => {
     const qLang = params.get('lang')?.toLowerCase();
     if (qLang === 'vi' || qLang === 'en') {
       try {
+        localStorage.setItem('zupirus_user_lang_pref', qLang);
         localStorage.setItem('zupirus_geo_lang', qLang);
       } catch {}
       return qLang;
+    }
+  } catch {}
+
+  // 1b. User manual preference
+  try {
+    const userPref = localStorage.getItem('zupirus_user_lang_pref');
+    if (userPref === 'vi' || userPref === 'en') {
+      return userPref as Language;
     }
   } catch {}
 
@@ -72,6 +81,15 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Automatic background IP Geo confirmation from server
   useEffect(() => {
+    // If URL contains explicit ?lang= or user explicitly saved preference, do NOT override with GeoIP
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const qLang = params.get('lang')?.toLowerCase();
+      if (qLang === 'vi' || qLang === 'en') return;
+      const userPref = localStorage.getItem('zupirus_user_lang_pref');
+      if (userPref === 'vi' || userPref === 'en') return;
+    } catch {}
+
     let active = true;
     api.get<{ language: Language; is_foreign: boolean; country?: string }>('/api/v1/auth/geo')
       .then((res) => {
@@ -96,6 +114,10 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const setLang = useCallback((newLang: Language) => {
     setLangState(newLang);
     if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('zupirus_user_lang_pref', newLang);
+        localStorage.setItem('zupirus_geo_lang', newLang);
+      } catch {}
       document.documentElement.lang = newLang;
       api.patch('/api/v1/auth/language', { language: newLang }).catch(() => {});
     }
