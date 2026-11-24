@@ -23,6 +23,7 @@ def test_b1_min_inductive_samples_and_positive_expectancy(monkeypatch):
     with tx() as c:
         # 1. With only 10 samples (< 30), synthesis returns empty list
         c.execute("DELETE FROM signal_audit_logs")
+        c.execute("DELETE FROM shadow_signals")
         for i in range(10):
             c.execute(
                 """
@@ -41,6 +42,7 @@ def test_b1_min_inductive_samples_and_positive_expectancy(monkeypatch):
 
         # 3. Add samples up to 35, but all with negative PnL (negative expectancy)
         c.execute("DELETE FROM signal_audit_logs")
+        c.execute("DELETE FROM shadow_signals")
         for i in range(35):
             c.execute(
                 """

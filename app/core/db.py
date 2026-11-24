@@ -135,12 +135,15 @@ class CursorWrapper:
             except Exception:
                 pass
 
-    def _adapt_sql(self, sql: str, has_params: bool = False) -> str:
+    def _adapt_sql(self, sql: str, has_params: Optional[bool] = None) -> str:
         if not self._is_pg:
             return sql
         # Translate PRAGMA statements away
         if sql.strip().upper().startswith("PRAGMA"):
             return "SELECT 1"
+
+        if has_params is None:
+            has_params = bool('?' in sql or re.search(r'(%s\b|%\([a-zA-Z0-9_]+\)s)', sql))
 
         if has_params:
             # Match single-quoted strings: '([^']|'')*'
@@ -196,11 +199,12 @@ class CursorWrapper:
         return translated
 
     def execute(self, sql: str, params: Optional[Any] = None):
-        has_params = params is not None and (not hasattr(params, '__len__') or len(params) > 0)
-        adapted = self._adapt_sql(sql, has_params=has_params)
-        if params is None:
+        is_empty = params is None or (hasattr(params, "__len__") and len(params) == 0)
+        if is_empty:
+            adapted = self._adapt_sql(sql, has_params=False)
             self._cur.execute(adapted)
         else:
+            adapted = self._adapt_sql(sql, has_params=True)
             self._cur.execute(adapted, params)
         return self
 

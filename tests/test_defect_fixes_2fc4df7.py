@@ -65,7 +65,10 @@ def test_lot_size_recalculated_on_widened_sl():
 
 def test_strategy_matching_symbol_specific():
     """Verify that strategy selection matches candidate by symbol and does not pick foreign symbol."""
+    from app.db import setkv
     with tx() as c:
+        setkv(c, "signal_mode", "ZUPIRUS_AGENT")
+        setkv(c, "halted", "0")
         # Create an approved candidate strictly for EURUSD
         c.execute("DELETE FROM strategy_candidates")
         c.execute(
@@ -677,6 +680,17 @@ def test_sql_adapt_preserves_placeholders_and_escapes_literals():
     # 6. Standard ? conversion
     sql_standard = "INSERT INTO t (a, b) VALUES (?, ?)"
     assert wrapper._adapt_sql(sql_standard, has_params=True) == "INSERT INTO t (a, b) VALUES (%s, %s)"
+
+    # 7. Execution with empty params: () or {} should NOT trigger % formatting or ProgrammingError
+    mock_cur = MagicMock()
+    cw = CursorWrapper(mock_cur, is_pg=True)
+    cw.execute("SELECT '85%'", ())
+    mock_cur.execute.assert_called_once_with("SELECT '85%'")
+
+    mock_cur2 = MagicMock()
+    cw2 = CursorWrapper(mock_cur2, is_pg=True)
+    cw2.execute("SELECT 5 % 2", {})
+    mock_cur2.execute.assert_called_once_with("SELECT 5 % 2")
 
 
 def test_agent_candidate_strategy_code_prioritized_over_display_name():

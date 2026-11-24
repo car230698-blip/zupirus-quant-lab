@@ -15,7 +15,7 @@ from app.services.signal_ingestion.normalizer import normalize_tradingview_signa
 
 
 def test_point_1_db_sql_adapter_metaapi_cloud_accounts():
-    """Verify PostgreSQL adapter properly translates INSERT OR REPLACE INTO metaapi_cloud_accounts."""
+    """Verify PostgreSQL adapter properly translates INSERT OR REPLACE INTO metaapi_cloud_accounts both in _adapt_sql and via execute."""
     sql = "INSERT OR REPLACE INTO metaapi_cloud_accounts(id, user_id, login, server) VALUES(?,?,?,?)"
     mock_cur = MagicMock()
     cw = CursorWrapper(mock_cur, is_pg=True)
@@ -24,6 +24,15 @@ def test_point_1_db_sql_adapter_metaapi_cloud_accounts():
     assert "ON CONFLICT (login, server) DO UPDATE" in translated
     assert "?" not in translated
     assert "%s" in translated
+
+    # Test actual call path through execute with params
+    cw.execute(sql, ("acc_1", "usr_1", "1001", "broker_srv"))
+    mock_cur.execute.assert_called_once()
+    called_sql, called_params = mock_cur.execute.call_args[0]
+    assert "ON CONFLICT (login, server) DO UPDATE" in called_sql
+    assert "?" not in called_sql
+    assert "%s" in called_sql
+    assert called_params == ("acc_1", "usr_1", "1001", "broker_srv")
 
 
 def test_point_2_streamer_imports_and_constructor():
