@@ -14,7 +14,7 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
   spotPrice = 0,
   onEnterPortal,
 }) => {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -44,9 +44,9 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-1.5 font-mono text-[11px] font-bold text-[#12B5A6]">
-                <span className="pulse-wrap"><span className="pulse-core" /></span>
-                LIVE · 21ms
+              <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                {lang === 'en' ? 'DEMO SIMULATION · 21ms' : 'DỮ LIỆU MINH HỌA · 21ms'}
               </span>
               {onEnterPortal && (
                 <button
@@ -63,7 +63,10 @@ export const LandingHeroTerminal: React.FC<LandingHeroTerminalProps> = ({
           {/* 4 KPIs Row */}
           <div className="grid grid-cols-2 lg:grid-cols-4 border-b border-white/[0.08] text-left">
             <div className="p-4 sm:p-5 border-r border-b sm:border-b-0 border-white/[0.08] hover:bg-white/[0.02] transition-colors">
-              <div className="text-xs text-slate-400 mb-1.5 font-medium">{t.terminal.totalAum}</div>
+              <div className="text-xs text-slate-400 mb-1.5 font-medium flex items-center justify-between">
+                <span>{t.terminal.totalAum}</span>
+                <span className="text-[10px] text-amber-400/80 font-mono">({lang === 'en' ? 'Simulation' : 'Minh Họa'})</span>
+              </div>
               <div className="font-mono text-xl sm:text-2xl font-bold text-white tracking-tight tabular-nums">
                 $128,450.00
               </div>

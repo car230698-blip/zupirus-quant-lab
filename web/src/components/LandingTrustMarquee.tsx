@@ -19,7 +19,7 @@ export const LandingTrustMarquee: React.FC = () => {
       <div className="pointer-events-none absolute right-0 inset-y-0 w-24 bg-gradient-to-l from-[#060A13] to-transparent z-10" />
 
       <div className="flex w-max items-center gap-12 group">
-        <div className="flex shrink-0 items-center gap-12 animate-marquee group-hover:[animation-play-state:paused]">
+        <div className="flex shrink-0 items-center gap-12 animate-marquee motion-reduce:animate-none group-hover:[animation-play-state:paused]">
           {TRUST_LOGOS.concat(TRUST_LOGOS).map((logo, idx) => (
             <span
               key={`${logo}-${idx}`}
@@ -29,7 +29,7 @@ export const LandingTrustMarquee: React.FC = () => {
             </span>
           ))}
         </div>
-        <div className="flex shrink-0 items-center gap-12 animate-marquee group-hover:[animation-play-state:paused]" aria-hidden="true">
+        <div className="flex shrink-0 items-center gap-12 animate-marquee motion-reduce:animate-none group-hover:[animation-play-state:paused]" aria-hidden="true">
           {TRUST_LOGOS.concat(TRUST_LOGOS).map((logo, idx) => (
             <span
               key={`${logo}-dup-${idx}`}

@@ -26,7 +26,7 @@ export const SHIELD_LAYERS = [
   {
     id: '03',
     code: 'USD NEWS SHIELD',
-    title: 'CPI · NFP · FOMC ±30m',
+    title: 'CPI · NFP · FOMC ±15m',
     status: 'ARMED',
     latency: '2.0 ms',
     detail: 'Tự động phong tỏa mở lệnh mới trước và sau 15 phút các sự kiện tin tức USD High-Impact.',
@@ -61,7 +61,7 @@ export const SHIELD_LAYERS_EN = [
   {
     id: '03',
     code: 'USD NEWS SHIELD',
-    title: 'CPI · NFP · FOMC ±30m',
+    title: 'CPI · NFP · FOMC ±15m',
     status: 'ARMED',
     latency: '2.0 ms',
     detail: 'Autonomous trade freeze window 15 minutes before and after high-impact USD economic releases.',

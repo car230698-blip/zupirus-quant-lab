@@ -160,35 +160,51 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
       {/* TOP 4-KPI REVENUE STRIP */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 font-mono">
         <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider">Doanh Thu Đã Thu</div>
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider">
+            {lang === 'en' ? 'Total Revenue (VND)' : 'Doanh Thu Đã Thu'}
+          </div>
           <div className="mt-1 text-2xl font-bold text-[#12B5A6] tabular-nums">
             {totalRevenueVnd.toLocaleString('vi-VN')} đ
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">Đối soát tự động SePay</div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            {lang === 'en' ? 'Automated SePay Recon' : 'Đối soát tự động SePay'}
+          </div>
         </div>
 
         <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider">Đơn Đã Kích Hoạt</div>
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider">
+            {lang === 'en' ? 'Active Orders' : 'Đơn Đã Kích Hoạt'}
+          </div>
           <div className="mt-1 text-2xl font-bold text-white tabular-nums">
             {paidOrdersCount}
           </div>
-          <div className="mt-1 text-[11px] text-[#12B5A6]">Kích hoạt thành công</div>
+          <div className="mt-1 text-[11px] text-[#12B5A6]">
+            {lang === 'en' ? 'Successfully Activated' : 'Kích hoạt thành công'}
+          </div>
         </div>
 
         <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider">Đơn Chờ / Ngoại Lệ</div>
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider">
+            {lang === 'en' ? 'Pending / Exceptions' : 'Đơn Chờ / Ngoại Lệ'}
+          </div>
           <div className="mt-1 text-2xl font-bold text-[#F5B700] tabular-nums">
             {pendingOrdersCount}
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">Chờ quét mã hoặc cần duyệt</div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            {lang === 'en' ? 'Awaiting QR scan or review' : 'Chờ quét mã hoặc cần duyệt'}
+          </div>
         </div>
 
         <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wider">Tài Khoản MT5 Đang Chạy</div>
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider">
+            {lang === 'en' ? 'Active MT5 Accounts' : 'Tài Khoản MT5 Đang Chạy'}
+          </div>
           <div className="mt-1 text-2xl font-bold text-white tabular-nums">
             {accounts.length}
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">Đấu nối Cloud London G2</div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            {lang === 'en' ? 'Connected to Cloud London G2' : 'Đấu nối Cloud London G2'}
+          </div>
         </div>
       </div>
 
@@ -203,7 +219,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <span>Đơn Hàng SePay</span>
+          <span>{lang === 'en' ? 'Billing Orders' : 'Đơn Hàng SePay'}</span>
           {pendingOrdersCount > 0 && (
             <span className="ml-2 rounded-full bg-[#F5B700]/20 px-2 py-0.5 font-mono text-[10px] text-[#F5B700]">
               {pendingOrdersCount}
@@ -223,7 +239,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <span>Khách Hàng &amp; Tài Khoản MT5</span>
+          <span>{lang === 'en' ? 'Customers & MT5 Accounts' : 'Khách Hàng & Tài Khoản MT5'}</span>
           <span className="ml-2 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-400">
             {accounts.length}
           </span>
@@ -241,7 +257,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <span>Cấu Hình VietQR &amp; Tỷ Giá</span>
+          <span>{lang === 'en' ? 'VietQR Gateway & FX Rates' : 'Cấu Hình VietQR & Tỷ Giá'}</span>
           {activeSubTab === 'settings' && (
             <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#12B5A6]" />
           )}

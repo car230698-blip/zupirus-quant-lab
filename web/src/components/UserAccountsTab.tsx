@@ -393,8 +393,177 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const currentRate = fxRateData?.usd_vnd_rate || 25500;
   const estimatedVnd = Math.ceil((estimatedUsd * currentRate) / 1000) * 1000;
 
+  // Onboarding Workflow State
+  const hasPlan = Boolean(cloudSub?.is_active);
+  const hasLinkedAccount = accounts.length > 0;
+  const hasBrokerConnected = accounts.some(
+    (a: any) =>
+      String(a.connection_status || '').toUpperCase() === 'CONNECTED' ||
+      String(a.deployment_state || '').toUpperCase() === 'DEPLOYED'
+  );
+  const hasAutoTrade = accounts.some((a: any) => Number(a.auto_trade) === 1);
+
   return (
     <div className="space-y-6">
+      {/* 4-STEP ONBOARDING WORKFLOW PROGRESS */}
+      <SpotlightBento className="p-4 sm:p-5 border border-cyan-500/20 bg-[#091122]/90">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] pb-3 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="text-xs font-mono font-bold uppercase tracking-wider text-cyan-300">
+              {lang === 'en' ? 'Quick Start Setup Checklist' : 'Lộ Trình Kích Hoạt 4 Bước'}
+            </span>
+          </div>
+          <span className="text-[11px] font-mono text-slate-400">
+            {lang === 'en'
+              ? 'Complete these 4 steps to start 24/7 autonomous quant execution'
+              : 'Hoàn thành 4 bước để bắt đầu giao dịch định lượng tự động'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Step 1 */}
+          <div
+            className={`rounded-xl border p-3.5 transition ${
+              hasPlan
+                ? 'border-emerald-500/30 bg-emerald-950/15'
+                : 'border-amber-500/40 bg-amber-950/20'
+            }`}
+          >
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="font-mono font-bold text-slate-400">01</span>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  hasPlan
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : 'bg-amber-500/20 text-amber-300 animate-pulse'
+                }`}
+              >
+                {hasPlan
+                  ? (lang === 'en' ? 'Completed ✓' : 'Đã Kích Hoạt ✓')
+                  : (lang === 'en' ? 'Step 1: Choose Plan' : 'Bước 1: Chọn Gói')}
+              </span>
+            </div>
+            <div className="font-bold text-sm text-white">
+              {lang === 'en' ? '1. Select Plan & Slots' : '1. Chọn Gói & Số Slot'}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">
+              {hasPlan
+                ? (lang === 'en' ? `Active: ${cloudSub?.plan_tier}` : `Đang dùng: ${cloudSub?.plan_tier}`)
+                : (lang === 'en' ? 'Pick a plan below and pay via VietQR / USDT.' : 'Chọn gói bên dưới và quét VietQR.')}
+            </p>
+          </div>
+
+          {/* Step 2 */}
+          <div
+            className={`rounded-xl border p-3.5 transition ${
+              hasLinkedAccount
+                ? 'border-emerald-500/30 bg-emerald-950/15'
+                : hasPlan
+                ? 'border-cyan-500/40 bg-cyan-950/20'
+                : 'border-slate-800 bg-[#060A13]'
+            }`}
+          >
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="font-mono font-bold text-slate-400">02</span>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  hasLinkedAccount
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : hasPlan
+                    ? 'bg-cyan-500/20 text-cyan-300'
+                    : 'bg-slate-800 text-slate-500'
+                }`}
+              >
+                {hasLinkedAccount
+                  ? (lang === 'en' ? 'Linked ✓' : 'Đã Liên Kết ✓')
+                  : (lang === 'en' ? 'Link Account' : 'Liên Kết MT5')}
+              </span>
+            </div>
+            <div className="font-bold text-sm text-white">
+              {lang === 'en' ? '2. Link Cloud MT5' : '2. Đấu Nối Cloud MT5'}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">
+              {hasLinkedAccount
+                ? (lang === 'en' ? `${accounts.length} MT5 account(s) added` : `${accounts.length} tài khoản MT5 đã thêm`)
+                : (lang === 'en' ? 'Enter MT5 Login, Password & Broker Server.' : 'Nhập Login, Pass & Server sàn.')}
+            </p>
+          </div>
+
+          {/* Step 3 */}
+          <div
+            className={`rounded-xl border p-3.5 transition ${
+              hasBrokerConnected
+                ? 'border-emerald-500/30 bg-emerald-950/15'
+                : hasLinkedAccount
+                ? 'border-cyan-500/40 bg-cyan-950/20'
+                : 'border-slate-800 bg-[#060A13]'
+            }`}
+          >
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="font-mono font-bold text-slate-400">03</span>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  hasBrokerConnected
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : hasLinkedAccount
+                    ? 'bg-cyan-500/20 text-cyan-300'
+                    : 'bg-slate-800 text-slate-500'
+                }`}
+              >
+                {hasBrokerConnected
+                  ? (lang === 'en' ? 'Connected ✓' : 'Đã Kết Nối ✓')
+                  : (lang === 'en' ? 'Awaiting Broker' : 'Chờ Broker')}
+              </span>
+            </div>
+            <div className="font-bold text-sm text-white">
+              {lang === 'en' ? '3. Broker Verification' : '3. Xác Minh Broker'}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">
+              {hasBrokerConnected
+                ? (lang === 'en' ? 'Cloud terminal deployed & verified' : 'Cloud London G2 đã thông sàn')
+                : (lang === 'en' ? 'Cloud terminal synchronizing balance & equity.' : 'Đang đồng bộ số dư và trạng thái sàn.')}
+            </p>
+          </div>
+
+          {/* Step 4 */}
+          <div
+            className={`rounded-xl border p-3.5 transition ${
+              hasAutoTrade
+                ? 'border-emerald-500/30 bg-emerald-950/15'
+                : hasBrokerConnected
+                ? 'border-amber-500/40 bg-amber-950/20'
+                : 'border-slate-800 bg-[#060A13]'
+            }`}
+          >
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="font-mono font-bold text-slate-400">04</span>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  hasAutoTrade
+                    ? 'bg-emerald-500/20 text-emerald-300'
+                    : hasBrokerConnected
+                    ? 'bg-amber-500/20 text-amber-300 animate-pulse'
+                    : 'bg-slate-800 text-slate-500'
+                }`}
+              >
+                {hasAutoTrade
+                  ? (lang === 'en' ? 'Auto-Trading ON ✓' : 'Tự Động BẬT ✓')
+                  : (lang === 'en' ? 'Turn On Auto' : 'Bật Tự Động')}
+              </span>
+            </div>
+            <div className="font-bold text-sm text-white">
+              {lang === 'en' ? '4. Enable Auto-Trade' : '4. Bật Giao Dịch Tự Động'}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">
+              {hasAutoTrade
+                ? (lang === 'en' ? 'Quant signals executing automatically' : 'Tín hiệu tự động sao chép theo kỷ luật')
+                : (lang === 'en' ? 'Click "Bật Tự Động" on your account card.' : 'Bấm nút "Bật Tự Động" trên thẻ tài khoản.')}
+            </p>
+          </div>
+        </div>
+      </SpotlightBento>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <SpotlightBento className="flex flex-col justify-between p-6 lg:col-span-5">
           <div>

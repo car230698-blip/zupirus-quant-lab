@@ -92,7 +92,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Badge: Cloud MT5 · Zero EA · Zero VPS with pulse ring */}
           <div className="inline-flex items-center gap-2.5 rounded-full border border-[#12B5A6]/30 bg-[#12B5A6]/10 px-4 py-1.5 text-xs font-mono font-medium text-emerald-300 backdrop-blur-md">
             <span className="pulse-wrap"><span className="pulse-core" /></span>
-            <span>{t.hero.badge}</span>
+            <span className="hidden sm:inline">{t.hero.badge}</span>
+            <span className="sm:hidden font-bold text-amber-300">📱 Chỉ cần điện thoại · Không cần VPS</span>
           </div>
 
           {/* Large H1 with subtle silver/white gradient matching prototype */}
@@ -127,7 +128,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               className="group inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#12B5A6] to-[#0D9488] px-7 py-3.5 text-sm font-extrabold text-[#032220] hover:shadow-[0_10px_30px_-8px_rgba(18,181,166,0.7)] hover:scale-[1.02] transition-all cursor-pointer whitespace-nowrap"
             >
               <Sparkles className="w-4 h-4" strokeWidth={2} />
-              <span>{t.hero.ctaPrimary}</span>
+              <span className="hidden sm:inline">{t.hero.ctaPrimary}</span>
+              <span className="sm:hidden">{lang === 'en' ? 'Connect MT5 Now' : 'Liên Kết MT5 Ngay'}</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" strokeWidth={2.2} />
             </button>
 

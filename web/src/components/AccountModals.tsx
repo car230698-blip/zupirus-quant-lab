@@ -111,6 +111,19 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
   const [txVerifyMsg, setTxVerifyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (disclaimerModalOpen) setDisclaimerModalOpen(false);
+        if (checkoutModalOpen) setCheckoutModalOpen(false);
+      }
+    };
+    if (disclaimerModalOpen || checkoutModalOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [disclaimerModalOpen, checkoutModalOpen, setDisclaimerModalOpen, setCheckoutModalOpen]);
+
   const copyToClipboard = (text: string, key: string) => {
     if (!text) return;
     try {
@@ -124,14 +137,19 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
   <>
       {/* Disclaimer Modal */}
       {disclaimerModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="disclaimer-modal-title"
+        >
           <div className="max-w-lg w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-amber-400">
                   {lang === 'en' ? 'Legal & Risk Management Confirmation' : 'Xác Nhận Pháp Lý & Quản Trị Rủi Ro'}
                 </span>
-                <h4 className="text-base font-bold text-white">
+                <h4 id="disclaimer-modal-title" className="text-base font-bold text-white">
                   {lang === 'en' ? 'Quantitative Execution Terms Agreement' : 'Đồng Ý Điều Khoản Thực Thi Định Lượng'}
                 </h4>
               </div>
@@ -198,7 +216,12 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
 
       {/* Payment Checkout Modal (VietQR / Direct USDT On-Chain) */}
       {checkoutModalOpen && checkoutOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="checkout-modal-title"
+        >
           <div className="max-w-md w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl text-center">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 text-left">
               <div>
@@ -207,7 +230,7 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                     ? (lang === 'en' ? 'DIRECT USDT ON-CHAIN PAYMENT (0% FEE)' : 'THANH TOÁN TRỰC TIẾP USDT ON-CHAIN (0% PHÍ)')
                     : (lang === 'en' ? 'SePay Automated Payment Gateway' : 'Cổng Thanh Toán Tự Động SePay')}
                 </span>
-                <h4 className="text-base font-bold text-white">
+                <h4 id="checkout-modal-title" className="text-base font-bold text-white">
                   {checkoutOrder.payment_gateway?.startsWith('USDT') || checkoutOrder.currency === 'USDT'
                     ? (lang === 'en' ? 'Direct USDT Transfer to Admin Wallet' : 'Chuyển Khoản Trực Tiếp USDT Vào Ví Admin')
                     : (lang === 'en' ? 'Scan VietQR to Activate Cloud MT5' : 'Quét Mã VietQR Kích Hoạt Gói Cloud')}

@@ -176,7 +176,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
               onClick={handleExportCsv}
               className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-mono font-bold rounded-lg border border-slate-700 bg-[#091224] text-slate-200 hover:border-amber-400/50 hover:text-amber-300 transition cursor-pointer"
             >
-              {lang === 'en' ? '📥 Export CSV Ledger' : '📥 Xuất Sao Kê CSV'}
+              {lang === 'en' ? '📥 Export 30-Day Ledger' : '📥 Xuất Sao Kê 30 Ngày (API)'}
             </button>
             <StatusBadge tone="info" dot>
               {lang === 'en' ? `${filteredOrders.length} orders` : `${filteredOrders.length} lệnh`}
@@ -286,7 +286,7 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
             }}
             className="ml-auto quant-btn-secondary px-3 py-1.5 font-mono text-xs whitespace-nowrap shrink-0 disabled:opacity-40"
           >
-            {lang === 'en' ? `Export CSV (${filteredOrders.length})` : `Xuất CSV (${filteredOrders.length})`}
+            {lang === 'en' ? `Export Filtered Results (${filteredOrders.length})` : `Xuất Kết Quả Đang Lọc (${filteredOrders.length})`}
           </button>
         </div>
       </Panel>

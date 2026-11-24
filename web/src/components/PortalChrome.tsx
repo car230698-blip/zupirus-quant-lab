@@ -153,6 +153,8 @@ export function PortalShell({
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState('');
   const { lang } = useLanguage();
+  const isMac = typeof navigator !== 'undefined' && /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent || navigator.platform || '');
+  const kbdShortcut = isMac ? '⌘K' : 'Ctrl+K';
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
@@ -382,7 +384,7 @@ export function PortalShell({
                   className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-slate-200 bg-white/[0.04] hover:bg-amber-500/15 hover:text-amber-200 border border-white/10 transition-colors flex items-center justify-between cursor-pointer"
                 >
                   <span>{lang === 'en' ? 'Quick Command' : 'Bảng Lệnh Nhanh'}</span>
-                  <kbd className="text-[10px] text-amber-300">⌘K</kbd>
+                  <kbd className="text-[10px] text-amber-300 font-mono">{kbdShortcut}</kbd>
                 </button>
               </div>
             </>
@@ -395,10 +397,10 @@ export function PortalShell({
               <button
                 type="button"
                 onClick={() => setCmdOpen(true)}
-                title="Bảng Lệnh Nhanh (⌘K)"
+                title={lang === 'en' ? `Quick Command (${kbdShortcut})` : `Bảng Lệnh Nhanh (${kbdShortcut})`}
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-amber-300 hover:border-amber-400/50 hover:bg-amber-500/15 transition cursor-pointer"
               >
-                ⌘
+                {isMac ? '⌘' : 'K'}
               </button>
             </div>
           )}
@@ -702,7 +704,7 @@ export function PortalShell({
               <div>
                 <div className="text-white font-bold text-sm truncate max-w-[240px]">{email}</div>
                 <div className="text-[10px] text-amber-300 mt-0.5">
-                  {portal === 'admin' ? 'ADMINISTRATOR' : (lang === 'en' ? 'TRADER · 4/4 SHIELD ACTIVE' : 'TRADER · 4/4 SHIELD ACTIVE')}
+                  {portal === 'admin' ? 'ADMINISTRATOR' : (lang === 'en' ? 'TRADER' : 'NHÀ GIAO DỊCH')}
                 </div>
               </div>
               <button

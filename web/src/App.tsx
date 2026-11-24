@@ -275,6 +275,19 @@ const AppContent: React.FC = () => {
         return;
       }
     }
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        if (target === 'landing') {
+          url.searchParams.delete('portal');
+        } else {
+          url.searchParams.set('portal', target);
+        }
+        window.history.replaceState({}, '', url.toString());
+      } catch {
+        // ignore
+      }
+    }
     setPortal(target);
   };
 
