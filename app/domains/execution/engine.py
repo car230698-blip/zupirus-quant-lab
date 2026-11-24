@@ -789,6 +789,15 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 redis_cli = get_redis_client()
             except Exception as exc:
                 logger.debug("Redis client unavailable for signal fan-out: %s", exc)
+            strat_code = str(
+                rules.get("strategy")
+                or rules.get("strategy_id")
+                or rules.get("code")
+                or cand_d.get("strategy")
+                or cand_d.get("strategy_id")
+                or cand_d.get("name")
+                or "strat_trend_breakout"
+            ).strip()
             report = await execute_fan_out_for_signal(
                 signal={
                     "id": sanitized.id,
@@ -797,7 +806,9 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                     "entry_price": sanitized.entry_price,
                     "sl": sanitized.stop_loss,
                     "tp": sanitized.take_profit,
-                    "strategy": str(cand_d.get("strategy") or cand_d.get("name") or "strat_trend_breakout").strip(),
+                    "strategy": strat_code,
+                    "strategy_id": strat_code,
+                    "strategy_name": str(cand_d.get("name") or "").strip(),
                     "source": getattr(sanitized, "source", "ZUPIRUS_AGENT"),
                     "strategy_tier": getattr(sanitized, "strategy_tier", "STANDARD"),
                 },

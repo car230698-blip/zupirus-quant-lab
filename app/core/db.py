@@ -141,11 +141,35 @@ class CursorWrapper:
         # Translate PRAGMA statements away
         if sql.strip().upper().startswith("PRAGMA"):
             return "SELECT 1"
-        # Escape any raw % characters that are not part of psycopg2 parameter substitution
-        # First escape all '%' to '%%' before converting '?' to '%s'
-        escaped = sql.replace('%', '%%')
-        # Translate ? to %s
-        translated = re.sub(r'\?', '%s', escaped)
+        # Match single-quoted strings: '([^']|'')*'
+        # Inside string literals, escape literal % to %% (unless already %%)
+        # Outside string literals, preserve valid placeholders (%s, %(name)s, %%) and translate ? to %s
+        pos = 0
+        pattern = re.compile(r"'([^']|'')*'")
+        out = []
+        outside_pat = re.compile(r'(%%|%s\b|%\([a-zA-Z0-9_]+\)s|%|\?)')
+
+        def repl_out(m_out):
+            tok = m_out.group(1)
+            if tok == '?':
+                return '%s'
+            if tok == '%%' or tok.startswith('%s') or (tok.startswith('%(') and tok.endswith(')s')):
+                return tok
+            return '%%'
+
+        for m in pattern.finditer(sql):
+            start, end = m.span()
+            outside = sql[pos:start]
+            out.append(outside_pat.sub(repl_out, outside))
+
+            inside = m.group(0)
+            inside_escaped = re.sub(r'(%%|%)', lambda mi: '%%' if mi.group(1) == '%' else mi.group(1), inside)
+            out.append(inside_escaped)
+            pos = end
+
+        outside = sql[pos:]
+        out.append(outside_pat.sub(repl_out, outside))
+        translated = ''.join(out)
         # Translate INSERT OR IGNORE INTO table ... -> INSERT INTO table ... ON CONFLICT DO NOTHING
         if re.search(r'INSERT\s+OR\s+IGNORE\s+INTO', translated, re.IGNORECASE):
             translated = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', translated, flags=re.IGNORECASE)

@@ -648,6 +648,94 @@ def test_allowed_strategy_ids_passed_and_filtered():
         loop.close()
 
 
+def test_sql_adapt_preserves_placeholders_and_escapes_literals():
+    """Verify _adapt_sql preserves %s placeholders for migrations & vector queries while escaping % in literals."""
+    from app.core.db import CursorWrapper
+    wrapper = CursorWrapper(None, is_pg=True)
+
+    # 1. Schema migration insert with %s placeholders
+    sql_migration = "INSERT INTO schema_migrations(version, name) VALUES (%s, %s)"
+    assert wrapper._adapt_sql(sql_migration) == "INSERT INTO schema_migrations(version, name) VALUES (%s, %s)"
+
+    # 2. Vector search with %s placeholders
+    sql_vector = "SELECT id, (1 - (embedding <=> %s::vector)) AS similarity FROM t LIMIT %s"
+    assert wrapper._adapt_sql(sql_vector) == "SELECT id, (1 - (embedding <=> %s::vector)) AS similarity FROM t LIMIT %s"
+
+    # 3. Parameterized query with ? and LIKE string literal containing raw %
+    sql_like = "SELECT * FROM orders WHERE payment_gateway LIKE 'USDT%' AND expires_at > ?"
+    assert wrapper._adapt_sql(sql_like) == "SELECT * FROM orders WHERE payment_gateway LIKE 'USDT%%' AND expires_at > %s"
+
+    # 4. Literal % inside quotes with another raw substring
+    sql_quote_test = "SELECT * FROM t WHERE id LIKE '%src_dryrun_test%'"
+    assert wrapper._adapt_sql(sql_quote_test) == "SELECT * FROM t WHERE id LIKE '%%src_dryrun_test%%'"
+
+    # 5. Standard ? conversion
+    sql_standard = "INSERT INTO t (a, b) VALUES (?, ?)"
+    assert wrapper._adapt_sql(sql_standard) == "INSERT INTO t (a, b) VALUES (%s, %s)"
+
+
+def test_agent_candidate_strategy_code_prioritized_over_display_name():
+    """Verify that when a strategy candidate has display name 'Gold Strat' and rules contain 'strat_trend_breakout',
+    the strategy code is dispatched to fanout, matching accounts that allow 'strat_trend_breakout'."""
+    cand = {
+        "id": "cand_gold_1",
+        "name": "Gold Strat",
+        "rules_json": json.dumps({"strategy": "strat_trend_breakout", "symbol": "XAUUSD"}),
+        "updated_at": time.time(),
+    }
+    rules = json.loads(cand["rules_json"])
+    strat_code = str(
+        rules.get("strategy")
+        or rules.get("strategy_id")
+        or rules.get("code")
+        or cand.get("strategy")
+        or cand.get("strategy_id")
+        or cand.get("name")
+        or "strat_trend_breakout"
+    ).strip()
+
+    assert strat_code == "strat_trend_breakout"
+
+    accounts = [
+        {
+            "id": "acc_trend",
+            "allowed_strategy_ids": "strat_trend_breakout",
+            "balance": 10000.0,
+            "risk_config": "{}",
+        },
+        {
+            "id": "acc_other",
+            "allowed_strategy_ids": "strat_mean_reversion",
+            "balance": 10000.0,
+            "risk_config": "{}",
+        },
+    ]
+
+    sig = {
+        "id": "sig_gold_test",
+        "strategy": strat_code,
+        "strategy_id": strat_code,
+        "strategy_name": cand["name"],
+        "symbol": "XAUUSD",
+        "action": "BUY",
+        "entry_price": 2650.0,
+    }
+
+    from app.domains.execution.fanout import execute_fan_out_for_signal
+    mock_client = MagicMock()
+    mock_client.get_open_positions = AsyncMock(return_value=[])
+    mock_client.execute_order = AsyncMock(return_value={"numericCode": 200, "stringCode": "TRADE_RETCODE_DONE", "orderId": "ord_ok"})
+
+    loop = asyncio.new_event_loop()
+    try:
+        res = loop.run_until_complete(execute_fan_out_for_signal(sig, accounts, metaapi_client=mock_client))
+        assert res.get("executed") == 1
+        assert res.get("skipped") == 1
+    finally:
+        loop.close()
+
+
+
 
 
 

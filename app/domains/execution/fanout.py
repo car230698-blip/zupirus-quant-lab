@@ -234,12 +234,18 @@ async def execute_fan_out_for_signal(
                 pass
         if allowed_strats_raw and str(allowed_strats_raw).strip():
             allowed_list = [s.strip().lower() for s in str(allowed_strats_raw).split(",") if s.strip()]
-            sig_strat = str(signal.get("strategy") or signal.get("strategy_id") or signal.get("source") or "").strip().lower()
-            if allowed_list and sig_strat and (sig_strat not in allowed_list and "all" not in allowed_list):
-                logger.info(
-                    f"Account {acc_id} skipped: STRATEGY_NOT_SUBSCRIBED (strategy '{sig_strat}' not in {allowed_list})."
-                )
-                continue
+            sig_tokens = {
+                str(signal.get("strategy") or "").strip().lower(),
+                str(signal.get("strategy_id") or "").strip().lower(),
+                str(signal.get("strategy_name") or "").strip().lower(),
+                str(signal.get("source") or "").strip().lower(),
+            } - {""}
+            if allowed_list and sig_tokens and ("all" not in allowed_list):
+                if not any(token in allowed_list for token in sig_tokens):
+                    logger.info(
+                        f"Account {acc_id} skipped: STRATEGY_NOT_SUBSCRIBED (strategies {sig_tokens} not in {allowed_list})."
+                    )
+                    continue
 
         # 4. Calculate dynamic proportional lot (Cent vs Standard vs Prop Firm)
         is_comp = bool(acc.get("is_compounding", False))
