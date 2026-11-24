@@ -1,6 +1,6 @@
 """Deterministic execution. Integrated with Redis Streams, Pub/Sub, Distributed Locks,
 and Multi-Strategy Coordinator (Trend Following, Mean Reversion, Breakout)."""
-import os, time, hashlib, math, json, logging, threading
+import os, time, hashlib, math, json, logging, threading, asyncio
 from typing import Dict, Any, Optional
 from app.db import tx, init, audit, setkv, ROOT
 from app.redis_client import publish_signal_event, acquire_dispatch_lock, release_dispatch_lock
@@ -110,10 +110,10 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol
                 "reason": "STAND_ASIDE: Chưa có Strategy Candidate nào được Admin duyệt sang APPROVED_FOR_PROD.",
             }
 
-        rules = json.loads(cand["rules_json"] if hasattr(cand, 'keys') else cand[2])
-        cand_name = cand["name"] if hasattr(cand, 'keys') else cand[1]
-        cand_id = cand["id"] if hasattr(cand, 'keys') else cand[0]
-        cand_updated_at = float((cand["updated_at"] if hasattr(cand, "keys") else cand[5]) or 0.0)
+        rules = json.loads(cand.get("rules_json", "{}") if hasattr(cand, "get") else (cand["rules_json"] if hasattr(cand, 'keys') else cand[2]))
+        cand_name = cand.get("name") if hasattr(cand, "get") else (cand["name"] if hasattr(cand, 'keys') else cand[1])
+        cand_id = cand.get("id") if hasattr(cand, "get") else (cand["id"] if hasattr(cand, 'keys') else cand[0])
+        cand_updated_at = float((cand.get("updated_at") if hasattr(cand, "get") else (cand["updated_at"] if hasattr(cand, "keys") else (cand[5] if len(cand) > 5 else 0.0))) or 0.0)
 
         # Auto-Rollback / Auto-Disable ("Bad Lesson" Protection):
         # Group by signal_id and scope strictly to signals executed AFTER this candidate was approved (executed_at >= cand_updated_at)
@@ -557,7 +557,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
 
         # Load latest Admin-approved strategy candidate (APPROVED_FOR_PROD)
         cands = c.execute(
-            "SELECT id, name, rules_json FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC"
+            "SELECT id, name, rules_json, updated_at FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC"
         ).fetchall()
         if not cands:
             return {"status": "SKIPPED", "reason": "NO_APPROVED_FOR_PROD_STRATEGY"}
@@ -798,9 +798,21 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 metaapi_client=MetaApiClient(),
                 redis_client=redis_cli,
             )
-            with tx() as c_up:
-                setkv(c_up, last_ts_key, str(latest_bar_ts))
-            return {"status": "DISPATCHED", "signal_id": sanitized.id, "report": report}
+            executed_count = int(report.get("executed", 0))
+            if executed_count > 0:
+                with tx() as c_up:
+                    setkv(c_up, last_ts_key, str(latest_bar_ts))
+                return {"status": "DISPATCHED", "signal_id": sanitized.id, "report": report}
+            else:
+                logger.info(
+                    f"Signal {sanitized.id} fan-out executed 0 orders across {len(eligible)} accounts (all skipped or failed)."
+                )
+                return {
+                    "status": "FANOUT_NO_EXECUTIONS",
+                    "signal_id": sanitized.id,
+                    "reason": "ALL_ACCOUNTS_SKIPPED_OR_FAILED",
+                    "report": report,
+                }
         with tx() as c_up:
             setkv(c_up, last_ts_key, str(latest_bar_ts))
         return {"status": "APPROVED_NO_ACCOUNTS", "signal_id": sanitized.id}
@@ -809,19 +821,25 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         return {"status": "ERROR", "error": str(e)}
 
 
-_ENGINE_LOOP = None
+_THREAD_LOCAL = threading.local()
+
+
+def _get_thread_event_loop():
+    loop = getattr(_THREAD_LOCAL, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        _THREAD_LOCAL.loop = loop
+    return loop
 
 
 def _run_coro(coro):
-    """Run an async coroutine on a persistent worker event loop to avoid repeated loop creation."""
+    """Run an async coroutine on a per-thread persistent worker event loop to avoid cross-thread collisions."""
     import asyncio
-    global _ENGINE_LOOP
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        if _ENGINE_LOOP is None or _ENGINE_LOOP.is_closed():
-            _ENGINE_LOOP = asyncio.new_event_loop()
-        return _ENGINE_LOOP.run_until_complete(coro)
+        loop = _get_thread_event_loop()
+        return loop.run_until_complete(coro)
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(asyncio.run, coro).result()
@@ -877,7 +895,7 @@ def _run_agent_step_bg():
 
 
 def tick():
-    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts, _last_sub_lifecycle_ts, _last_crypto_scan_ts, _crypto_scan_in_flight
+    global _last_watcher_ts, _last_market_feed_ts, _last_agent_eval_ts, _last_sub_lifecycle_ts, _last_crypto_scan_ts, _crypto_scan_in_flight, _agent_step_in_flight
     market_closed = is_weekend_market_closed()
 
     with tx() as c:
@@ -926,8 +944,12 @@ def tick():
         if not _agent_step_in_flight:
             _last_agent_eval_ts = now
             _agent_step_in_flight = True
-            t = threading.Thread(target=_run_agent_step_bg, name="ZupirusAutonomousAgentStep", daemon=True)
-            t.start()
+            try:
+                t = threading.Thread(target=_run_agent_step_bg, name="ZupirusAutonomousAgentStep", daemon=True)
+                t.start()
+            except Exception as start_err:
+                _agent_step_in_flight = False
+                logger.error(f"Failed to start autonomous agent background thread: {start_err}")
 
     # 4. Run Subscription Lifecycle Worker (reminders, expiry undeploy, pending retries) every 1 hour
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_sub_lifecycle_ts >= 3600.0:

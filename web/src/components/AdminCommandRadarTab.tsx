@@ -197,6 +197,9 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
       ]);
       if (rData) {
         setRadar(rData);
+        if (rData.signal_mode) {
+          setSignalMode(rData.signal_mode);
+        }
         if (typeof rData.auto_promote === 'boolean') {
           setAutoPromoteCanary(rData.auto_promote);
         }
@@ -238,6 +241,9 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
           const payload = JSON.parse(e.data);
           if (payload) {
             setRadar((prev: any) => ({ ...prev, ...payload }));
+            if (payload.signal_mode) {
+              setSignalMode(payload.signal_mode);
+            }
           }
         } catch {
           // ignore

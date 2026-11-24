@@ -35,6 +35,24 @@ def client(tmp_path,monkeypatch):
     else:
         monkeypatch.setattr(db,'DATA',tmp_path)
         monkeypatch.setattr(core_db,'DATA',tmp_path)
+        from app.core.db import is_postgres
+        if is_postgres():
+            with db.tx() as cleanup_cur:
+                for tbl in (
+                    'dispatches',
+                    'metaapi_trade_executions',
+                    'trading_accounts',
+                    'metaapi_cloud_accounts',
+                    'crypto_orders',
+                    'billing_orders',
+                    'sessions',
+                    'otp_codes',
+                    'users',
+                ):
+                    try:
+                        cleanup_cur.execute(f"DELETE FROM {tbl}")
+                    except Exception:
+                        pass
     monkeypatch.setattr(research,'DATA',tmp_path)
     from app.db import init as init_app_db
     init_app_db()
@@ -44,6 +62,12 @@ def client(tmp_path,monkeypatch):
 
 @pytest.fixture
 def customer(client):
+    try:
+        with db.tx() as c:
+            c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
+            c.execute("DELETE FROM sessions")
+    except Exception:
+        pass
     p={'email':'alice@example.com','password':'customer-password-123'}
     assert client.post('/api/register',json=p).status_code==200
     assert client.post('/api/login',json=p).status_code==200

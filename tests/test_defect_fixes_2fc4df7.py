@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import time
 from unittest.mock import MagicMock, AsyncMock, patch
 
 from app.db import tx, init
@@ -186,4 +187,112 @@ def test_watcher_batch_deal_deduplication_logic():
     assert len(new_deals) == 2  # deal_2 and deal_3 (deal_1 was in prev_ids, duplicate deal_2 discarded)
     assert new_deal_vol == pytest.approx(0.05)
     assert seen_in_batch == {"deal_1", "deal_2", "deal_3"}
+
+
+def test_tick_globals_and_agent_step_in_flight(monkeypatch):
+    """Verify tick() does not raise UnboundLocalError on _agent_step_in_flight and executes cleanly."""
+    from app.domains.execution import engine
+    monkeypatch.setattr(engine, "is_weekend_market_closed", lambda *args: False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    engine._last_agent_eval_ts = 0.0
+    engine._agent_step_in_flight = False
+
+    # Mock autonomous_agent_step so thread completes fast
+    monkeypatch.setattr(engine, "autonomous_agent_step", lambda: {"status": "MOCK"})
+
+    # tick() should run without UnboundLocalError
+    engine.tick()
+
+
+def test_multithreaded_run_coro_concurrency():
+    """Verify _run_coro does not fail with 'This event loop is already running' under concurrent threads."""
+    import concurrent.futures
+    import time
+    from app.domains.execution.engine import _run_coro
+
+    async def async_worker(duration: float, val: int):
+        await asyncio.sleep(duration)
+        return val * 2
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        f1 = executor.submit(_run_coro, async_worker(0.02, 10))
+        f2 = executor.submit(_run_coro, async_worker(0.02, 20))
+        f3 = executor.submit(_run_coro, async_worker(0.01, 30))
+
+        res1 = f1.result(timeout=2.0)
+        res2 = f2.result(timeout=2.0)
+        res3 = f3.result(timeout=2.0)
+
+    assert res1 == 20
+    assert res2 == 40
+    assert res3 == 60
+
+
+def test_candidate_updated_at_handled_without_key_error():
+    """Verify coordinate_strategies does not fail with KeyError when candidate dict is provided."""
+    cand = {
+        "id": "cand_xau",
+        "name": "XAU Scalper",
+        "rules_json": '{"symbol": "XAUUSD", "strategy": "strat_trend_breakout"}',
+        "updated_at": 1700000000.0,
+    }
+    res = coordinate_strategies([], timeframe="M15", symbol="XAUUSD", candidate=cand)
+    # Should evaluate without KeyError: 'updated_at'
+    assert "strategy" in res or "side" in res
+
+
+@pytest.mark.asyncio
+async def test_fanout_zero_executed_returns_no_executions_and_does_not_lock(monkeypatch):
+    """Verify that when fanout executes 0 orders, status is FANOUT_NO_EXECUTIONS and last_ts_key is not updated."""
+    from app.domains.execution import engine
+    from app.db import getkv, setkv
+
+    with tx() as c:
+        setkv(c, "signal_mode", "ZUPIRUS_AGENT")
+        setkv(c, "halted", "0")
+        c.execute("DELETE FROM kv WHERE key = 'agent_last_candle_ts'")
+        c.execute("DELETE FROM strategy_candidates")
+        c.execute(
+            """
+            INSERT INTO strategy_candidates (id, name, rules_json, status, updated_at, created_at)
+            VALUES ('c_gold', 'Gold Strat', '{"symbol": "XAUUSD", "strategy": "strat_trend_breakout"}', 'APPROVED_FOR_PROD', 1700000000.0, 1700000000.0)
+            """
+        )
+        c.execute("DELETE FROM candles")
+        # Insert 30 closed M15 candles
+        now_ts = time.time()
+        for i in range(35):
+            c.execute(
+                "INSERT INTO candles (symbol, timeframe, time, open, high, low, close) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("XAUUSD", "M15", now_ts - (35 - i) * 900, 2600.0, 2605.0, 2595.0, 2602.0),
+            )
+        # Add 1 eligible trading account with active cloud subscription
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u1', 'u1@test.com', 'pwd', 'admin') ON CONFLICT DO NOTHING")
+        c.execute("INSERT OR REPLACE INTO subscriptions (user_id, plan_tier, allow_alpha_strategies, service_expires_at, created_at, updated_at) VALUES ('u1', 'institutional', 1, ?, ?, ?)", (now_ts + 86400.0, now_ts, now_ts))
+        c.execute("DELETE FROM trading_accounts")
+        c.execute(
+            """
+            INSERT INTO trading_accounts (id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server, auto_trade, balance, equity, deployment_state, cloud_expires_at, created_at)
+            VALUES ('acc_test', 'u1', 'm_test', '12345', 'enc', 'Server', 1, 10000.0, 10000.0, 'DEPLOYED', ?, ?)
+            """,
+            (now_ts + 86400.0, now_ts),
+        )
+
+    # Mock execute_fan_out_for_signal to return 0 executed
+    async def mock_fanout(*args, **kwargs):
+        return {"executed": 0, "failed": 0, "skipped": 1, "executions": []}
+
+    monkeypatch.setattr("app.domains.execution.fanout.execute_fan_out_for_signal", mock_fanout)
+    monkeypatch.setattr("app.metaapi.execute_fan_out_for_signal", mock_fanout)
+    monkeypatch.setattr("app.domains.signals.ingestion.context.get_fresh_live_price", lambda *a, **kw: 2602.0)
+
+    res = await engine.autonomous_agent_step_async(force_side="BUY", symbol="XAUUSD")
+    assert res.get("status") == "FANOUT_NO_EXECUTIONS"
+    assert res.get("reason") == "ALL_ACCOUNTS_SKIPPED_OR_FAILED"
+
+    with tx() as c:
+        last_ts = getkv(c, "agent_last_candle_ts")
+        # last_ts should not be updated for this candle
+        assert last_ts is None
+
 
