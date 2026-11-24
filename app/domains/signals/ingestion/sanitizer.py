@@ -99,7 +99,7 @@ def clear_signal_deduplication(signal: NormalizedSignalSchema) -> None:
 
         with tx() as c:
             c.execute("DELETE FROM signal_dispatch_locks WHERE signal_fingerprint LIKE ?", (f"san:{sig_hash}:%",))
-            c.execute("UPDATE signal_audit_logs SET status = 'FANOUT_FAILED' WHERE id = ?", (signal.id,))
+            c.execute("UPDATE signal_audit_logs SET status = 'FANOUT_FAILED' WHERE signal_id = ? OR id = ?", (signal.id, signal.id))
     except Exception as e:
         logger.debug(f"clear_signal_deduplication note: {e}")
 

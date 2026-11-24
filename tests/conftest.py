@@ -40,25 +40,27 @@ def client(tmp_path,monkeypatch):
             with db.tx() as cleanup_cur:
                 try:
                     cleanup_cur.execute(
-                        "TRUNCATE TABLE dispatches, metaapi_trade_executions, trading_accounts, "
-                        "metaapi_cloud_accounts, crypto_orders, billing_orders, subscriptions, "
-                        "sessions, otp_codes, users CASCADE;"
+                        "TRUNCATE TABLE users, orders, quotes, candles, dispatches, signals, "
+                        "strategy_candidates, signal_audit_logs CASCADE;"
                     )
                 except Exception:
                     for tbl in (
+                        'sim_positions',
                         'dispatches',
                         'metaapi_trade_executions',
                         'trading_accounts',
                         'metaapi_cloud_accounts',
-                        'crypto_orders',
-                        'billing_orders',
+                        'real_accounts',
+                        'orders',
                         'subscriptions',
                         'sessions',
                         'otp_codes',
+                        'accounts',
                         'users',
                     ):
                         try:
-                            cleanup_cur.execute(f"DELETE FROM {tbl}")
+                            with db.tx() as fallback_cur:
+                                fallback_cur.execute(f"DELETE FROM {tbl}")
                         except Exception:
                             pass
     monkeypatch.setattr(research,'DATA',tmp_path)
@@ -71,40 +73,19 @@ def client(tmp_path,monkeypatch):
 @pytest.fixture
 def customer(client):
     try:
-        with db.tx() as c:
-            from app.core.db import is_postgres
-            if is_postgres():
-                try:
-                    c.execute(
-                        "TRUNCATE TABLE dispatches, metaapi_trade_executions, trading_accounts, "
-                        "metaapi_cloud_accounts, crypto_orders, billing_orders, subscriptions, "
-                        "sessions, otp_codes, users CASCADE;"
-                    )
-                except Exception:
-                    for tbl in (
-                        'dispatches',
-                        'metaapi_trade_executions',
-                        'trading_accounts',
-                        'metaapi_cloud_accounts',
-                        'crypto_orders',
-                        'billing_orders',
-                        'subscriptions',
-                        'sessions',
-                        'otp_codes',
-                    ):
-                        try:
-                            c.execute(f"DELETE FROM {tbl}")
-                        except Exception:
-                            pass
-                    c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
-            else:
+        from app.core.db import is_postgres
+        if is_postgres():
+            with db.tx() as c:
+                c.execute("TRUNCATE TABLE users CASCADE;")
+        else:
+            with db.tx() as c:
                 for tbl in (
+                    'sim_positions',
                     'dispatches',
                     'metaapi_trade_executions',
                     'trading_accounts',
                     'metaapi_cloud_accounts',
-                    'crypto_orders',
-                    'billing_orders',
+                    'orders',
                     'subscriptions',
                     'sessions',
                     'otp_codes',

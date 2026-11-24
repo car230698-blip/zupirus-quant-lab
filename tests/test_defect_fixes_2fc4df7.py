@@ -313,14 +313,23 @@ async def test_fanout_zero_executed_returns_no_executions_and_does_not_lock(monk
         c.execute("DELETE FROM candles")
         # Insert 30 closed M15 candles
         now_ts = time.time()
+        from app.core.db import is_postgres
         for i in range(35):
-            c.execute(
-                "INSERT INTO candles (symbol, timeframe, time, open, high, low, close) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                ("XAUUSD", "M15", now_ts - (35 - i) * 900, 2600.0, 2605.0, 2595.0, 2602.0),
-            )
+            c_ts = float(now_ts - (35 - i) * 900)
+            if is_postgres():
+                c.execute(
+                    "INSERT INTO candles (symbol, timeframe, time, open, high, low, close) VALUES (?, ?, to_timestamp(?), ?, ?, ?, ?)",
+                    ("XAUUSD", "M15", c_ts, 2600.0, 2605.0, 2595.0, 2602.0),
+                )
+            else:
+                c.execute(
+                    "INSERT INTO candles (symbol, timeframe, time, open, high, low, close) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    ("XAUUSD", "M15", c_ts, 2600.0, 2605.0, 2595.0, 2602.0),
+                )
         # Add 1 eligible trading account with active cloud subscription
         c.execute("INSERT INTO users (id, email, password, role) VALUES ('u1', 'u1@test.com', 'pwd', 'admin') ON CONFLICT DO NOTHING")
-        c.execute("INSERT OR REPLACE INTO subscriptions (user_id, plan_tier, allow_alpha_strategies, service_expires_at, created_at, updated_at) VALUES ('u1', 'institutional', 1, ?, ?, ?)", (now_ts + 86400.0, now_ts, now_ts))
+        c.execute("DELETE FROM subscriptions WHERE user_id = 'u1'")
+        c.execute("INSERT INTO subscriptions (id, user_id, plan_tier, allow_alpha_strategies, service_expires_at, created_at, updated_at) VALUES ('sub_u1', 'u1', 'institutional', 1, ?, ?, ?)", (now_ts + 86400.0, now_ts, now_ts))
         c.execute("DELETE FROM trading_accounts")
         c.execute(
             """
@@ -352,39 +361,95 @@ def test_customer_cleanup_with_dependent_records():
     """Verify customer fixture cleanup pattern deletes dependent FK records so user can be re-registered without 409."""
     with tx() as c:
         now_ts = time.time()
-        # Seed user with active dependent child records
+        # Seed user with active dependent child records using ANSI SQL
         c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_alice', 'alice@example.com', 'pwd', 'customer') ON CONFLICT DO NOTHING")
-        c.execute("INSERT OR REPLACE INTO sessions (token, user_id, expires) VALUES ('tok_alice', 'u_alice', ?)", (now_ts + 3600,))
-        c.execute("INSERT OR REPLACE INTO subscriptions (user_id, plan_tier, allow_alpha_strategies, service_expires_at, created_at, updated_at) VALUES ('u_alice', 'pro', 1, ?, ?, ?)", (now_ts + 86400, now_ts, now_ts))
+        c.execute("DELETE FROM sessions WHERE token = 'tok_alice'")
+        c.execute("INSERT INTO sessions (token, user_id, expires) VALUES ('tok_alice', 'u_alice', ?)", (now_ts + 3600,))
+        c.execute("DELETE FROM subscriptions WHERE user_id = 'u_alice'")
+        c.execute("INSERT INTO subscriptions (id, user_id, plan_tier, allow_alpha_strategies, service_expires_at, created_at, updated_at) VALUES ('sub_alice', 'u_alice', 'pro', 1, ?, ?, ?)", (now_ts + 86400, now_ts, now_ts))
+        c.execute("DELETE FROM trading_accounts WHERE id = 'acc_alice'")
         c.execute(
             """
-            INSERT OR REPLACE INTO trading_accounts (id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server, auto_trade, balance, equity, deployment_state, created_at)
+            INSERT INTO trading_accounts (id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server, auto_trade, balance, equity, deployment_state, created_at)
             VALUES ('acc_alice', 'u_alice', 'm_alice', '8888', 'enc', 'Server', 1, 5000.0, 5000.0, 'DEPLOYED', ?)
             """,
             (now_ts,)
         )
 
-        # Cleanup child tables first as done in updated conftest.py
-        for tbl in (
-            'dispatches',
-            'metaapi_trade_executions',
-            'trading_accounts',
-            'metaapi_cloud_accounts',
-            'crypto_orders',
-            'billing_orders',
-            'subscriptions',
-            'sessions',
-            'otp_codes',
-        ):
-            try:
-                c.execute(f"DELETE FROM {tbl}")
-            except Exception:
-                pass
-        c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
+        from app.core.db import is_postgres
+        if is_postgres():
+            c.execute("TRUNCATE TABLE users CASCADE;")
+        else:
+            for tbl in (
+                'sim_positions',
+                'dispatches',
+                'metaapi_trade_executions',
+                'trading_accounts',
+                'metaapi_cloud_accounts',
+                'orders',
+                'subscriptions',
+                'sessions',
+                'otp_codes',
+            ):
+                try:
+                    c.execute(f"DELETE FROM {tbl}")
+                except Exception:
+                    pass
+            c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
 
         # Verify user is completely deleted
         u = c.execute("SELECT id FROM users WHERE email = 'alice@example.com'").fetchone()
         assert u is None
+
+
+def test_clear_signal_deduplication_db_fallback_when_redis_down(monkeypatch):
+    """Verify that when Redis is completely unavailable, DB fallback dedup updates audit log by signal_id and allows retry."""
+    from app.schemas.signals import NormalizedSignalSchema
+    from app.domains.signals.ingestion.sanitizer import (
+        sanitize_and_audit_signal,
+        check_redis_deduplication,
+        clear_signal_deduplication,
+    )
+
+    with tx() as c:
+        c.execute("DELETE FROM news")
+
+    # Simulate Redis connection failure
+    def mock_broken_redis():
+        raise ConnectionError("Simulated Redis connection failure")
+
+    monkeypatch.setattr("app.domains.signals.ingestion.sanitizer.get_redis_client", mock_broken_redis)
+
+    sig = NormalizedSignalSchema(
+        id="sig_test_db_fallback_1",
+        source="ZUPIRUS_CORE",
+        strategy="trend",
+        symbol="EURUSD",
+        action="BUY",
+        timeframe="M15",
+        entry_price=1.0850,
+        stop_loss=1.0800,
+        take_profit=1.0950,
+        timestamp=time.time(),
+    )
+
+    # 1. First pass: approved and persisted to signal_audit_logs with status='APPROVED'
+    ok1, reason1, _ = sanitize_and_audit_signal(sig, live_price=1.0850)
+    assert ok1 is True
+
+    # 2. Immediate second pass: DB fallback sees recent APPROVED entry within 60s -> blocked
+    ok2, reason2 = check_redis_deduplication(sig)
+    assert ok2 is False
+    assert "REJECTED_DUPLICATE_SIGNAL" in (reason2 or "")
+
+    # 3. Clear deduplication lock using signal_id (e.g. fanout returned executed: 0)
+    clear_signal_deduplication(sig)
+
+    # 4. Immediate third pass: audit log updated to 'FANOUT_FAILED' -> DB fallback now allows retry!
+    ok3, reason3 = check_redis_deduplication(sig)
+    assert ok3 is True
+    assert reason3 is None
+
 
 
 
