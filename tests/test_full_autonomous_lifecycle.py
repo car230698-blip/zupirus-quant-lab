@@ -212,7 +212,7 @@ async def test_full_autonomous_lifecycle_end_to_end():
                     latest_mid,
                     latest_mid - 5.0,
                     json.dumps({"session": "London", "atr_14": 4.2, "news_distance_mins": 120.0}),
-                    now_ts,
+                    now_ts - 86400,
                 ),
             )
 

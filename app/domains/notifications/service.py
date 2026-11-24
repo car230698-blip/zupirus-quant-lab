@@ -232,23 +232,34 @@ def run_daily_executive_digest(c=None, force: bool = False) -> Dict[str, Any]:
 
         # Dispatch Email
         from app.core.mailer import send_admin_alert_email
-        send_admin_alert_email(f"[ZUPIRUS] Báo Cáo Điều Hành Cuối Ngày - {today_str}", html_content)
+        mail_res = send_admin_alert_email(f"[ZUPIRUS] Báo Cáo Điều Hành Cuối Ngày - {today_str}", html_content)
+        is_sent = bool(mail_res and isinstance(mail_res, dict) and mail_res.get("ok"))
 
-        # Mark sent in kv
-        cursor.execute(
-            "INSERT INTO kv (key, value) VALUES ('daily_digest_last_date', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (today_str,),
-        )
-        return {
-            "ok": True,
-            "status": "sent",
-            "date": today_str,
-            "sys_status": sys_status,
-            "orders_24h": orders_24h,
-            "pnl_24h": pnl_24h,
-            "sepay_rev_vnd": sepay_rev_vnd,
-            "quota": quota_str,
-        }
+        if is_sent:
+            # Mark sent in kv only if mailer confirmed successful delivery
+            cursor.execute(
+                "INSERT INTO kv (key, value) VALUES ('daily_digest_last_date', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (today_str,),
+            )
+            return {
+                "ok": True,
+                "status": "sent",
+                "date": today_str,
+                "sys_status": sys_status,
+                "orders_24h": orders_24h,
+                "pnl_24h": pnl_24h,
+                "sepay_rev_vnd": sepay_rev_vnd,
+                "quota": quota_str,
+            }
+        else:
+            err_msg = mail_res.get("error", "EMAIL_SEND_FAILED") if isinstance(mail_res, dict) else "EMAIL_SEND_FAILED"
+            logger.warning(f"Daily digest dispatch to admin failed ({err_msg}); not marking daily_digest_last_date so retry remains possible.")
+            return {
+                "ok": False,
+                "status": "send_failed",
+                "error": err_msg,
+                "date": today_str,
+            }
 
     if c:
         return _execute(c)

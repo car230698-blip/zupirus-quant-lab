@@ -492,11 +492,20 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
             is_lower_tier_on_active = True
 
     if is_lower_tier_on_active:
-        if (now_ts + duration_sec) > current_sub_exp:
-            effective_tier = tier
-            new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
-        else:
-            new_sub_exp = current_sub_exp
+        # Sequential queuing: Lower-tier subscription is queued to activate after current higher-tier expires
+        new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
+        try:
+            c.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"queued_downgrade:{user_id}", json.dumps({
+                    "target_tier": tier,
+                    "effective_after": current_sub_exp,
+                    "expires_at": new_sub_exp,
+                    "order_id": order.get("id"),
+                })),
+            )
+        except Exception as q_err:
+            logger.debug(f"Queued downgrade KV insertion note: {q_err}")
     else:
         new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
 
@@ -562,10 +571,12 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
     for a_row in acc_rows:
         a = dict(a_row)
         curr_c_exp = float(a["cloud_expires_at"] or 0) if a.get("cloud_expires_at") else 0.0
-        new_c_exp = max(curr_c_exp, now_ts) + duration_sec
+        # Align cloud expiration strictly with the calculated subscription expiration
+        new_c_exp = new_sub_exp
         dep_st = str(a.get("deployment_state") or "").upper()
         was_expired_or_undeployed = dep_st in ("UNDEPLOYED", "EXPIRED_PROTECTING", "DEPLOY_PENDING") or (curr_c_exp > 0 and curr_c_exp <= now_ts)
-        next_auto_trade = 1 if was_expired_or_undeployed else int(a.get("auto_trade") if a.get("auto_trade") is not None else 1)
+        # Preserve user's auto_trade configuration; never automatically enable auto_trade=1
+        next_auto_trade = int(a.get("auto_trade") if a.get("auto_trade") is not None else 0)
         if a.get("metaapi_account_id") and (was_expired_or_undeployed or dep_st != "DEPLOYED"):
             c.execute(
                 "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = ?, deployment_state = 'DEPLOY_PENDING' WHERE id = ? AND user_id = ?",
@@ -624,9 +635,9 @@ async def fulfill_order_entitlements(order_id: str) -> bool:
     return True
 
 
-async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = None, max_retries: int = 3, delay: int = 2):
+async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = None, max_retries: int = 3, delay: int = 2, client: Optional[Any] = None):
     """Attempt deployment with backoff and only mark DEPLOYED when MetaApi confirms True."""
-    client = MetaApiClient()
+    client = client or MetaApiClient()
     all_ok = True
     for item in account_pairs:
         if isinstance(item, tuple):
@@ -649,7 +660,8 @@ async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = No
 
         if deployed_ok and acc_id:
             with tx() as c:
-                c.execute("UPDATE trading_accounts SET deployment_state = 'DEPLOYED', auto_trade = 1 WHERE id = ?", (acc_id,))
+                # Set terminal DEPLOYED without forcibly enabling auto_trade
+                c.execute("UPDATE trading_accounts SET deployment_state = 'DEPLOYED' WHERE id = ?", (acc_id,))
         elif not deployed_ok:
             all_ok = False
 

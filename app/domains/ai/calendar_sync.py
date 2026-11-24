@@ -80,12 +80,15 @@ def fetch_live_calendar() -> List[Dict[str, Any]]:
                             date_val = item.get("date") or item.get("time")
                             ts = parse_event_time(str(date_val)) if date_val else None
                             if ts and ts > time.time() - 86400:
-                                events.append({
+                                ev_obj = {
                                     "title": title,
                                     "currency": "USD",
                                     "impact": "high",
                                     "ts": ts
-                                })
+                                }
+                                if item.get("id"):
+                                    ev_obj["id"] = str(item.get("id"))
+                                events.append(ev_obj)
             if events:
                 logger.info(f"Successfully fetched {len(events)} events from {url}")
                 return events
@@ -109,6 +112,7 @@ def fetch_live_calendar() -> List[Dict[str, Any]]:
 
 def sync_economic_calendar(c) -> Tuple[int, int]:
     """Synchronizes economic calendar into the news table.
+    Updates event timestamp when rescheduled by provider and maintains audit history.
     Returns (added_count, existing_count)."""
     raw_events = fetch_live_calendar()
     added = 0
@@ -119,17 +123,59 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
         ts = float(ev["ts"])
         currency = ev.get("currency", "USD")
         impact = ev.get("impact", "high")
+        event_id = ev.get("id") or ev.get("event_id")
 
-        # Check deduplication within ±30 minutes with same title
-        row = c.execute(
-            "SELECT id FROM news WHERE title = ? AND abs(ts - ?) < 1800",
-            (title, ts),
-        ).fetchone()
+        # Match existing event: by provider ID if present, OR by title & currency within ±3600 seconds
+        row = None
+        if event_id:
+            row = c.execute(
+                "SELECT id, ts, title, currency FROM news WHERE id = ?",
+                (str(event_id),),
+            ).fetchone()
+        if not row:
+            row = c.execute(
+                "SELECT id, ts, title, currency FROM news WHERE title = ? AND upper(currency) = upper(?) AND abs(ts - ?) < 3600",
+                (title, currency, ts),
+            ).fetchone()
+        if not row:
+            # Fallback title match within ±2 hours for rescheduled events
+            row = c.execute(
+                "SELECT id, ts, title, currency FROM news WHERE title = ? AND abs(ts - ?) < 7200",
+                (title, ts),
+            ).fetchone()
 
         if row:
             existing += 1
+            existing_id = row["id"] if hasattr(row, "keys") else row[0]
+            existing_ts = float(row["ts"] if hasattr(row, "keys") else row[1])
+            # If the event was rescheduled (timestamp shifted by > 1.0s), update to the new event_time and log audit
+            if abs(existing_ts - ts) > 1.0:
+                c.execute(
+                    "UPDATE news SET ts = ?, impact = ?, currency = ? WHERE id = ?",
+                    (ts, impact, currency, existing_id),
+                )
+                try:
+                    c.execute(
+                        "INSERT INTO audit (ts, actor, event, detail) VALUES (?, 'calendar_sync', 'EVENT_RESCHEDULED', ?)",
+                        (
+                            time.time(),
+                            json.dumps({
+                                "news_id": existing_id,
+                                "title": title,
+                                "old_ts": existing_ts,
+                                "new_ts": ts,
+                                "shift_seconds": round(ts - existing_ts, 1),
+                                "shift_minutes": round((ts - existing_ts) / 60.0, 1),
+                            }),
+                        ),
+                    )
+                except Exception as audit_err:
+                    logger.debug(f"Audit log insertion note: {audit_err}")
+                logger.info(
+                    f"Calendar Event Rescheduled: '{title}' shifted from {existing_ts} to {ts} (shift: {(ts - existing_ts)/60.0:+.1f}m)"
+                )
         else:
-            nid = f"news_auto_{secrets.token_hex(6)}"
+            nid = str(event_id) if event_id else f"news_auto_{secrets.token_hex(6)}"
             c.execute(
                 "INSERT INTO news (id, title, currency, impact, ts) VALUES (?, ?, ?, ?, ?)",
                 (nid, title, currency, impact, ts),

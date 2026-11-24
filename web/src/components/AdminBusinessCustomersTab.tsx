@@ -308,7 +308,9 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   <th className="py-2.5 pr-4">Khách Hàng</th>
                   <th className="py-2.5 pr-4">Gói Thuê Bao</th>
                   <th className="py-2.5 pr-4 text-right">Số Tiền (VND)</th>
-                  <th className="py-2.5 pr-4 text-center">Trạng Thái</th>
+                  <th className="py-2.5 pr-4 text-center">
+                    {lang === 'en' ? 'Entitlement Milestones (3 Steps)' : 'Tiến Trình Cấp Quyền (3 Mốc)'}
+                  </th>
                   <th className="py-2.5 text-right">Thao Tác</th>
                 </tr>
               </thead>
@@ -332,15 +334,51 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                           {Number(o.amount_vnd || 0).toLocaleString('vi-VN')} đ
                         </td>
                         <td className="py-2.5 pr-4 text-center">
-                          <span
-                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                              st === 'PAID'
-                                ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/30'
-                                : 'bg-[#F5B700]/15 text-[#F5B700] border border-[#F5B700]/30'
-                            }`}
-                          >
-                            {st}
-                          </span>
+                          <div className="inline-flex flex-col items-center gap-1">
+                            <div className="flex items-center gap-1 text-[10px] font-mono">
+                              {/* Mốc 1: Nhận tiền */}
+                              <span
+                                title={lang === 'en' ? 'Step 1: Payment Confirmed' : 'Mốc 1: Đã nhận tiền'}
+                                className={`rounded px-1.5 py-0.5 font-bold ${
+                                  o.payment_confirmed || st === 'PAID'
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                }`}
+                              >
+                                {o.payment_confirmed || st === 'PAID' ? '✓ Tiền' : 'Chờ Tiền'}
+                              </span>
+                              <span className="text-slate-600">→</span>
+                              {/* Mốc 2: Cấp quyền */}
+                              <span
+                                title={lang === 'en' ? 'Step 2: Entitlement Applied' : 'Mốc 2: Đã cấp quyền'}
+                                className={`rounded px-1.5 py-0.5 font-bold ${
+                                  o.entitlement_applied || st === 'PAID'
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-slate-700/50 text-slate-400 border border-slate-700'
+                                }`}
+                              >
+                                {o.entitlement_applied || st === 'PAID' ? '✓ Quyền' : 'Chờ Quyền'}
+                              </span>
+                              <span className="text-slate-600">→</span>
+                              {/* Mốc 3: Terminal Cloud */}
+                              <span
+                                title={lang === 'en' ? 'Step 3: Cloud Terminal Ready' : 'Mốc 3: Terminal Cloud đã sẵn sàng'}
+                                className={`rounded px-1.5 py-0.5 font-bold ${
+                                  o.cloud_ready || (st === 'PAID' && String(o.cloud_deploy_status || '').toUpperCase() !== 'FAILED')
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                    : String(o.cloud_deploy_status || '').toUpperCase() === 'FAILED'
+                                    ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                                    : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                }`}
+                              >
+                                {o.cloud_ready || (st === 'PAID' && String(o.cloud_deploy_status || '').toUpperCase() !== 'FAILED')
+                                  ? '✓ Cloud'
+                                  : String(o.cloud_deploy_status || '').toUpperCase() === 'FAILED'
+                                  ? '✗ Cloud'
+                                  : 'Chờ Cloud'}
+                              </span>
+                            </div>
+                          </div>
                         </td>
                         <td className="py-2.5 text-right font-sans">
                           {isException ? (

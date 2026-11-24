@@ -340,6 +340,21 @@ def get_admin_billing_orders(
             d["cloud_accounts_count"] = d.get("cloud_slots_count", 1)
             cy_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_cycle:{d.get('id')}",)).fetchone()
             d["billing_cycle"] = str(cy_row[0]).upper() if cy_row and cy_row[0] else "MONTHLY"
+
+            # 3 explicit provisioning milestone flags for Admin diagnostic triage
+            st = str(d.get("status") or "").upper()
+            is_paid = (st == "PAID" or d.get("paid_at") is not None)
+            pay_st = str(d.get("payment_status") or "").upper()
+            ent_st = str(d.get("entitlement_status") or "").upper()
+            cld_st = str(d.get("cloud_deploy_status") or "").upper()
+
+            d["payment_confirmed"] = is_paid or (pay_st in ("PAID", "CONFIRMED"))
+            d["entitlement_applied"] = is_paid or (ent_st == "APPLIED")
+            d["cloud_ready"] = (cld_st == "DEPLOYED") or (is_paid and cld_st not in ("FAILED", "PENDING"))
+            d["payment_status"] = "CONFIRMED" if d["payment_confirmed"] else (pay_st or st or "PENDING")
+            d["entitlement_status"] = "APPLIED" if d["entitlement_applied"] else (ent_st or "PENDING")
+            d["cloud_deploy_status"] = "DEPLOYED" if d["cloud_ready"] else (cld_st or "PENDING")
+
             orders_list.append(d)
 
     return {"total": total, "orders": orders_list}

@@ -55,15 +55,43 @@ async def run_subscription_lifecycle_cycle(
 
         pending_accs = c.execute(
             """
-            SELECT id, user_id, metaapi_account_id
-            FROM trading_accounts
-            WHERE deployment_state = 'DEPLOY_PENDING' AND metaapi_account_id IS NOT NULL
+            SELECT t.id, t.user_id, t.metaapi_account_id, t.cloud_expires_at, s.service_expires_at,
+                   u.role as user_role
+            FROM trading_accounts t
+            LEFT JOIN subscriptions s ON s.user_id = t.user_id
+            LEFT JOIN users u ON u.id = t.user_id
+            WHERE t.deployment_state = 'DEPLOY_PENDING' AND t.metaapi_account_id IS NOT NULL
             """
         ).fetchall()
         pending_list = [dict(r) for r in pending_accs]
 
-    # 1. Retry any DEPLOY_PENDING accounts
+    # 1. Retry any DEPLOY_PENDING accounts (strictly verify entitlement validity first)
     for acc in pending_list:
+        is_admin = str(acc.get("user_role") or "").lower() == "admin"
+        sub_exp = float(acc.get("service_expires_at") or 0)
+        cloud_exp = float(acc.get("cloud_expires_at") or 0)
+        is_expired = not is_admin and (sub_exp <= now or (cloud_exp > 0 and cloud_exp <= now))
+        if is_expired:
+            open_positions = []
+            try:
+                open_positions = await meta_client.get_open_positions(acc["metaapi_account_id"]) or []
+            except Exception:
+                open_positions = []
+            with tx() as c:
+                if open_positions:
+                    c.execute(
+                        "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
+                        (acc["id"],),
+                    )
+                    stats["protecting_open"] += 1
+                else:
+                    c.execute(
+                        "UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0 WHERE id = ?",
+                        (acc["id"],),
+                    )
+                    stats["undeployed_idle"] += 1
+            continue
+
         try:
             if await meta_client.deploy_account(acc["metaapi_account_id"]):
                 with tx() as c:
@@ -90,9 +118,10 @@ async def run_subscription_lifecycle_cycle(
             with tx() as c:
                 already = getkv(c, kv_key)
                 if not already:
-                    _get_reminder_sender()(email=email, plan_tier=tier, days_left=3, expires_at=exp)
-                    setkv(c, kv_key, str(now))
-                    stats["reminded_3d"] += 1
+                    send_res = _get_reminder_sender()(email=email, plan_tier=tier, days_left=3, expires_at=exp)
+                    if send_res is True or (isinstance(send_res, dict) and send_res.get("ok")):
+                        setkv(c, kv_key, str(now))
+                        stats["reminded_3d"] += 1
 
         # 1-day reminder window: (0, 1 day]
         elif 0 < remaining <= 86400 and email:
@@ -100,9 +129,10 @@ async def run_subscription_lifecycle_cycle(
             with tx() as c:
                 already = getkv(c, kv_key)
                 if not already:
-                    _get_reminder_sender()(email=email, plan_tier=tier, days_left=1, expires_at=exp)
-                    setkv(c, kv_key, str(now))
-                    stats["reminded_1d"] += 1
+                    send_res = _get_reminder_sender()(email=email, plan_tier=tier, days_left=1, expires_at=exp)
+                    if send_res is True or (isinstance(send_res, dict) and send_res.get("ok")):
+                        setkv(c, kv_key, str(now))
+                        stats["reminded_1d"] += 1
 
         # Expired subscription: suspend new entries (`auto_trade = 0`), undeploy idle terminals,
         # keep `EXPIRED_PROTECTING` on accounts with active open positions so PositionWatcher guards them.

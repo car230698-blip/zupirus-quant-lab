@@ -450,18 +450,19 @@ def replay_step(c, index):
     setkv(c, 'replay_index', index + 1)
     setkv(c, 'replay_price', price)
 
-def get_closed_candles_for_strategy(c, source: str = 'DEMO', timeframe: str = 'M15', min_required: int = 25):
-    """Return strictly closed candles for the given timeframe.
+def get_closed_candles_for_strategy(c, source: str = 'DEMO', timeframe: str = 'M15', min_required: int = 25, symbol: str = 'XAUUSD'):
+    """Return strictly closed candles for the given timeframe and symbol.
     A candle is closed when its bucket end <= current time.
-    Supports M1, M5, M15, H1, D1 intervals."""
+    Supports M1, M5, M15, H1, D1 intervals. Strictly filters by symbol."""
     interval_map = {'M1': 60, 'M5': 300, 'M15': 900, 'H1': 3600, 'D1': 86400}
     interval = interval_map.get(timeframe, 900)
     now = time.time()
+    sym_u = str(symbol or "XAUUSD").strip().upper()
     
-    # 1. Check candles table first
+    # 1. Check candles table first (strictly filtered by source, timeframe and symbol)
     rows = c.execute(
-        "SELECT time, open, high, low, close, volume FROM candles WHERE source=? AND timeframe=? ORDER BY time DESC LIMIT ?",
-        (source, timeframe, min_required + 10)
+        "SELECT time, open, high, low, close, volume FROM candles WHERE source=? AND timeframe=? AND upper(symbol)=? ORDER BY time DESC LIMIT ?",
+        (source, timeframe, sym_u, min_required + 10)
     ).fetchall()
     if len(rows) >= min_required:
         candles = [dict(r) for r in rows][::-1]
@@ -469,8 +470,8 @@ def get_closed_candles_for_strategy(c, source: str = 'DEMO', timeframe: str = 'M
         if len(closed) >= min_required:
             return closed, timeframe
 
-    # 2. Next aggregate quotes from quotes table
-    quotes = c.execute("SELECT ts, bid, ask FROM quotes WHERE source=? ORDER BY ts ASC", (source,)).fetchall()
+    # 2. Next aggregate quotes from quotes table (strictly filtered by source and symbol)
+    quotes = c.execute("SELECT ts, bid, ask FROM quotes WHERE source=? AND upper(symbol)=? ORDER BY ts ASC", (source, sym_u)).fetchall()
     if not quotes:
         return [], timeframe
 
@@ -517,18 +518,23 @@ def get_closed_candles_for_strategy(c, source: str = 'DEMO', timeframe: str = 'M
 
     return closed_from_quotes, timeframe
 
-def demo_step(c):
-    quotes = c.execute("SELECT * FROM quotes WHERE source='DEMO' ORDER BY ts DESC LIMIT 30").fetchall()
+def demo_step(c, symbol: str = 'XAUUSD'):
+    sym_u = str(symbol or "XAUUSD").strip().upper()
+    quotes = c.execute("SELECT * FROM quotes WHERE source='DEMO' AND upper(symbol)=? ORDER BY ts DESC LIMIT 30", (sym_u,)).fetchall()
     if not quotes or time.time() - quotes[0]['ts'] > 10:
         return
     latest_quote = quotes[0]
-    previous = c.execute("SELECT value FROM kv WHERE key='demo_last'").fetchone()
+    demo_key = f"demo_last_{sym_u}"
+    previous = c.execute("SELECT value FROM kv WHERE key=?", (demo_key,)).fetchone()
+    if not previous:
+        previous = c.execute("SELECT value FROM kv WHERE key='demo_last'").fetchone()
     if previous and float(previous[0]) >= latest_quote['ts']:
         return
+    setkv(c, demo_key, latest_quote['ts'])
     setkv(c, 'demo_last', latest_quote['ts'])
     
     timeframe = os.getenv("STRATEGY_TIMEFRAME", "M15")
-    closed_candles, tf = get_closed_candles_for_strategy(c, source='DEMO', timeframe=timeframe, min_required=25)
+    closed_candles, tf = get_closed_candles_for_strategy(c, source='DEMO', timeframe=timeframe, min_required=25, symbol=sym_u)
     
     now = time.time()
     if len(closed_candles) < 25:
@@ -668,8 +674,18 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         if len(bars_asc) < 25:
             return {"status": "SKIPPED", "reason": f"INSUFFICIENT_M15_CANDLES_{sym_u}"}
         latest_bar_ts = to_epoch_ts(bars_asc[-1]["time"])
-        if (now - latest_bar_ts) > 14400.0 and not os.getenv("PYTEST_CURRENT_TEST"):
+        latest_bar_close = latest_bar_ts + 900.0
+        # Enforce fresh M15 candle arrival: latest candle must have closed within expected current M15 window (+5m grace)
+        # Replaces loose 4-hour threshold so stale candle structures with fresh tick prices are rejected
+        if (now - latest_bar_close) > 1200.0:
             return {"status": "SKIPPED", "reason": f"STALE_CANDLES_{sym_u}"}
+
+        # Check continuity across closed candle sequence (no abnormal gap > 1800s between consecutive bars)
+        for i in range(1, len(bars_asc)):
+            prev_bar_t = to_epoch_ts(bars_asc[i - 1]["time"])
+            curr_bar_t = to_epoch_ts(bars_asc[i]["time"])
+            if (curr_bar_t - prev_bar_t) > 1800.0:
+                return {"status": "SKIPPED", "reason": f"GAP_IN_CANDLES_{sym_u}"}
         last_eval_row = c.execute("SELECT value FROM kv WHERE key = ?", (last_ts_key,)).fetchone()
         if last_eval_row and float(last_eval_row[0]) >= latest_bar_ts:
             return {"status": "SKIPPED", "reason": "CANDLE_ALREADY_EVALUATED"}
@@ -810,8 +826,10 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                     WHERE a.auto_trade = 1 AND a.deployment_state = 'DEPLOYED'
                       AND a.equity > 0
                       AND (
-                          (s.service_expires_at IS NOT NULL AND s.service_expires_at > ?)
-                          OR (a.cloud_expires_at IS NOT NULL AND a.cloud_expires_at > ?)
+                          (
+                              (s.service_expires_at IS NOT NULL AND s.service_expires_at > ?)
+                              AND (a.cloud_expires_at IS NULL OR a.cloud_expires_at > ?)
+                          )
                           OR a.user_id IN (SELECT id FROM users WHERE role = 'admin')
                       )
                     """,
