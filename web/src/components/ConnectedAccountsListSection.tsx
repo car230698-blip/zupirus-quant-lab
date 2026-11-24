@@ -29,6 +29,7 @@ export interface ConnectedAccountsListSectionProps {
   handleToggleAccount: (accountId: string, currentActive: boolean) => void;
   handleDeleteAccount: (accountId: string) => void;
   handleSaveAccountConfig: (acc: any) => void;
+  onOpenPasswordUpdate?: (acc: any) => void;
 }
 
 export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSectionProps> = ({
@@ -45,6 +46,7 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
   handleToggleAccount,
   handleDeleteAccount,
   handleSaveAccountConfig,
+  onOpenPasswordUpdate,
 }) => {
   const { lang } = useLanguage();
   const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
@@ -86,17 +88,21 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
             const isDeployed = deployState === 'DEPLOYED';
             const isProp = Boolean(acc.is_prop_firm_mode) || String(acc.account_type || '').toUpperCase() === 'PROP';
             const propStage = String(acc.prop_stage || 'CHALLENGE').toUpperCase();
+            const connStatus = String(acc.connection_status || '').toUpperCase();
+            const isConnected = connStatus === 'CONNECTED';
+            const isDisconnected = connStatus === 'DISCONNECTED' || acc.connected === false;
+            const isConnecting = connStatus === 'CONNECTING' || connStatus === 'DEPLOYING';
             return (
               <div
                 key={id}
                 className="rounded-xl border border-white/[0.08] bg-[#040710]/85 p-4 transition hover:border-cyan-500/30"
               >
                 <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <span
                         className={`h-2.5 w-2.5 rounded-full ${
-                          acc.connection_status === 'DISCONNECTED'
+                          isDisconnected
                             ? 'bg-rose-500 animate-pulse'
                             : isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
                         }`}
@@ -121,8 +127,19 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                           {deployState}
                         </strong>
                       </span>
-                      {acc.connection_status === 'DISCONNECTED' && (
-                        <span className="rounded bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.5 font-mono text-[10px] font-bold text-rose-300">
+                      {isConnected ? (
+                        <span className="rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-300 inline-flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          {lang === 'en' ? 'BROKER CONNECTED' : 'SÀN ĐÃ KẾT NỐI (CONNECTED)'}
+                        </span>
+                      ) : isConnecting ? (
+                        <span className="rounded-md border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300 inline-flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                          {lang === 'en' ? 'CONNECTING...' : 'ĐANG KẾT NỐI SÀN...'}
+                        </span>
+                      ) : (
+                        <span className="rounded-md border border-rose-500/40 bg-rose-500/15 px-2 py-0.5 font-mono text-[10px] font-bold text-rose-300 inline-flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
                           {lang === 'en' ? 'BROKER DISCONNECTED' : 'MẤT KẾT NỐI SÀN'}
                         </span>
                       )}
@@ -166,11 +183,54 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       </span>
                     </div>
 
-                    {acc.connection_status === 'DISCONNECTED' && (
-                      <div className="mt-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2.5">
-                        {lang === 'en'
-                          ? 'Broker connection is offline (Disconnected on MetaApi). Please check your MT5 master password or server (Exness).'
-                          : 'Tài khoản đang ngắt kết nối với sàn MT5 (trạng thái: Disconnected trên MetaApi). Vui lòng kiểm tra lại mật khẩu hoặc máy chủ sàn.'}
+                    <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] font-mono text-slate-400">
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-500">{lang === 'en' ? 'Last Verified Sync:' : 'Lần cuối thông sàn:'}</span>
+                        <span className="text-slate-200">
+                          {acc.last_sync && Number(acc.last_sync) > 0
+                            ? new Date(Number(acc.last_sync) * 1000).toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')
+                            : (lang === 'en' ? 'Not yet verified' : 'Chưa có dữ liệu')}
+                        </span>
+                      </div>
+                      <span className="text-slate-600">·</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-500">{lang === 'en' ? 'Copy Status:' : 'Trạng thái copy:'}</span>
+                        <strong className={isActive ? 'text-emerald-400' : 'text-slate-400'}>
+                          {isActive ? (lang === 'en' ? 'Active' : 'Đang bật') : (lang === 'en' ? 'Paused' : 'Đang tắt')}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {isDisconnected && (
+                      <div className="mt-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5 font-bold text-rose-300">
+                            <span className="h-2 w-2 rounded-full bg-rose-400 animate-ping" />
+                            {lang === 'en' ? 'Broker Connection Offline' : 'Lỗi: Sàn chưa thông kết nối'}
+                          </div>
+                          <div className="text-[11px] text-rose-200/80">
+                            {lang === 'en'
+                              ? 'Cloud terminal is disconnected from broker. Please verify your MT5 master password or server name.'
+                              : 'Trạm Cloud chưa thể đăng nhập sàn MT5. Vui lòng kiểm tra lại mật khẩu Master hoặc máy chủ sàn.'}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            disabled={cloudBusy}
+                            onClick={() => handleSyncAccount(id)}
+                            className="rounded-lg border border-rose-400/50 bg-rose-500/20 px-2.5 py-1 text-[11px] font-mono font-bold text-rose-200 hover:bg-rose-500/30 transition cursor-pointer"
+                          >
+                            {lang === 'en' ? 'Retry Sync' : 'Đồng bộ lại'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onOpenPasswordUpdate && onOpenPasswordUpdate(acc)}
+                            className="rounded-lg border border-amber-400/50 bg-amber-500/20 px-2.5 py-1 text-[11px] font-mono font-bold text-amber-200 hover:bg-amber-500/30 transition cursor-pointer"
+                          >
+                            {lang === 'en' ? 'Update Password' : 'Cập nhật mật khẩu'}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -184,6 +244,15 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                       title={lang === 'en' ? 'Sync Balance/Equity from MetaApi' : 'Đồng bộ Balance/Equity từ MetaApi'}
                     >
                       {lang === 'en' ? 'Sync' : 'Đồng bộ'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenPasswordUpdate && onOpenPasswordUpdate(acc)}
+                      className="quant-btn-secondary px-3 py-1.5 text-xs whitespace-nowrap shrink-0"
+                      title={lang === 'en' ? 'Update Master Password' : 'Cập nhật mật khẩu Master'}
+                    >
+                      {lang === 'en' ? 'Password' : 'Mật khẩu'}
                     </button>
 
                     <button

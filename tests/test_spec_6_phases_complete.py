@@ -174,7 +174,7 @@ async def test_phase_2_watcher_and_drawdown_key_unification():
 
     # Watcher must monitor even when auto_trade=0 and trip Prop DD circuit breaker (6% DD >= 4% limit)
     watcher = PositionWatcher()
-    watcher.client.get_account_information = AsyncMock(return_value={"balance": 10000.0, "equity": 9400.0})
+    watcher.client.get_account_information = AsyncMock(return_value={"balance": 10000.0, "equity": 9400.0, "connected": True, "connection_status": "CONNECTED"})
     watcher.client.close_all_positions = AsyncMock(return_value={"closed_count": 1})
     watcher.client.get_open_positions = AsyncMock(return_value=[])
 

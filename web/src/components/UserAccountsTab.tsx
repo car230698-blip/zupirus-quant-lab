@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useCloudAccounts } from '../hooks/useQuantData';
 import { fmtNum } from '../utils/strategyDecision';
 import { AccountModals } from './AccountModals';
+import { PasswordUpdateModal } from './PasswordUpdateModal';
 import { ConnectedAccountsListSection, type EditAccountConfigForm } from './ConnectedAccountsListSection';
 import { UserReferralAndInvoicesSection } from './UserReferralAndInvoicesSection';
 import { IconShield } from './Icons';
@@ -72,6 +73,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
 
   const [expandedConfigId, setExpandedConfigId] = useState<string | null>(null);
+  const [passwordUpdateAcc, setPasswordUpdateAcc] = useState<any | null>(null);
   const [editConfigForm, setEditConfigForm] = useState<EditAccountConfigForm>({
     lot_multiplier: '1.0',
     max_daily_dd_pct: '4.0',
@@ -226,7 +228,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
     try {
       const mult = Number(cloudForm.lot_multiplier) || 1.0;
       const dd = Number(cloudForm.max_daily_dd_pct) || 4.0;
-      await apiPost('/api/v1/accounts', {
+      const res: any = await apiPost('/api/v1/accounts', {
         login: cloudForm.mt5_login,
         mt5_login: cloudForm.mt5_login,
         password: cloudForm.mt5_password,
@@ -244,7 +246,13 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         max_daily_dd_pct: dd,
         disclaimer_accepted: true,
       });
-      setCloudMsg(lang === 'en' ? 'Cloud MT5 station connected and synchronized successfully!' : 'Đã kết nối và đồng bộ tài khoản Cloud MT5 thành công!');
+      if (res?.connected === true) {
+        setCloudMsg(res.message || (lang === 'en' ? 'Cloud MT5 station connected and verified with broker!' : 'Đã kết nối và xác minh tài khoản MT5 thành công! ✓'));
+      } else if (res?.connected === false) {
+        setCloudMsg(res.message || (lang === 'en' ? 'Account saved, but MT5 broker is currently disconnected. Please verify password and broker server.' : 'Đã lưu tài khoản, nhưng sàn MT5 đang ngắt kết nối. Vui lòng kiểm tra lại mật khẩu hoặc máy chủ sàn.'));
+      } else {
+        setCloudMsg(res?.message || (lang === 'en' ? 'Account registered. Waiting for MetaApi broker verification...' : 'Đã lưu thông tin tài khoản. Đang chờ MetaApi xác minh kết nối sàn...'));
+      }
       setCloudForm({
         account_name: '',
         mt5_login: '',
@@ -1017,6 +1025,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         handleToggleAccount={handleToggleAccount}
         handleDeleteAccount={handleDeleteAccount}
         handleSaveAccountConfig={handleSaveAccountConfig}
+        onOpenPasswordUpdate={setPasswordUpdateAcc}
       />
 
       <UserReferralAndInvoicesSection />
@@ -1034,6 +1043,15 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
         setCheckoutModalOpen={setCheckoutModalOpen}
         checkoutOrder={checkoutOrder}
         pollingPaid={pollingPaid}
+      />
+
+      <PasswordUpdateModal
+        isOpen={Boolean(passwordUpdateAcc)}
+        account={passwordUpdateAcc}
+        onClose={() => setPasswordUpdateAcc(null)}
+        onSuccess={() => {
+          refetchAccounts();
+        }}
       />
     </div>
   );

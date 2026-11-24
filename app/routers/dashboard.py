@@ -146,6 +146,8 @@ def dashboard(
                     mapped_state = 'closed'
                 elif raw_st in {'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT'}:
                     mapped_state = 'queued'
+                elif raw_st in {'SKIPPED'}:
+                    mapped_state = 'skipped'
                 else:
                     mapped_state = 'rejected'
 
@@ -156,6 +158,13 @@ def dashboard(
 
                 vol_c = float(rd.get('volume') or 0.01)
                 fp_c = float(rd.get('entry_price') or 0.0)
+                reason_val = rd.get('error_message') or ''
+                if not reason_val and rd.get('evidence_json'):
+                    try:
+                        ev_d = json.loads(rd.get('evidence_json'))
+                        reason_val = ev_d.get('reason') or ev_d.get('skip_rationale') or ''
+                    except Exception:
+                        pass
                 all_orders.append({
                     'id': rd.get('id'),
                     'signal_id': rd.get('signal_id'),
@@ -173,6 +182,8 @@ def dashboard(
                     'deal': rd.get('order_id') or '',
                     'state': mapped_state,
                     'status': rd.get('status') or 'FILLED',
+                    'reason': reason_val,
+                    'error_message': rd.get('error_message'),
                     'pnl': rd.get('profit'),
                     'profit': rd.get('profit'),
                     'mt5_exact_pnl': True,

@@ -6,6 +6,7 @@ import secrets
 import logging
 import uuid
 from typing import Dict, Optional, Any
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.db import tx, audit
@@ -285,17 +286,32 @@ async def _create_account_locked(
             is_404_not_found = not acc_chk or err_code in ("NOT_FOUND", "ACCOUNT_NOT_FOUND", "404")
             if not is_404_not_found:
                 # Terminal exists on MetaApi (may be DEPLOYED, DISCONNECTED, or offline)
-                # Deploy existing terminal without creating duplicate cloud terminals
+                # 1. Update credentials on existing MetaApi Cloud terminal if password/server provided
+                if p.password:
+                    try:
+                        await client.update_account_credentials(
+                            existing_meta_id,
+                            password=p.password,
+                            login=p.login,
+                            server=p.server,
+                        )
+                    except Exception as upd_err:
+                        logger.warning(f"Failed to update MetaApi credentials on {existing_meta_id}: {upd_err}")
+                # 2. Deploy existing terminal without creating duplicate cloud terminals
                 dep_ok = await client.deploy_account(existing_meta_id)
                 meta_id = existing_meta_id
                 reusing_terminal = True
                 meta_state = "DEPLOYED" if dep_ok else (acc_chk.get("state") or "DEPLOYING")
                 prov = {"id": meta_id, "_id": meta_id, "state": meta_state}
-                logger.info(f"Reusing existing MetaApi terminal {meta_id} for login {p.login} (dep_ok={dep_ok})")
+                logger.info(f"Reusing & deployed existing MetaApi terminal {meta_id} for login {p.login} (dep_ok={dep_ok})")
             else:
                 logger.info(f"Existing terminal {existing_meta_id} not found on MetaApi ({err_code}), provisioning replacement.")
         except Exception as ex:
             logger.warning(f"Existing terminal {existing_meta_id} probe note: {ex}")
+            # Guard against duplicate terminal creation on temporary network issues
+            reusing_terminal = True
+            meta_id = existing_meta_id
+            prov = {"id": meta_id, "_id": meta_id, "state": "DEPLOYING"}
 
     if not reusing_terminal:
         # Maintain a single persistent transaction-id across router retry attempts
@@ -355,13 +371,16 @@ async def _create_account_locked(
     else:
         try:
             b_info = await client.get_account_information(meta_id)
-            if b_info and b_info.get("connected") and b_info.get("connection_status") == "CONNECTED":
+            if b_info and (b_info.get("connected") is False or str(b_info.get("connection_status", "")).upper() == "DISCONNECTED"):
+                initial_conn_status = "DISCONNECTED"
+                initial_auto_trade = 0
+            elif b_info and (b_info.get("connected") is True or b_info.get("balance") is not None or str(b_info.get("connection_status", "")).upper() == "CONNECTED"):
                 initial_conn_status = "CONNECTED"
                 initial_auto_trade = 1
                 init_balance = float(b_info.get("balance") or 0.0)
                 init_equity = float(b_info.get("equity") or 0.0)
-            elif b_info and b_info.get("connection_status") == "DISCONNECTED":
-                initial_conn_status = "DISCONNECTED"
+            else:
+                initial_conn_status = "CONNECTING"
                 initial_auto_trade = 0
         except Exception:
             initial_conn_status = "CONNECTING"
@@ -511,7 +530,17 @@ async def _create_account_locked(
         "id": account_id,
         "metaapi_account_id": meta_id,
         "state": meta_state,
-        "message": "Đã kết nối tài khoản MT5 Cloud thành công. Hệ thống tự động bắn lệnh trực tiếp khi có tín hiệu.",
+        "connected": initial_conn_status == "CONNECTED",
+        "connection_status": initial_conn_status,
+        "message": (
+            "Đã kết nối và xác minh tài khoản MT5 thành công. Sẵn sàng giao dịch tự động."
+            if initial_conn_status == "CONNECTED"
+            else (
+                "Đã lưu tài khoản. Đang chờ MetaApi xác minh kết nối sàn MT5..."
+                if initial_conn_status == "CONNECTING"
+                else "Đã lưu tài khoản nhưng sàn MT5 đang ngắt kết nối. Vui lòng kiểm tra lại mật khẩu hoặc máy chủ sàn."
+            )
+        ),
     }
 
 
@@ -915,6 +944,121 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
         "connected": is_connected,
         "connection_status": conn_status,
         "message": sync_msg,
+    }
+
+
+class UpdateCredentialsRequest(BaseModel):
+    password: str
+    server: Optional[str] = None
+    login: Optional[str] = None
+
+
+@router.post("/api/v1/accounts/{account_id}/update-credentials")
+async def update_account_credentials_endpoint(
+    account_id: str,
+    p: UpdateCredentialsRequest,
+    u: dict = Depends(get_current_user),
+):
+    """Update master trading password / server for an existing MetaApi Cloud terminal and re-verify connection."""
+    if not p.password or len(p.password.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Mật khẩu giao dịch không hợp lệ")
+
+    with tx() as c:
+        acc = _resolve_target_account(c, account_id, u)
+
+    real_id = acc["id"]
+    owner_id = acc["user_id"]
+    meta_id = acc.get("metaapi_account_id") or real_id
+    client = MetaApiClient()
+
+    if not acc.get("_is_ea_bridge") and meta_id and not client.is_mock:
+        try:
+            await client.update_account_credentials(
+                meta_id,
+                password=p.password.strip(),
+                login=p.login or str(acc.get("mt5_login") or acc.get("login")),
+                server=p.server or str(acc.get("broker_server") or acc.get("server")),
+            )
+        except Exception as err:
+            logger.warning(f"Error updating credentials on MetaApi for {meta_id}: {err}")
+            raise HTTPException(status_code=502, detail=f"Không thể cập nhật thông tin trên Cloud: {err}")
+
+        try:
+            await client.deploy_account(meta_id)
+        except Exception as dep_err:
+            logger.warning(f"Error redeploying after credential update {meta_id}: {dep_err}")
+
+    # Update password hash in DB
+    from app.security import password_hash, encrypt_secret
+    pw_hash = password_hash(p.password.strip())
+    enc_pw = encrypt_secret(p.password.strip())
+    with tx() as c:
+        if not acc.get("_is_ea_bridge"):
+            try:
+                c.execute(
+                    "UPDATE metaapi_cloud_accounts SET password_hash=? WHERE id=? AND user_id=?",
+                    (pw_hash, real_id, owner_id)
+                )
+            except Exception:
+                pass
+            try:
+                c.execute(
+                    "UPDATE trading_accounts SET password_hash=?, encrypted_master_password=? WHERE id=? AND user_id=?",
+                    (pw_hash, enc_pw, real_id, owner_id)
+                )
+            except Exception:
+                pass
+
+    # Probe live connection status
+    info = await client.get_account_information(meta_id)
+    b_connected = False
+    conn_status = "DISCONNECTED"
+    if isinstance(info, dict):
+        conn_status = str(info.get("connectionStatus") or ("CONNECTED" if info.get("connected") else "DISCONNECTED")).upper()
+        b_connected = bool(info.get("connected") is True or (info.get("balance") is not None and conn_status not in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER", "UNAVAILABLE")))
+        if b_connected:
+            conn_status = "CONNECTED"
+
+    now_ts = time.time()
+    try:
+        from app.redis_client import cache_heartbeat
+        cache_heartbeat(real_id, {
+            "login": str(acc.get("mt5_login") or acc.get("login") or ""),
+            "server": str(acc.get("broker_server") or acc.get("server") or ""),
+            "last_seen": now_ts,
+            "is_cloud_metaapi": not acc.get("_is_ea_bridge"),
+            "connected": b_connected,
+            "connection_status": conn_status,
+        }, ttl=60)
+    except Exception:
+        pass
+
+    raw_rc = acc.get("risk_config")
+    try:
+        rc = json.loads(raw_rc) if isinstance(raw_rc, str) else (raw_rc or {})
+    except Exception:
+        rc = {}
+    rc["connection_status"] = conn_status
+    updated_rc_json = json.dumps(rc)
+
+    with tx() as c:
+        if b_connected:
+            c.execute(
+                "UPDATE trading_accounts SET last_sync=?, last_verified_at=?, risk_config=? WHERE id=? AND user_id=?",
+                (now_ts, now_ts, updated_rc_json, real_id, owner_id)
+            )
+        else:
+            c.execute(
+                "UPDATE trading_accounts SET last_verified_at=?, risk_config=? WHERE id=? AND user_id=?",
+                (now_ts, updated_rc_json, real_id, owner_id)
+            )
+
+    msg = "Đã cập nhật mật khẩu và kết nối sàn thành công ✓" if b_connected else "Đã lưu mật khẩu mới. Đang chờ trạm Cloud xác minh kết nối sàn..."
+    return {
+        "success": True,
+        "connected": b_connected,
+        "connection_status": conn_status,
+        "message": msg
     }
 
 

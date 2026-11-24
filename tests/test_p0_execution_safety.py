@@ -1060,3 +1060,153 @@ def test_admin_radar_dry_run_endpoints(tmp_path, monkeypatch):
     assert res_404.status_code == 404, f"Expected 404 for unmatched API route, got {res_404.status_code}"
 
 
+@pytest.mark.asyncio
+async def test_full_lifecycle_deploy_disconnect_reconnect_stale_block(tmp_path, monkeypatch):
+    """
+    Integration Test:
+    1. Deploy account: DEPLOYED, last_sync fresh, connection_status='CONNECTED' -> Order executes successfully.
+    2. Disconnect: Watcher updates connection_status='DISCONNECTED', last_sync is preserved -> Fan-out skips with offline rationale.
+    3. Reconnect / Update credentials: /update-credentials restores CONNECTED -> Fan-out executes successfully.
+    4. Stale data: last_sync > 300s ago without fresh heartbeat -> Fan-out skips with stale data rationale.
+    """
+    from app.core import db as core_db
+    from app import db
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.security import digest
+
+    db_file = tmp_path / "test_lifecycle_flow.sqlite3"
+    monkeypatch.setattr(db, "DB", db_file)
+    monkeypatch.setattr(core_db, "DB", db_file)
+    monkeypatch.setattr(db, "DATABASE_URL", "")
+    monkeypatch.setattr(core_db, "DATABASE_URL", "")
+
+    now = time.time()
+    with tx() as c:
+        run_all_migrations(c, is_pg=False)
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_lc', 'user_lc@test.com', 'pwd_hash', 'customer') ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO sessions (token, user_id, expires) VALUES (?, 'u_lc', ?)", (digest("tok_user_lc"), now + 3600))
+        c.execute(
+            """
+            INSERT INTO trading_accounts(id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server, deployment_state, auto_trade, balance, equity, last_sync, risk_config, created_at)
+            VALUES('acc_lc', 'u_lc', 'meta_lc', '88888', 'enc_p', 'Exness-Real', 'DEPLOYED', 1, 10000.0, 10000.0, ?, ?, ?)
+            """,
+            (now, json.dumps({"connection_status": "CONNECTED"}), now)
+        )
+        c.execute(
+            """
+            INSERT INTO metaapi_cloud_accounts(id, user_id, login, server, platform, account_name, metaapi_account_id, metaapi_state, auto_trade, created_at)
+            VALUES('acc_lc', 'u_lc', '88888', 'Exness-Real', 'mt5', 'Test Lifecycle', 'meta_lc', 'DEPLOYED', 1, ?)
+            """,
+            (now,)
+        )
+        c.execute(
+            "INSERT INTO quotes (symbol, bid, ask, ts, source) VALUES ('XAUUSD', 2000.0, 2000.15, ?, 'METAAPI')",
+            (now,)
+        )
+
+    # 1. Step 1: Account is fresh and connected -> execute_fan_out_for_signal succeeds
+    client = MetaApiClient(token="test_tok")
+    monkeypatch.setattr(client, "is_mock", False)
+    monkeypatch.setattr(client, "execute_order", AsyncMock(return_value={
+        "numericCode": 10009,
+        "stringCode": "TRADE_RETCODE_DONE",
+        "orderId": "ord_lc_1",
+        "positionId": "pos_lc_1",
+    }))
+    monkeypatch.setattr(client, "get_open_positions", AsyncMock(return_value=[]))
+    monkeypatch.setattr(client, "get_positions_verified", AsyncMock(return_value=(True, [], {"synchronized": True})))
+    monkeypatch.setattr(client, "get_account_information", AsyncMock(return_value={
+        "connected": True,
+        "connectionStatus": "CONNECTED",
+        "balance": 10000.0,
+        "equity": 10000.0,
+    }))
+
+    accounts = [{
+        "id": "acc_lc",
+        "metaapi_account_id": "meta_lc",
+        "user_id": "u_lc",
+        "auto_trade": 1,
+        "deployment_state": "DEPLOYED",
+        "balance": 10000.0,
+        "equity": 10000.0,
+        "risk_config": json.dumps({"connection_status": "CONNECTED"}),
+    }]
+    sig1 = {"id": "sig_lc_1", "symbol": "XAUUSD", "action": "BUY", "risk_pct": 0.5, "entry_price": 2000.0, "sl": 1990.0, "tp": 2020.0}
+
+    res1 = await execute_fan_out_for_signal(sig1, accounts, client)
+    assert res1["executed"] == 1, f"Step 1: Expected 1 executed, got {res1}"
+
+    # 2. Step 2: Broker disconnects -> Watcher runs and updates connection_status='DISCONNECTED'
+    watcher = PositionWatcher(metaapi_client=client)
+    monkeypatch.setattr(client, "get_account_information", AsyncMock(return_value={
+        "connected": False,
+        "connectionStatus": "DISCONNECTED",
+        "error": "DISCONNECTED_FROM_BROKER",
+    }))
+    await watcher.run_cycle()
+
+    # Verify last_sync was NOT overwritten to fresh now!
+    with tx() as c:
+        row_disc = c.execute("SELECT risk_config, last_sync FROM trading_accounts WHERE id='acc_lc'").fetchone()
+        rc_disc = json.loads(row_disc[0])
+        assert rc_disc.get("connection_status") == "DISCONNECTED", f"Expected DISCONNECTED, got {rc_disc}"
+        assert row_disc[1] == pytest.approx(now, abs=1.0), "last_sync must not advance on disconnection failure"
+
+    # Step 2b: Next signal attempt must be blocked and recorded as SKIPPED
+    sig2 = {"id": "sig_lc_2", "symbol": "XAUUSD", "action": "BUY", "risk_pct": 0.5, "entry_price": 2000.0, "sl": 1990.0, "tp": 2020.0}
+    res2 = await execute_fan_out_for_signal(sig2, accounts, client)
+    assert res2["executed"] == 0, "Step 2: Execution must be blocked when disconnected"
+    with tx() as c:
+        skip_exec = c.execute("SELECT status, error_message FROM metaapi_trade_executions WHERE signal_id='sig_lc_2' AND account_id='acc_lc'").fetchone()
+        assert skip_exec is not None, "Skipped record must be persisted"
+        assert skip_exec[0] == "SKIPPED"
+        assert "Broker Offline" in skip_exec[1] or "Sàn ngắt kết nối" in skip_exec[1]
+
+    # 3. Step 3: Reconnect via /update-credentials endpoint
+    monkeypatch.setattr(client, "update_account_credentials", AsyncMock(return_value=True))
+    monkeypatch.setattr(client, "deploy_account", AsyncMock(return_value=True))
+    monkeypatch.setattr(client, "get_account_information", AsyncMock(return_value={
+        "connected": True,
+        "connectionStatus": "CONNECTED",
+        "balance": 10000.0,
+        "equity": 10000.0,
+    }))
+
+    http_client = TestClient(app)
+    cred_res = http_client.post(
+        "/api/v1/accounts/acc_lc/update-credentials",
+        headers={"Authorization": "Bearer tok_user_lc"},
+        json={"password": "NewMasterPassword123!"}
+    )
+    assert cred_res.status_code == 200, f"Credentials update failed: {cred_res.text}"
+    cred_data = cred_res.json()
+    assert cred_data["connected"] is True
+    assert cred_data["connection_status"] == "CONNECTED"
+
+    # Step 3b: Signal execution succeeds after reconnect
+    sig3 = {"id": "sig_lc_3", "symbol": "XAUUSD", "action": "BUY", "risk_pct": 0.5, "entry_price": 2000.0, "sl": 1990.0, "tp": 2020.0}
+    res3 = await execute_fan_out_for_signal(sig3, accounts, client)
+    assert res3["executed"] == 1, f"Step 3: Expected 1 executed after reconnect, got {res3}"
+
+    # 4. Step 4: Stale data block (> 300s ago, no fresh heartbeat)
+    with tx() as c:
+        c.execute("UPDATE trading_accounts SET last_sync = ? WHERE id='acc_lc'", (time.time() - 400.0,))
+    try:
+        from app.redis_client import cache_heartbeat
+        cache_heartbeat("acc_lc", {"last_seen": time.time() - 400.0, "connected": True, "connection_status": "CONNECTED"}, ttl=1)
+    except Exception:
+        pass
+
+    sig4 = {"id": "sig_lc_4", "symbol": "XAUUSD", "action": "BUY", "risk_pct": 0.5, "entry_price": 2000.0, "sl": 1990.0, "tp": 2020.0}
+    res4 = await execute_fan_out_for_signal(sig4, accounts, client)
+    assert res4["executed"] == 0, f"Step 4: Expected 0 executed on stale data, got {res4}"
+    with tx() as c:
+        stale_exec = c.execute("SELECT status, error_message FROM metaapi_trade_executions WHERE signal_id='sig_lc_4' AND account_id='acc_lc'").fetchone()
+        assert stale_exec is not None
+        assert stale_exec[0] == "SKIPPED"
+        assert ">5p" in stale_exec[1] or "quá cũ" in stale_exec[1]
+
+
+

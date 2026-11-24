@@ -44,6 +44,7 @@ def discover_candidate_from_observations(
     rows = []
     try:
         if max_created_at is not None:
+            cutoff_val = float(max_created_at)
             rows = c.execute(
                 """
                 SELECT side, entry_price, pnl, context_snapshot
@@ -51,6 +52,7 @@ def discover_candidate_from_observations(
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
                   AND created_at <= ?
+                  AND COALESCE(processed_at, created_at) <= ?
                   AND signal_id NOT IN (
                       SELECT signal_id FROM metaapi_trade_executions 
                       WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
@@ -58,7 +60,7 @@ def discover_candidate_from_observations(
                   )
                 ORDER BY created_at DESC LIMIT 200
                 """,
-                (sym_u, float(max_created_at)),
+                (sym_u, cutoff_val, cutoff_val),
             ).fetchall()
         else:
             rows = c.execute(

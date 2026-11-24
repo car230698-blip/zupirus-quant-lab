@@ -211,7 +211,11 @@ async def execute_fan_out_for_signal(
             from app.db import tx
             with tx() as c:
                 existing = c.execute(
-                    "SELECT id FROM metaapi_trade_executions WHERE account_id = ? AND (signal_id = ? OR order_id = ? OR position_id = ?)",
+                    """
+                    SELECT id FROM metaapi_trade_executions
+                    WHERE account_id = ? AND (signal_id = ? OR order_id = ? OR position_id = ?)
+                      AND status IN ('FILLED', 'OPEN', 'PENDING_SUBMIT', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED')
+                    """,
                     (acc_id, signal_id, signal_id, signal_id)
                 ).fetchone()
                 if existing:
@@ -596,6 +600,59 @@ async def execute_fan_out_for_signal(
             with tx() as c:
                 # Row lock if Postgres
                 is_pg_conn = bool(getattr(c, "_is_pg", False))
+
+                def _record_skip(reason: str):
+                    try:
+                        if is_pg_conn:
+                            c.execute("SAVEPOINT sp_skip_exec")
+                        try:
+                            has_cloud = c.execute("SELECT 1 FROM metaapi_cloud_accounts WHERE id = ?", (acc_id,)).fetchone()
+                            if not has_cloud:
+                                ta_u = c.execute("SELECT user_id FROM trading_accounts WHERE id = ?", (acc_id,)).fetchone()
+                                fallback_uid = (ta_u[0] if ta_u and ta_u[0] else None) or acc.get("user_id")
+                                if fallback_uid:
+                                    has_u = c.execute("SELECT 1 FROM users WHERE id = ?", (fallback_uid,)).fetchone()
+                                    if not has_u:
+                                        fallback_uid = None
+                                c.execute(
+                                    """
+                                    INSERT INTO metaapi_cloud_accounts(
+                                        id, user_id, login, server, platform, account_name,
+                                        metaapi_account_id, metaapi_state, auto_trade, created_at
+                                    ) VALUES(?, ?, ?, 'MT5-Cloud', 'mt5', ?, ?, 'DEPLOYED', 1, ?)
+                                    ON CONFLICT (id) DO NOTHING
+                                    """,
+                                    (acc_id, fallback_uid, acc_id, acc_id, meta_id or acc_id, now_ts)
+                                )
+                        except Exception:
+                            pass
+                        c.execute(
+                            """
+                            INSERT INTO metaapi_trade_executions(
+                                id, signal_id, account_id, metaapi_account_id, symbol, action, volume,
+                                entry_price, sl, tp, status, origin, client_order_id, reserved_risk_pct,
+                                sl_confirmed, executed_at, error_message, evidence_json
+                            ) VALUES(?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 'SKIPPED', 'BOT', ?, 0, 0, ?, ?, ?)
+                            ON CONFLICT (signal_id, account_id) DO UPDATE SET
+                                status='SKIPPED',
+                                error_message=excluded.error_message,
+                                evidence_json=excluded.evidence_json
+                            """,
+                            (
+                                f"skip_{uuid.uuid4().hex[:12]}", signal_id, acc_id, meta_id or acc_id, symbol, action,
+                                f"SKIP-{int(now_ts)}", now_ts, reason, json.dumps({"state": "SKIPPED", "reason": reason, "ts": now_ts})
+                            )
+                        )
+                        if is_pg_conn:
+                            c.execute("RELEASE SAVEPOINT sp_skip_exec")
+                    except Exception as ex:
+                        if is_pg_conn:
+                            try:
+                                c.execute("ROLLBACK TO SAVEPOINT sp_skip_exec")
+                            except Exception:
+                                pass
+                        logger.debug(f"Skip recording note: {ex}")
+
                 # Re-verify latest trading_accounts status with row lock
                 acc_row = c.execute(
                     "SELECT auto_trade, deployment_state, risk_config, last_sync FROM trading_accounts WHERE id = ?" + (" FOR UPDATE" if is_pg_conn else ""),
@@ -603,7 +660,9 @@ async def execute_fan_out_for_signal(
                 ).fetchone()
                 if acc_row is not None:
                     if int(acc_row[0] or 0) != 1 or str(acc_row[1] or "") != "DEPLOYED":
-                        logger.warning(f"Account {acc_id} skipped: auto_trade disabled or state is {acc_row[1]}.")
+                        reason = "BỎ QUA: Tự động tắt" if int(acc_row[0] or 0) != 1 else f"BỎ QUA: Chưa kích hoạt ({acc_row[1]})"
+                        logger.warning(f"Account {acc_id} skipped: {reason}.")
+                        _record_skip(reason)
                         continue
                     # Fail-Closed check: verify live broker connection status and freshness
                     rc_raw = acc_row[2] or "{}"
@@ -613,7 +672,9 @@ async def execute_fan_out_for_signal(
                         conn_st = str(rc_data.get("connection_status", "")).upper()
                         # 1. Strictly block if connection_status is DISCONNECTED or UNAVAILABLE
                         if conn_st in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER", "UNAVAILABLE"):
-                            logger.warning(f"Account {acc_id} skipped: broker connection_status is '{conn_st}'.")
+                            reason = "BỎ QUA: Broker Offline (Sàn ngắt kết nối)"
+                            logger.warning(f"Account {acc_id} skipped: {reason}.")
+                            _record_skip(reason)
                             continue
                         # 2. Check live Redis heartbeat if present
                         hb = None
@@ -623,31 +684,59 @@ async def execute_fan_out_for_signal(
                         except Exception:
                             pass
                         if hb and isinstance(hb, dict) and str(hb.get("connection_status", "")).upper() in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER"):
-                            logger.warning(f"Account {acc_id} skipped: Redis heartbeat indicates broker DISCONNECTED.")
+                            reason = "BỎ QUA: Broker Offline (Heartbeat ngắt kết nối)"
+                            logger.warning(f"Account {acc_id} skipped: {reason}.")
+                            _record_skip(reason)
                             continue
-                        # 3. Fail-Closed check for live broker connection
+                        # 3. Fail-Closed check for live broker connection and verified freshness
                         is_mock_env = getattr(metaapi_client, "is_mock", False) or not getattr(metaapi_client, "token", None)
                         if not is_mock_env:
                             if conn_st != "CONNECTED":
-                                logger.warning(f"Account {acc_id} skipped: broker connection_status is '{conn_st}' (must be CONNECTED).")
+                                reason = f"BỎ QUA: Chưa xác minh kết nối sàn ({conn_st})"
+                                logger.warning(f"Account {acc_id} skipped: {reason}.")
+                                _record_skip(reason)
                                 continue
-                            # Freshness check: if last_sync is older than 15 mins (900s) and no recent heartbeat, block
                             now_curr = time.time()
-                            if acc_last_sync > 0 and (now_curr - acc_last_sync > 900) and not hb:
-                                logger.warning(f"Account {acc_id} skipped: broker connection data is stale (last_sync {now_curr - acc_last_sync:.0f}s ago).")
-                                continue
+                            hb_is_connected = bool(
+                                hb
+                                and isinstance(hb, dict)
+                                and hb.get("connected") is True
+                                and str(hb.get("connection_status", "")).upper() == "CONNECTED"
+                            )
+                            is_hb_fresh = bool(hb_is_connected and (now_curr - float(hb.get("last_seen", 0))) <= 120)
+                            if not is_hb_fresh:
+                                if acc_last_sync <= 0:
+                                    reason = "BỎ QUA: Chưa từng xác minh kết nối sàn"
+                                    logger.warning(f"Account {acc_id} skipped: {reason}.")
+                                    _record_skip(reason)
+                                    continue
+                                if now_curr - acc_last_sync > 300:
+                                    reason = "BỎ QUA: Dữ liệu kết nối quá cũ (>5p)"
+                                    logger.warning(f"Account {acc_id} skipped: {reason}.")
+                                    _record_skip(reason)
+                                    continue
                     except Exception as ex:
-                        logger.warning(f"Account {acc_id} skipped: failed to verify risk_config connection_status ({ex}).")
+                        reason = f"BỎ QUA: Lỗi xác minh kết nối ({ex})"
+                        logger.warning(f"Account {acc_id} skipped: {reason}.")
+                        _record_skip(reason)
                         continue
                 elif acc.get("deployment_state") and acc.get("deployment_state") != "DEPLOYED":
-                    logger.warning(f"Account {acc_id} skipped: state is {acc.get('deployment_state')}.")
+                    reason = f"BỎ QUA: Trạng thái {acc.get('deployment_state')}"
+                    logger.warning(f"Account {acc_id} skipped: {reason}.")
+                    _record_skip(reason)
                     continue
                 elif "auto_trade" in acc and not acc.get("auto_trade"):
-                    logger.warning(f"Account {acc_id} skipped: auto_trade disabled.")
+                    reason = "BỎ QUA: Tự động tắt"
+                    logger.warning(f"Account {acc_id} skipped: {reason}.")
+                    _record_skip(reason)
                     continue
 
                 # Check account drawdown or safety halt (including emergency_close_pending)
                 if is_account_drawdown_halted(c, acc_id):
+                    reason = "BỎ QUA: Đang khóa bảo vệ Drawdown"
+                    logger.warning(f"Account {acc_id} skipped: {reason}.")
+                    _record_skip(reason)
+                    continue
                     logger.warning(f"Account {acc_id} skipped: Account is halted/locked.")
                     continue
 
@@ -671,7 +760,9 @@ async def execute_fan_out_for_signal(
                         if _get_usd_dir(ar_sym, ar_act) == target_usd_dir:
                             same_usd_count += 1
                     if same_usd_count >= 2:
-                        logger.warning(f"Account {acc_id} skipped: USD Correlation Cap <= 2 reached ({same_usd_count} active in direction {target_usd_dir}).")
+                        reason = f"BỎ QUA: Quá giới hạn 2 lệnh cùng chiều USD ({target_usd_dir})"
+                        logger.warning(f"Account {acc_id} skipped: {reason}.")
+                        _record_skip(reason)
                         continue
 
                 # 2. Atomic 2.0% Total Risk Cap calculation
@@ -710,10 +801,9 @@ async def execute_fan_out_for_signal(
                 max_allowed_cap = max_portfolio_risk_pct if (is_prop_mode and prop_stage == "LIVE") else float(risk_cfg.get("max_portfolio_risk_pct") or 2.0)
                 actual_order_risk_pct = round(effective_risk_pct * effective_mult, 4)
                 if total_in_flight_risk + actual_order_risk_pct > max_allowed_cap + 0.001:
-                    logger.warning(
-                        f"Account {acc_id} skipped: Atomic {max_allowed_cap}% risk cap exceeded "
-                        f"(in_flight={total_in_flight_risk:.2f}%, new={actual_order_risk_pct:.2f}% [base={effective_risk_pct:.2f}%, mult={effective_mult}])."
-                    )
+                    reason = f"BỎ QUA: Chạm ngưỡng rủi ro {max_allowed_cap}% (hiện có={total_in_flight_risk:.2f}%, mới={actual_order_risk_pct:.2f}%)"
+                    logger.warning(f"Account {acc_id} skipped: {reason}.")
+                    _record_skip(reason)
                     continue
 
                 # Ensure metaapi_cloud_accounts row exists for FK
@@ -751,6 +841,23 @@ async def execute_fan_out_for_signal(
                         entry_price, sl, tp, status, origin, client_order_id, reserved_risk_pct,
                         sl_confirmed, executed_at, evidence_json
                     ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_SUBMIT', 'BOT', ?, ?, 0, ?, ?)
+                    ON CONFLICT (signal_id, account_id) DO UPDATE SET
+                        id=excluded.id,
+                        metaapi_account_id=excluded.metaapi_account_id,
+                        symbol=excluded.symbol,
+                        action=excluded.action,
+                        volume=excluded.volume,
+                        entry_price=excluded.entry_price,
+                        sl=excluded.sl,
+                        tp=excluded.tp,
+                        status='PENDING_SUBMIT',
+                        origin='BOT',
+                        client_order_id=excluded.client_order_id,
+                        reserved_risk_pct=excluded.reserved_risk_pct,
+                        sl_confirmed=0,
+                        executed_at=excluded.executed_at,
+                        error_message=NULL,
+                        evidence_json=excluded.evidence_json
                     """,
                     (
                         exec_id, signal_id, acc_id, meta_id, broker_sym, action, volume,

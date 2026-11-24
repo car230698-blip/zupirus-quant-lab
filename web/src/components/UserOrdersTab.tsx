@@ -400,6 +400,8 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                                 ? 'bg-slate-400'
                                 : String(orderState).toLowerCase() === 'rejected'
                                 ? 'bg-rose-400'
+                                : String(orderState).toLowerCase() === 'skipped'
+                                ? 'bg-slate-400'
                                 : String(orderState).toLowerCase() === 'filled'
                                 ? 'bg-emerald-400'
                                 : 'bg-amber-400'
@@ -409,6 +411,13 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                             ? (lang === 'en' ? 'Live · Filled' : 'Đang chạy Live · Đã khớp')
                             : translateOrderStatus(orderState, lang)}
                         </span>
+                        {o.reason && (
+                          <div className="mt-1">
+                            <span className="inline-block max-w-[220px] truncate rounded px-1.5 py-0.5 text-[10px] font-mono text-amber-300 bg-amber-500/10 border border-amber-500/30" title={o.reason}>
+                              {o.reason}
+                            </span>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -450,6 +459,11 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 <span>{lang === 'en' ? 'Price: ' : 'Giá: '}{fmtNum(price, 2)}</span>
                 <span>{translateOrderStatus(orderState, lang)}</span>
               </div>
+              {o.reason && (
+                <div className="mt-1.5 pt-1.5 border-t border-white/[0.06] text-[10px] font-mono text-amber-300">
+                  {o.reason}
+                </div>
+              )}
             </SpotlightBento>
           );
         })}
@@ -538,6 +552,15 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 <strong className="text-cyan-300">MetaApi London G2</strong>
               </div>
             </div>
+
+            {selectedOrder.reason && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 font-mono text-xs text-amber-300">
+                <div className="font-semibold text-[10px] uppercase tracking-wider text-amber-400">
+                  {lang === 'en' ? 'Execution / Skip Rationale' : 'Lý Do Bỏ Qua / Từ Chối Khớp Lệnh'}
+                </div>
+                <div className="mt-1 font-bold">{selectedOrder.reason}</div>
+              </div>
+            )}
 
             <div className="flex justify-end">
               <button

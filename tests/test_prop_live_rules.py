@@ -138,8 +138,8 @@ async def test_prop_watcher_hwm_and_profit_throttle_only_for_prop_accounts():
 
     async def fake_acc_info(meta_id):
         if meta_id == "meta_pers":
-            return {"balance": 10000.0, "equity": 10700.0}
-        return {"balance": 10000.0, "equity": 10700.0}  # +7% >= 80% of 8% target (6.4%)
+            return {"balance": 10000.0, "equity": 10700.0, "connected": True, "connection_status": "CONNECTED"}
+        return {"balance": 10000.0, "equity": 10700.0, "connected": True, "connection_status": "CONNECTED"}  # +7% >= 80% of 8% target (6.4%)
 
     client.get_account_information = fake_acc_info
     client.get_open_positions = AsyncMock(return_value=[])
@@ -172,7 +172,7 @@ async def test_prop_hwm_8pct_breach_and_concurrent_limit():
     client = MetaApiClient()
     client.is_mock = True
     # Daily DD = 2.23% (< 5%), but Trailing DD from HWM 12000 = 8.75% (>= 8.0%)
-    client.get_account_information = AsyncMock(return_value={"balance": 11200.0, "equity": 10950.0})
+    client.get_account_information = AsyncMock(return_value={"balance": 11200.0, "equity": 10950.0, "connected": True, "connection_status": "CONNECTED"})
     client.close_position = AsyncMock(return_value={"closed": 1})
     client.get_open_positions = AsyncMock(return_value=[])
 

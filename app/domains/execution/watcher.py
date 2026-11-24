@@ -787,13 +787,13 @@ class PositionWatcher:
                 prop_dd_limit = _safe_float(acc.get("prop_daily_dd_limit_pct"), MAX_PROP_DAILY_DRAWDOWN_PCT) or MAX_PROP_DAILY_DRAWDOWN_PCT
                 # 1. Fetch live account info
                 acc_info = await self.client.get_account_information(meta_id)
-                is_connected = (
-                    isinstance(acc_info, dict)
-                    and acc_info.get("connected") is True
-                    and acc_info.get("connection_status") != "DISCONNECTED"
-                    and acc_info.get("equity") is not None
+                is_disconnected = (
+                    not isinstance(acc_info, dict)
+                    or acc_info.get("connected") is False
+                    or str(acc_info.get("connection_status", "")).upper() in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER", "UNAVAILABLE")
+                    or acc_info.get("equity") is None
                 )
-                if not is_connected:
+                if is_disconnected:
                     now_watch_ts = time.time()
                     try:
                         raw_rc = acc.get("risk_config")
@@ -803,9 +803,10 @@ class PositionWatcher:
                     rc["connection_status"] = "DISCONNECTED"
                     try:
                         with tx() as c:
+                            # Strict: DO NOT update last_sync upon disconnection! Keep last successful sync intact
                             c.execute(
-                                "UPDATE trading_accounts SET risk_config = ?, last_sync = ? WHERE id = ?",
-                                (json.dumps(rc), now_watch_ts, acc_id)
+                                "UPDATE trading_accounts SET risk_config = ? WHERE id = ?",
+                                (json.dumps(rc), acc_id)
                             )
                     except Exception as db_err:
                         logger.debug(f"PositionWatcher failed to record DISCONNECTED for {acc_id}: {db_err}")

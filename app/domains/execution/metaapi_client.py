@@ -160,6 +160,34 @@ class MetaApiClient:
             logger.warning(f"deploy_account error for {metaapi_account_id}: {e}")
             return False
 
+    async def update_account_credentials(
+        self,
+        metaapi_account_id: str,
+        password: Optional[str] = None,
+        login: Optional[str] = None,
+        server: Optional[str] = None,
+    ) -> bool:
+        """Update broker credentials (e.g. password, server) on existing MetaApi Cloud terminal."""
+        if self._is_mock_account(metaapi_account_id):
+            return True
+        url = f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}"
+        payload = {}
+        if password is not None:
+            payload["password"] = password
+        if login is not None:
+            payload["login"] = str(login).strip()
+        if server is not None:
+            payload["server"] = server
+        if not payload:
+            return True
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.put(url, headers=self._headers(), json=payload)
+                return resp.status_code in (200, 202, 204)
+        except Exception as e:
+            logger.warning(f"update_account_credentials error for {metaapi_account_id}: {e}")
+            return False
+
     async def undeploy_account(self, metaapi_account_id: str) -> bool:
         """Undeploy cloud MT5 terminal to stop hosting billing."""
         if self._is_mock_account(metaapi_account_id):

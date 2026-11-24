@@ -26,6 +26,8 @@ export function mapBackendState(state: string, lang: 'vi' | 'en' = 'vi'): Backen
         return { label: 'Expired', badge: 'bg-slate-800 text-slate-400 border border-slate-700' };
       case 'rejected':
         return { label: 'Rejected', badge: 'bg-rose-950 text-rose-300 border border-rose-700/50' };
+      case 'skipped':
+        return { label: 'Skipped', badge: 'bg-slate-800 text-slate-400 border border-slate-700' };
       case 'intent':
         return { label: 'Executing', badge: 'bg-cyan-950 text-cyan-300 border border-cyan-700/50' };
       case 'unknown':
@@ -60,6 +62,8 @@ export function mapBackendState(state: string, lang: 'vi' | 'en' = 'vi'): Backen
       return { label: 'Hết hạn', badge: 'bg-slate-800 text-slate-400 border border-slate-700' };
     case 'rejected':
       return { label: 'Bị từ chối', badge: 'bg-rose-950 text-rose-300 border border-rose-700/50' };
+    case 'skipped':
+      return { label: 'Bỏ qua', badge: 'bg-slate-800 text-slate-400 border border-slate-700' };
     case 'intent':
       return { label: 'Đang thực thi', badge: 'bg-cyan-950 text-cyan-300 border border-cyan-700/50' };
     case 'unknown':
@@ -106,4 +110,4 @@ export function translateRegime(regime: unknown, lang: 'vi' | 'en' = 'vi'): stri
   return regime ? String(regime) : 'Cân Bằng Định Lượng';
 }
 
-export const orderStates = ['queued', 'intent', 'unknown', 'filled', 'closed', 'rejected', 'cancelled', 'expired'] as const;
+export const orderStates = ['queued', 'intent', 'unknown', 'filled', 'closed', 'rejected', 'skipped', 'cancelled', 'expired'] as const;
