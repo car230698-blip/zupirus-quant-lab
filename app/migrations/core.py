@@ -74,7 +74,7 @@ def apply_migration_001(c, is_pg: bool):
         );
         CREATE TABLE IF NOT EXISTS signals (
             id TEXT PRIMARY KEY,
-            source TEXT NOT NULL CHECK(source IN ('DEMO', 'REPLAY')),
+            source TEXT NOT NULL CHECK(source IN ('DEMO', 'REPLAY', 'CLOUD_MT5', 'TRADINGVIEW', 'MANUAL', 'ZUPIRUS_AGENT')),
             side TEXT NOT NULL CHECK(side IN ('BUY', 'SELL')),
             price DOUBLE PRECISION NOT NULL,
             sl DOUBLE PRECISION NOT NULL,
@@ -146,7 +146,7 @@ def apply_migration_001(c, is_pg: bool):
         CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),login TEXT NOT NULL,server TEXT NOT NULL,mode TEXT NOT NULL CHECK(mode IN ('DEMO','REPLAY')),enabled INTEGER NOT NULL DEFAULT 0,risk REAL NOT NULL DEFAULT 0.25,max_spread REAL NOT NULL DEFAULT 0.8,max_positions INTEGER NOT NULL DEFAULT 1,max_dd REAL NOT NULL DEFAULT 10,balance REAL NOT NULL DEFAULT 10000,equity REAL NOT NULL DEFAULT 10000,peak REAL NOT NULL DEFAULT 10000,seen REAL NOT NULL DEFAULT 0,positions INTEGER NOT NULL DEFAULT 0,UNIQUE(login,server));
         CREATE TABLE IF NOT EXISTS pairings(code TEXT PRIMARY KEY,account_id TEXT REFERENCES accounts(id),expires REAL NOT NULL,used INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS devices(token TEXT PRIMARY KEY,account_id TEXT UNIQUE REFERENCES accounts(id));
-        CREATE TABLE IF NOT EXISTS signals(id TEXT PRIMARY KEY,source TEXT NOT NULL CHECK(source IN ('DEMO','REPLAY')),side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),price REAL NOT NULL,sl REAL NOT NULL,tp REAL NOT NULL,created REAL NOT NULL,expires REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS signals(id TEXT PRIMARY KEY,source TEXT NOT NULL CHECK(source IN ('DEMO','REPLAY','CLOUD_MT5','TRADINGVIEW','MANUAL','ZUPIRUS_AGENT')),side TEXT NOT NULL CHECK(side IN ('BUY','SELL')),price REAL NOT NULL,sl REAL NOT NULL,tp REAL NOT NULL,created REAL NOT NULL,expires REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS dispatches(id INTEGER PRIMARY KEY AUTOINCREMENT,account_id TEXT REFERENCES accounts(id),signal_id TEXT REFERENCES signals(id),state TEXT NOT NULL DEFAULT 'queued',nonce TEXT,ticket TEXT,deal TEXT,reason TEXT,fill_price REAL,created REAL NOT NULL,updated REAL NOT NULL,UNIQUE(account_id,signal_id));
         CREATE UNIQUE INDEX IF NOT EXISTS unique_deal ON dispatches(account_id,deal) WHERE deal IS NOT NULL AND deal != '';
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,ts REAL NOT NULL,actor TEXT NOT NULL,event TEXT NOT NULL,detail TEXT NOT NULL);
@@ -194,7 +194,7 @@ def apply_migration_002(c, is_pg: bool):
         CREATE TABLE IF NOT EXISTS snapshots (
             id BIGSERIAL,
             time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            account_id TEXT REFERENCES accounts(id),
+            account_id TEXT,
             ts DOUBLE PRECISION NOT NULL,
             balance DOUBLE PRECISION NOT NULL,
             equity DOUBLE PRECISION NOT NULL
@@ -268,7 +268,7 @@ def apply_migration_002(c, is_pg: bool):
                 c.execute(f"SELECT create_hypertable('{table}', '{time_col}', if_not_exists => TRUE, migrate_data => TRUE);")
     else:
         c.executescript("""
-        CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT REFERENCES accounts(id), ts REAL NOT NULL, balance REAL NOT NULL, equity REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT, ts REAL NOT NULL, balance REAL NOT NULL, equity REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS quotes(id INTEGER PRIMARY KEY AUTOINCREMENT, time REAL DEFAULT 0, source TEXT NOT NULL, symbol TEXT DEFAULT 'XAUUSD', ts REAL NOT NULL, bid REAL NOT NULL, ask REAL NOT NULL, UNIQUE(source, symbol, ts));
         CREATE TABLE IF NOT EXISTS candles(id INTEGER PRIMARY KEY AUTOINCREMENT, time REAL NOT NULL, source TEXT NOT NULL DEFAULT 'DEMO', symbol TEXT NOT NULL DEFAULT 'XAUUSD', timeframe TEXT NOT NULL DEFAULT 'M15', open REAL NOT NULL, high REAL NOT NULL, low REAL NOT NULL, close REAL NOT NULL, volume REAL NOT NULL DEFAULT 0, UNIQUE(time, source, symbol, timeframe));
         """)

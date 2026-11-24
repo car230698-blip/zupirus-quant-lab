@@ -246,7 +246,7 @@ def reconcile_account_positions(
     # 1. Reconcile OPEN / FILLED executions
     open_db_rows = c.execute(
         """
-        SELECT id, position_id, ticket, client_order_id, symbol, action, volume, closed_volume, sl_confirmed, origin, evidence_json
+        SELECT id, position_id, ticket, client_order_id, symbol, action, volume, closed_volume, sl_confirmed, origin, evidence_json, entry_price, sl, tp
         FROM metaapi_trade_executions
         WHERE account_id = ? AND status IN ('FILLED', 'OPEN')
         """,
@@ -269,9 +269,9 @@ def reconcile_account_positions(
             if is_legacy_call:
                 setkv(c, f"orphan_missing_cycle:{exec_id}", "0")
             c.execute("UPDATE metaapi_trade_executions SET last_verified_at = ? WHERE id = ?", (now_ts, exec_id))
-            if not sl_conf:
-                if _is_protective_sl(matched_p):
-                    c.execute("UPDATE metaapi_trade_executions SET sl_confirmed = 1 WHERE id = ?", (exec_id,))
+            is_prot = 1 if _is_protective_sl(matched_p) else 0
+            if is_prot != sl_conf:
+                c.execute("UPDATE metaapi_trade_executions SET sl_confirmed = ? WHERE id = ?", (is_prot, exec_id))
         else:
             # Position missing from live MT5 positions: verify via deals history
             matching_deals = deals_by_pos.get(pos_id) or deals_by_pos.get(t_id) or []
@@ -304,9 +304,9 @@ def reconcile_account_positions(
                     if not is_sys_closed:
                         try:
                             row_dict = dict(row) if hasattr(row, "keys") else {}
-                            e_price = float(row_dict.get("entry_price") or (r[4] if len(r) > 4 else 0.0) or 0.0)
-                            sl_val = float(row_dict.get("stop_loss") or (r[5] if len(r) > 5 else 0.0) or 0.0)
-                            tp_val = float(row_dict.get("take_profit") or (r[6] if len(r) > 6 else 0.0) or 0.0)
+                            e_price = float(row_dict.get("entry_price") or (r[11] if len(r) > 11 else 0.0) or 0.0)
+                            sl_val = float(row_dict.get("sl") or row_dict.get("stop_loss") or (r[12] if len(r) > 12 else 0.0) or 0.0)
+                            tp_val = float(row_dict.get("tp") or row_dict.get("take_profit") or (r[13] if len(r) > 13 else 0.0) or 0.0)
                             exit_price = 0.0
                             if new_deals:
                                 exit_price = float(new_deals[-1].get("price") or 0.0)
@@ -402,19 +402,19 @@ def reconcile_account_positions(
             sl_c = 1 if _is_protective_sl(mp) else 0
             live_vol = float(mp.get("volume") or 0.0)
             orig_vol = float(urow.get("volume") or (ur[4] if len(ur) > 4 else 0.0) or 0.0)
-            closed_v = sum(
-                float(dl.get("volume") or 0.0)
-                for dl in (deals or [])
-                if (pid in (str(dl.get("positionId") or ""), str(dl.get("orderId") or "")) or ucid in str(dl.get("clientId") or ""))
-                and str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2")
-            )
-            matched_deal_ids = [
-                str(dl.get("id"))
-                for dl in (deals or [])
-                if (pid in (str(dl.get("positionId") or ""), str(dl.get("orderId") or "")) or ucid in str(dl.get("clientId") or ""))
-                and str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2")
-                and dl.get("id")
-            ]
+            seen_deal_ids = set()
+            unique_deals = []
+            for dl in (deals or []):
+                d_id = str(dl.get("id") or "")
+                if (pid in (str(dl.get("positionId") or ""), str(dl.get("orderId") or "")) or ucid in str(dl.get("clientId") or "")) \
+                   and str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2"):
+                    if d_id and d_id in seen_deal_ids:
+                        continue
+                    if d_id:
+                        seen_deal_ids.add(d_id)
+                    unique_deals.append(dl)
+            closed_v = sum(float(dl.get("volume") or 0.0) for dl in unique_deals)
+            matched_deal_ids = [str(dl.get("id")) for dl in unique_deals if dl.get("id")]
             if closed_v <= 0 and orig_vol > 0 and live_vol < orig_vol - 0.001:
                 closed_v = round(orig_vol - live_vol, 4)
             ev_data = {
@@ -791,6 +791,11 @@ class PositionWatcher:
                             "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
                             (current_equity, current_balance, now_watch_ts, acc_id)
                         )
+                except Exception as db_sync_err:
+                    logger.debug(f"PositionWatcher DB equity sync note for {acc_id}: {db_sync_err}")
+
+                try:
+                    with tx() as c:
                         # Deadband snapshot throttling (avoid DB bloat while keeping accuracy)
                         last_snap = c.execute(
                             "SELECT ts, balance, equity FROM snapshots WHERE account_id=? ORDER BY ts DESC LIMIT 1",
@@ -808,8 +813,8 @@ class PositionWatcher:
                                 "INSERT INTO snapshots(account_id, ts, balance, equity) VALUES(?, ?, ?, ?)",
                                 (acc_id, now_watch_ts, current_balance, current_equity)
                             )
-                except Exception as db_sync_err:
-                    logger.debug(f"PositionWatcher DB sync note for {acc_id}: {db_sync_err}")
+                except Exception as snap_sync_err:
+                    logger.debug(f"PositionWatcher DB snapshot note for {acc_id}: {snap_sync_err}")
 
                 cur_open = []
                 is_read_ok = False
@@ -1329,7 +1334,7 @@ class PositionWatcher:
                                 if str(dl.get("entryType") or "").upper() not in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2", "3", ""):
                                     continue
                                 dl_id = str(dl.get("id") or "")
-                                if not dl_id or getkv(c, f"deal_synced:{dl_id}"):
+                                if not dl_id or getkv(c, f"deal_synced:{acc_id}:{dl_id}"):
                                     continue
                                 profit_raw = _safe_float(dl.get("profit")) + _safe_float(dl.get("swap")) + _safe_float(dl.get("commission"))
                                 is_cent_deal = (
@@ -1368,7 +1373,7 @@ class PositionWatcher:
                                                 exit_reason="BROKER_PARTIAL_CLOSED" if is_still_open_partial else "BROKER_DEAL_CLOSED",
                                                 accumulate_pnl=True,
                                             )
-                                        setkv(c, f"deal_synced:{dl_id}", "1")
+                                        setkv(c, f"deal_synced:{acc_id}:{dl_id}", "1")
                 except Exception as ds_err:
                     logger.debug(f"Deal history sync note for {acc_id}: {ds_err}")
 

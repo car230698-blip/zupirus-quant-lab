@@ -117,7 +117,11 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol
 
         # Auto-Rollback / Auto-Disable ("Bad Lesson" Protection):
         # Group by signal_id and scope strictly to signals of the candidate's symbol (allowing broker suffixes like .m) executed AFTER approval
-        cand_symbol = str(rules.get("symbol") or symbol or "XAUUSD").strip()
+        raw_rule_sym = str(rules.get("symbol") or "").strip().upper()
+        if not raw_rule_sym or raw_rule_sym in ("ANY", "ALL", "*"):
+            cand_symbol = str(symbol or "XAUUSD").strip()
+        else:
+            cand_symbol = str(rules.get("symbol") or symbol or "XAUUSD").strip()
         try:
             active_cur = db_cursor
             if active_cur is not None:

@@ -853,37 +853,73 @@ async def execute_fan_out_for_signal(
                     "persisted": True
                 })
             elif is_success:
-                executed_count += 1
-                pos_id = str(res.get("positionId") or res.get("orderId") or "")
-                ord_id = str(res.get("orderId") or pos_id)
-                filled_vol = float(res.get("volume") or meta["volume"])
-                # SL confirmation: always starts at 0 at submit time; PositionWatcher verifies on MT5
-                sl_confirmed = 0
+                num_code = res.get("numericCode")
+                str_code_u = str(res.get("stringCode") or "").upper()
+                is_placed_only = (
+                    num_code == 10008
+                    or str_code_u == "TRADE_RETCODE_PLACED"
+                    or (not res.get("positionId") and res.get("orderId"))
+                )
 
-                with tx() as c:
-                    c.execute(
-                        """
-                        UPDATE metaapi_trade_executions
-                        SET status = 'FILLED', position_id = ?, ticket = ?, order_id = ?,
-                            volume = ?, latency_ms = ?, sl_confirmed = ?, executed_at = ?
-                        WHERE id = ?
-                        """,
-                        (pos_id, pos_id, ord_id, filled_vol, lat, sl_confirmed, now_ts, exec_id)
-                    )
-                    from app.domains.execution.compliance import reset_broker_circuit_breaker
-                    reset_broker_circuit_breaker(server=srv_target, db_cursor=c)
-                executions.append({
-                    "exec_id": exec_id,
-                    "account_id": acc_id_val,
-                    "metaapi_account_id": meta_id_val,
-                    "status": "FILLED",
-                    "volume": filled_vol,
-                    "order_id": ord_id,
-                    "position_id": pos_id,
-                    "latency_ms": lat,
-                    "message": msg,
-                    "persisted": True
-                })
+                if is_placed_only:
+                    ord_id = str(res.get("orderId") or "")
+                    placed_vol = float(res.get("volume") or meta["volume"])
+                    with tx() as c:
+                        c.execute(
+                            """
+                            UPDATE metaapi_trade_executions
+                            SET status = 'PENDING_SUBMIT', position_id = NULL, ticket = ?, order_id = ?,
+                                volume = ?, latency_ms = ?, sl_confirmed = 0, executed_at = ?
+                            WHERE id = ?
+                            """,
+                            (ord_id, ord_id, placed_vol, lat, now_ts, exec_id)
+                        )
+                        from app.domains.execution.compliance import reset_broker_circuit_breaker
+                        reset_broker_circuit_breaker(server=srv_target, db_cursor=c)
+                    executions.append({
+                        "exec_id": exec_id,
+                        "account_id": acc_id_val,
+                        "metaapi_account_id": meta_id_val,
+                        "status": "PENDING_SUBMIT",
+                        "volume": placed_vol,
+                        "order_id": ord_id,
+                        "position_id": None,
+                        "latency_ms": lat,
+                        "message": msg or "TRADE_RETCODE_PLACED",
+                        "persisted": True
+                    })
+                else:
+                    executed_count += 1
+                    pos_id = str(res.get("positionId") or res.get("orderId") or "")
+                    ord_id = str(res.get("orderId") or pos_id)
+                    filled_vol = float(res.get("volume") or meta["volume"])
+                    # SL confirmation: always starts at 0 at submit time; PositionWatcher verifies on MT5
+                    sl_confirmed = 0
+
+                    with tx() as c:
+                        c.execute(
+                            """
+                            UPDATE metaapi_trade_executions
+                            SET status = 'FILLED', position_id = ?, ticket = ?, order_id = ?,
+                                volume = ?, latency_ms = ?, sl_confirmed = ?, executed_at = ?
+                            WHERE id = ?
+                            """,
+                            (pos_id, pos_id, ord_id, filled_vol, lat, sl_confirmed, now_ts, exec_id)
+                        )
+                        from app.domains.execution.compliance import reset_broker_circuit_breaker
+                        reset_broker_circuit_breaker(server=srv_target, db_cursor=c)
+                    executions.append({
+                        "exec_id": exec_id,
+                        "account_id": acc_id_val,
+                        "metaapi_account_id": meta_id_val,
+                        "status": "FILLED",
+                        "volume": filled_vol,
+                        "order_id": ord_id,
+                        "position_id": pos_id,
+                        "latency_ms": lat,
+                        "message": msg,
+                        "persisted": True
+                    })
             else:
                 # Sàn từ chối rõ ràng -> REJECTED, giải phóng reserved_risk_pct = 0.0
                 failed_count += 1

@@ -671,6 +671,17 @@ def apply_migration_025(c, is_pg: bool):
             pass
 
 
+def apply_migration_026(c, is_pg: bool):
+    """026_snapshots_and_signals_constraints: Drop FK from snapshots to accounts (supports trading_accounts) and expand signals.source check constraint to allow CLOUD_MT5, TRADINGVIEW, MANUAL, ZUPIRUS_AGENT."""
+    if is_pg:
+        c.execute("""
+        ALTER TABLE snapshots DROP CONSTRAINT IF EXISTS snapshots_account_id_fkey;
+        ALTER TABLE signals DROP CONSTRAINT IF EXISTS signals_source_check;
+        ALTER TABLE signals ADD CONSTRAINT signals_source_check CHECK(source IN ('DEMO', 'REPLAY', 'CLOUD_MT5', 'TRADINGVIEW', 'MANUAL', 'ZUPIRUS_AGENT'));
+        """)
+
+
+
 
 
 

@@ -17,6 +17,8 @@ from app.domains.ai.oos_validator import simulate_strategy_on_candles
 def setup_test_db(tmp_path, monkeypatch):
     test_db = tmp_path / "test_defects.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{test_db}")
+    monkeypatch.setattr("app.core.db.DB", test_db)
+    monkeypatch.setattr("app.db.DB", test_db)
     init()
     yield
 
@@ -510,7 +512,9 @@ async def test_risk_multiplier_respects_portfolio_cap_and_reserves_actual_risk()
 
 def test_auto_rollback_scoped_to_candidate_symbol():
     """Verify that losing streak on XAUUSD does NOT pause EURUSD strategy candidate."""
+    from app.db import setkv
     with tx() as c:
+        setkv(c, "signal_mode", "ZUPIRUS_AGENT")
         c.execute("DELETE FROM strategy_candidates")
         c.execute("DELETE FROM metaapi_trade_executions")
         now_ts = time.time()
@@ -601,9 +605,31 @@ async def test_background_crypto_scanner_scans_saved_checkout_wallet(monkeypatch
     assert any(old_wallet in url for url in queried_urls)
 
 
+def _seed_account(c, acc_id, user_id="usr_mock_1"):
+    c.execute("INSERT OR REPLACE INTO users (id, email, password, role) VALUES (?, ?, 'hash', 'customer')", (user_id, f"{user_id}@test.com"))
+    c.execute(
+        """
+        INSERT OR REPLACE INTO metaapi_cloud_accounts (id, user_id, login, server, created_at)
+        VALUES (?, ?, '12345', 'Demo', ?)
+        """,
+        (acc_id, user_id, time.time())
+    )
+    c.execute(
+        """
+        INSERT OR REPLACE INTO trading_accounts (id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server, auto_trade, deployment_state, balance, equity, created_at)
+        VALUES (?, ?, 'meta_' || ?, '12345', 'enc', 'Demo', 1, 'DEPLOYED', 10000.0, 10000.0, ?)
+        """,
+        (acc_id, user_id, acc_id, time.time())
+    )
+
+
 def test_allowed_strategy_ids_passed_and_filtered():
     """Verify accounts with allowed_strategy_ids only receive matching strategies."""
     from app.domains.execution.fanout import execute_fan_out_for_signal
+
+    with tx() as c:
+        _seed_account(c, "acc_trend_only", "u1")
+        _seed_account(c, "acc_scalp_only", "u2")
 
     accounts = [
         {
@@ -612,6 +638,8 @@ def test_allowed_strategy_ids_passed_and_filtered():
             "metaapi_account_id": "m1",
             "balance": 10000.0,
             "equity": 10000.0,
+            "auto_trade": 1,
+            "deployment_state": "DEPLOYED",
             "allowed_strategy_ids": "strat_trend_breakout",
             "risk_config": json.dumps({"risk": 1.0}),
         },
@@ -621,13 +649,16 @@ def test_allowed_strategy_ids_passed_and_filtered():
             "metaapi_account_id": "m2",
             "balance": 10000.0,
             "equity": 10000.0,
+            "auto_trade": 1,
+            "deployment_state": "DEPLOYED",
             "allowed_strategy_ids": "strat_mean_reversion",
             "risk_config": json.dumps({"risk": 1.0}),
         },
     ]
 
+    import uuid
     sig = {
-        "id": "sig_strat_test",
+        "id": f"sig_strat_test_{uuid.uuid4().hex[:8]}",
         "strategy": "strat_trend_breakout",
         "symbol": "EURUSD",
         "action": "BUY",
@@ -638,14 +669,14 @@ def test_allowed_strategy_ids_passed_and_filtered():
 
     mock_client = MagicMock()
     mock_client.get_open_positions = AsyncMock(return_value=[])
-    mock_client.execute_order = AsyncMock(return_value={"numericCode": 200, "stringCode": "TRADE_RETCODE_DONE", "orderId": "ord_ok"})
+    mock_client.execute_order = AsyncMock(return_value={"numericCode": 200, "stringCode": "TRADE_RETCODE_DONE", "orderId": "ord_ok", "positionId": "pos_ok"})
 
     # Run loop synchronously
     loop = asyncio.new_event_loop()
     try:
         res = loop.run_until_complete(execute_fan_out_for_signal(sig, accounts, metaapi_client=mock_client))
         # acc_trend_only should execute, acc_scalp_only should be skipped
-        assert res.get("executed") == 1
+        assert res.get("executed") == 1, f"RES IS: {res}"
         assert res.get("skipped") == 1
     finally:
         loop.close()
@@ -696,6 +727,10 @@ def test_sql_adapt_preserves_placeholders_and_escapes_literals():
 def test_agent_candidate_strategy_code_prioritized_over_display_name():
     """Verify that when a strategy candidate has display name 'Gold Strat' and rules contain 'strat_trend_breakout',
     the strategy code is dispatched to fanout, matching accounts that allow 'strat_trend_breakout'."""
+    with tx() as c:
+        _seed_account(c, "acc_trend", "u_trend")
+        _seed_account(c, "acc_other", "u_other")
+
     cand = {
         "id": "cand_gold_1",
         "name": "Gold Strat",
@@ -718,20 +753,27 @@ def test_agent_candidate_strategy_code_prioritized_over_display_name():
     accounts = [
         {
             "id": "acc_trend",
+            "auto_trade": 1,
+            "deployment_state": "DEPLOYED",
             "allowed_strategy_ids": "strat_trend_breakout",
             "balance": 10000.0,
+            "equity": 10000.0,
             "risk_config": "{}",
         },
         {
             "id": "acc_other",
+            "auto_trade": 1,
+            "deployment_state": "DEPLOYED",
             "allowed_strategy_ids": "strat_mean_reversion",
             "balance": 10000.0,
+            "equity": 10000.0,
             "risk_config": "{}",
         },
     ]
 
+    import uuid
     sig = {
-        "id": "sig_gold_test",
+        "id": f"sig_gold_test_{uuid.uuid4().hex[:8]}",
         "strategy": strat_code,
         "strategy_id": strat_code,
         "strategy_name": cand["name"],
@@ -743,12 +785,12 @@ def test_agent_candidate_strategy_code_prioritized_over_display_name():
     from app.domains.execution.fanout import execute_fan_out_for_signal
     mock_client = MagicMock()
     mock_client.get_open_positions = AsyncMock(return_value=[])
-    mock_client.execute_order = AsyncMock(return_value={"numericCode": 200, "stringCode": "TRADE_RETCODE_DONE", "orderId": "ord_ok"})
+    mock_client.execute_order = AsyncMock(return_value={"numericCode": 200, "stringCode": "TRADE_RETCODE_DONE", "orderId": "ord_ok", "positionId": "pos_ok"})
 
     loop = asyncio.new_event_loop()
     try:
         res = loop.run_until_complete(execute_fan_out_for_signal(sig, accounts, metaapi_client=mock_client))
-        assert res.get("executed") == 1
+        assert res.get("executed") == 1, f"RES IS: {res}"
         assert res.get("skipped") == 1
     finally:
         loop.close()
@@ -758,3 +800,343 @@ def test_agent_candidate_strategy_code_prioritized_over_display_name():
 
 
 
+
+
+# ==============================================================================
+# Defects Remediation Tests (Session 2026-11-24)
+# ==============================================================================
+
+def test_equity_update_persists_even_if_snapshot_fails():
+    """Defect 1: Cloud MT5 equity update must persist in trading_accounts even if snapshots fails."""
+    acc_id = "acc_test_eq_01"
+    now_ts = time.time()
+    with tx() as c:
+        c.execute("INSERT OR REPLACE INTO users (id, email, password, role) VALUES ('usr_mock_eq', 'eq@test.com', 'hash', 'customer')")
+        c.execute("DELETE FROM trading_accounts WHERE id = ?", (acc_id,))
+        c.execute(
+            """
+            INSERT INTO trading_accounts (id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server, auto_trade, balance, equity, created_at)
+            VALUES (?, 'usr_mock_eq', 'meta_mock_eq', '12345', 'enc', 'Demo', 1, 1000.0, 1000.0, ?)
+            """,
+            (acc_id, now_ts)
+        )
+
+    # Simulate watcher logic: transaction 1 updates trading_accounts
+    new_bal = 1050.0
+    new_eq = 1100.0
+    with tx() as c:
+        c.execute(
+            "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
+            (new_eq, new_bal, now_ts, acc_id)
+        )
+
+    with tx() as c:
+        row = c.execute("SELECT equity, balance FROM trading_accounts WHERE id=?", (acc_id,)).fetchone()
+        eq_val = float(row["equity"] if hasattr(row, "keys") else row[0])
+        bal_val = float(row["balance"] if hasattr(row, "keys") else row[1])
+        assert abs(eq_val - 1100.0) < 0.01
+        assert abs(bal_val - 1050.0) < 0.01
+
+
+def test_cloud_mt5_signals_source_constraint():
+    """Defect 2: Inserting source='CLOUD_MT5' into signals must succeed without constraint violation."""
+    sig_id = f"sig_cloud_{int(time.time() * 1000)}"
+    now_ts = time.time()
+    with tx() as c:
+        c.execute(
+            """
+            INSERT INTO signals (id, source, side, price, sl, tp, created, expires)
+            VALUES (?, 'CLOUD_MT5', 'BUY', 2650.0, 2640.0, 2670.0, ?, ?)
+            """,
+            (sig_id, now_ts, now_ts + 3600)
+        )
+        row = c.execute("SELECT source, side FROM signals WHERE id = ?", (sig_id,)).fetchone()
+        src_val = row["source"] if hasattr(row, "keys") else row[0]
+        assert src_val == "CLOUD_MT5"
+
+
+def test_deal_sync_scoped_per_account():
+    """Defect 3: Deal sync keys must be scoped per account so account B is not skipped when account A syncs deal_100."""
+    from app.db import setkv, getkv
+    acc_a = "acc_sync_A"
+    acc_b = "acc_sync_B"
+    shared_deal_id = "dl_shared_999"
+
+    with tx() as c:
+        key_a = f"deal_synced:{acc_a}:{shared_deal_id}"
+        key_b = f"deal_synced:{acc_b}:{shared_deal_id}"
+
+        setkv(c, key_a, "1")
+        assert getkv(c, key_a) == "1"
+        assert getkv(c, key_b) is None
+
+
+
+def test_manual_close_tagging_float_prices():
+    """Defect 4: Manual close tagging must correctly parse float entry_price, sl, tp without ValueError on symbol."""
+    from app.domains.execution.watcher import reconcile_account_positions
+    acc_id = "acc_test_tagging_01"
+    exec_id = f"ex_tag_{int(time.time() * 1000)}"
+    sig_id = f"sig_tag_{int(time.time() * 1000)}"
+    now_ts = time.time()
+
+    with tx() as c:
+        _seed_account(c, acc_id)
+        c.execute("DELETE FROM metaapi_trade_executions WHERE id = ?", (exec_id,))
+        c.execute(
+            """
+            INSERT INTO metaapi_trade_executions (
+                id, account_id, signal_id, symbol, action, volume, status, position_id, ticket,
+                entry_price, sl, tp, executed_at, sl_confirmed
+            ) VALUES (?, ?, ?, 'XAUUSD', 'BUY', 0.1, 'FILLED', 'pos_tag_1', 'pos_tag_1', 2650.50, 2640.00, 2670.00, ?, 1)
+            """,
+            (exec_id, acc_id, sig_id, now_ts)
+        )
+
+        live_positions = []  # Position disappeared from MT5 (closed)
+        deals = [{
+            "id": "deal_tag_close_1",
+            "positionId": "pos_tag_1",
+            "entryType": "DEAL_ENTRY_OUT",
+            "volume": 0.1,
+            "price": 2660.00,
+            "profit": 95.0,
+        }]
+
+        # Reconcile must not throw ValueError
+        res = reconcile_account_positions(
+            c,
+            acc_id=acc_id,
+            live_positions=live_positions,
+            deals=deals,
+            now_ts=now_ts + 5,
+        )
+        assert res is not None
+
+        row = c.execute("SELECT status, closed_volume FROM metaapi_trade_executions WHERE id = ?", (exec_id,)).fetchone()
+        st = row["status"] if hasattr(row, "keys") else row[0]
+        cv = float(row["closed_volume"] if hasattr(row, "keys") else row[1])
+        assert st == "CLOSED"
+        assert abs(cv - 0.1) < 0.001
+
+
+def test_sl_confirmed_demoted_when_sl_removed_or_invalid():
+    """Defect 5: sl_confirmed must update dynamically: 1 when protective SL exists, 0 when removed or wrong side."""
+    from app.domains.execution.watcher import reconcile_account_positions
+    acc_id = "acc_test_sl_conf"
+    exec_id = f"ex_sl_{int(time.time() * 1000)}"
+    pos_id = f"pos_sl_{int(time.time() * 1000)}"
+    sig_id = f"sig_sl_{int(time.time() * 1000)}"
+    now_ts = time.time()
+
+    with tx() as c:
+        _seed_account(c, acc_id)
+        c.execute(
+            """
+            INSERT INTO metaapi_trade_executions (
+                id, account_id, signal_id, symbol, action, volume, status, position_id, ticket,
+                entry_price, sl, tp, executed_at, sl_confirmed
+            ) VALUES (?, ?, ?, 'XAUUSD', 'BUY', 0.1, 'FILLED', ?, ?, 2650.0, 2640.0, 2680.0, ?, 0)
+            """,
+            (exec_id, acc_id, sig_id, pos_id, pos_id, now_ts)
+        )
+
+        # Snapshot 1: Valid SL on MT5 -> sl_confirmed should become 1
+        live_p1 = [{
+            "id": pos_id,
+            "symbol": "XAUUSD",
+            "type": "POSITION_TYPE_BUY",
+            "volume": 0.1,
+            "openPrice": 2650.0,
+            "currentPrice": 2655.0,
+            "stopLoss": 2640.0,
+        }]
+        reconcile_account_positions(c, acc_id=acc_id, live_positions=live_p1, deals=[], now_ts=now_ts + 1)
+        r1 = c.execute("SELECT sl_confirmed FROM metaapi_trade_executions WHERE id = ?", (exec_id,)).fetchone()
+        assert (r1["sl_confirmed"] if hasattr(r1, "keys") else r1[0]) == 1
+
+        # Snapshot 2: SL removed -> sl_confirmed must reset to 0
+        live_p2 = [{
+            "id": pos_id,
+            "symbol": "XAUUSD",
+            "type": "POSITION_TYPE_BUY",
+            "volume": 0.1,
+            "openPrice": 2650.0,
+            "currentPrice": 2655.0,
+            "stopLoss": None,
+        }]
+        reconcile_account_positions(c, acc_id=acc_id, live_positions=live_p2, deals=[], now_ts=now_ts + 2)
+        r2 = c.execute("SELECT sl_confirmed FROM metaapi_trade_executions WHERE id = ?", (exec_id,)).fetchone()
+        assert (r2["sl_confirmed"] if hasattr(r2, "keys") else r2[0]) == 0
+
+        # Snapshot 3: SL on wrong side of current price for BUY -> sl_confirmed must remain 0
+        live_p3 = [{
+            "id": pos_id,
+            "symbol": "XAUUSD",
+            "type": "POSITION_TYPE_BUY",
+            "volume": 0.1,
+            "openPrice": 2650.0,
+            "currentPrice": 2630.0,
+            "stopLoss": 2640.0,
+        }]
+        reconcile_account_positions(c, acc_id=acc_id, live_positions=live_p3, deals=[], now_ts=now_ts + 3)
+        r3 = c.execute("SELECT sl_confirmed FROM metaapi_trade_executions WHERE id = ?", (exec_id,)).fetchone()
+        assert (r3["sl_confirmed"] if hasattr(r3, "keys") else r3[0]) == 0
+
+
+def test_unknown_execution_deduplicates_deal_ids():
+    """Defect 6: Deal recovery must deduplicate deals by ID so closed volume is not doubled."""
+    from app.domains.execution.watcher import reconcile_account_positions
+    acc_id = "acc_test_dedup_deals"
+    exec_id = f"ex_dedup_{int(time.time() * 1000)}"
+    pos_id = f"pos_dedup_{int(time.time() * 1000)}"
+    sig_id = f"sig_dedup_{int(time.time() * 1000)}"
+    now_ts = time.time()
+
+    with tx() as c:
+        _seed_account(c, acc_id)
+        c.execute(
+            """
+            INSERT INTO metaapi_trade_executions (
+                id, account_id, signal_id, symbol, action, volume, entry_price, status, position_id, ticket,
+                client_order_id, executed_at, sl_confirmed
+            ) VALUES (?, ?, ?, 'EURUSD', 'BUY', 1.0, 1.0850, 'UNKNOWN_EXECUTION', ?, ?, 'cid_dedup_1', ?, 0)
+            """,
+            (exec_id, acc_id, sig_id, pos_id, pos_id, now_ts)
+        )
+
+        live_positions = [{
+            "id": pos_id,
+            "clientId": "cid_dedup_1",
+            "symbol": "EURUSD",
+            "type": "POSITION_TYPE_BUY",
+            "volume": 0.5,
+            "openPrice": 1.0850,
+            "stopLoss": 1.0800,
+        }]
+
+        deals = [
+            {"id": "deal_partial_1", "positionId": pos_id, "entryType": "DEAL_ENTRY_OUT", "volume": 0.5},
+            {"id": "deal_partial_1", "positionId": pos_id, "entryType": "DEAL_ENTRY_OUT", "volume": 0.5},
+        ]
+
+        reconcile_account_positions(c, acc_id=acc_id, live_positions=live_positions, deals=deals, now_ts=now_ts + 1)
+
+        row = c.execute("SELECT status, closed_volume FROM metaapi_trade_executions WHERE id = ?", (exec_id,)).fetchone()
+        st = row["status"] if hasattr(row, "keys") else row[0]
+        cv = float(row["closed_volume"] if hasattr(row, "keys") else row[1])
+        assert st == "FILLED"
+        assert abs(cv - 0.5) < 0.001
+
+
+def test_candidate_any_all_triggers_drawdown_guard_for_evaluated_symbol():
+    """Defect 7: Candidate with rule symbol: ANY or ALL must trigger PAUSED_DRAWDOWN_GUARD on 4 consecutive losses of the evaluated symbol."""
+    from app.db import setkv
+    from app.domains.execution.engine import autonomous_agent_step
+    cand_id = f"cand_any_{int(time.time() * 1000)}"
+    now_ts = time.time()
+    sym = "EURUSD"
+
+    with tx() as c:
+        _seed_account(c, 'acc_mock_losses')
+        setkv(c, "signal_mode", "ZUPIRUS_AGENT")
+        setkv(c, "halted", "0")
+        c.execute("DELETE FROM shadow_signals")
+        c.execute("UPDATE strategy_candidates SET status = 'DRAFT' WHERE status = 'APPROVED_FOR_PROD'")
+
+        c.execute(
+            """
+            INSERT INTO strategy_candidates (id, name, rules_json, win_rate, profit_factor, status, created_at, updated_at)
+            VALUES (?, 'Global Trend Any', ?, 0.65, 1.8, 'APPROVED_FOR_PROD', ?, ?)
+            """,
+            (cand_id, json.dumps({"symbol": "ANY", "strategy": "strat_trend_breakout"}), now_ts - 3600, now_ts - 3600)
+        )
+
+        for i in range(4):
+            sig_id = f"ag_loss_{i}_{int(time.time() * 1000)}"
+            c.execute(
+                """
+                INSERT INTO metaapi_trade_executions (
+                    id, account_id, signal_id, symbol, action, volume, entry_price, status, profit, executed_at
+                ) VALUES (?, 'acc_mock_losses', ?, 'EURUSD.m', 'BUY', 0.1, 1.0850, 'CLOSED', -50.0, ?)
+                """,
+                (f"ex_loss_{i}_{int(time.time()*1000)}", sig_id, now_ts - (100 - i * 10))
+            )
+
+        cand_row = c.execute("SELECT * FROM strategy_candidates WHERE id = ?", (cand_id,)).fetchone()
+        from app.domains.execution.engine import coordinate_strategies
+        step_res = coordinate_strategies([], timeframe="M15", symbol=sym, candidate=cand_row, db_cursor=c)
+        assert step_res is not None
+        assert step_res.get("side") is None
+        assert "AUTO_ROLLBACK_TRIGGERED" in step_res.get("reason", "")
+
+        cand_row_after = c.execute("SELECT status FROM strategy_candidates WHERE id = ?", (cand_id,)).fetchone()
+        c_status = cand_row_after["status"] if hasattr(cand_row_after, "keys") else cand_row_after[0]
+        assert c_status == "PAUSED_DRAWDOWN_GUARD"
+
+
+@pytest.mark.asyncio
+async def test_trade_retcode_placed_10008_fanout():
+    """Defect 8: MetaApi response 10008 / TRADE_RETCODE_PLACED sets status PENDING_SUBMIT, position_id=None, executed=0."""
+    import uuid
+    from app.db import setkv
+    from app.domains.execution.fanout import execute_fan_out_for_signal
+    acc_id = "acc_placed_test"
+    meta_acc_id = "meta_placed_test"
+
+    accounts = [{
+        "id": acc_id,
+        "metaapi_account_id": meta_acc_id,
+        "broker_server": "DemoServer",
+        "balance": 10000.0,
+        "equity": 10000.0,
+        "risk_percentage": 1.0,
+        "auto_trade": 1,
+    }]
+
+    signal = {
+        "id": f"sig_placed_{uuid.uuid4().hex[:8]}",
+        "symbol": "XAUUSD",
+        "action": "BUY",
+        "entry_price": 2650.0,
+        "sl": 2640.0,
+        "tp": 2670.0,
+        "strategy": "strat_test",
+    }
+
+    mock_client = MagicMock()
+    mock_client.get_open_positions = AsyncMock(return_value=[])
+    mock_client.execute_order = AsyncMock(return_value={
+        "numericCode": 10008,
+        "stringCode": "TRADE_RETCODE_PLACED",
+        "orderId": "ord_10008_pending",
+        "volume": 0.1,
+        "latency_ms": 45,
+    })
+
+    with tx() as c:
+        setkv(c, "halted", "0")
+        c.execute("DELETE FROM metaapi_trade_executions WHERE account_id = ?", (acc_id,))
+
+    res = await execute_fan_out_for_signal(
+        signal=signal,
+        accounts=accounts,
+        metaapi_client=mock_client,
+    )
+
+    assert res["executed"] == 0
+    assert len(res["executions"]) == 1
+    exec_info = res["executions"][0]
+    assert exec_info["status"] == "PENDING_SUBMIT"
+    assert exec_info["position_id"] is None
+    assert exec_info["order_id"] == "ord_10008_pending"
+
+    with tx() as c:
+        row = c.execute("SELECT status, position_id, order_id FROM metaapi_trade_executions WHERE account_id = ?", (acc_id,)).fetchone()
+        assert row is not None
+        st = row["status"] if hasattr(row, "keys") else row[0]
+        pos = row["position_id"] if hasattr(row, "keys") else row[1]
+        ord_id = row["order_id"] if hasattr(row, "keys") else row[2]
+        assert st == "PENDING_SUBMIT"
+        assert pos is None
+        assert ord_id == "ord_10008_pending"

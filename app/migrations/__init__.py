@@ -131,6 +131,11 @@ MIGRATIONS = [
         "version": 25,
         "name": "025_direct_usdt_billing",
         "description": "Add expected_amount_usdt and tx_hash columns with unique indexes for Direct On-Chain USDT"
+    },
+    {
+        "version": 26,
+        "name": "026_snapshots_and_signals_constraints",
+        "description": "Drop FK from snapshots to accounts (supports trading_accounts) and expand signals.source check constraint"
     }
 ]
 
@@ -149,7 +154,7 @@ from .seed_and_fixes import (
     apply_migration_016, apply_migration_017, apply_migration_018,
     apply_migration_019, apply_migration_020, apply_migration_021,
     apply_migration_022, apply_migration_023, apply_migration_024,
-    apply_migration_025,
+    apply_migration_025, apply_migration_026,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -183,6 +188,7 @@ def run_all_migrations(c, is_pg: bool):
         23: apply_migration_023,
         24: apply_migration_024,
         25: apply_migration_025,
+        26: apply_migration_026,
     }
 
     for m in MIGRATIONS:
