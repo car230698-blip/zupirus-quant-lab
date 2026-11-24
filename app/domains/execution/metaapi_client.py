@@ -95,17 +95,20 @@ class MetaApiClient:
             }
 
         url = f"{PROVISIONING_API_BASE}/users/current/accounts"
+        headers = self._headers()
+        headers["transaction-id"] = uuid.uuid4().hex
         payload = {
             "name": name,
-            "type": "cloud",
-            "login": login,
+            "type": "cloud-g2",
+            "login": str(login).strip(),
             "password": password,
             "server": server,
             "platform": platform,
-            "magic": magic
+            "magic": int(magic or 230698),
+            "region": DEFAULT_METAAPI_REGION,
         }
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=self._headers(), json=payload)
+            resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code not in (200, 201, 202):
                 raise RuntimeError(f"MetaApi Provisioning Error ({resp.status_code}): {resp.text}")
             try:
