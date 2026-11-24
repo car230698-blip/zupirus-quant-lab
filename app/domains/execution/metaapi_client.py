@@ -95,8 +95,9 @@ class MetaApiClient:
             }
 
         url = f"{PROVISIONING_API_BASE}/users/current/accounts"
+        tx_id = uuid.uuid4().hex
         headers = self._headers()
-        headers["transaction-id"] = uuid.uuid4().hex
+        headers["transaction-id"] = tx_id
         payload = {
             "name": name,
             "type": "cloud-g2",
@@ -107,21 +108,37 @@ class MetaApiClient:
             "magic": int(magic or 230698),
             "region": DEFAULT_METAAPI_REGION,
         }
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            if resp.status_code not in (200, 201, 202):
-                raise RuntimeError(f"MetaApi Provisioning Error ({resp.status_code}): {resp.text}")
-            try:
-                data = resp.json()
-            except Exception:
-                data = {}
-            if not isinstance(data, dict):
-                data = {}
-            # Ensure deployment
-            acc_id = data.get("id")
-            if acc_id and data.get("state") != "DEPLOYED":
-                await client.post(f"{PROVISIONING_API_BASE}/users/current/accounts/{acc_id}/deploy", headers=self._headers())
-            return data
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            last_resp = None
+            for poll_attempt in range(1, 6):
+                resp = await client.post(url, headers=headers, json=payload)
+                last_resp = resp
+                if resp.status_code in (200, 201):
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    if not isinstance(data, dict):
+                        data = {}
+                    acc_id = data.get("id") or data.get("_id")
+                    if acc_id and data.get("state") != "DEPLOYED":
+                        try:
+                            await client.post(f"{PROVISIONING_API_BASE}/users/current/accounts/{acc_id}/deploy", headers=self._headers())
+                        except Exception:
+                            pass
+                    return data
+                elif resp.status_code == 202:
+                    # Connection validation in progress, poll using same transaction-id
+                    logger.info(f"MetaApi provisioning in progress (attempt {poll_attempt}/5), waiting 5s...")
+                    await asyncio.sleep(5)
+                    continue
+                else:
+                    raise RuntimeError(f"MetaApi Provisioning Error ({resp.status_code}): {resp.text}")
+            
+            if last_resp is not None and last_resp.status_code == 202:
+                # Timed out polling after 5 attempts
+                raise RuntimeError("MetaApi Provisioning timed out while validating broker connection.")
+            return {}
 
     async def deploy_account(self, metaapi_account_id: str) -> bool:
         """Deploy cloud MT5 terminal to start hosting."""
