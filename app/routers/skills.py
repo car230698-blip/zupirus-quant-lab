@@ -430,8 +430,9 @@ def list_ingested_skills(_admin=Depends(get_current_admin)):
 
 @router.delete("/ingested/{skill_id}")
 def delete_ingested_skill(skill_id: str, _admin=Depends(get_current_admin)):
-    """Delete an ingested skill from database."""
+    """Delete an ingested skill from database, cascading delete to knowledge_chunks."""
     with tx() as c:
+        c.execute("DELETE FROM knowledge_chunks WHERE skill_id = ?", (skill_id,))
         c.execute("DELETE FROM agent_skills WHERE skill_id = ? AND is_builtin = 0", (skill_id,))
     return {"ok": True, "skill_id": skill_id, "message": f"Đã xóa tài liệu/kỹ năng '{skill_id}' thành công."}
 

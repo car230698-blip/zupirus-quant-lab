@@ -264,33 +264,66 @@ def sanitize_and_audit_signal(
             context_snapshot = capture_market_context_snapshot(c, signal, live_price, current_time)
             context_json = json.dumps(context_snapshot)
 
+            # Extract strategy_id / candidate_id if present for canary auditing
+            payload = signal.raw_payload or {}
+            strat_id = getattr(signal, "strategy_id", None) or (payload.get("strategy_id") if isinstance(payload, dict) else None) or (payload.get("candidate_id") if isinstance(payload, dict) else None)
+
             # Persist to signal_audit_logs
-            c.execute(
-                """
-                INSERT INTO signal_audit_logs(
-                    id, signal_id, source_name, strategy_tier, symbol, side,
-                    entry_price, stop_loss, take_profit, raw_payload,
-                    status, reject_reason, context_snapshot, created_at, processed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    f"log_{secrets.token_hex(6)}",
-                    signal.id,
-                    signal.source,
-                    signal.strategy_tier,
-                    signal.symbol,
-                    signal.action,
-                    signal.entry_price,
-                    signal.stop_loss,
-                    signal.take_profit,
-                    json.dumps(signal.raw_payload or {}),
-                    status,
-                    reject_reason,
-                    context_json,
-                    signal.created_at,
-                    current_time,
+            try:
+                c.execute(
+                    """
+                    INSERT INTO signal_audit_logs(
+                        id, signal_id, source_name, strategy_tier, symbol, side,
+                        entry_price, stop_loss, take_profit, raw_payload,
+                        status, reject_reason, context_snapshot, created_at, processed_at, strategy_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"log_{secrets.token_hex(6)}",
+                        signal.id,
+                        signal.source,
+                        signal.strategy_tier,
+                        signal.symbol,
+                        signal.action,
+                        signal.entry_price,
+                        signal.stop_loss,
+                        signal.take_profit,
+                        json.dumps(signal.raw_payload or {}),
+                        status,
+                        reject_reason,
+                        context_json,
+                        signal.created_at,
+                        current_time,
+                        strat_id,
+                    ),
                 )
-            )
+            except Exception:
+                c.execute(
+                    """
+                    INSERT INTO signal_audit_logs(
+                        id, signal_id, source_name, strategy_tier, symbol, side,
+                        entry_price, stop_loss, take_profit, raw_payload,
+                        status, reject_reason, context_snapshot, created_at, processed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        f"log_{secrets.token_hex(6)}",
+                        signal.id,
+                        signal.source,
+                        signal.strategy_tier,
+                        signal.symbol,
+                        signal.action,
+                        signal.entry_price,
+                        signal.stop_loss,
+                        signal.take_profit,
+                        json.dumps(signal.raw_payload or {}),
+                        status,
+                        reject_reason,
+                        context_json,
+                        signal.created_at,
+                        current_time,
+                    ),
+                )
 
             # Record into Hindsight Episodic Memory for Tabula Rasa induction
             mem_title = f"Signal Observed: {signal.source} {signal.action} {signal.symbol} @ {signal.entry_price:.2f} ({status})"

@@ -323,15 +323,16 @@ def evaluate_active_learned_skills(
     db_cursor=None,
     current_time: Optional[float] = None,
     context_snapshot: Optional[Dict[str, Any]] = None,
+    symbol: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Evaluate all enabled self-learned skills for the exact current market session and context."""
+    """Evaluate all enabled self-learned skills for the exact current market session, symbol, and context."""
     import re
     from app.services.signal_ingestion.context import get_trading_session
     now_ts = current_time or time.time()
     cur_sess = get_trading_session(now_ts)
     cur_sess_slug = _normalize_session_slug(cur_sess)
     ctx = context_snapshot or {}
-    ctx_trend = str(ctx.get("h1_trend") or ctx.get("trend") or "").lower()
+    sym_slug = _normalize_session_slug(symbol) if symbol else ""
     allowed_sides = set()
     blocked_sides = set()
     matched_skills = []
@@ -349,24 +350,64 @@ def evaluate_active_learned_skills(
         for r in rows:
             rd = dict(r)
             sid = str(rd.get("skill_id") or "").lower()
-            # Match learned_{session_slug}_{side}_[context_]filter or learned_{session_slug}_{side}_avoid
-            m = re.match(r"^learned_(.+)_(buy|sell)(?:_([a-z0-9_]+))?_(filter|avoid)$", sid)
+            # Match learned_[symbol_]session_side[_context]_type
+            m = re.match(r"^learned_(?:([a-z0-9]+)_)?([a-z0-9]+)_(buy|sell)(?:_([a-z0-9_]+))?_(filter|avoid)$", sid)
             if m:
-                skill_sess_slug = m.group(1)
-                skill_side = m.group(2).upper()
-                skill_ctx = m.group(3)
-                skill_type = m.group(4)
+                part1 = m.group(1)
+                part2 = m.group(2)
+                skill_side = m.group(3).upper()
+                skill_ctx = m.group(4)
+                skill_type = m.group(5)
 
-                if skill_sess_slug == cur_sess_slug:
-                    # If skill has a specific context qualifier (e.g. 'neutral', 'bullish') and context is provided, check compatibility
-                    if skill_ctx and ctx_trend and skill_ctx != ctx_trend:
+                # Determine if part1 is symbol or if part2 is session
+                known_sessions = {"asia", "london", "new_york", "asian", "sydney", "tokyo", "overlap"}
+                if part1 and part1 not in known_sessions:
+                    skill_sym = part1
+                    skill_sess_slug = part2
+                else:
+                    skill_sym = None
+                    skill_sess_slug = part1 or part2
+
+                # Symbol scoping check
+                if skill_sym and sym_slug and skill_sym not in ("all", "any") and skill_sym != sym_slug:
+                    continue
+
+                # Session scoping check
+                if skill_sess_slug != cur_sess_slug:
+                    continue
+
+                # Contextual requirements check (e.g. H1 trend or swept liquidity)
+                if skill_ctx:
+                    # Context data MUST be present and valid to satisfy a contextual rule
+                    if not ctx:
+                        continue
+                    act_trend = str(ctx.get("h1_trend") or ctx.get("trend") or "").lower()
+                    if not act_trend or act_trend in ("unknown", "none"):
                         continue
 
-                    matched_skills.append(rd.get("skill_id"))
-                    if skill_type == "avoid" or sid.endswith("_avoid"):
-                        blocked_sides.add(skill_side)
-                    else:
-                        allowed_sides.add(skill_side)
+                    # Check trend requirement
+                    req_trend = None
+                    if "bullish" in skill_ctx:
+                        req_trend = "bullish"
+                    elif "bearish" in skill_ctx:
+                        req_trend = "bearish"
+                    elif "neutral" in skill_ctx:
+                        req_trend = "neutral"
+
+                    if req_trend and act_trend != req_trend:
+                        continue
+
+                    # Check swept liquidity requirement
+                    if "swept" in skill_ctx:
+                        act_swept = bool(ctx.get("swept_liquidity") or ctx.get("swept"))
+                        if not act_swept:
+                            continue
+
+                matched_skills.append(rd.get("skill_id"))
+                if skill_type == "avoid" or sid.endswith("_avoid"):
+                    blocked_sides.add(skill_side)
+                else:
+                    allowed_sides.add(skill_side)
     except Exception:
         pass
     return {
@@ -403,10 +444,11 @@ def approve_learned_skill(skill_id: str) -> bool:
 
 
 def reject_learned_skill(skill_id: str) -> bool:
-    """Reject and remove a self-learned skill candidate."""
+    """Reject and remove a self-learned skill candidate, cascading delete to knowledge_chunks."""
     import shutil
     try:
         with tx() as c:
+            c.execute("DELETE FROM knowledge_chunks WHERE skill_id = ?", (skill_id,))
             c.execute("DELETE FROM agent_skills WHERE skill_id = ? AND is_builtin = 0", (skill_id,))
         safe_id = os.path.basename(str(skill_id or "").strip())
         if not safe_id or safe_id in (".", "..") or "/" in str(skill_id) or "\\" in str(skill_id) or ".." in str(skill_id):
@@ -439,7 +481,15 @@ def register_learned_skill(
     file_path = _write_learned_skill_md(skill_id, skill_md)
 
     def _do_register(c):
+        effective_md = skill_md
         try:
+            ex_row = c.execute("SELECT enabled, description, skill_md FROM agent_skills WHERE skill_id = ?", (skill_id,)).fetchone()
+            if ex_row:
+                was_enabled = ex_row["enabled"] if hasattr(ex_row, "keys") else ex_row[0]
+                prev_md = ex_row["skill_md"] if hasattr(ex_row, "keys") else ex_row[2]
+                if was_enabled == 1 and prev_md and "## Phiên Bản Bằng Chứng Được Duyệt" not in effective_md:
+                    effective_md = skill_md + f"\n\n## Phiên Bản Bằng Chứng Được Duyệt (Approved Baseline)\n*(Bằng chứng đã duyệt trước đó được bảo toàn đối chiếu)*\n"
+
             c.execute(
                 """
                 INSERT INTO agent_skills (
@@ -453,7 +503,7 @@ def register_learned_skill(
                     skill_md = excluded.skill_md,
                     updated_at = excluded.updated_at
                 """,
-                (skill_record_id, skill_id, name, description, trigger_condition, skill_md, enabled_val, now_ts, now_ts)
+                (skill_record_id, skill_id, name, description, trigger_condition, effective_md, enabled_val, now_ts, now_ts)
             )
         except Exception:
             try:
@@ -465,7 +515,7 @@ def register_learned_skill(
                         skill_md, is_builtin, usage_count, enabled, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
                     """,
-                    (skill_record_id, skill_id, name, description, trigger_condition, skill_md, enabled_val, now_ts, now_ts)
+                    (skill_record_id, skill_id, name, description, trigger_condition, effective_md, enabled_val, now_ts, now_ts)
                 )
             except Exception as e:
                 logger.error(f"Error registering learned skill {skill_id}: {e}")

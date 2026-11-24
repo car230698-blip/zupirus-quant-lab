@@ -40,13 +40,13 @@ def test_evaluate_active_learned_skills_matches_contextual_edge_filters():
         )
 
     with patch("app.services.signal_ingestion.context.get_trading_session", return_value="Asia"):
-        # Case 1: without context trend specified -> matches by session & side
+        # Case 1: without context trend specified -> contextual neutral filter does not match, but unconstrained avoid rule matches
         res = evaluate_active_learned_skills(current_time=now_ts)
         assert res["session"] == "Asia"
-        assert "SELL" in res["allowed_sides"]
+        assert "SELL" not in res["allowed_sides"]
         assert "BUY" in res["blocked_sides"]
-        assert "learned_asia_sell_neutral_filter" in res["matched_skills"]
         assert "learned_asia_buy_avoid" in res["matched_skills"]
+        assert "learned_asia_sell_neutral_filter" not in res["matched_skills"]
 
         # Case 2: with matching context trend ('neutral')
         res_matching = evaluate_active_learned_skills(current_time=now_ts, context_snapshot={"h1_trend": "neutral"})

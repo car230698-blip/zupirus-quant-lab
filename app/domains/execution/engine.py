@@ -201,7 +201,18 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol
         allowed_sides = set()
         try:
             from app.skills.registry import evaluate_active_learned_skills
-            eval_res = evaluate_active_learned_skills(db_cursor=db_cursor)
+            ctx_snapshot = {}
+            if db_cursor is not None:
+                try:
+                    from app.domains.signals.ingestion.context import get_microstructure_features
+                    ctx_snapshot = get_microstructure_features(db_cursor, symbol=cand_symbol)
+                except Exception:
+                    ctx_snapshot = {}
+            eval_res = evaluate_active_learned_skills(
+                db_cursor=db_cursor,
+                context_snapshot=ctx_snapshot,
+                symbol=cand_symbol,
+            )
             blocked_sides = set(eval_res.get("blocked_sides") or [])
             allowed_sides = set(eval_res.get("allowed_sides") or [])
         except Exception as exc:
@@ -563,12 +574,17 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         if active_mode != "ZUPIRUS_AGENT":
             return {"status": "SKIPPED", "reason": f"MODE_IS_{active_mode}"}
 
-        # Load latest Admin-approved strategy candidate (APPROVED_FOR_PROD)
+        # Load latest Admin-approved strategy candidate (APPROVED_FOR_PROD) or active trial (CANARY_DEMO)
         cands = c.execute(
-            "SELECT id, name, rules_json, updated_at FROM strategy_candidates WHERE status = 'APPROVED_FOR_PROD' ORDER BY updated_at DESC"
+            """
+            SELECT id, name, rules_json, updated_at, status
+            FROM strategy_candidates
+            WHERE status IN ('APPROVED_FOR_PROD', 'CANARY_DEMO')
+            ORDER BY CASE WHEN status = 'APPROVED_FOR_PROD' THEN 0 ELSE 1 END, updated_at DESC
+            """
         ).fetchall()
         if not cands:
-            return {"status": "SKIPPED", "reason": "NO_APPROVED_FOR_PROD_STRATEGY"}
+            return {"status": "SKIPPED", "reason": "NO_APPROVED_OR_CANARY_STRATEGY"}
 
         cand = None
         cand_rules = {}
@@ -588,10 +604,11 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 cand_rules = rj
 
         if not cand:
-            return {"status": "SKIPPED", "reason": f"NO_APPROVED_STRATEGY_FOR_SYMBOL_{sym_u}"}
+            return {"status": "SKIPPED", "reason": f"NO_APPROVED_OR_CANARY_STRATEGY_FOR_SYMBOL_{sym_u}"}
 
         rules = cand_rules
         cand_d = cand
+        is_canary = (str(cand_d.get("status") or "").upper() == "CANARY_DEMO")
 
         bars = c.execute(
             """
@@ -690,17 +707,24 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         sl_pts = float(rules.get("sl_points", round(atr_val * sl_mult, dec)))
         tp_pts = float(rules.get("tp_points", round(atr_val * tp_mult, dec)))
         is_buy = side.upper() == "BUY"
-        sig_id = f"ag_{sym_u.lower()}_{int(latest_bar_ts)}_{side.lower()}"
+        sig_id = f"ag_{'canary_' if is_canary else ''}{sym_u.lower()}_{int(latest_bar_ts)}_{side.lower()}"
         norm_sig = NormalizedSignalSchema(
             id=sig_id,
             source="src_zupirus_agent",
-            strategy_tier="ALPHA",
+            strategy_tier="CANARY" if is_canary else "ALPHA",
             symbol=sym_u,
             action=side.upper(),
             entry_price=entry_price,
             stop_loss=round(entry_price - sl_pts if is_buy else entry_price + sl_pts, dec),
             take_profit=round(entry_price + tp_pts if is_buy else entry_price - tp_pts, dec),
-            raw_payload={"candidate": cand_d["name"], "decision": decision, "swarm": swarm_report.get("cycle")},
+            raw_payload={
+                "candidate": cand_d["name"],
+                "candidate_id": cand_d["id"],
+                "strategy_id": cand_d["id"],
+                "status": cand_d.get("status"),
+                "decision": decision,
+                "swarm": swarm_report.get("cycle"),
+            },
             created_at=now,
         )
         approved, reason, sanitized = sanitize_and_audit_signal(norm_sig, live_price=entry_price, current_time=now)
@@ -737,7 +761,11 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                 if d["id"] in seen_acc_ids:
                     continue
                 seen_acc_ids.add(d["id"])
-                if sanitized.strategy_tier == "ALPHA" and not d.get("allow_alpha_strategies"):
+                if is_canary:
+                    acc_tp = str(d.get("account_type") or "").upper()
+                    if acc_tp not in ("DEMO", "DEMO_PRO", "CENT_DEMO") and str(d.get("mode") or "").upper() != "DEMO":
+                        continue
+                elif sanitized.strategy_tier == "ALPHA" and not d.get("allow_alpha_strategies"):
                     continue
                 raw_cfg = d.get("risk_config")
                 rc = {}
@@ -794,13 +822,16 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
             except Exception as exc:
                 logger.debug("Redis client unavailable for signal fan-out: %s", exc)
             strat_code = str(
-                rules.get("strategy")
-                or rules.get("strategy_id")
-                or rules.get("code")
-                or cand_d.get("strategy")
-                or cand_d.get("strategy_id")
-                or cand_d.get("name")
-                or "strat_trend_breakout"
+                cand_d.get("id")
+                if is_canary else (
+                    rules.get("strategy")
+                    or rules.get("strategy_id")
+                    or rules.get("code")
+                    or cand_d.get("strategy")
+                    or cand_d.get("strategy_id")
+                    or cand_d.get("name")
+                    or "strat_trend_breakout"
+                )
             ).strip()
             report = await execute_fan_out_for_signal(
                 signal={
@@ -811,7 +842,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                     "sl": sanitized.stop_loss,
                     "tp": sanitized.take_profit,
                     "strategy": strat_code,
-                    "strategy_id": strat_code,
+                    "strategy_id": cand_d.get("id") if is_canary else strat_code,
                     "strategy_name": str(cand_d.get("name") or "").strip(),
                     "source": getattr(sanitized, "source", "ZUPIRUS_AGENT"),
                     "strategy_tier": getattr(sanitized, "strategy_tier", "STANDARD"),

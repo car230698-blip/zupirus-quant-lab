@@ -281,8 +281,7 @@ def retrieve_relevant_knowledge(
                        (1 - (embedding <=> %s::vector)) AS similarity
                 FROM knowledge_chunks
                 WHERE embedding IS NOT NULL
-                  AND (skill_id IN (SELECT skill_id FROM agent_skills WHERE enabled = 1)
-                       OR skill_id NOT IN (SELECT skill_id FROM agent_skills))
+                  AND (skill_id IS NULL OR skill_id = '' OR skill_id IN (SELECT skill_id FROM agent_skills WHERE enabled = 1))
             """
             params: List[Any] = [vec_str]
             if school:
@@ -312,8 +311,7 @@ def retrieve_relevant_knowledge(
     sql = """
         SELECT id, skill_id, school, doc_type, chunk_index, content, embedding_json
         FROM knowledge_chunks
-        WHERE (skill_id IN (SELECT skill_id FROM agent_skills WHERE enabled = 1)
-               OR skill_id NOT IN (SELECT skill_id FROM agent_skills))
+        WHERE (skill_id IS NULL OR skill_id = '' OR skill_id IN (SELECT skill_id FROM agent_skills WHERE enabled = 1))
     """
     params_fb: List[Any] = []
     if school:

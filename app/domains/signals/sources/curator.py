@@ -81,12 +81,18 @@ def score_external_signal_hybrid(c, signal, context_snapshot: Optional[Dict[str,
     now_ts = float(ctx.get("captured_at") or time.time())
     sig_action = str(getattr(signal, "action", "") or (signal.get("action") if isinstance(signal, dict) else "")).upper()
     sig_source = str(getattr(signal, "source", "") or (signal.get("source") if isinstance(signal, dict) else ""))
+    sig_symbol = str(getattr(signal, "symbol", "") or (signal.get("symbol") if isinstance(signal, dict) else "")).upper()
 
-    # 1. Learned skills session filter
+    # 1. Learned skills session and symbol filter
     allowed_sides = set()
     try:
         from app.skills.registry import evaluate_active_learned_skills
-        eval_res = evaluate_active_learned_skills(db_cursor=c, current_time=now_ts, context_snapshot=ctx)
+        eval_res = evaluate_active_learned_skills(
+            db_cursor=c,
+            current_time=now_ts,
+            context_snapshot=ctx,
+            symbol=sig_symbol,
+        )
         blocked_sides = set(eval_res.get("blocked_sides") or [])
         allowed_sides = set(eval_res.get("allowed_sides") or [])
         if sig_action in blocked_sides:
@@ -94,7 +100,7 @@ def score_external_signal_hybrid(c, signal, context_snapshot: Optional[Dict[str,
     except Exception as sk_err:
         logger.debug(f"Hybrid learned skills check note: {sk_err}")
 
-    # 2. Source trust score check
+    # 2. Source trust score check - Must meet baseline minimum quality threshold (50.0) first
     trust_score = 50.0
     try:
         s_row = c.execute(
@@ -106,14 +112,14 @@ def score_external_signal_hybrid(c, signal, context_snapshot: Optional[Dict[str,
     except Exception:
         pass
 
-    # 3. Apply Edge Filter boost if signal aligns with active learned edge in session
+    if trust_score < 50.0:
+        return False, trust_score, f"HYBRID_LOW_TRUST_SCORE: Source score {trust_score:.1f} < 50.0 threshold"
+
+    # 3. Apply Edge Filter boost if signal aligns with active learned edge in session & symbol
     edge_boost = False
     if sig_action in allowed_sides:
         trust_score = min(100.0, trust_score + 15.0)
         edge_boost = True
-
-    if trust_score < 50.0:
-        return False, trust_score, f"HYBRID_LOW_TRUST_SCORE: Source score {trust_score:.1f} < 50.0 threshold"
 
     reason = "HYBRID_SCORER_APPROVED_WITH_EDGE_BOOST" if edge_boost else "HYBRID_SCORER_APPROVED"
     return True, trust_score, reason

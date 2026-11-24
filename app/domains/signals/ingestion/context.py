@@ -160,7 +160,7 @@ def get_microstructure_features(c, symbol: str = "XAUUSD", atr_14: float = 3.5) 
     sym_u = canonical_symbol(symbol)
 
     default_features = {
-        "h1_trend": "NEUTRAL",
+        "h1_trend": "UNKNOWN",
         "swept_liquidity": False,
         "wick_ratio": 0.35,
         "dist_to_swing_atr": 1.25,
@@ -175,7 +175,7 @@ def get_microstructure_features(c, symbol: str = "XAUUSD", atr_14: float = 3.5) 
             """,
             (sym_u,)
         ).fetchall()
-        if not rows or len(rows) < 5:
+        if not rows or len(rows) < 16:
             return default_features
 
         candles = [dict(r) if hasattr(r, "keys") else {"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3])} for r in rows]

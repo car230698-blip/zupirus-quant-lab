@@ -276,6 +276,7 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
     winning signal clusters vs losing signal clusters (combining signal_audit_logs + graded shadow_signals)."""
     import os
     import re
+    from app.services.symbol_mapper import canonical_symbol
     if min_samples is None:
         try:
             min_samples = int(os.getenv("MIN_INDUCTIVE_SAMPLES", "30").strip())
@@ -285,7 +286,7 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
     try:
         audit_rows = c.execute(
             """
-            SELECT side, entry_price, pnl, context_snapshot
+            SELECT symbol, side, entry_price, pnl, context_snapshot
             FROM signal_audit_logs
             WHERE pnl IS NOT NULL AND context_snapshot IS NOT NULL
               AND signal_id NOT IN (
@@ -296,7 +297,15 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
             ORDER BY created_at DESC LIMIT 200
             """
         ).fetchall()
-        rows.extend(audit_rows)
+        for ar in audit_rows:
+            rows.append({
+                "symbol": canonical_symbol(ar["symbol"] if hasattr(ar, "keys") else ar[0] or "XAUUSD"),
+                "side": ar["side"] if hasattr(ar, "keys") else ar[1],
+                "entry_price": ar["entry_price"] if hasattr(ar, "keys") else ar[2],
+                "pnl": float(ar["pnl"] if hasattr(ar, "keys") else ar[3]),
+                "is_shadow": False,
+                "context_snapshot": ar["context_snapshot"] if hasattr(ar, "keys") else ar[4],
+            })
     except Exception:
         pass
 
@@ -304,18 +313,20 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
         from app.services.signal_ingestion.context import get_trading_session
         shadow_rows = c.execute(
             """
-            SELECT side, entry_price, pnl_pips, signal_time
+            SELECT symbol, side, entry_price, pnl_pips, signal_time
             FROM shadow_signals
             WHERE eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED', 'TIME_CLOSED') AND pnl_pips IS NOT NULL
             ORDER BY signal_time DESC LIMIT 200
             """
         ).fetchall()
         for sr in shadow_rows:
-            s_side = sr["side"] if hasattr(sr, "keys") else sr[0]
-            s_entry = sr["entry_price"] if hasattr(sr, "keys") else sr[1]
-            s_pnl_pips = float(sr["pnl_pips"] if hasattr(sr, "keys") else sr[2])
-            s_ts = float((sr["signal_time"] if hasattr(sr, "keys") else sr[3]) or time.time())
+            s_sym = canonical_symbol(sr["symbol"] if hasattr(sr, "keys") else sr[0] or "XAUUSD")
+            s_side = sr["side"] if hasattr(sr, "keys") else sr[1]
+            s_entry = sr["entry_price"] if hasattr(sr, "keys") else sr[2]
+            s_pnl_pips = float(sr["pnl_pips"] if hasattr(sr, "keys") else sr[3])
+            s_ts = float((sr["signal_time"] if hasattr(sr, "keys") else sr[4]) or time.time())
             rows.append({
+                "symbol": s_sym,
                 "side": s_side,
                 "entry_price": s_entry,
                 "pnl": s_pnl_pips,
@@ -328,17 +339,16 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
     if not rows or len(rows) < min_samples:
         return []
 
-    # Cluster by session and side (with optional h1_trend & swept_liquidity microstructure clustering)
-    clusters_detailed: Dict[Tuple[str, str, str, bool], List[float]] = {}
-    clusters_legacy: Dict[Tuple[str, str], List[float]] = {}
-    shadow_detailed: Dict[Tuple[str, str, str, bool], List[float]] = {}
-    shadow_legacy: Dict[Tuple[str, str], List[float]] = {}
+    # Cluster by symbol, session and side (with optional h1_trend & swept_liquidity microstructure clustering)
+    clusters_detailed: Dict[Tuple[str, str, str, str, bool], List[Dict[str, Any]]] = {}
+    clusters_legacy: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
 
     for r in rows:
-        side = r["side"] if hasattr(r, 'keys') else r[0]
-        pnl = float(r["pnl"] if hasattr(r, 'keys') else r[2])
-        ctx_str = r["context_snapshot"] if hasattr(r, 'keys') else r[3]
-        is_sh = bool(r.get("is_shadow")) if isinstance(r, dict) else False
+        sym_u = r["symbol"]
+        side = r["side"]
+        pnl = float(r["pnl"])
+        ctx_str = r["context_snapshot"]
+        is_sh = bool(r.get("is_shadow"))
         session = "London"
         h1_trend = "NEUTRAL"
         swept = False
@@ -351,74 +361,92 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
             except Exception:
                 pass
 
-        k_det = (session, side, h1_trend, swept)
-        k_leg = (session, side)
+        k_det = (sym_u, session, side, h1_trend, swept)
+        k_leg = (sym_u, session, side)
+        item = {"pnl": pnl, "is_shadow": is_sh}
 
-        clusters_detailed.setdefault(k_det, []).append(pnl)
-        clusters_legacy.setdefault(k_leg, []).append(pnl)
-        if is_sh:
-            shadow_detailed.setdefault(k_det, []).append(pnl)
-            shadow_legacy.setdefault(k_leg, []).append(pnl)
+        clusters_detailed.setdefault(k_det, []).append(item)
+        clusters_legacy.setdefault(k_leg, []).append(item)
 
-    # If any detailed cluster meets min_samples, use detailed clustering; otherwise fallback to legacy 2-tuple
+    # If any detailed cluster meets min_samples, use detailed clustering; otherwise fallback to legacy 3-tuple
     if any(len(v) >= min_samples for v in clusters_detailed.values()):
         clusters = {k: v for k, v in clusters_detailed.items()}
-        shadow_pips_clusters = shadow_detailed
         is_detailed = True
     else:
         clusters = {k: v for k, v in clusters_legacy.items()}
-        shadow_pips_clusters = shadow_legacy
         is_detailed = False
 
     discovered_rules = []
-    for cluster_key, pnls in clusters.items():
-        if len(pnls) >= min_samples:
+    for cluster_key, records in clusters.items():
+        if len(records) >= min_samples:
             if is_detailed:
-                sess, side, h1_trend, swept = cluster_key
+                sym_u, sess, side, h1_trend, swept = cluster_key
                 micro_desc = f", H1 {h1_trend}" + (", Swept Liquidity" if swept else "")
                 slug_extra = f"_{h1_trend.lower()}" + ("_swept" if swept else "")
             else:
-                sess, side = cluster_key
+                sym_u, sess, side = cluster_key
                 micro_desc = ""
                 slug_extra = ""
 
-            wins = sum(1 for p in pnls if p > 0)
-            win_rate = round(wins / len(pnls), 2)
-            sh_pips_list = shadow_pips_clusters.get(cluster_key, [])
-            sh_pips_sum = round(sum(sh_pips_list), 2)
-            live_usd_sum = round(sum(pnls) - sum(sh_pips_list), 2)
-            total_pnl = live_usd_sum if (len(pnls) > len(sh_pips_list)) else sh_pips_sum
-            expectancy_pips = round(total_pnl / len(pnls), 3)
-            unit_lbl = "USD" if (len(pnls) > len(sh_pips_list) and not sh_pips_list) else ("pips (Shadow)" if len(sh_pips_list) == len(pnls) else f"USD (Live: {live_usd_sum:+.2f} USD, Shadow: {sh_pips_sum:+.1f} pips)")
-            if win_rate >= 0.58 and total_pnl > 0 and expectancy_pips > 0:
-                rule_desc = f"Quy tắc quy nạp: Trong phiên {sess}{micro_desc}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}%, kỳ vọng {expectancy_pips:+.2f} {unit_lbl}/lệnh (Mẫu: {len(pnls)} lệnh, Hiệu suất: {total_pnl:+.2f} {unit_lbl})."
+            live_pnls = [rec["pnl"] for rec in records if not rec["is_shadow"]]
+            shadow_pnls = [rec["pnl"] for rec in records if rec["is_shadow"]]
+            live_cnt = len(live_pnls)
+            shadow_cnt = len(shadow_pnls)
+            live_wins = sum(1 for p in live_pnls if p > 0)
+            shadow_wins = sum(1 for p in shadow_pnls if p > 0)
+            total_samples = live_cnt + shadow_cnt
+
+            win_rate = round((live_wins + shadow_wins) / max(total_samples, 1), 2)
+            live_total_pnl = round(sum(live_pnls), 2)
+            live_expectancy = round(live_total_pnl / max(live_cnt, 1), 3) if live_cnt > 0 else 0.0
+            shadow_total_pnl = round(sum(shadow_pnls), 2)
+            shadow_expectancy = round(shadow_total_pnl / max(shadow_cnt, 1), 3) if shadow_cnt > 0 else 0.0
+
+            if live_cnt > 0 and shadow_cnt == 0:
+                total_pnl = live_total_pnl
+                expectancy = live_expectancy
+                unit_lbl = "USD"
+            elif live_cnt == 0 and shadow_cnt > 0:
+                total_pnl = shadow_total_pnl
+                expectancy = shadow_expectancy
+                unit_lbl = "pips (Shadow)"
+            else:
+                total_pnl = live_total_pnl
+                expectancy = live_expectancy
+                unit_lbl = f"USD (Live: {live_total_pnl:+.2f} USD, Shadow: {shadow_total_pnl:+.1f} pips)"
+
+            is_edge_positive = (live_total_pnl > 0 and live_expectancy > 0) if live_cnt > 0 else (shadow_total_pnl > 0 and shadow_expectancy > 0)
+            if win_rate >= 0.58 and is_edge_positive:
+                rule_desc = f"Quy tắc quy nạp: Cặp {sym_u} trong phiên {sess}{micro_desc}, tín hiệu {side} có xác suất thắng {win_rate*100:.0f}%, kỳ vọng {expectancy:+.2f} {unit_lbl}/lệnh (Mẫu: {total_samples} lệnh, Hiệu suất: {total_pnl:+.2f} {unit_lbl})."
                 store_memory(
                     c,
                     category=CATEGORY_SEMANTIC,
-                    title=f"Discovered Rule: {sess}{micro_desc} {side} Edge",
+                    title=f"Discovered Rule: {sym_u} {sess}{micro_desc} {side} Edge",
                     content=rule_desc,
-                    tags=["discovered_rule", sess.lower(), side.lower(), "inductive"],
-                    metadata={"session": sess, "side": side, "win_rate": win_rate, "sample_size": len(pnls)}
+                    tags=["discovered_rule", sym_u.lower(), sess.lower(), side.lower(), "inductive"],
+                    metadata={"symbol": sym_u, "session": sess, "side": side, "win_rate": win_rate, "sample_size": total_samples}
                 )
 
-                # Persist self-learned skill into Agent Skill Registry (slugify session to avoid '/' in skill_id)
+                # Persist self-learned skill into Agent Skill Registry (scoped to symbol & context)
+                sym_slug = re.sub(r"[^a-z0-9]+", "_", sym_u.lower()).strip("_")
                 sess_slug = re.sub(r"[^a-z0-9]+", "_", sess.lower()).strip("_")
                 side_slug = re.sub(r"[^a-z0-9]+", "_", side.lower()).strip("_")
-                learned_skill_id = f"learned_{sess_slug}_{side_slug}{slug_extra}_filter"
-                learned_name = f"Learned Filter: {sess}{micro_desc} {side} Edge"
-                learned_desc = f"Bộ lọc tự học: Tín hiệu {side} trong phiên {sess}{micro_desc} đạt WinRate {win_rate*100:.0f}% ({len(pnls)} lệnh thực tế)."
-                learned_trigger = f"Khi có tín hiệu {side} phát sinh trong phiên {sess}{micro_desc}."
+                learned_skill_id = f"learned_{sym_slug}_{sess_slug}_{side_slug}{slug_extra}_filter"
+                learned_name = f"Learned Filter: {sym_u} {sess}{micro_desc} {side} Edge"
+                learned_desc = f"Bộ lọc tự học: Tín hiệu {side} cặp {sym_u} trong phiên {sess}{micro_desc} đạt WinRate {win_rate*100:.0f}% ({total_samples} lệnh)."
+                learned_trigger = f"Khi có tín hiệu {side} phát sinh cho cặp {sym_u} trong phiên {sess}{micro_desc}."
                 learned_md = f"""# Kỹ Năng Tự Học: {learned_name}
 
 ## Nguồn Gốc & Dữ Liệu Thực Chiến
-Được đúc kết tự động qua vòng lặp phản tư (Reflective Memory) của AI Agent từ {len(pnls)} lệnh thực tế.
+Được đúc kết tự động qua vòng lặp phản tư (Reflective Memory) của AI Agent từ {total_samples} lệnh thực tế (Live: {live_cnt}, Shadow: {shadow_cnt}).
+- Cặp tiền/tài sản: {sym_u}
 - Phiên giao dịch: {sess}{micro_desc}
 - Hướng lệnh: {side}
 - Tỷ lệ thắng thực nghiệm: {win_rate*100:.0f}%
 - Hiệu suất tích lũy: {total_pnl:+.2f} {unit_lbl}
 
 ## Hướng Dẫn Kích Hoạt
-Khi có tín hiệu {side} được gửi đến trong phiên {sess}{micro_desc}, AI Agent đối chiếu với quy tắc này để ưu tiên giữ lệnh hoặc cộng thêm điểm số tin cậy cho nguồn phát tín hiệu.
+Khi có tín hiệu {side} cho cặp {sym_u} được gửi đến trong phiên {sess}{micro_desc}, AI Agent đối chiếu với quy tắc này để ưu tiên giữ lệnh hoặc cộng thêm điểm số tin cậy cho nguồn phát tín hiệu.
 """
                 try:
                     from app.skills.registry import register_learned_skill
@@ -434,35 +462,38 @@ Khi có tín hiệu {side} được gửi đến trong phiên {sess}{micro_desc}
                     logger.debug(f"Could not register learned skill {learned_skill_id}: {e}")
 
                 discovered_rules.append({
+                    "symbol": sym_u,
                     "session": sess,
                     "side": side,
                     "win_rate": win_rate,
-                    "samples": len(pnls),
+                    "samples": total_samples,
                     "rule": rule_desc,
                     "skill_id": learned_skill_id,
                 })
-            elif win_rate <= 0.38 and total_pnl < 0:
-                # Self-learned Hazard Guard: Learn from repeated losses and block toxic clusters
-                rule_desc = f"Quy tắc cảnh báo rủi ro: Trong phiên {sess}, tín hiệu {side} có xác suất thua cao ({100 - win_rate*100:.0f}%, PnL âm: {total_pnl:+.2f} {unit_lbl}, Mẫu: {len(pnls)} lệnh). Khuyến nghị chặn chiều này để bảo toàn vốn."
+            elif win_rate <= 0.38 and ((live_cnt > 0 and live_total_pnl < 0) or (shadow_cnt > 0 and shadow_total_pnl < 0)):
+                # Self-learned Hazard Guard: Scoped strictly to symbol and context so it doesn't block whole session
+                rule_desc = f"Quy tắc cảnh báo rủi ro: Cặp {sym_u} trong phiên {sess}{micro_desc}, tín hiệu {side} có xác suất thua cao ({100 - win_rate*100:.0f}%, PnL âm: {total_pnl:+.2f} {unit_lbl}, Mẫu: {total_samples} lệnh). Khuyến nghị chặn chiều này để bảo toàn vốn."
                 store_memory(
                     c,
                     category=CATEGORY_SEMANTIC,
-                    title=f"Discovered Hazard: Avoid {sess} {side}",
+                    title=f"Discovered Hazard: Avoid {sym_u} {sess}{micro_desc} {side}",
                     content=rule_desc,
-                    tags=["discovered_hazard", "avoid_rule", sess.lower(), side.lower(), "inductive"],
-                    metadata={"session": sess, "side": side, "win_rate": win_rate, "sample_size": len(pnls), "hazard": True}
+                    tags=["discovered_hazard", "avoid_rule", sym_u.lower(), sess.lower(), side.lower(), "inductive"],
+                    metadata={"symbol": sym_u, "session": sess, "side": side, "win_rate": win_rate, "sample_size": total_samples, "hazard": True}
                 )
+                sym_slug = re.sub(r"[^a-z0-9]+", "_", sym_u.lower()).strip("_")
                 sess_slug = re.sub(r"[^a-z0-9]+", "_", sess.lower()).strip("_")
                 side_slug = re.sub(r"[^a-z0-9]+", "_", side.lower()).strip("_")
-                learned_skill_id = f"learned_{sess_slug}_{side_slug}_avoid"
-                learned_name = f"Learned Hazard Guard: Avoid {sess} {side}"
-                learned_desc = f"Lá chắn tự học: Tránh vào lệnh {side} trong phiên {sess} do xác suất thua cao ({100 - win_rate*100:.0f}% thua qua {len(pnls)} lệnh thực tế)."
-                learned_trigger = f"Khi có tín hiệu {side} phát sinh trong phiên {sess}."
+                learned_skill_id = f"learned_{sym_slug}_{sess_slug}_{side_slug}{slug_extra}_avoid"
+                learned_name = f"Learned Hazard Guard: Avoid {sym_u} {sess}{micro_desc} {side}"
+                learned_desc = f"Lá chắn tự học: Tránh vào lệnh {side} cặp {sym_u} trong phiên {sess}{micro_desc} do xác suất thua cao ({100 - win_rate*100:.0f}% thua qua {total_samples} lệnh thực tế)."
+                learned_trigger = f"Khi có tín hiệu {side} phát sinh cho cặp {sym_u} trong phiên {sess}{micro_desc}."
                 learned_md = f"""# Lá Chắn Rủi Ro Tự Học: {learned_name}
 
 ## Nguồn Gốc & Thống Kê Thua Lỗ Thực Chiến
-Được đúc kết tự động qua bài học phản tư (Reflective Memory) của AI Agent từ {len(pnls)} lệnh thực tế nhằm ngăn ngừa lặp lại chuỗi thua.
-- Phiên giao dịch: {sess}
+Được đúc kết tự động qua bài học phản tư (Reflective Memory) của AI Agent từ {total_samples} lệnh thực tế nhằm ngăn ngừa lặp lại chuỗi thua.
+- Cặp tiền/tài sản: {sym_u}
+- Phiên giao dịch: {sess}{micro_desc}
 - Hướng lệnh cần tránh: {side}
 - Tỷ lệ thua: {100 - win_rate*100:.0f}% (WinRate chỉ {win_rate*100:.0f}%)
 - Khoản lỗ tích lũy: {total_pnl:+.2f} {unit_lbl}
@@ -485,10 +516,11 @@ Khi có tín hiệu {side} phát sinh trong phiên {sess}, bộ điều phối t
                     logger.debug(f"Could not register learned hazard guard {learned_skill_id}: {e}")
 
                 discovered_rules.append({
+                    "symbol": sym_u,
                     "session": sess,
                     "side": side,
                     "win_rate": win_rate,
-                    "samples": len(pnls),
+                    "samples": total_samples,
                     "rule": rule_desc,
                     "skill_id": learned_skill_id,
                     "action": "AVOID",

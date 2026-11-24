@@ -253,6 +253,21 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
         if t >= len(prices) - 1:
             continue
 
+        # Evaluate session constraint if candidate rule specifies preferred_session
+        pref_sess = candidate_rules.get("preferred_session")
+        if pref_sess and str(pref_sess).upper() not in ("ALL", "ANY"):
+            bar_time = bar.get("time") if is_ohlc else None
+            bar_sess = bar.get("session") if is_ohlc else None
+            if not bar_sess and bar_time is not None:
+                try:
+                    from app.db import to_epoch_ts
+                    from app.services.signal_ingestion.context import get_trading_session
+                    bar_sess = get_trading_session(to_epoch_ts(bar_time))
+                except Exception:
+                    bar_sess = None
+            if bar_sess and str(bar_sess).lower() != str(pref_sess).lower():
+                continue
+
         # Evaluate candidate rule condition (momentum slope over 10 intervals matching engine scaling)
         p_t10 = float(prices[t - 10]["close"]) if isinstance(prices[t - 10], dict) else float(prices[t - 10])
         p_next = float(prices[t + 1]["open"]) if isinstance(prices[t + 1], dict) and "open" in prices[t + 1] else (float(prices[t + 1]["close"]) if isinstance(prices[t + 1], dict) else float(prices[t + 1]))
@@ -692,9 +707,9 @@ def run_autonomous_induction_and_wfo(force: bool = False):
             cand = discover_candidate_from_observations(c, symbol="XAUUSD")
             if cand and cand.get("id"):
                 candle_rows = c.execute(
-                    "SELECT open, high, low, close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
+                    "SELECT open, high, low, close, time FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
                 ).fetchall()
-                prices = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3])} for r in reversed(candle_rows)] if candle_rows else []
+                prices = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3]), "time": r[4]} for r in reversed(candle_rows)] if candle_rows else []
                 if len(prices) >= 180:
                     rep = walk_forward(prices, candidate=cand)
                     win_rate = float(rep.get("win_rate") or 0.0)
