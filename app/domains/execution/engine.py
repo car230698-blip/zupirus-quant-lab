@@ -804,8 +804,13 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                     setkv(c_up, last_ts_key, str(latest_bar_ts))
                 return {"status": "DISPATCHED", "signal_id": sanitized.id, "report": report}
             else:
+                try:
+                    from app.domains.signals.ingestion.sanitizer import clear_signal_deduplication
+                    clear_signal_deduplication(sanitized)
+                except Exception as clear_err:
+                    logger.debug(f"Failed to clear signal deduplication after zero executions: {clear_err}")
                 logger.info(
-                    f"Signal {sanitized.id} fan-out executed 0 orders across {len(eligible)} accounts (all skipped or failed)."
+                    f"Signal {sanitized.id} fan-out executed 0 orders across {len(eligible)} accounts (all skipped or failed). Deduplication lock released for retry."
                 )
                 return {
                     "status": "FANOUT_NO_EXECUTIONS",
@@ -977,7 +982,6 @@ def tick():
                 finally:
                     _crypto_scan_in_flight = False
 
-            import threading
             threading.Thread(target=_async_crypto_sweep, daemon=True, name="CryptoScanWorker").start()
 
 

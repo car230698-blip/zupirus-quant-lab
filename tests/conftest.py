@@ -38,21 +38,29 @@ def client(tmp_path,monkeypatch):
         from app.core.db import is_postgres
         if is_postgres():
             with db.tx() as cleanup_cur:
-                for tbl in (
-                    'dispatches',
-                    'metaapi_trade_executions',
-                    'trading_accounts',
-                    'metaapi_cloud_accounts',
-                    'crypto_orders',
-                    'billing_orders',
-                    'sessions',
-                    'otp_codes',
-                    'users',
-                ):
-                    try:
-                        cleanup_cur.execute(f"DELETE FROM {tbl}")
-                    except Exception:
-                        pass
+                try:
+                    cleanup_cur.execute(
+                        "TRUNCATE TABLE dispatches, metaapi_trade_executions, trading_accounts, "
+                        "metaapi_cloud_accounts, crypto_orders, billing_orders, subscriptions, "
+                        "sessions, otp_codes, users CASCADE;"
+                    )
+                except Exception:
+                    for tbl in (
+                        'dispatches',
+                        'metaapi_trade_executions',
+                        'trading_accounts',
+                        'metaapi_cloud_accounts',
+                        'crypto_orders',
+                        'billing_orders',
+                        'subscriptions',
+                        'sessions',
+                        'otp_codes',
+                        'users',
+                    ):
+                        try:
+                            cleanup_cur.execute(f"DELETE FROM {tbl}")
+                        except Exception:
+                            pass
     monkeypatch.setattr(research,'DATA',tmp_path)
     from app.db import init as init_app_db
     init_app_db()
@@ -64,8 +72,48 @@ def client(tmp_path,monkeypatch):
 def customer(client):
     try:
         with db.tx() as c:
-            c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
-            c.execute("DELETE FROM sessions")
+            from app.core.db import is_postgres
+            if is_postgres():
+                try:
+                    c.execute(
+                        "TRUNCATE TABLE dispatches, metaapi_trade_executions, trading_accounts, "
+                        "metaapi_cloud_accounts, crypto_orders, billing_orders, subscriptions, "
+                        "sessions, otp_codes, users CASCADE;"
+                    )
+                except Exception:
+                    for tbl in (
+                        'dispatches',
+                        'metaapi_trade_executions',
+                        'trading_accounts',
+                        'metaapi_cloud_accounts',
+                        'crypto_orders',
+                        'billing_orders',
+                        'subscriptions',
+                        'sessions',
+                        'otp_codes',
+                    ):
+                        try:
+                            c.execute(f"DELETE FROM {tbl}")
+                        except Exception:
+                            pass
+                    c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
+            else:
+                for tbl in (
+                    'dispatches',
+                    'metaapi_trade_executions',
+                    'trading_accounts',
+                    'metaapi_cloud_accounts',
+                    'crypto_orders',
+                    'billing_orders',
+                    'subscriptions',
+                    'sessions',
+                    'otp_codes',
+                ):
+                    try:
+                        c.execute(f"DELETE FROM {tbl}")
+                    except Exception:
+                        pass
+                c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
     except Exception:
         pass
     p={'email':'alice@example.com','password':'customer-password-123'}

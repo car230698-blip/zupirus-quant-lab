@@ -69,6 +69,7 @@ def check_redis_deduplication(signal: NormalizedSignalSchema) -> Tuple[bool, Opt
                 """
                 SELECT id FROM signal_audit_logs
                 WHERE source_name = ? AND symbol = ? AND side = ? AND ABS(entry_price - ?) < ? AND (? - created_at) < 60
+                  AND status NOT IN ('REJECTED', 'FANOUT_FAILED')
                 LIMIT 1
                 """,
                 (signal.source, signal.symbol, signal.action, signal.entry_price, tol, now_sec)
@@ -79,6 +80,28 @@ def check_redis_deduplication(signal: NormalizedSignalSchema) -> Tuple[bool, Opt
                 return False, reason
 
     return True, None
+
+
+def clear_signal_deduplication(signal: NormalizedSignalSchema) -> None:
+    """Xóa khóa dedup trong Redis và DB fallback khi việc phân phối/thực thi lệnh không thành công,
+    cho phép hệ thống retry lại mà không bị bộ chống trùng 60s chặn."""
+    try:
+        from app.services.symbol_precision import digits_for_symbol
+        dec = digits_for_symbol(signal.symbol)
+        raw_key = f"{signal.source}:{signal.symbol}:{signal.action}:{round(float(signal.entry_price), dec)}"
+        sig_hash = hashlib.sha256(raw_key.encode()).hexdigest()[:16]
+        redis_key = f"signal_ingest:{signal.source}:{sig_hash}"
+        try:
+            redis_cli = get_redis_client()
+            redis_cli.delete(redis_key)
+        except Exception:
+            pass
+
+        with tx() as c:
+            c.execute("DELETE FROM signal_dispatch_locks WHERE signal_fingerprint LIKE ?", (f"san:{sig_hash}:%",))
+            c.execute("UPDATE signal_audit_logs SET status = 'FANOUT_FAILED' WHERE id = ?", (signal.id,))
+    except Exception as e:
+        logger.debug(f"clear_signal_deduplication note: {e}")
 
 
 def check_mandatory_sl(

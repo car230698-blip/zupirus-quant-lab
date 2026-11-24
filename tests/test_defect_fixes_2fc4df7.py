@@ -190,18 +190,69 @@ def test_watcher_batch_deal_deduplication_logic():
 
 
 def test_tick_globals_and_agent_step_in_flight(monkeypatch):
-    """Verify tick() does not raise UnboundLocalError on _agent_step_in_flight and executes cleanly."""
+    """Verify tick() does not raise UnboundLocalError on threading or _agent_step_in_flight and actually launches the agent thread."""
+    import threading
     from app.domains.execution import engine
     monkeypatch.setattr(engine, "is_weekend_market_closed", lambda *args: False)
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     engine._last_agent_eval_ts = 0.0
     engine._agent_step_in_flight = False
 
-    # Mock autonomous_agent_step so thread completes fast
-    monkeypatch.setattr(engine, "autonomous_agent_step", lambda: {"status": "MOCK"})
+    thread_started = threading.Event()
 
-    # tick() should run without UnboundLocalError
+    def mock_agent_step():
+        thread_started.set()
+        return {"status": "MOCK"}
+
+    monkeypatch.setattr(engine, "autonomous_agent_step", mock_agent_step)
+
     engine.tick()
+
+    # The background thread should actually start and execute autonomous_agent_step
+    assert thread_started.wait(timeout=2.0) is True
+
+
+def test_clear_signal_deduplication_allows_immediate_retry():
+    """Verify that when fan-out executes 0 orders, clearing dedup allows immediate retry of identical signal."""
+    from app.schemas.signals import NormalizedSignalSchema
+    from app.domains.signals.ingestion.sanitizer import (
+        sanitize_and_audit_signal,
+        check_redis_deduplication,
+        clear_signal_deduplication,
+    )
+
+    with tx() as c:
+        c.execute("DELETE FROM news")
+
+    sig = NormalizedSignalSchema(
+        id="sig_test_retry_1",
+        source="ZUPIRUS_CORE",
+        strategy="trend",
+        symbol="EURUSD",
+        action="BUY",
+        timeframe="M15",
+        entry_price=1.0850,
+        stop_loss=1.0800,
+        take_profit=1.0950,
+        timestamp=time.time(),
+    )
+
+    # First pass: should be approved
+    ok1, reason1, _ = sanitize_and_audit_signal(sig, live_price=1.0850)
+    assert ok1 is True
+
+    # Immediate second pass without clear: should be blocked by deduplication
+    ok2, reason2 = check_redis_deduplication(sig)
+    assert ok2 is False
+    assert "REJECTED_DUPLICATE_SIGNAL" in (reason2 or "")
+
+    # Clear deduplication lock (as done when fanout executed 0 orders)
+    clear_signal_deduplication(sig)
+
+    # Immediate retry after clear: should now be accepted!
+    ok3, reason3 = check_redis_deduplication(sig)
+    assert ok3 is True
+    assert reason3 is None
 
 
 def test_multithreaded_run_coro_concurrency():
@@ -248,6 +299,7 @@ async def test_fanout_zero_executed_returns_no_executions_and_does_not_lock(monk
     from app.db import getkv, setkv
 
     with tx() as c:
+        c.execute("DELETE FROM news")
         setkv(c, "signal_mode", "ZUPIRUS_AGENT")
         setkv(c, "halted", "0")
         c.execute("DELETE FROM kv WHERE key = 'agent_last_candle_ts'")
@@ -294,5 +346,45 @@ async def test_fanout_zero_executed_returns_no_executions_and_does_not_lock(monk
         last_ts = getkv(c, "agent_last_candle_ts")
         # last_ts should not be updated for this candle
         assert last_ts is None
+
+
+def test_customer_cleanup_with_dependent_records():
+    """Verify customer fixture cleanup pattern deletes dependent FK records so user can be re-registered without 409."""
+    with tx() as c:
+        now_ts = time.time()
+        # Seed user with active dependent child records
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_alice', 'alice@example.com', 'pwd', 'customer') ON CONFLICT DO NOTHING")
+        c.execute("INSERT OR REPLACE INTO sessions (token, user_id, expires) VALUES ('tok_alice', 'u_alice', ?)", (now_ts + 3600,))
+        c.execute("INSERT OR REPLACE INTO subscriptions (user_id, plan_tier, allow_alpha_strategies, service_expires_at, created_at, updated_at) VALUES ('u_alice', 'pro', 1, ?, ?, ?)", (now_ts + 86400, now_ts, now_ts))
+        c.execute(
+            """
+            INSERT OR REPLACE INTO trading_accounts (id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server, auto_trade, balance, equity, deployment_state, created_at)
+            VALUES ('acc_alice', 'u_alice', 'm_alice', '8888', 'enc', 'Server', 1, 5000.0, 5000.0, 'DEPLOYED', ?)
+            """,
+            (now_ts,)
+        )
+
+        # Cleanup child tables first as done in updated conftest.py
+        for tbl in (
+            'dispatches',
+            'metaapi_trade_executions',
+            'trading_accounts',
+            'metaapi_cloud_accounts',
+            'crypto_orders',
+            'billing_orders',
+            'subscriptions',
+            'sessions',
+            'otp_codes',
+        ):
+            try:
+                c.execute(f"DELETE FROM {tbl}")
+            except Exception:
+                pass
+        c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
+
+        # Verify user is completely deleted
+        u = c.execute("SELECT id FROM users WHERE email = 'alice@example.com'").fetchone()
+        assert u is None
+
 
 
