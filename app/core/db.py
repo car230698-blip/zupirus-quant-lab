@@ -135,41 +135,47 @@ class CursorWrapper:
             except Exception:
                 pass
 
-    def _adapt_sql(self, sql: str) -> str:
+    def _adapt_sql(self, sql: str, has_params: bool = False) -> str:
         if not self._is_pg:
             return sql
         # Translate PRAGMA statements away
         if sql.strip().upper().startswith("PRAGMA"):
             return "SELECT 1"
-        # Match single-quoted strings: '([^']|'')*'
-        # Inside string literals, escape literal % to %% (unless already %%)
-        # Outside string literals, preserve valid placeholders (%s, %(name)s, %%) and translate ? to %s
-        pos = 0
-        pattern = re.compile(r"'([^']|'')*'")
-        out = []
-        outside_pat = re.compile(r'(%%|%s\b|%\([a-zA-Z0-9_]+\)s|%|\?)')
 
-        def repl_out(m_out):
-            tok = m_out.group(1)
-            if tok == '?':
-                return '%s'
-            if tok == '%%' or tok.startswith('%s') or (tok.startswith('%(') and tok.endswith(')s')):
-                return tok
-            return '%%'
+        if has_params:
+            # Match single-quoted strings: '([^']|'')*'
+            # Inside string literals, escape literal % to %% (unless already %%)
+            # Outside string literals, preserve valid placeholders (%s, %(name)s, %%) and translate ? to %s
+            pos = 0
+            pattern = re.compile(r"'([^']|'')*'")
+            out = []
+            outside_pat = re.compile(r'(%%|%s\b|%\([a-zA-Z0-9_]+\)s|%|\?)')
 
-        for m in pattern.finditer(sql):
-            start, end = m.span()
-            outside = sql[pos:start]
+            def repl_out(m_out):
+                tok = m_out.group(1)
+                if tok == '?':
+                    return '%s'
+                if tok == '%%' or tok.startswith('%s') or (tok.startswith('%(') and tok.endswith(')s')):
+                    return tok
+                return '%%'
+
+            for m in pattern.finditer(sql):
+                start, end = m.span()
+                outside = sql[pos:start]
+                out.append(outside_pat.sub(repl_out, outside))
+
+                inside = m.group(0)
+                inside_escaped = re.sub(r'(%%|%)', lambda mi: '%%' if mi.group(1) == '%' else mi.group(1), inside)
+                out.append(inside_escaped)
+                pos = end
+
+            outside = sql[pos:]
             out.append(outside_pat.sub(repl_out, outside))
-
-            inside = m.group(0)
-            inside_escaped = re.sub(r'(%%|%)', lambda mi: '%%' if mi.group(1) == '%' else mi.group(1), inside)
-            out.append(inside_escaped)
-            pos = end
-
-        outside = sql[pos:]
-        out.append(outside_pat.sub(repl_out, outside))
-        translated = ''.join(out)
+            translated = ''.join(out)
+        else:
+            # When query has NO parameters, psycopg2 sends the SQL directly without % string formatting.
+            # Do NOT escape % or %%, keeping raw operators (e.g. SELECT 5 % 2) and string literals (e.g. SELECT '85%') intact.
+            translated = sql
         # Translate INSERT OR IGNORE INTO table ... -> INSERT INTO table ... ON CONFLICT DO NOTHING
         if re.search(r'INSERT\s+OR\s+IGNORE\s+INTO', translated, re.IGNORECASE):
             translated = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', translated, flags=re.IGNORECASE)
@@ -190,7 +196,8 @@ class CursorWrapper:
         return translated
 
     def execute(self, sql: str, params: Optional[Any] = None):
-        adapted = self._adapt_sql(sql)
+        has_params = params is not None and (not hasattr(params, '__len__') or len(params) > 0)
+        adapted = self._adapt_sql(sql, has_params=has_params)
         if params is None:
             self._cur.execute(adapted)
         else:
@@ -201,8 +208,9 @@ class CursorWrapper:
         if not self._is_pg:
             self._cur.executescript(script)
         else:
-            # PostgreSQL executes multi-statement block directly
-            self._cur.execute(script)
+            # PostgreSQL executes multi-statement block directly without params
+            adapted = self._adapt_sql(script, has_params=False)
+            self._cur.execute(adapted)
         return self
 
     @property

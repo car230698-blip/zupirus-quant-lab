@@ -649,29 +649,34 @@ def test_allowed_strategy_ids_passed_and_filtered():
 
 
 def test_sql_adapt_preserves_placeholders_and_escapes_literals():
-    """Verify _adapt_sql preserves %s placeholders for migrations & vector queries while escaping % in literals."""
+    """Verify _adapt_sql preserves %s placeholders for migrations & vector queries while escaping % in literals only when params are passed."""
     from app.core.db import CursorWrapper
     wrapper = CursorWrapper(None, is_pg=True)
 
-    # 1. Schema migration insert with %s placeholders
+    # 1. Queries WITHOUT parameters: should NOT escape % or %%, keeping literals and operators intact
+    assert wrapper._adapt_sql("SELECT '85%'", has_params=False) == "SELECT '85%'"
+    assert wrapper._adapt_sql("SELECT 5 % 2", has_params=False) == "SELECT 5 % 2"
+    assert wrapper._adapt_sql("SELECT * FROM t WHERE col = '100%'", has_params=False) == "SELECT * FROM t WHERE col = '100%'"
+
+    # 2. Schema migration insert with %s placeholders and parameters
     sql_migration = "INSERT INTO schema_migrations(version, name) VALUES (%s, %s)"
-    assert wrapper._adapt_sql(sql_migration) == "INSERT INTO schema_migrations(version, name) VALUES (%s, %s)"
+    assert wrapper._adapt_sql(sql_migration, has_params=True) == "INSERT INTO schema_migrations(version, name) VALUES (%s, %s)"
 
-    # 2. Vector search with %s placeholders
+    # 3. Vector search with %s placeholders and parameters
     sql_vector = "SELECT id, (1 - (embedding <=> %s::vector)) AS similarity FROM t LIMIT %s"
-    assert wrapper._adapt_sql(sql_vector) == "SELECT id, (1 - (embedding <=> %s::vector)) AS similarity FROM t LIMIT %s"
+    assert wrapper._adapt_sql(sql_vector, has_params=True) == "SELECT id, (1 - (embedding <=> %s::vector)) AS similarity FROM t LIMIT %s"
 
-    # 3. Parameterized query with ? and LIKE string literal containing raw %
+    # 4. Parameterized query with ? and LIKE string literal containing raw %
     sql_like = "SELECT * FROM orders WHERE payment_gateway LIKE 'USDT%' AND expires_at > ?"
-    assert wrapper._adapt_sql(sql_like) == "SELECT * FROM orders WHERE payment_gateway LIKE 'USDT%%' AND expires_at > %s"
+    assert wrapper._adapt_sql(sql_like, has_params=True) == "SELECT * FROM orders WHERE payment_gateway LIKE 'USDT%%' AND expires_at > %s"
 
-    # 4. Literal % inside quotes with another raw substring
-    sql_quote_test = "SELECT * FROM t WHERE id LIKE '%src_dryrun_test%'"
-    assert wrapper._adapt_sql(sql_quote_test) == "SELECT * FROM t WHERE id LIKE '%%src_dryrun_test%%'"
+    # 5. Literal % inside quotes with another raw substring when parameters are present
+    sql_quote_test = "SELECT * FROM t WHERE id LIKE '%src_dryrun_test%' AND active = ?"
+    assert wrapper._adapt_sql(sql_quote_test, has_params=True) == "SELECT * FROM t WHERE id LIKE '%%src_dryrun_test%%' AND active = %s"
 
-    # 5. Standard ? conversion
+    # 6. Standard ? conversion
     sql_standard = "INSERT INTO t (a, b) VALUES (?, ?)"
-    assert wrapper._adapt_sql(sql_standard) == "INSERT INTO t (a, b) VALUES (%s, %s)"
+    assert wrapper._adapt_sql(sql_standard, has_params=True) == "INSERT INTO t (a, b) VALUES (%s, %s)"
 
 
 def test_agent_candidate_strategy_code_prioritized_over_display_name():
