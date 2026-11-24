@@ -319,13 +319,19 @@ def _normalize_session_slug(sess_str: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(sess_str or "").lower()).strip("_")
 
 
-def evaluate_active_learned_skills(db_cursor=None, current_time: Optional[float] = None) -> Dict[str, Any]:
-    """Evaluate all enabled self-learned skills for the exact current market session."""
+def evaluate_active_learned_skills(
+    db_cursor=None,
+    current_time: Optional[float] = None,
+    context_snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Evaluate all enabled self-learned skills for the exact current market session and context."""
     import re
     from app.services.signal_ingestion.context import get_trading_session
     now_ts = current_time or time.time()
     cur_sess = get_trading_session(now_ts)
     cur_sess_slug = _normalize_session_slug(cur_sess)
+    ctx = context_snapshot or {}
+    ctx_trend = str(ctx.get("h1_trend") or ctx.get("trend") or "").lower()
     allowed_sides = set()
     blocked_sides = set()
     matched_skills = []
@@ -343,13 +349,21 @@ def evaluate_active_learned_skills(db_cursor=None, current_time: Optional[float]
         for r in rows:
             rd = dict(r)
             sid = str(rd.get("skill_id") or "").lower()
-            # Match exact session slug prefix: learned_{session_slug}_{side}_filter
-            m = re.match(r"^learned_(.+)_(buy|sell)_(?:filter|avoid)$", sid)
+            # Match learned_{session_slug}_{side}_[context_]filter or learned_{session_slug}_{side}_avoid
+            m = re.match(r"^learned_(.+)_(buy|sell)(?:_([a-z0-9_]+))?_(filter|avoid)$", sid)
             if m:
-                skill_sess_slug, skill_side = m.group(1), m.group(2).upper()
+                skill_sess_slug = m.group(1)
+                skill_side = m.group(2).upper()
+                skill_ctx = m.group(3)
+                skill_type = m.group(4)
+
                 if skill_sess_slug == cur_sess_slug:
+                    # If skill has a specific context qualifier (e.g. 'neutral', 'bullish') and context is provided, check compatibility
+                    if skill_ctx and ctx_trend and skill_ctx != ctx_trend:
+                        continue
+
                     matched_skills.append(rd.get("skill_id"))
-                    if sid.endswith("_avoid"):
+                    if skill_type == "avoid" or sid.endswith("_avoid"):
                         blocked_sides.add(skill_side)
                     else:
                         allowed_sides.add(skill_side)

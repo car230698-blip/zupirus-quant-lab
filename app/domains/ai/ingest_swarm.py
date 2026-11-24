@@ -281,6 +281,8 @@ def retrieve_relevant_knowledge(
                        (1 - (embedding <=> %s::vector)) AS similarity
                 FROM knowledge_chunks
                 WHERE embedding IS NOT NULL
+                  AND (skill_id IN (SELECT skill_id FROM agent_skills WHERE enabled = 1)
+                       OR skill_id NOT IN (SELECT skill_id FROM agent_skills))
             """
             params: List[Any] = [vec_str]
             if school:
@@ -307,10 +309,15 @@ def retrieve_relevant_knowledge(
             c.execute("ROLLBACK TO SAVEPOINT sp_rag_query")
 
     # 2. Hybrid Python fallback (SQLite or Postgres without pgvector extension)
-    sql = "SELECT id, skill_id, school, doc_type, chunk_index, content, embedding_json FROM knowledge_chunks"
+    sql = """
+        SELECT id, skill_id, school, doc_type, chunk_index, content, embedding_json
+        FROM knowledge_chunks
+        WHERE (skill_id IN (SELECT skill_id FROM agent_skills WHERE enabled = 1)
+               OR skill_id NOT IN (SELECT skill_id FROM agent_skills))
+    """
     params_fb: List[Any] = []
     if school:
-        sql += " WHERE school = ?"
+        sql += " AND school = ?"
         params_fb.append(school)
     sql += " LIMIT 500"
 

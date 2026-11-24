@@ -83,10 +83,12 @@ def score_external_signal_hybrid(c, signal, context_snapshot: Optional[Dict[str,
     sig_source = str(getattr(signal, "source", "") or (signal.get("source") if isinstance(signal, dict) else ""))
 
     # 1. Learned skills session filter
+    allowed_sides = set()
     try:
         from app.skills.registry import evaluate_active_learned_skills
-        eval_res = evaluate_active_learned_skills(db_cursor=c, current_time=now_ts)
+        eval_res = evaluate_active_learned_skills(db_cursor=c, current_time=now_ts, context_snapshot=ctx)
         blocked_sides = set(eval_res.get("blocked_sides") or [])
+        allowed_sides = set(eval_res.get("allowed_sides") or [])
         if sig_action in blocked_sides:
             return False, 40.0, f"BLOCKED_BY_LEARNED_SKILL: {sig_action} is restricted during {eval_res.get('session')} session"
     except Exception as sk_err:
@@ -104,10 +106,17 @@ def score_external_signal_hybrid(c, signal, context_snapshot: Optional[Dict[str,
     except Exception:
         pass
 
+    # 3. Apply Edge Filter boost if signal aligns with active learned edge in session
+    edge_boost = False
+    if sig_action in allowed_sides:
+        trust_score = min(100.0, trust_score + 15.0)
+        edge_boost = True
+
     if trust_score < 50.0:
         return False, trust_score, f"HYBRID_LOW_TRUST_SCORE: Source score {trust_score:.1f} < 50.0 threshold"
 
-    return True, trust_score, "HYBRID_SCORER_APPROVED"
+    reason = "HYBRID_SCORER_APPROVED_WITH_EDGE_BOOST" if edge_boost else "HYBRID_SCORER_APPROVED"
+    return True, trust_score, reason
 
 
 
