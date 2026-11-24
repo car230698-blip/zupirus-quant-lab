@@ -585,10 +585,36 @@ export function PortalShell({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
-              <span className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3.5 py-2 font-bold text-emerald-300">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                {portal === 'admin' ? 'CLUSTER MASTER ONLINE' : '4/4 CAPITAL SHIELD ACTIVE'}
-              </span>
+              {(() => {
+                const isHalted = Boolean(telemetryData?.system_guard?.kill_switch_active);
+                const isEngineHealthy = telemetryData?.system_guard?.execution_engine_healthy !== false;
+                const shieldCount = telemetryData?.shields
+                  ? telemetryData.shields.filter((s: any) => s.status === 'ACTIVE' || s.status === 'OK' || s.status === 'MONITORING').length
+                  : (isHalted ? 0 : 4);
+
+                return (
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 font-bold ${
+                      isHalted
+                        ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                        : isEngineHealthy
+                        ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                        : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                    }`}
+                  >
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        isHalted ? 'bg-rose-500 animate-ping' : isEngineHealthy ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                      }`}
+                    />
+                    {isHalted
+                      ? (lang === 'en' ? 'SYSTEM HALTED · KILL SWITCH ENGAGED' : 'TẠM DỪNG TOÀN HỆ THỐNG · LỆNH NGẮT BẬT')
+                      : portal === 'admin'
+                      ? (isEngineHealthy ? 'CLUSTER HEALTHY · ENGINES ONLINE' : 'CLUSTER DEGRADED')
+                      : `${shieldCount}/4 ${lang === 'en' ? 'CAPITAL SHIELDS ACTIVE' : 'LỚP GIÁP BẢO VỆ VỐN'}`}
+                  </span>
+                );
+              })()}
             </div>
           </div>
           {children}

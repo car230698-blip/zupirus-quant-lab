@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { IconClose } from './Icons';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -110,12 +110,64 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
   const [txVerifying, setTxVerifying] = useState(false);
   const [txVerifyMsg, setTxVerifyMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const disclaimerRef = useRef<HTMLDivElement>(null);
+  const checkoutRef = useRef<HTMLDivElement>(null);
+  const triggerElementRef = useRef<HTMLElement | null>(null);
+
+  // Manage focus trap and restoration
+  useEffect(() => {
+    const isAnyOpen = disclaimerModalOpen || checkoutModalOpen;
+    if (isAnyOpen) {
+      if (!triggerElementRef.current && typeof document !== 'undefined') {
+        triggerElementRef.current = document.activeElement as HTMLElement;
+      }
+      const timer = setTimeout(() => {
+        const container = disclaimerModalOpen ? disclaimerRef.current : checkoutRef.current;
+        const focusable = container?.querySelector<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        focusable?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    } else {
+      if (triggerElementRef.current) {
+        triggerElementRef.current.focus();
+        triggerElementRef.current = null;
+      }
+    }
+  }, [disclaimerModalOpen, checkoutModalOpen]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (disclaimerModalOpen) setDisclaimerModalOpen(false);
         if (checkoutModalOpen) setCheckoutModalOpen(false);
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const container = disclaimerModalOpen ? disclaimerRef.current : checkoutModalOpen ? checkoutRef.current : null;
+        if (!container) return;
+        const focusables = Array.from(
+          container.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          )
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
       }
     };
     if (disclaimerModalOpen || checkoutModalOpen) {
@@ -143,7 +195,7 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
           aria-modal="true"
           aria-labelledby="disclaimer-modal-title"
         >
-          <div className="max-w-lg w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl">
+          <div ref={disclaimerRef} className="max-w-lg w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-amber-400">
@@ -222,7 +274,7 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
           aria-modal="true"
           aria-labelledby="checkout-modal-title"
         >
-          <div className="max-w-md w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl text-center">
+          <div ref={checkoutRef} className="max-w-md w-full p-6 space-y-4 rounded-2xl bg-[#0B1221]/95 backdrop-blur-2xl border border-white/[0.1] shadow-2xl text-center">
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3 text-left">
               <div>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400">

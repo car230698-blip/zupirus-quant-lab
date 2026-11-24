@@ -393,15 +393,18 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const currentRate = fxRateData?.usd_vnd_rate || 25500;
   const estimatedVnd = Math.ceil((estimatedUsd * currentRate) / 1000) * 1000;
 
-  // Onboarding Workflow State
+  // Onboarding Workflow State: strict per-account verification
   const hasPlan = Boolean(cloudSub?.is_active);
   const hasLinkedAccount = accounts.length > 0;
-  const hasBrokerConnected = accounts.some(
-    (a: any) =>
-      String(a.connection_status || '').toUpperCase() === 'CONNECTED' ||
-      String(a.deployment_state || '').toUpperCase() === 'DEPLOYED'
+  const connectedAccounts = accounts.filter(
+    (a: any) => String(a.connection_status || '').toUpperCase() === 'CONNECTED'
   );
-  const hasAutoTrade = accounts.some((a: any) => Number(a.auto_trade) === 1);
+  const hasBrokerConnected = connectedAccounts.length > 0;
+  // Step 4 is ONLY satisfied if an account with verified broker connection has auto_trade enabled
+  const hasAutoTrade = connectedAccounts.some((a: any) => Number(a.auto_trade) === 1);
+  const hasPendingDeploy = accounts.some(
+    (a: any) => String(a.connection_status || '').toUpperCase() !== 'CONNECTED'
+  );
 
   return (
     <div className="space-y-6">
@@ -495,7 +498,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
             className={`rounded-xl border p-3.5 transition ${
               hasBrokerConnected
                 ? 'border-emerald-500/30 bg-emerald-950/15'
-                : hasLinkedAccount
+                : hasPendingDeploy
                 ? 'border-cyan-500/40 bg-cyan-950/20'
                 : 'border-slate-800 bg-[#060A13]'
             }`}
@@ -506,14 +509,16 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                   hasBrokerConnected
                     ? 'bg-emerald-500/20 text-emerald-300'
-                    : hasLinkedAccount
+                    : hasPendingDeploy
                     ? 'bg-cyan-500/20 text-cyan-300'
                     : 'bg-slate-800 text-slate-500'
                 }`}
               >
                 {hasBrokerConnected
                   ? (lang === 'en' ? 'Connected ✓' : 'Đã Kết Nối ✓')
-                  : (lang === 'en' ? 'Awaiting Broker' : 'Chờ Broker')}
+                  : hasPendingDeploy
+                  ? (lang === 'en' ? 'Awaiting Broker' : 'Chờ Broker Kết Nối')
+                  : (lang === 'en' ? 'Pending' : 'Chưa Kết Nối')}
               </span>
             </div>
             <div className="font-bold text-sm text-white">
@@ -521,7 +526,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
             </div>
             <p className="mt-1 text-[11px] text-slate-400">
               {hasBrokerConnected
-                ? (lang === 'en' ? 'Cloud terminal deployed & verified' : 'Cloud London G2 đã thông sàn')
+                ? (lang === 'en' ? `${connectedAccounts.length} MT5 terminal(s) verified & connected` : `${connectedAccounts.length} tài khoản MT5 đã kết nối thành công`)
+                : hasPendingDeploy
+                ? (lang === 'en' ? 'Cloud terminal deployed, verifying live broker connection...' : 'Cloud đã triển khai, đang xác minh kết nối sàn MT5...')
                 : (lang === 'en' ? 'Cloud terminal synchronizing balance & equity.' : 'Đang đồng bộ số dư và trạng thái sàn.')}
             </p>
           </div>
@@ -549,7 +556,9 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
               >
                 {hasAutoTrade
                   ? (lang === 'en' ? 'Auto-Trading ON ✓' : 'Tự Động BẬT ✓')
-                  : (lang === 'en' ? 'Turn On Auto' : 'Bật Tự Động')}
+                  : hasBrokerConnected
+                  ? (lang === 'en' ? 'Turn On Auto' : 'Bật Tự Động')
+                  : (lang === 'en' ? 'Pending Broker' : 'Chờ Kết Nối Sàn')}
               </span>
             </div>
             <div className="font-bold text-sm text-white">
@@ -557,8 +566,10 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
             </div>
             <p className="mt-1 text-[11px] text-slate-400">
               {hasAutoTrade
-                ? (lang === 'en' ? 'Quant signals executing automatically' : 'Tín hiệu tự động sao chép theo kỷ luật')
-                : (lang === 'en' ? 'Click "Bật Tự Động" on your account card.' : 'Bấm nút "Bật Tự Động" trên thẻ tài khoản.')}
+                ? (lang === 'en' ? 'Quant signals executing automatically on active account' : 'Tài khoản kết nối đang tự động sao chép lệnh')
+                : hasBrokerConnected
+                ? (lang === 'en' ? 'Click "Bật Tự Động" on your connected account.' : 'Bấm nút "Bật Tự Động" trên tài khoản đã kết nối.')
+                : (lang === 'en' ? 'Requires an active verified broker connection first.' : 'Cần tài khoản kết nối sàn thành công trước khi bật tự động.')}
             </p>
           </div>
         </div>

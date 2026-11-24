@@ -277,15 +277,26 @@ _NO_CACHE_HEADERS = {
 
 
 class CombinedStaticFiles(StaticFiles):
-    """Static file provider that serves from Vite dist/assets with seamless fallback to web/."""
+    """Static file provider that dynamically checks dist/assets, then fallback directory."""
     def __init__(self, primary_dir, fallback_dir=None):
-        super().__init__(directory=primary_dir)
+        p_dir = Path(primary_dir)
+        p_dir.mkdir(parents=True, exist_ok=True)
+        super().__init__(directory=p_dir)
         self.fallback_dir = Path(fallback_dir) if fallback_dir else None
 
     def lookup_path(self, path: str):
         clean_rel = path.lstrip("/\\")
         if clean_rel.endswith((".ts", ".tsx", ".map")) or clean_rel.split("/")[-1] in ("tsconfig.json", "package.json"):
             return "", None
+        # 1. Dynamic check in dist/assets first even if generated post-boot
+        dist_assets = DIST_DIR / 'assets'
+        if dist_assets.exists():
+            cand = (dist_assets.resolve() / clean_rel).resolve()
+            if cand.is_relative_to(dist_assets.resolve()) and cand.is_file():
+                try:
+                    return str(cand), os.stat(cand)
+                except (os.error, ValueError):
+                    pass
         full_path, stat_result = super().lookup_path(path)
         if stat_result is None and self.fallback_dir:
             base_dir = self.fallback_dir.resolve()
@@ -298,10 +309,9 @@ class CombinedStaticFiles(StaticFiles):
         return full_path, stat_result
 
 
-if (DIST_DIR / 'assets').exists():
-    app.mount('/assets', CombinedStaticFiles(DIST_DIR / 'assets', WEB_DIR), name='assets')
-elif WEB_DIR.exists():
-    app.mount('/assets', CombinedStaticFiles(WEB_DIR, WEB_DIR), name='assets')
+# Always mount dist/assets as primary with WEB_DIR fallback
+(DIST_DIR / 'assets').mkdir(parents=True, exist_ok=True)
+app.mount('/assets', CombinedStaticFiles(DIST_DIR / 'assets', WEB_DIR), name='assets')
 
 
 def _serve_spa_dir(base_dir: Path, full_path: str):

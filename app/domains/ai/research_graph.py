@@ -704,12 +704,30 @@ def run_autonomous_induction_and_wfo(force: bool = False):
             prev_fp = str(prev_fp_row[0]) if prev_fp_row and prev_fp_row[0] else ""
             is_new_evidence = (obs_fp != prev_fp)
 
-            cand = discover_candidate_from_observations(c, symbol="XAUUSD")
+            # 1. Fetch historical candles first to isolate out-of-sample window (last 60 bars = 15 hours on M15)
+            candle_rows = c.execute(
+                "SELECT open, high, low, close, time FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
+            ).fetchall()
+            prices = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3]), "time": r[4]} for r in reversed(candle_rows)] if candle_rows else []
+
+            cutoff_ts = None
+            if candle_rows and len(candle_rows) >= 60:
+                try:
+                    oos_cand = candle_rows[59]  # 60th candle from most recent
+                    t_val = oos_cand[4]
+                    if isinstance(t_val, (int, float)):
+                        cutoff_ts = float(t_val)
+                    elif isinstance(t_val, str):
+                        from datetime import datetime
+                        cutoff_ts = datetime.fromisoformat(t_val.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    cutoff_ts = time.time() - (60 * 15 * 60)
+            else:
+                cutoff_ts = time.time() - (60 * 15 * 60)
+
+            # 2. Discover inductive candidate strictly before out-of-sample window to avoid lookahead bias
+            cand = discover_candidate_from_observations(c, symbol="XAUUSD", max_created_at=cutoff_ts)
             if cand and cand.get("id"):
-                candle_rows = c.execute(
-                    "SELECT open, high, low, close, time FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
-                ).fetchall()
-                prices = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3]), "time": r[4]} for r in reversed(candle_rows)] if candle_rows else []
                 if len(prices) >= 180:
                     rep = walk_forward(prices, candidate=cand)
                     win_rate = float(rep.get("win_rate") or 0.0)

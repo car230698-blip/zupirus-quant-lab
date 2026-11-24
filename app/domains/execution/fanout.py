@@ -598,21 +598,44 @@ async def execute_fan_out_for_signal(
                 is_pg_conn = bool(getattr(c, "_is_pg", False))
                 # Re-verify latest trading_accounts status with row lock
                 acc_row = c.execute(
-                    "SELECT auto_trade, deployment_state, risk_config FROM trading_accounts WHERE id = ?" + (" FOR UPDATE" if is_pg_conn else ""),
+                    "SELECT auto_trade, deployment_state, risk_config, last_sync FROM trading_accounts WHERE id = ?" + (" FOR UPDATE" if is_pg_conn else ""),
                     (acc_id,)
                 ).fetchone()
                 if acc_row is not None:
                     if int(acc_row[0] or 0) != 1 or str(acc_row[1] or "") != "DEPLOYED":
                         logger.warning(f"Account {acc_id} skipped: auto_trade disabled or state is {acc_row[1]}.")
                         continue
-                    # Fail-Closed check: only execute when broker connection_status is verified CONNECTED
+                    # Fail-Closed check: verify live broker connection status and freshness
                     rc_raw = acc_row[2] or "{}"
+                    acc_last_sync = float(acc_row[3] or 0)
                     try:
                         rc_data = json.loads(rc_raw) if isinstance(rc_raw, str) else dict(rc_raw)
                         conn_st = str(rc_data.get("connection_status", "")).upper()
-                        if conn_st != "CONNECTED":
-                            logger.warning(f"Account {acc_id} skipped: broker connection_status is '{conn_st}' (must be CONNECTED).")
+                        # 1. Strictly block if connection_status is DISCONNECTED or UNAVAILABLE
+                        if conn_st in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER", "UNAVAILABLE"):
+                            logger.warning(f"Account {acc_id} skipped: broker connection_status is '{conn_st}'.")
                             continue
+                        # 2. Check live Redis heartbeat if present
+                        hb = None
+                        try:
+                            from app.redis_client import get_cached_heartbeat
+                            hb = get_cached_heartbeat(acc_id)
+                        except Exception:
+                            pass
+                        if hb and isinstance(hb, dict) and str(hb.get("connection_status", "")).upper() in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER"):
+                            logger.warning(f"Account {acc_id} skipped: Redis heartbeat indicates broker DISCONNECTED.")
+                            continue
+                        # 3. Fail-Closed check for live broker connection
+                        is_mock_env = getattr(metaapi_client, "is_mock", False) or not getattr(metaapi_client, "token", None)
+                        if not is_mock_env:
+                            if conn_st != "CONNECTED":
+                                logger.warning(f"Account {acc_id} skipped: broker connection_status is '{conn_st}' (must be CONNECTED).")
+                                continue
+                            # Freshness check: if last_sync is older than 15 mins (900s) and no recent heartbeat, block
+                            now_curr = time.time()
+                            if acc_last_sync > 0 and (now_curr - acc_last_sync > 900) and not hb:
+                                logger.warning(f"Account {acc_id} skipped: broker connection data is stale (last_sync {now_curr - acc_last_sync:.0f}s ago).")
+                                continue
                     except Exception as ex:
                         logger.warning(f"Account {acc_id} skipped: failed to verify risk_config connection_status ({ex}).")
                         continue

@@ -787,9 +787,42 @@ class PositionWatcher:
                 prop_dd_limit = _safe_float(acc.get("prop_daily_dd_limit_pct"), MAX_PROP_DAILY_DRAWDOWN_PCT) or MAX_PROP_DAILY_DRAWDOWN_PCT
                 # 1. Fetch live account info
                 acc_info = await self.client.get_account_information(meta_id)
-                if not isinstance(acc_info, dict) or acc_info.get("connected") is False or acc_info.get("equity") is None:
+                is_connected = (
+                    isinstance(acc_info, dict)
+                    and acc_info.get("connected") is True
+                    and acc_info.get("connection_status") != "DISCONNECTED"
+                    and acc_info.get("equity") is not None
+                )
+                if not is_connected:
+                    now_watch_ts = time.time()
+                    try:
+                        raw_rc = acc.get("risk_config")
+                        rc = json.loads(raw_rc) if isinstance(raw_rc, str) else (raw_rc or {})
+                    except Exception:
+                        rc = {}
+                    rc["connection_status"] = "DISCONNECTED"
+                    try:
+                        with tx() as c:
+                            c.execute(
+                                "UPDATE trading_accounts SET risk_config = ?, last_sync = ? WHERE id = ?",
+                                (json.dumps(rc), now_watch_ts, acc_id)
+                            )
+                    except Exception as db_err:
+                        logger.debug(f"PositionWatcher failed to record DISCONNECTED for {acc_id}: {db_err}")
+                    try:
+                        from app.redis_client import cache_heartbeat
+                        cache_heartbeat(acc_id, {
+                            "login": str(acc.get("mt5_login") or acc.get("login") or ""),
+                            "server": str(acc.get("broker_server") or acc.get("server") or ""),
+                            "connected": False,
+                            "connection_status": "DISCONNECTED",
+                            "last_seen": now_watch_ts,
+                        }, ttl=60)
+                    except Exception:
+                        pass
                     logger.debug(f"PositionWatcher skipping {acc_id}: MetaApi terminal disconnected or missing live equity.")
                     continue
+
                 raw_eq = acc_info.get("equity")
                 raw_bal = acc_info.get("balance")
                 current_equity = _safe_float(raw_eq, _safe_float(acc.get("equity"), 0.0))
@@ -808,13 +841,33 @@ class PositionWatcher:
                 # Real-time synchronization: Update DB and Redis heartbeat so Cloud MT5 reflects live
                 now_watch_ts = time.time()
                 try:
+                    raw_rc = acc.get("risk_config")
+                    rc = json.loads(raw_rc) if isinstance(raw_rc, str) else (raw_rc or {})
+                except Exception:
+                    rc = {}
+                rc["connection_status"] = "CONNECTED"
+                try:
                     with tx() as c:
                         c.execute(
-                            "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=?",
-                            (current_equity, current_balance, now_watch_ts, acc_id)
+                            "UPDATE trading_accounts SET equity=?, balance=?, last_sync=?, risk_config=? WHERE id=?",
+                            (current_equity, current_balance, now_watch_ts, json.dumps(rc), acc_id)
                         )
                 except Exception as db_sync_err:
                     logger.debug(f"PositionWatcher DB equity sync note for {acc_id}: {db_sync_err}")
+
+                try:
+                    from app.redis_client import cache_heartbeat
+                    cache_heartbeat(acc_id, {
+                        "login": str(acc.get("mt5_login") or acc.get("login") or ""),
+                        "server": str(acc.get("broker_server") or acc.get("server") or ""),
+                        "balance": current_balance,
+                        "equity": current_equity,
+                        "connected": True,
+                        "connection_status": "CONNECTED",
+                        "last_seen": now_watch_ts,
+                    }, ttl=60)
+                except Exception:
+                    pass
 
                 try:
                     with tx() as c:

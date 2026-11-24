@@ -277,27 +277,25 @@ async def _create_account_locked(
     existing_meta_id = existing_same_acc.get("metaapi_account_id") if existing_same_acc else None
     reusing_terminal = False
 
-    # Check if we can reuse existing healthy terminal on MetaApi
+    # Check if we can reuse existing terminal on MetaApi
     if existing_meta_id and not client.is_mock:
         try:
             acc_chk = await client.get_account_information(existing_meta_id)
-            has_fatal_err = (
-                not acc_chk
-                or acc_chk.get("error") in ("NOT_FOUND", "UNAVAILABLE", "ACCOUNT_NOT_FOUND", "BROKER_DISCONNECTED")
-                or acc_chk.get("connected") is False
-            )
-            if not has_fatal_err:
+            err_code = str(acc_chk.get("error") if isinstance(acc_chk, dict) else "").upper()
+            is_404_not_found = not acc_chk or err_code in ("NOT_FOUND", "ACCOUNT_NOT_FOUND", "404")
+            if not is_404_not_found:
+                # Terminal exists on MetaApi (may be DEPLOYED, DISCONNECTED, or offline)
+                # Deploy existing terminal without creating duplicate cloud terminals
                 dep_ok = await client.deploy_account(existing_meta_id)
-                if dep_ok:
-                    meta_id = existing_meta_id
-                    reusing_terminal = True
-                    meta_state = "DEPLOYED"
-                    prov = {"id": meta_id, "_id": meta_id, "state": "DEPLOYED"}
-                    logger.info(f"Reusing existing MetaApi terminal {meta_id} for login {p.login}")
-                else:
-                    logger.warning(f"Existing terminal {existing_meta_id} deploy failed, falling back to new provision.")
+                meta_id = existing_meta_id
+                reusing_terminal = True
+                meta_state = "DEPLOYED" if dep_ok else (acc_chk.get("state") or "DEPLOYING")
+                prov = {"id": meta_id, "_id": meta_id, "state": meta_state}
+                logger.info(f"Reusing existing MetaApi terminal {meta_id} for login {p.login} (dep_ok={dep_ok})")
+            else:
+                logger.info(f"Existing terminal {existing_meta_id} not found on MetaApi ({err_code}), provisioning replacement.")
         except Exception as ex:
-            logger.warning(f"Existing terminal {existing_meta_id} probe failed: {ex}")
+            logger.warning(f"Existing terminal {existing_meta_id} probe note: {ex}")
 
     if not reusing_terminal:
         # Maintain a single persistent transaction-id across router retry attempts
