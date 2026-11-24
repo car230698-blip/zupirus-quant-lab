@@ -21,7 +21,7 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
 }) => {
   const { lang } = useLanguage();
   const { data: cloudQueryData, refetch: queryRefetch } = useCloudAccounts();
-  const rawAccounts = externalAccounts ?? cloudQueryData?.accounts ?? [];
+  const rawAccounts = [...(externalAccounts || []), ...(cloudQueryData?.accounts || [])];
   const accounts = React.useMemo(() => {
     const seen = new Set<string>();
     const deduped: any[] = [];

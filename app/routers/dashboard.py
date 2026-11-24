@@ -2,6 +2,7 @@
 import os
 import time
 import re
+import logging
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from app.db import tx
@@ -9,7 +10,9 @@ from app.routers.deps import get_current_user
 from app.redis_client import get_cached_heartbeat
 from app.core.redis_client import check_rate_limit
 from app.routers.telemetry import get_live_xauusd_quote
+from app.routers.accounts import _row_to_account_response
 
+logger = logging.getLogger("zupirus.dashboard")
 router = APIRouter(tags=["dashboard"])
 
 
@@ -33,33 +36,30 @@ def dashboard(
         if is_pg:
             c.execute("SAVEPOINT sp_dashboard_accounts")
         try:
-            cloud_accs = [
+            cloud_rows = [
                 dict(r)
                 for r in c.execute(
                     """
-                    SELECT id, user_id, account_name, mt5_login, broker_server, platform,
-                           account_type, currency, leverage, balance, equity, risk_percent,
-                           max_lot, risk_multiplier, auto_trade, prop_stage,
-                           prop_daily_dd_limit_pct, prop_max_dd_limit_pct, metaapi_state,
-                           last_sync, created_at
-                    FROM trading_accounts
-                    WHERE user_id = ?
-                    ORDER BY created_at DESC
+                    SELECT a.*, u.email AS email, s.plan_tier, s.service_expires_at, s.allow_compounding, s.allow_prop_firm_mode
+                    FROM trading_accounts a
+                    LEFT JOIN users u ON u.id = a.user_id
+                    LEFT JOIN subscriptions s ON s.user_id = a.user_id
+                    WHERE a.user_id = ?
+                    ORDER BY a.created_at DESC
                     """,
                     (u['id'],),
                 )
             ]
             if is_pg:
                 c.execute("RELEASE SAVEPOINT sp_dashboard_accounts")
-            for ca in cloud_accs:
-                ca['login'] = ca.get('mt5_login', ca.get('login'))
-                ca['server'] = ca.get('broker_server', ca.get('server'))
-                ca['mode'] = 'REAL'
-                ca['is_real'] = True
-                ca['enabled'] = bool(ca.get('auto_trade', 1))
-                ca['is_active'] = bool(ca.get('auto_trade', 1))
-            accounts.extend(cloud_accs)
-        except Exception:
+            for cr in cloud_rows:
+                acc_dict = _row_to_account_response(cr)
+                acc_dict['mode'] = 'REAL'
+                acc_dict['is_real'] = True
+                acc_dict['is_active'] = bool(acc_dict.get('auto_trade', 1))
+                accounts.append(acc_dict)
+        except Exception as e:
+            logger.warning("Failed to load trading_accounts in dashboard: %s", e)
             if is_pg:
                 try:
                     c.execute("ROLLBACK TO SAVEPOINT sp_dashboard_accounts")
