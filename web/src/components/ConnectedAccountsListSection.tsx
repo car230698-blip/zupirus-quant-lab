@@ -96,7 +96,9 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                     <div className="flex flex-wrap items-center gap-2.5">
                       <span
                         className={`h-2.5 w-2.5 rounded-full ${
-                          isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                          acc.connection_status === 'DISCONNECTED'
+                            ? 'bg-rose-500 animate-pulse'
+                            : isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
                         }`}
                       />
                       <span className="text-base font-bold text-white">
@@ -119,6 +121,11 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                           {deployState}
                         </strong>
                       </span>
+                      {acc.connection_status === 'DISCONNECTED' && (
+                        <span className="rounded bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.5 font-mono text-[10px] font-bold text-rose-300">
+                          {lang === 'en' ? 'BROKER DISCONNECTED' : 'MẤT KẾT NỐI SÀN'}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-4 pt-1 font-mono text-xs text-slate-300 tabular-nums">
@@ -158,6 +165,14 @@ export const ConnectedAccountsListSection: React.FC<ConnectedAccountsListSection
                         / {fmtNum(acc.prop_daily_dd_limit_pct || acc.max_daily_dd_pct || acc.max_daily_drawdown_pct || 4, 1)}%
                       </span>
                     </div>
+
+                    {acc.connection_status === 'DISCONNECTED' && (
+                      <div className="mt-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-2.5">
+                        {lang === 'en'
+                          ? 'Broker connection is offline (Disconnected on MetaApi). Please check your MT5 master password or server (Exness).'
+                          : 'Tài khoản đang ngắt kết nối với sàn MT5 (trạng thái: Disconnected trên MetaApi). Vui lòng kiểm tra lại mật khẩu hoặc máy chủ sàn.'}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 shrink-0">

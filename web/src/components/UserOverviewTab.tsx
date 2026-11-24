@@ -97,11 +97,11 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const computedTotalAccounts = totalAccountsCount ?? accounts.length;
   const computedActiveAccounts =
     activeAccountsCount ??
-    accounts.filter((a) => a.is_active !== false && a.copy_enabled !== false && Number(a.auto_trade ?? 1) !== 0).length;
+    accounts.filter((a) => a.is_active !== false && a.copy_enabled !== false && Number(a.auto_trade ?? 1) !== 0 && a.connection_status !== 'DISCONNECTED').length;
   const isMt5Connected =
     mt5Connected ??
     (accounts.length > 0 &&
-      accounts.some((a) => a.deployment_state === 'DEPLOYED' || a.enabled || Number(a.auto_trade ?? 0) === 1));
+      accounts.some((a) => (a.deployment_state === 'DEPLOYED' || a.enabled || Number(a.auto_trade ?? 0) === 1) && a.connection_status !== 'DISCONNECTED'));
   const computedDailyDd =
     dailyDdPct ??
     (totalBalance > 0 && totalEquity < totalBalance
@@ -660,7 +660,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                       <div className="flex items-center gap-2">
                         <span
                           className={`h-2 w-2 shrink-0 rounded-full ${
-                            isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                            acc.connection_status === 'DISCONNECTED'
+                              ? 'bg-rose-500 animate-pulse'
+                              : isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
                           }`}
                         />
                         <span className="truncate font-bold text-sm text-white">
@@ -686,12 +688,16 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                     </div>
                     <span
                       className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold shrink-0 border ${
-                        isActive
+                        acc.connection_status === 'DISCONNECTED'
+                          ? 'bg-rose-500/15 border-rose-500/35 text-rose-300'
+                          : isActive
                           ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
                           : 'bg-slate-800/80 border-slate-600/50 text-slate-400'
                       }`}
                     >
-                      {isActive ? 'ONLINE' : 'PAUSED'}
+                      {acc.connection_status === 'DISCONNECTED'
+                        ? (lang === 'en' ? 'DISCONNECTED' : 'MẤT KẾT NỐI')
+                        : isActive ? 'ONLINE' : 'PAUSED'}
                     </span>
                   </div>
 

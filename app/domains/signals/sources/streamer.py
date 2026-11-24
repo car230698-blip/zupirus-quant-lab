@@ -152,7 +152,8 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                 ).fetchone()
             if acc_row and acc_row[0]:
                 meta_acc_id = acc_row[0]
-                url_m = f"https://mt-client-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts/{meta_acc_id}/symbols/{symbol}/current-price"
+                region = os.getenv("METAAPI_REGION", "london").strip().lower()
+                url_m = f"https://mt-client-api-v1.{region}.agiliumtrade.ai/users/current/accounts/{meta_acc_id}/symbols/{symbol}/current-price"
                 with httpx.Client(timeout=4.0) as client:
                     rm = client.get(url_m, headers={"auth-token": meta_token})
                     if rm.status_code == 200:

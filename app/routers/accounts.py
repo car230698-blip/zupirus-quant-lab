@@ -76,6 +76,14 @@ def _row_to_account_response(row: dict) -> dict:
     except Exception:
         pass
 
+    conn_status = None
+    if hb and isinstance(hb, dict) and hb.get("connection_status"):
+        conn_status = str(hb.get("connection_status")).upper()
+    elif rc and isinstance(rc, dict) and rc.get("connection_status"):
+        conn_status = str(rc.get("connection_status")).upper()
+    else:
+        conn_status = "CONNECTED" if (bal_val > 0 or eq_val > 0) else "DISCONNECTED"
+
     return {
         "id": row["id"],
         "user_id": row.get("user_id"),
@@ -88,6 +96,8 @@ def _row_to_account_response(row: dict) -> dict:
         "account_name": row.get("account_name") or f"MT5-{login_val}",
         "deployment_state": row.get("deployment_state") or row.get("metaapi_state") or "DEPLOYED",
         "metaapi_state": row.get("deployment_state") or row.get("metaapi_state") or "DEPLOYED",
+        "connection_status": conn_status,
+        "connected": conn_status == "CONNECTED",
         "metaapi_account_id": row.get("metaapi_account_id"),
         "cloud_expires_at": float(cloud_exp) if cloud_exp else None,
         "is_cloud_active": is_cloud_active,
@@ -729,31 +739,43 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     eq = float(acc.get("equity") or 0.0)
     bal = float(acc.get("balance") or 0.0)
     formatted_open_positions = []
+    is_connected = True
+    conn_status = "CONNECTED"
+    sync_msg = "Đã đồng bộ số dư mới nhất từ sàn."
+
     if not acc.get("_is_ea_bridge") and not client.is_mock:
         info = await client.get_account_information(meta_id)
-        if isinstance(info, dict) and info.get("connected", True):
-            new_eq = float(info.get("equity") or 0.0)
-            new_bal = float(info.get("balance") or 0.0)
-            if new_eq > 0 or new_bal > 0:
-                eq = new_eq
-                bal = new_bal
+        if isinstance(info, dict):
+            if info.get("connected") is False or info.get("connection_status") == "DISCONNECTED":
+                is_connected = False
+                conn_status = info.get("connection_status") or "DISCONNECTED"
+                sync_msg = info.get("message") or "Tài khoản đang ngắt kết nối với broker MT5 (trên MetaApi hiển thị Disconnected). Vui lòng kiểm tra lại mật khẩu MT5 hoặc máy chủ sàn."
+            else:
+                new_eq = float(info.get("equity") or 0.0)
+                new_bal = float(info.get("balance") or 0.0)
+                if new_eq > 0 or new_bal > 0:
+                    eq = new_eq
+                    bal = new_bal
+                    conn_status = "CONNECTED"
+                    is_connected = True
         try:
-            cur_open = await client.get_open_positions(meta_id) or []
-            for p in cur_open:
-                p_id_str = str(p.get("id") or "")
-                p_type = str(p.get("type") or "BUY").upper()
-                side = "BUY" if "BUY" in p_type else "SELL"
-                formatted_open_positions.append({
-                    "ticket": p_id_str,
-                    "symbol": str(p.get("symbol") or "XAUUSD").upper(),
-                    "side": side,
-                    "volume": float(p.get("volume") or 0.01),
-                    "open_price": float(p.get("openPrice") or 0.0),
-                    "sl": float(p.get("stopLoss") or 0.0),
-                    "tp": float(p.get("takeProfit") or 0.0),
-                    "current_price": float(p.get("currentPrice") or p.get("openPrice") or 0.0),
-                    "profit": float(p.get("profit") or p.get("unrealizedProfit") or 0.0),
-                })
+            if is_connected:
+                cur_open = await client.get_open_positions(meta_id) or []
+                for p in cur_open:
+                    p_id_str = str(p.get("id") or "")
+                    p_type = str(p.get("type") or "BUY").upper()
+                    side = "BUY" if "BUY" in p_type else "SELL"
+                    formatted_open_positions.append({
+                        "ticket": p_id_str,
+                        "symbol": str(p.get("symbol") or "XAUUSD").upper(),
+                        "side": side,
+                        "volume": float(p.get("volume") or 0.01),
+                        "open_price": float(p.get("openPrice") or 0.0),
+                        "sl": float(p.get("stopLoss") or 0.0),
+                        "tp": float(p.get("takeProfit") or 0.0),
+                        "current_price": float(p.get("currentPrice") or p.get("openPrice") or 0.0),
+                        "profit": float(p.get("profit") or p.get("unrealizedProfit") or 0.0),
+                    })
         except Exception:
             pass
 
@@ -769,9 +791,19 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
             "open_positions": formatted_open_positions,
             "last_seen": now_ts,
             "is_cloud_metaapi": not acc.get("_is_ea_bridge"),
+            "connected": is_connected,
+            "connection_status": conn_status,
         }, ttl=60)
     except Exception:
         pass
+
+    raw_rc = acc.get("risk_config")
+    try:
+        rc = json.loads(raw_rc) if isinstance(raw_rc, str) else (raw_rc or {})
+    except Exception:
+        rc = {}
+    rc["connection_status"] = conn_status
+    updated_rc_json = json.dumps(rc)
 
     with tx() as c:
         if acc.get("_is_ea_bridge"):
@@ -781,8 +813,8 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
             )
         else:
             c.execute(
-                "UPDATE trading_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
-                (eq, bal, now_ts, real_id, owner_id)
+                "UPDATE trading_accounts SET equity=?, balance=?, last_sync=?, risk_config=? WHERE id=? AND user_id=?",
+                (eq, bal, now_ts, updated_rc_json, real_id, owner_id)
             )
             try:
                 c.execute(
@@ -792,7 +824,15 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
             except Exception:
                 pass
 
-    return {"id": real_id, "equity": eq, "balance": bal, "last_sync": now_ts}
+    return {
+        "id": real_id,
+        "equity": eq,
+        "balance": bal,
+        "last_sync": now_ts,
+        "connected": is_connected,
+        "connection_status": conn_status,
+        "message": sync_msg,
+    }
 
 
 @router.delete("/api/v1/accounts/{account_id}")

@@ -267,8 +267,12 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
   const handleSyncAccount = async (accountId: string) => {
     setCloudBusy(true);
     try {
-      await apiPost(`/api/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
-      setCloudMsg(lang === 'en' ? `Latest balance synced from broker for account #${accountId}.` : `Đã đồng bộ số dư mới nhất từ sàn cho tài khoản #${accountId}.`);
+      const res: any = await apiPost(`/api/v1/accounts/${encodeURIComponent(accountId)}/sync`, {});
+      if (res && res.connected === false) {
+        setCloudMsg(res.message || (lang === 'en' ? `Account #${accountId} is disconnected from broker.` : `Tài khoản #${accountId} đang ngắt kết nối với sàn MT5.`));
+      } else {
+        setCloudMsg(lang === 'en' ? `Latest balance synced from broker for account #${accountId}.` : `Đã đồng bộ số dư mới nhất từ sàn cho tài khoản #${accountId}.`);
+      }
       refetchAccounts();
     } catch (e: any) {
       setCloudMsg(`${lang === 'en' ? 'Sync error' : 'Lỗi kết nối đồng bộ'}: ${e.message}`);

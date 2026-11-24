@@ -20,11 +20,13 @@ import httpx
 logger = logging.getLogger("zupirus.metaapi")
 
 PROVISIONING_API_BASE = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai"
-CLIENT_API_BASE = "https://mt-client-api-v1.agiliumtrade.agiliumtrade.ai"
+DEFAULT_METAAPI_REGION = os.getenv("METAAPI_REGION", "london").strip().lower()
+CLIENT_API_BASE = f"https://mt-client-api-v1.{DEFAULT_METAAPI_REGION}.agiliumtrade.ai"
 
 
 class MetaApiClient:
     """MetaApi Cloud Provisioning and Trading client."""
+    _account_regions: Dict[str, str] = {}
 
     def __init__(self, token: Optional[str] = None):
         self.token = token or os.getenv("METAAPI_TOKEN", "").strip()
@@ -58,6 +60,11 @@ class MetaApiClient:
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
+
+    def _client_url(self, metaapi_account_id: str, path: str, region: Optional[str] = None) -> str:
+        reg = region or self._account_regions.get(metaapi_account_id) or DEFAULT_METAAPI_REGION
+        clean_path = path.lstrip("/")
+        return f"https://mt-client-api-v1.{reg}.agiliumtrade.ai/users/current/accounts/{metaapi_account_id}/{clean_path}"
 
     async def provision_account(
         self,
@@ -181,17 +188,55 @@ class MetaApiClient:
                 "connected": True
             }
 
-        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/account-information"
+        conn_status = None
+        region = self._account_regions.get(metaapi_account_id)
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                p_resp = await client.get(
+                    f"{PROVISIONING_API_BASE}/users/current/accounts/{metaapi_account_id}",
+                    headers=self._headers()
+                )
+                if p_resp.status_code == 200:
+                    p_data = p_resp.json()
+                    if isinstance(p_data, dict):
+                        reg = p_data.get("region")
+                        if reg:
+                            region = reg
+                            self._account_regions[metaapi_account_id] = reg
+                        conn_status = p_data.get("connectionStatus")
+        except Exception as e:
+            logger.debug(f"Provisioning check error for {metaapi_account_id}: {e}")
+
+        url = self._client_url(metaapi_account_id, "account-information", region=region)
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(url, headers=self._headers())
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, dict):
+                        data["connected"] = True
+                        data["connection_status"] = "CONNECTED"
                         return data
+                elif resp.status_code == 504:
+                    logger.warning(f"MetaApi account {metaapi_account_id} broker connection timeout (504): broker is disconnected")
+                    return {
+                        "balance": 0.0,
+                        "equity": 0.0,
+                        "connected": False,
+                        "connection_status": conn_status or "DISCONNECTED",
+                        "error": "BROKER_DISCONNECTED",
+                        "message": "Tài khoản đang ngắt kết nối với broker sàn (trạng thái: DISCONNECTED trên MetaApi). Vui lòng kiểm tra lại mật khẩu hoặc máy chủ broker.",
+                    }
         except Exception as e:
             logger.debug(f"get_account_information error for {metaapi_account_id}: {e}")
-        return {"balance": 0.0, "equity": 0.0, "connected": False}
+        return {
+            "balance": 0.0,
+            "equity": 0.0,
+            "connected": False,
+            "connection_status": conn_status or "DISCONNECTED",
+            "error": "UNAVAILABLE",
+            "message": "Không thể kết nối tới trạm đám mây MetaApi.",
+        }
 
     async def execute_order(
         self,
@@ -235,7 +280,7 @@ class MetaApiClient:
 
         from app.services.symbol_precision import digits_for_symbol
         dec = digits_for_symbol(symbol)
-        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+        url = self._client_url(metaapi_account_id, "trade")
         payload = {
             "actionType": action_type,
             "symbol": symbol,
@@ -296,7 +341,7 @@ class MetaApiClient:
                 return False, [], {"synchronized": False, "mock": True}
             return True, [], {"synchronized": True, "mock": True}
 
-        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/positions"
+        url = self._client_url(metaapi_account_id, "positions")
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(url, headers=self._headers())
@@ -325,7 +370,7 @@ class MetaApiClient:
         """Retrieve pending orders on MT5 via MetaApi with fail-closed verification."""
         if self._is_mock_account(metaapi_account_id):
             return True, [], {"mock": True}
-        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/orders"
+        url = self._client_url(metaapi_account_id, "orders")
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(url, headers=self._headers())
@@ -355,7 +400,7 @@ class MetaApiClient:
         start_dt = end_dt - timedelta(hours=hours)
         start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
         end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
-        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/history-deals/time/{start_iso}/{end_iso}"
+        url = self._client_url(metaapi_account_id, f"history-deals/time/{start_iso}/{end_iso}")
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(url, headers=self._headers())
@@ -388,7 +433,7 @@ class MetaApiClient:
                 "simulated": True
             }
 
-        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+        url = self._client_url(metaapi_account_id, "trade")
         payload: Dict[str, Any] = {
             "actionType": "POSITION_MODIFY",
             "positionId": position_id,
@@ -437,7 +482,7 @@ class MetaApiClient:
                 "simulated": True,
             }
 
-        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+        url = self._client_url(metaapi_account_id, "trade")
         payload = {
             "actionType": "POSITION_CLOSE_ID",
             "positionId": position_id,
@@ -494,7 +539,7 @@ class MetaApiClient:
                 "simulated": True
             }
 
-        url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+        url = self._client_url(metaapi_account_id, "trade")
         payload = {
             "actionType": "POSITION_PARTIAL",
             "positionId": position_id,
@@ -562,7 +607,7 @@ class MetaApiClient:
             if self._is_mock_account(metaapi_account_id):
                 closed_count += 1
                 continue
-            url = f"{CLIENT_API_BASE}/users/current/accounts/{metaapi_account_id}/trade"
+            url = self._client_url(metaapi_account_id, "trade")
             payload = {"actionType": "POSITION_CLOSE", "positionId": str(pos_id)}
             async def _close(u, p):
                 async with httpx.AsyncClient(timeout=10.0) as client:
