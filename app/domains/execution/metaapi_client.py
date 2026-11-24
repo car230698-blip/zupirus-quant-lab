@@ -207,9 +207,21 @@ class MetaApiClient:
         except Exception as e:
             logger.debug(f"Provisioning check error for {metaapi_account_id}: {e}")
 
+        # If MetaApi itself reports the terminal is DISCONNECTED from the broker,
+        # return immediately without hanging on client API 504 timeouts.
+        if conn_status == "DISCONNECTED":
+            return {
+                "balance": 0.0,
+                "equity": 0.0,
+                "connected": False,
+                "connection_status": "DISCONNECTED",
+                "error": "BROKER_DISCONNECTED",
+                "message": "Tài khoản đang ngắt kết nối với sàn MT5 (trạng thái: DISCONNECTED trên MetaApi). Vui lòng kiểm tra lại mật khẩu MT5 hoặc máy chủ broker.",
+            }
+
         url = self._client_url(metaapi_account_id, "account-information", region=region)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:
                 resp = await client.get(url, headers=self._headers())
                 if resp.status_code == 200:
                     data = resp.json()
@@ -225,8 +237,18 @@ class MetaApiClient:
                         "connected": False,
                         "connection_status": conn_status or "DISCONNECTED",
                         "error": "BROKER_DISCONNECTED",
-                        "message": "Tài khoản đang ngắt kết nối với broker sàn (trạng thái: DISCONNECTED trên MetaApi). Vui lòng kiểm tra lại mật khẩu hoặc máy chủ broker.",
+                        "message": "Tài khoản đang ngắt kết nối với sàn MT5 (trạng thái: DISCONNECTED trên MetaApi). Vui lòng kiểm tra lại mật khẩu MT5 hoặc máy chủ broker.",
                     }
+        except httpx.TimeoutException:
+            logger.warning(f"MetaApi client API timed out for {metaapi_account_id}: broker is likely offline")
+            return {
+                "balance": 0.0,
+                "equity": 0.0,
+                "connected": False,
+                "connection_status": conn_status or "DISCONNECTED",
+                "error": "BROKER_DISCONNECTED",
+                "message": "Tài khoản đang ngắt kết nối với sàn MT5 (trạng thái: DISCONNECTED trên MetaApi). Vui lòng kiểm tra lại mật khẩu MT5 hoặc máy chủ broker.",
+            }
         except Exception as e:
             logger.debug(f"get_account_information error for {metaapi_account_id}: {e}")
         return {
@@ -235,7 +257,7 @@ class MetaApiClient:
             "connected": False,
             "connection_status": conn_status or "DISCONNECTED",
             "error": "UNAVAILABLE",
-            "message": "Không thể kết nối tới trạm đám mây MetaApi.",
+            "message": "Không thể kết nối tới trạm đám mây MetaApi hoặc tài khoản chưa sẵn sàng.",
         }
 
     async def execute_order(
