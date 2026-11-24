@@ -598,13 +598,22 @@ async def execute_fan_out_for_signal(
                 is_pg_conn = bool(getattr(c, "_is_pg", False))
                 # Re-verify latest trading_accounts status with row lock
                 acc_row = c.execute(
-                    "SELECT auto_trade, deployment_state FROM trading_accounts WHERE id = ?" + (" FOR UPDATE" if is_pg_conn else ""),
+                    "SELECT auto_trade, deployment_state, risk_config FROM trading_accounts WHERE id = ?" + (" FOR UPDATE" if is_pg_conn else ""),
                     (acc_id,)
                 ).fetchone()
                 if acc_row is not None:
                     if int(acc_row[0] or 0) != 1 or str(acc_row[1] or "") != "DEPLOYED":
                         logger.warning(f"Account {acc_id} skipped: auto_trade disabled or state is {acc_row[1]}.")
                         continue
+                    # Fail-Closed check: do not execute on disconnected broker
+                    rc_raw = acc_row[2] or "{}"
+                    try:
+                        rc_data = json.loads(rc_raw) if isinstance(rc_raw, str) else dict(rc_raw)
+                        if str(rc_data.get("connection_status", "")).upper() == "DISCONNECTED":
+                            logger.warning(f"Account {acc_id} skipped: broker connection_status is DISCONNECTED.")
+                            continue
+                    except Exception:
+                        pass
                 elif acc.get("deployment_state") and acc.get("deployment_state") != "DEPLOYED":
                     logger.warning(f"Account {acc_id} skipped: state is {acc.get('deployment_state')}.")
                     continue

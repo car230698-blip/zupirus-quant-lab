@@ -73,11 +73,13 @@ class MetaApiClient:
         password: str,
         server: str,
         platform: str = "mt5",
-        magic: int = 230698
+        magic: int = 230698,
+        transaction_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Deploy an MT5 account to MetaApi Cloud.
         Returns dict containing metaapi_account_id and state.
+        Reuses transaction_id across retries to prevent duplicate terminal creation.
         """
         srv_low = str(server or "").strip().lower()
         is_sandbox_srv = any(k in srv_low for k in ("sandbox", "simulated", "mock", "zupirus"))
@@ -85,6 +87,7 @@ class MetaApiClient:
             simulated_id = f"metaapi_{uuid.uuid4().hex[:16]}"
             return {
                 "id": simulated_id,
+                "_id": simulated_id,
                 "state": "DEPLOYED",
                 "name": name,
                 "login": login,
@@ -95,7 +98,7 @@ class MetaApiClient:
             }
 
         url = f"{PROVISIONING_API_BASE}/users/current/accounts"
-        tx_id = uuid.uuid4().hex
+        tx_id = transaction_id or uuid.uuid4().hex
         headers = self._headers()
         headers["transaction-id"] = tx_id
         payload = {
@@ -108,9 +111,9 @@ class MetaApiClient:
             "magic": int(magic or 230698),
             "region": DEFAULT_METAAPI_REGION,
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=25.0) as client:
             last_resp = None
-            for poll_attempt in range(1, 6):
+            for poll_attempt in range(1, 4):
                 resp = await client.post(url, headers=headers, json=payload)
                 last_resp = resp
                 if resp.status_code in (200, 201):
@@ -121,22 +124,26 @@ class MetaApiClient:
                     if not isinstance(data, dict):
                         data = {}
                     acc_id = data.get("id") or data.get("_id")
+                    if acc_id:
+                        data["id"] = acc_id
+                        data["_id"] = acc_id
                     if acc_id and data.get("state") != "DEPLOYED":
                         try:
                             await client.post(f"{PROVISIONING_API_BASE}/users/current/accounts/{acc_id}/deploy", headers=self._headers())
                         except Exception:
                             pass
+                    data["transaction_id"] = tx_id
                     return data
                 elif resp.status_code == 202:
                     # Connection validation in progress, poll using same transaction-id
-                    logger.info(f"MetaApi provisioning in progress (attempt {poll_attempt}/5), waiting 5s...")
-                    await asyncio.sleep(5)
+                    logger.info(f"MetaApi provisioning in progress (attempt {poll_attempt}/3), waiting 3s...")
+                    await asyncio.sleep(3)
                     continue
                 else:
                     raise RuntimeError(f"MetaApi Provisioning Error ({resp.status_code}): {resp.text}")
             
             if last_resp is not None and last_resp.status_code == 202:
-                # Timed out polling after 5 attempts
+                # Timed out polling after 3 attempts
                 raise RuntimeError("MetaApi Provisioning timed out while validating broker connection.")
             return {}
 
@@ -664,16 +671,22 @@ class MetaApiClient:
                     failed_count += 1
                     logger.error(f"close_all_positions exception for {metaapi_account_id}: {res}")
                 elif getattr(res, "status_code", 0) in (200, 201):
-                    body_ok = True
+                    body_ok = False
                     if hasattr(res, "json"):
                         try:
                             data = res.json()
-                            if isinstance(data, dict) and ("numericCode" in data or "stringCode" in data):
-                                body_ok = _is_metaapi_success(data)
+                            if isinstance(data, dict):
+                                if "numericCode" in data or "stringCode" in data:
+                                    body_ok = _is_metaapi_success(data)
+                                elif data.get("orderId") or data.get("positionId"):
+                                    body_ok = True
                         except Exception:
+                            body_ok = False
+                    elif isinstance(res, dict):
+                        if "numericCode" in res or "stringCode" in res:
+                            body_ok = _is_metaapi_success(res)
+                        elif res.get("orderId") or res.get("positionId"):
                             body_ok = True
-                    elif isinstance(res, dict) and ("numericCode" in res or "stringCode" in res):
-                        body_ok = _is_metaapi_success(res)
                     if body_ok:
                         closed_count += 1
                     else:

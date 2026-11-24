@@ -270,47 +270,96 @@ async def _create_account_locked(
     is_prop_server = is_prop or any(k in srv_lower for k in ("ftmo", "fundednext", "5ers", "the5ers", "alpha", "e8", "fundingpips", "prop"))
     effective_dd_limit = float(p.prop_daily_dd_limit_pct) if p.prop_daily_dd_limit_pct not in (None, 4.5, 4.0) else (4.0 if is_prop_server else 5.0)
 
-    # 4. Provision & Auto-Deploy terminal on MetaApi Cloud (with 3-attempt transient retry)
+    # 4. Provision & Auto-Deploy terminal on MetaApi Cloud
     client = MetaApiClient()
     prov = None
-    for attempt in range(1, 4):
-        try:
-            prov = await client.provision_account(
-                name=p.account_name or f"User-{user_id[:6]}",
-                login=p.login,
-                password=p.password,
-                server=p.server,
-                platform=p.platform,
-            )
-            break
-        except Exception as e:
-            err_msg = str(e).lower()
-            is_auth_or_server_err = any(k in err_msg for k in ("password", "credential", "invalid", "server", "unauthorized", "401", "403", "not found"))
-            if is_auth_or_server_err or attempt == 3:
-                logger.error(f"MetaApi provisioning failed for login {p.login} (attempt {attempt}): {e}")
-                fail(400, f"Lỗi kết nối MetaApi Cloud (kiểm tra lại Mật khẩu/Server MT5): {str(e)}")
-            import asyncio as _asyncio
-            await _asyncio.sleep(1)
+    existing_meta_id = existing_same_acc.get("metaapi_account_id") if existing_same_acc else None
+    reusing_terminal = False
 
-    meta_id = prov.get("id")
+    # Check if we can reuse existing healthy terminal on MetaApi
+    if existing_meta_id and not client.is_mock:
+        try:
+            acc_chk = await client.get_account_information(existing_meta_id)
+            if acc_chk and acc_chk.get("error") != "NOT_FOUND":
+                meta_id = existing_meta_id
+                reusing_terminal = True
+                await client.deploy_account(meta_id)
+                meta_state = "DEPLOYED"
+                prov = {"id": meta_id, "_id": meta_id, "state": "DEPLOYED"}
+                logger.info(f"Reusing existing MetaApi terminal {meta_id} for login {p.login}")
+        except Exception as ex:
+            logger.warning(f"Existing terminal {existing_meta_id} probe failed: {ex}")
+
+    if not reusing_terminal:
+        # Maintain a single persistent transaction-id across router retry attempts
+        router_tx_id = uuid.uuid4().hex
+        for attempt in range(1, 3):
+            try:
+                prov = await client.provision_account(
+                    name=p.account_name or f"User-{user_id[:6]}",
+                    login=p.login,
+                    password=p.password,
+                    server=p.server,
+                    platform=p.platform,
+                    transaction_id=router_tx_id,
+                )
+                break
+            except Exception as e:
+                err_msg = str(e).lower()
+                is_auth_or_server_err = any(k in err_msg for k in ("password", "credential", "invalid", "server", "unauthorized", "401", "403", "not found"))
+                if is_auth_or_server_err or attempt == 2:
+                    logger.error(f"MetaApi provisioning failed for login {p.login} (attempt {attempt}): {e}")
+                    fail(400, f"Lỗi kết nối MetaApi Cloud (kiểm tra lại Mật khẩu/Server MT5): {str(e)}")
+                import asyncio as _asyncio
+                await _asyncio.sleep(1)
+
+    meta_id = (prov.get("id") or prov.get("_id")) if prov else None
+    if not meta_id:
+        fail(400, "Lỗi kết nối MetaApi: Không nhận được ID thiết bị đầu cuối hợp lệ.")
     meta_state = prov.get("state", "DEPLOY_PENDING")
 
-    # Auto-call deploy_account() with 3 retries on transient errors
-    if meta_id:
+    # Auto-call deploy_account() if not yet deployed
+    if meta_id and meta_state != "DEPLOYED":
         import asyncio as _asyncio
         deployed_ok = False
-        for attempt in range(1, 4):
+        for attempt in range(1, 3):
             try:
                 if await client.deploy_account(meta_id):
                     deployed_ok = True
                     meta_state = "DEPLOYED"
                     break
             except Exception as dep_err:
-                logger.warning(f"MetaApi deploy attempt {attempt}/3 failed for {meta_id}: {dep_err}")
-            if attempt < 3:
+                logger.warning(f"MetaApi deploy attempt {attempt}/2 failed for {meta_id}: {dep_err}")
+            if attempt < 2:
                 await _asyncio.sleep(1)
         if not deployed_ok and meta_state != "DEPLOYED":
             meta_state = "DEPLOY_PENDING"
+
+    # Verify broker connectionStatus before enabling auto_trade (Fail-Closed)
+    initial_conn_status = "CONNECTING"
+    initial_auto_trade = 0
+    init_balance = 0.0
+    init_equity = 0.0
+    if client.is_mock:
+        initial_conn_status = "CONNECTED"
+        initial_auto_trade = 1
+        init_balance = 10000.0
+        init_equity = 10000.0
+    else:
+        try:
+            b_info = await client.get_account_information(meta_id)
+            if b_info and b_info.get("connected") and b_info.get("connection_status") == "CONNECTED":
+                initial_conn_status = "CONNECTED"
+                initial_auto_trade = 1
+                init_balance = float(b_info.get("balance") or 0.0)
+                init_equity = float(b_info.get("equity") or 0.0)
+            elif b_info and b_info.get("connection_status") == "DISCONNECTED":
+                initial_conn_status = "DISCONNECTED"
+                initial_auto_trade = 0
+        except Exception:
+            initial_conn_status = "CONNECTING"
+            initial_auto_trade = 0
+
     account_id = existing_same_acc["id"] if existing_same_acc else f"acc_{secrets.token_hex(8)}"
     enc_pwd = encrypt_secret(p.password)
 
@@ -321,6 +370,13 @@ async def _create_account_locked(
     if prop_stage_val not in ("CHALLENGE", "LIVE"):
         prop_stage_val = "CHALLENGE"
 
+    risk_cfg_str = json.dumps({
+        "risk_percent": 1.0,
+        "max_lot": 1.0,
+        "multiplier": risk_mult,
+        "connection_status": initial_conn_status
+    })
+
     with tx() as c:
         try:
             if existing_same_acc:
@@ -328,14 +384,17 @@ async def _create_account_locked(
                     UPDATE trading_accounts SET
                         user_id=?, encrypted_master_password=?, metaapi_account_id=?,
                         deployment_state=?, subscription_expires_at=?, cloud_expires_at=?,
-                        auto_trade=1, last_sync=?, risk_multiplier=?, is_compounding=?,
-                        is_prop_firm_mode=?, prop_stage=?, prop_daily_dd_limit_pct=?, prop_profit_target_pct=?
+                        auto_trade=?, last_sync=?, risk_multiplier=?, is_compounding=?,
+                        is_prop_firm_mode=?, prop_stage=?, prop_daily_dd_limit_pct=?, prop_profit_target_pct=?,
+                        risk_config=?, balance=CASE WHEN ? > 0 THEN ? ELSE balance END,
+                        equity=CASE WHEN ? > 0 THEN ? ELSE equity END
                     WHERE id=?
                 """, (
                     user_id, enc_pwd, meta_id,
                     meta_state, cloud_expiry, cloud_expiry,
-                    now_ts, risk_mult, 1 if is_compounding else 0,
+                    initial_auto_trade, now_ts if initial_conn_status == "CONNECTED" else 0.0, risk_mult, 1 if is_compounding else 0,
                     1 if is_prop else 0, prop_stage_val, effective_dd_limit, p.prop_profit_target_pct,
+                    risk_cfg_str, init_balance, init_balance, init_equity, init_equity,
                     account_id
                 ))
             else:
@@ -352,8 +411,9 @@ async def _create_account_locked(
                     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     account_id, user_id, p.login, enc_pwd, p.server,
-                    meta_id, meta_state, '{"risk_percent": 1.0, "max_lot": 1.0, "multiplier": 1.0}', cloud_expiry,
-                    cloud_expiry, 1, 0.0, 0.0, now_ts, now_ts,
+                    meta_id, meta_state, risk_cfg_str, cloud_expiry,
+                    cloud_expiry, initial_auto_trade, init_balance, init_equity, now_ts,
+                    now_ts if initial_conn_status == "CONNECTED" else 0.0,
                     risk_mult, 1 if is_compounding else 0, 1 if is_prop else 0, prop_stage_val,
                     effective_dd_limit, p.prop_profit_target_pct
                 ))
@@ -364,12 +424,13 @@ async def _create_account_locked(
                     metaapi_account_id, metaapi_state, disclaimer_id,
                     risk_percent, max_lot, multiplier, auto_trade,
                     balance, equity, currency, encrypted_password, last_sync, created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,0.0,0.0,'USD',?,?,?)
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'USD',?,?,?)
             """, (
                 account_id, user_id, p.login, p.server, p.platform, p.account_name,
                 meta_id, meta_state, disc["id"],
-                1.0, 1.0, risk_mult,
-                enc_pwd, now_ts, now_ts
+                1.0, 1.0, risk_mult, initial_auto_trade,
+                init_balance, init_equity,
+                enc_pwd, now_ts if initial_conn_status == "CONNECTED" else 0.0, now_ts
             ))
         except HTTPException:
             if not existing_same_acc and meta_id:
@@ -788,8 +849,8 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
             "server": str(acc.get("broker_server") or acc.get("server") or ""),
             "balance": bal,
             "equity": eq,
-            "positions": len(formatted_open_positions),
-            "open_positions": formatted_open_positions,
+            "positions": len(formatted_open_positions) if is_connected else None,
+            "open_positions": formatted_open_positions if is_connected else [],
             "last_seen": now_ts,
             "is_cloud_metaapi": not acc.get("_is_ea_bridge"),
             "connected": is_connected,
@@ -813,17 +874,23 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
                 (eq, bal, now_ts, real_id, owner_id)
             )
         else:
-            c.execute(
-                "UPDATE trading_accounts SET equity=?, balance=?, last_sync=?, risk_config=? WHERE id=? AND user_id=?",
-                (eq, bal, now_ts, updated_rc_json, real_id, owner_id)
-            )
-            try:
+            if is_connected:
                 c.execute(
-                    "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
-                    (eq, bal, now_ts, real_id, owner_id)
+                    "UPDATE trading_accounts SET equity=?, balance=?, last_sync=?, last_verified_at=?, risk_config=? WHERE id=? AND user_id=?",
+                    (eq, bal, now_ts, now_ts, updated_rc_json, real_id, owner_id)
                 )
-            except Exception:
-                pass
+                try:
+                    c.execute(
+                        "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
+                        (eq, bal, now_ts, real_id, owner_id)
+                    )
+                except Exception:
+                    pass
+            else:
+                c.execute(
+                    "UPDATE trading_accounts SET last_verified_at=?, risk_config=? WHERE id=? AND user_id=?",
+                    (now_ts, updated_rc_json, real_id, owner_id)
+                )
 
     return {
         "id": real_id,
@@ -933,14 +1000,23 @@ async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
 
     if meta_id:
         client = MetaApiClient()
+        cloud_del_ok = True
         try:
             await client.undeploy_account(meta_id)
         except Exception as e:
             logger.warning(f"Could not undeploy MetaApi account {meta_id}: {e}")
         try:
-            await client.delete_account(meta_id)
+            del_res = await client.delete_account(meta_id)
+            if del_res is False and not client.is_mock:
+                cloud_del_ok = False
         except Exception as e:
             logger.warning(f"Could not delete MetaApi account {meta_id}: {e}")
+            if not client.is_mock:
+                cloud_del_ok = False
+
+        force_del = str(request.query_params.get("force", "false")).lower() in ("1", "true")
+        if not cloud_del_ok and not force_del:
+            fail(502, f"Không thể xóa trạm Cloud MT5 ({meta_id}) trên MetaApi. Vui lòng thử lại hoặc thêm tham số ?force=true để buộc xóa nội bộ.")
 
     with tx() as c:
         is_pg = bool(getattr(c, "_is_pg", False))
