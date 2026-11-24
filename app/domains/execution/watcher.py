@@ -376,7 +376,7 @@ def reconcile_account_positions(
     # 2. Non-speculative reconciliation of UNKNOWN_EXECUTION and PENDING_SUBMIT
     unverified_rows = c.execute(
         """
-        SELECT id, client_order_id, symbol, action, volume
+        SELECT id, client_order_id, symbol, action, volume, order_id, ticket, position_id
         FROM metaapi_trade_executions
         WHERE account_id = ? AND status IN ('UNKNOWN_EXECUTION', 'PENDING_SUBMIT', 'AMBIGUOUS_LOCKED')
         """,
@@ -387,12 +387,16 @@ def reconcile_account_positions(
         urow = dict(ur) if hasattr(ur, "keys") else {}
         uexec_id = urow.get("id") or ur[0]
         ucid = str(urow.get("client_order_id") or ur[1] or "")
-        if not ucid:
+        uord_id = str(urow.get("order_id") or (urow.get("ticket") if not urow.get("order_id") else "") or (ur[5] if len(ur) > 5 else "") or "")
+        upos_id = str(urow.get("position_id") or (ur[7] if len(ur) > 7 else "") or "")
+        if not ucid and not uord_id and not upos_id:
             continue
 
         matched_live = [
             p for p in live_positions
-            if ucid in str(p.get("clientId") or "") or ucid in str(p.get("comment") or "")
+            if (ucid and (ucid in str(p.get("clientId") or "") or ucid in str(p.get("comment") or "")))
+            or (uord_id and (str(p.get("orderId") or "") == uord_id or str(p.get("id") or "") == uord_id or uord_id in str(p.get("comment") or "")))
+            or (upos_id and (str(p.get("id") or "") == upos_id or str(p.get("positionId") or "") == upos_id))
         ]
 
         if len(matched_live) == 1:
@@ -406,8 +410,15 @@ def reconcile_account_positions(
             unique_deals = []
             for dl in (deals or []):
                 d_id = str(dl.get("id") or "")
-                if (pid in (str(dl.get("positionId") or ""), str(dl.get("orderId") or "")) or ucid in str(dl.get("clientId") or "")) \
-                   and str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2"):
+                dl_p_id = str(dl.get("positionId") or "")
+                dl_o_id = str(dl.get("orderId") or "")
+                dl_c_id = str(dl.get("clientId") or "")
+                matches_pos = (
+                    (pid in (dl_p_id, dl_o_id))
+                    or (ucid and ucid in dl_c_id)
+                    or (uord_id and uord_id in (dl_p_id, dl_o_id))
+                )
+                if matches_pos and str(dl.get("entryType") or "").upper() in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2"):
                     if d_id and d_id in seen_deal_ids:
                         continue
                     if d_id:
@@ -441,10 +452,21 @@ def reconcile_account_positions(
             setkv(c, f"account_locked:{acc_id}", "AMBIGUOUS_LOCKED")
         else:
             # Position not yet in live positions list: check deals history
-            matched_deals = [
+            raw_matched_deals = [
                 dl for dl in (deals or [])
-                if ucid in str(dl.get("clientId") or "") or ucid in str(dl.get("comment") or "")
+                if (ucid and (ucid in str(dl.get("clientId") or "") or ucid in str(dl.get("comment") or "")))
+                or (uord_id and (str(dl.get("orderId") or "") == uord_id or str(dl.get("positionId") or "") == uord_id or uord_id in str(dl.get("comment") or "")))
+                or (upos_id and (str(dl.get("positionId") or "") == upos_id or str(dl.get("orderId") or "") == upos_id))
             ]
+            seen_matched_deal_ids = set()
+            matched_deals = []
+            for dl in raw_matched_deals:
+                d_id = str(dl.get("id") or "")
+                if d_id and d_id in seen_matched_deal_ids:
+                    continue
+                if d_id:
+                    seen_matched_deal_ids.add(d_id)
+                matched_deals.append(dl)
             if len(matched_deals) == 1:
                 dl = matched_deals[0]
                 entry_type = str(dl.get("entryType") or "").upper()
@@ -887,8 +909,8 @@ class PositionWatcher:
                                     (acc_id, t_str, t_str)
                                 ).fetchone()
                                 if not existing:
-                                    exec_id = f"exec_cloud_{t_str}"
-                                    sig_id = f"sig_cloud_{t_str}"
+                                    exec_id = f"exec_cloud_{acc_id}_{t_str}"
+                                    sig_id = f"sig_cloud_{acc_id}_{t_str}"
                                     c.execute(
                                         """
                                         INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
@@ -1334,7 +1356,13 @@ class PositionWatcher:
                                 if str(dl.get("entryType") or "").upper() not in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2", "3", ""):
                                     continue
                                 dl_id = str(dl.get("id") or "")
-                                if not dl_id or getkv(c, f"deal_synced:{acc_id}:{dl_id}"):
+                                if not dl_id:
+                                    continue
+                                is_synced = bool(getkv(c, f"deal_synced:{acc_id}:{dl_id}") or getkv(c, f"deal_synced:{dl_id}"))
+                                if is_synced:
+                                    # Migrate key forward to per-account format if needed
+                                    if not getkv(c, f"deal_synced:{acc_id}:{dl_id}"):
+                                        setkv(c, f"deal_synced:{acc_id}:{dl_id}", "1")
                                     continue
                                 profit_raw = _safe_float(dl.get("profit")) + _safe_float(dl.get("swap")) + _safe_float(dl.get("commission"))
                                 is_cent_deal = (

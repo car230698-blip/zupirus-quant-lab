@@ -205,9 +205,11 @@ def test_tick_globals_and_agent_step_in_flight(monkeypatch):
     engine._agent_step_in_flight = False
 
     thread_started = threading.Event()
+    thread_done = threading.Event()
 
     def mock_agent_step():
         thread_started.set()
+        thread_done.set()
         return {"status": "MOCK"}
 
     monkeypatch.setattr(engine, "autonomous_agent_step", mock_agent_step)
@@ -216,6 +218,8 @@ def test_tick_globals_and_agent_step_in_flight(monkeypatch):
 
     # The background thread should actually start and execute autonomous_agent_step
     assert thread_started.wait(timeout=2.0) is True
+    assert thread_done.wait(timeout=2.0) is True
+    time.sleep(0.1)
 
 
 def test_clear_signal_deduplication_allows_immediate_retry():

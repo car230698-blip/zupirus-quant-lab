@@ -679,6 +679,69 @@ def apply_migration_026(c, is_pg: bool):
         ALTER TABLE signals DROP CONSTRAINT IF EXISTS signals_source_check;
         ALTER TABLE signals ADD CONSTRAINT signals_source_check CHECK(source IN ('DEMO', 'REPLAY', 'CLOUD_MT5', 'TRADINGVIEW', 'MANUAL', 'ZUPIRUS_AGENT'));
         """)
+    else:
+        # SQLite: Drop FK on snapshots referencing accounts and expand signals.source CHECK
+        try:
+            fk_rows = c.execute("PRAGMA foreign_key_list(snapshots)").fetchall()
+            has_accounts_fk = any((r[2] if len(r) > 2 else "") == "accounts" for r in fk_rows)
+            row = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='snapshots'").fetchone()
+            sql_def = (row[0] if row else "") or ""
+            if has_accounts_fk or "REFERENCES accounts" in sql_def or "references accounts" in sql_def.lower():
+                c.execute("PRAGMA foreign_keys = OFF")
+                cols_info = c.execute("PRAGMA table_info(snapshots)").fetchall()
+                col_names = [col[1] for col in cols_info]
+                c.execute("""
+                    CREATE TABLE snapshots_mig_026 (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        account_id TEXT,
+                        ts REAL NOT NULL,
+                        balance REAL NOT NULL,
+                        equity REAL NOT NULL
+                    )
+                """)
+                target_cols = [col[1] for col in c.execute("PRAGMA table_info(snapshots_mig_026)").fetchall()]
+                common_cols = [c_name for c_name in col_names if c_name in target_cols]
+                common_str = ", ".join(common_cols)
+                if common_str:
+                    c.execute(f"INSERT INTO snapshots_mig_026 ({common_str}) SELECT {common_str} FROM snapshots")
+                c.execute("DROP TABLE snapshots")
+                c.execute("ALTER TABLE snapshots_mig_026 RENAME TO snapshots")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_account_ts ON snapshots(account_id, ts DESC)")
+                c.execute("PRAGMA foreign_keys = ON")
+        except Exception as e:
+            logger.warning(f"apply_migration_026 SQLite snapshots rebuild warning: {e}")
+
+        try:
+            row = c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='signals'").fetchone()
+            sql_def = (row[0] if row else "") or ""
+            if row and ("CLOUD_MT5" not in sql_def):
+                c.execute("PRAGMA foreign_keys = OFF")
+                cols_info = c.execute("PRAGMA table_info(signals)").fetchall()
+                col_names = [col[1] for col in cols_info]
+                c.execute("""
+                    CREATE TABLE signals_mig_026 (
+                        id TEXT PRIMARY KEY,
+                        source TEXT NOT NULL CHECK(source IN ('DEMO', 'REPLAY', 'CLOUD_MT5', 'TRADINGVIEW', 'MANUAL', 'ZUPIRUS_AGENT')),
+                        side TEXT NOT NULL CHECK(side IN ('BUY', 'SELL')),
+                        price REAL NOT NULL,
+                        sl REAL NOT NULL,
+                        tp REAL NOT NULL,
+                        created REAL NOT NULL,
+                        expires REAL NOT NULL
+                    )
+                """)
+                target_cols = [col[1] for col in c.execute("PRAGMA table_info(signals_mig_026)").fetchall()]
+                common_cols = [c_name for c_name in col_names if c_name in target_cols]
+                common_str = ", ".join(common_cols)
+                if common_str:
+                    c.execute(f"INSERT INTO signals_mig_026 ({common_str}) SELECT {common_str} FROM signals")
+                c.execute("DROP TABLE signals")
+                c.execute("ALTER TABLE signals_mig_026 RENAME TO signals")
+                c.execute("CREATE INDEX IF NOT EXISTS idx_signals_source_expires ON signals(source, expires)")
+                c.execute("PRAGMA foreign_keys = ON")
+        except Exception as e:
+            logger.warning(f"apply_migration_026 SQLite signals rebuild warning: {e}")
 
 
 

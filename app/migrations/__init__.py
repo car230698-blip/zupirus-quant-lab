@@ -205,6 +205,14 @@ def run_all_migrations(c, is_pg: bool):
                 c.commit()
             logger.info(f"Migration {v} ({m['name']}) applied successfully.")
 
+    # Idempotent repair for SQLite: ensure legacy tables have migration 026 constraints adjusted
+    if not is_pg:
+        try:
+            apply_migration_026(c, is_pg=False)
+            c.commit()
+        except Exception as e:
+            logger.debug(f"SQLite migration 026 verification note: {e}")
+
 
 def verify_timescaledb_metadata(c, is_pg: bool) -> Dict[str, Any]:
     """Inspect TimescaleDB metadata if available."""
