@@ -225,6 +225,13 @@ async def execute_fan_out_for_signal(
 
         # Multi-Strategy Allocation Check (Stage 4)
         allowed_strats_raw = acc.get("allowed_strategy_ids")
+        if not allowed_strats_raw and acc.get("risk_config"):
+            try:
+                rc_parsed = json.loads(acc["risk_config"]) if isinstance(acc["risk_config"], str) else acc["risk_config"]
+                if isinstance(rc_parsed, dict):
+                    allowed_strats_raw = rc_parsed.get("allowed_strategy_ids") or rc_parsed.get("allowed_strategies")
+            except Exception:
+                pass
         if allowed_strats_raw and str(allowed_strats_raw).strip():
             allowed_list = [s.strip().lower() for s in str(allowed_strats_raw).split(",") if s.strip()]
             sig_strat = str(signal.get("strategy") or signal.get("source") or "").strip().lower()
@@ -661,10 +668,11 @@ async def execute_fan_out_for_signal(
 
                 total_in_flight_risk = total_open_portfolio_risk_pct + unreflected_risk_pct
                 max_allowed_cap = max_portfolio_risk_pct if (is_prop_mode and prop_stage == "LIVE") else float(risk_cfg.get("max_portfolio_risk_pct") or 2.0)
-                if total_in_flight_risk + effective_risk_pct > max_allowed_cap + 0.001:
+                actual_order_risk_pct = round(effective_risk_pct * effective_mult, 4)
+                if total_in_flight_risk + actual_order_risk_pct > max_allowed_cap + 0.001:
                     logger.warning(
                         f"Account {acc_id} skipped: Atomic {max_allowed_cap}% risk cap exceeded "
-                        f"(in_flight={total_in_flight_risk:.2f}%, new={effective_risk_pct:.2f}%)."
+                        f"(in_flight={total_in_flight_risk:.2f}%, new={actual_order_risk_pct:.2f}% [base={effective_risk_pct:.2f}%, mult={effective_mult}])."
                     )
                     continue
 
@@ -706,7 +714,7 @@ async def execute_fan_out_for_signal(
                     """,
                     (
                         exec_id, signal_id, acc_id, meta_id, broker_sym, action, volume,
-                        entry_price, rounded_sl, rounded_tp, client_order_id, effective_risk_pct,
+                        entry_price, rounded_sl, rounded_tp, client_order_id, actual_order_risk_pct,
                         now_ts, json.dumps({"state": "PENDING_SUBMIT", "ts": now_ts})
                     )
                 )

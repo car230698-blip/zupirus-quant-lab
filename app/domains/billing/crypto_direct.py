@@ -796,30 +796,50 @@ async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
             """,
             (now_ts,)
         ).fetchall()
+        order_wallets = {}
+        for r in rows:
+            oid = r["id"] if hasattr(r, "keys") else r[0]
+            w_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_wallet:{oid}",)).fetchone()
+            if w_row and w_row[0]:
+                order_wallets[oid] = w_row[0].strip()
 
     if not rows:
         return {"scanned": 0, "fulfilled": 0}
 
     stats = {"scanned": len(rows), "fulfilled": 0, "orders": []}
     cfg = get_crypto_wallets_config()
-    trc20_admin = cfg.get("trc20_address")
-    bep20_admin = cfg.get("bep20_address")
+    trc20_admin = (cfg.get("trc20_address") or cfg.get("usdt_trc20_address") or "").strip()
+    bep20_admin = (cfg.get("bep20_address") or cfg.get("usdt_bep20_address") or "").strip()
 
-    trc20_targets = {}
-    bep20_targets = {}
+    trc20_wallets_targets: Dict[str, Dict[float, str]] = {}
+    bep20_wallets_targets: Dict[str, Dict[float, str]] = {}
+
     for r in rows:
         d = dict(r) if hasattr(r, "keys") else {"id": r[0], "user_id": r[1], "expected_amount_usdt": r[2], "payment_gateway": r[3], "expires_at": r[4]}
         amt = round(float(d["expected_amount_usdt"]), 2)
         gw = str(d["payment_gateway"]).upper()
-        if "TRC20" in gw:
-            trc20_targets[amt] = d["id"]
-        elif "BEP20" in gw:
-            bep20_targets[amt] = d["id"]
+        ord_id = str(d["id"])
+        saved_wallet = order_wallets.get(ord_id)
 
-    # 1. Scan TRC20 incoming transfers via TronGrid
-    if trc20_targets and trc20_admin:
+        if "TRC20" in gw:
+            target_wallet = saved_wallet or trc20_admin
+            if target_wallet:
+                if target_wallet not in trc20_wallets_targets:
+                    trc20_wallets_targets[target_wallet] = {}
+                trc20_wallets_targets[target_wallet][amt] = ord_id
+        elif "BEP20" in gw:
+            target_wallet = saved_wallet or bep20_admin
+            if target_wallet:
+                if target_wallet not in bep20_wallets_targets:
+                    bep20_wallets_targets[target_wallet] = {}
+                bep20_wallets_targets[target_wallet][amt] = ord_id
+
+    # 1. Scan TRC20 incoming transfers via TronGrid per destination wallet
+    for trc_wallet, trc20_targets in trc20_wallets_targets.items():
+        if not trc20_targets or not trc_wallet:
+            continue
         try:
-            url = f"{TRONGRID_API_URL}/v1/accounts/{trc20_admin}/transactions/trc20?contract_address={USDT_TRC20_CONTRACT}&only_to=true&limit=25"
+            url = f"{TRONGRID_API_URL}/v1/accounts/{trc_wallet}/transactions/trc20?contract_address={USDT_TRC20_CONTRACT}&only_to=true&limit=25"
             req = urllib.request.Request(url, headers={"User-Agent": "ZupirusQuantLab/0.2.0 (BackgroundScanner)"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -834,14 +854,16 @@ async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
                         if fulfill_res.get("ok"):
                             stats["fulfilled"] += 1
                             stats["orders"].append(ord_id)
-                            logger.info(f"AUTO-FULFILLED USDT TRC20 Order {ord_id} via background scanner with tx {tx_id}")
+                            logger.info(f"AUTO-FULFILLED USDT TRC20 Order {ord_id} to wallet {trc_wallet} via background scanner with tx {tx_id}")
         except Exception as e:
-            logger.debug(f"Background TRC20 scan note: {e}")
+            logger.debug(f"Background TRC20 scan note for {trc_wallet}: {e}")
 
-    # 2. Scan BEP20 incoming transfers via BSC RPC eth_getLogs
-    if bep20_targets and bep20_admin:
+    # 2. Scan BEP20 incoming transfers via BSC RPC eth_getLogs per destination wallet
+    for bep_wallet, bep20_targets in bep20_wallets_targets.items():
+        if not bep20_targets or not bep_wallet:
+            continue
         try:
-            admin_padded = "0x" + bep20_admin.lower().replace("0x", "").zfill(64)
+            admin_padded = "0x" + bep_wallet.lower().replace("0x", "").zfill(64)
             latest_blk_hex = _call_bsc_rpc("eth_blockNumber", [])
             if latest_blk_hex:
                 latest_blk = int(latest_blk_hex, 16) if isinstance(latest_blk_hex, str) else int(latest_blk_hex)
@@ -864,8 +886,8 @@ async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
                         if fulfill_res.get("ok"):
                             stats["fulfilled"] += 1
                             stats["orders"].append(ord_id)
-                            logger.info(f"AUTO-FULFILLED USDT BEP20 Order {ord_id} via background scanner with tx {tx_hash}")
+                            logger.info(f"AUTO-FULFILLED USDT BEP20 Order {ord_id} to wallet {bep_wallet} via background scanner with tx {tx_hash}")
         except Exception as e:
-            logger.debug(f"Background BEP20 scan note: {e}")
+            logger.debug(f"Background BEP20 scan note for {bep_wallet}: {e}")
 
     return stats

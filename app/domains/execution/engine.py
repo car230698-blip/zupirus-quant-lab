@@ -116,7 +116,8 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol
         cand_updated_at = float((cand.get("updated_at") if hasattr(cand, "get") else (cand["updated_at"] if hasattr(cand, "keys") else (cand[5] if len(cand) > 5 else 0.0))) or 0.0)
 
         # Auto-Rollback / Auto-Disable ("Bad Lesson" Protection):
-        # Group by signal_id and scope strictly to signals executed AFTER this candidate was approved (executed_at >= cand_updated_at)
+        # Group by signal_id and scope strictly to signals of the candidate's symbol executed AFTER approval
+        cand_symbol = str(rules.get("symbol") or symbol or "XAUUSD").strip()
         try:
             active_cur = db_cursor
             if active_cur is not None:
@@ -125,11 +126,12 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol
                     SELECT signal_id, AVG(profit) AS avg_profit, MAX(executed_at) AS last_ts
                     FROM metaapi_trade_executions
                     WHERE profit IS NOT NULL AND signal_id IS NOT NULL AND signal_id LIKE 'ag_%'
+                      AND symbol = ?
                       AND executed_at >= ?
                     GROUP BY signal_id
                     ORDER BY last_ts DESC LIMIT 6
                     """,
-                    (cand_updated_at,),
+                    (cand_symbol, cand_updated_at),
                 ).fetchall()
                 losses_in_a_row = 0
                 for rx in recent_signals:
@@ -708,7 +710,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                        a.currency, a.tick_value,
                        a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
                        a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
-                       a.account_type, a.contract_size,
+                       a.account_type, a.contract_size, a.allowed_strategy_ids,
                        s.allow_alpha_strategies
                 FROM trading_accounts a
                 LEFT JOIN subscriptions s ON s.user_id = a.user_id

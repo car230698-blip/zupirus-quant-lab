@@ -204,7 +204,7 @@ async def handle_tradingview_webhook(
                 a.max_lot,
                 a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
                 a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
-                a.account_type, a.contract_size,
+                a.account_type, a.contract_size, a.allowed_strategy_ids,
                 s.plan_tier, s.allow_alpha_strategies
             FROM trading_accounts a
             LEFT JOIN subscriptions s ON s.user_id = a.user_id

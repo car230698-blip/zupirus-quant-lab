@@ -66,6 +66,12 @@ def client(tmp_path,monkeypatch):
     monkeypatch.setattr(research,'DATA',tmp_path)
     from app.db import init as init_app_db
     init_app_db()
+    with db.tx() as boot_cur:
+        try:
+            from app.security import bootstrap
+            bootstrap(boot_cur)
+        except Exception:
+            pass
     with TestClient(main.app) as c:
         c.headers.update({'X-Zupirus':'1'})
         yield c
@@ -73,28 +79,23 @@ def client(tmp_path,monkeypatch):
 @pytest.fixture
 def customer(client):
     try:
-        from app.core.db import is_postgres
-        if is_postgres():
-            with db.tx() as c:
-                c.execute("TRUNCATE TABLE users CASCADE;")
-        else:
-            with db.tx() as c:
-                for tbl in (
-                    'sim_positions',
-                    'dispatches',
-                    'metaapi_trade_executions',
-                    'trading_accounts',
-                    'metaapi_cloud_accounts',
-                    'orders',
-                    'subscriptions',
-                    'sessions',
-                    'otp_codes',
-                ):
-                    try:
-                        c.execute(f"DELETE FROM {tbl}")
-                    except Exception:
-                        pass
-                c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
+        with db.tx() as c:
+            for tbl in (
+                'sim_positions',
+                'dispatches',
+                'metaapi_trade_executions',
+            ):
+                try:
+                    c.execute(f"DELETE FROM {tbl}")
+                except Exception:
+                    pass
+            c.execute("DELETE FROM orders WHERE user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+            c.execute("DELETE FROM subscriptions WHERE user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+            c.execute("DELETE FROM trading_accounts WHERE user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+            c.execute("DELETE FROM metaapi_cloud_accounts WHERE user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+            c.execute("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+            c.execute("DELETE FROM accounts WHERE user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+            c.execute("DELETE FROM users WHERE email = 'alice@example.com'")
     except Exception:
         pass
     p={'email':'alice@example.com','password':'customer-password-123'}

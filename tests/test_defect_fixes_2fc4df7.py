@@ -1,6 +1,7 @@
 import pytest
 import asyncio
 import time
+import json
 from unittest.mock import MagicMock, AsyncMock, patch
 
 from app.db import tx, init
@@ -449,6 +450,186 @@ def test_clear_signal_deduplication_db_fallback_when_redis_down(monkeypatch):
     ok3, reason3 = check_redis_deduplication(sig)
     assert ok3 is True
     assert reason3 is None
+
+
+@pytest.mark.asyncio
+async def test_risk_multiplier_respects_portfolio_cap_and_reserves_actual_risk():
+    """Verify that risk_multiplier is accounted for in atomic portfolio cap check and reserved_risk_pct."""
+    from app.domains.execution.fanout import execute_fan_out_for_signal
+
+    now_ts = time.time()
+    with tx() as c:
+        c.execute("DELETE FROM metaapi_trade_executions")
+        c.execute("DELETE FROM trading_accounts")
+        c.execute("DELETE FROM users WHERE id = 'u_mult_test'")
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_mult_test', 'u_mult@test.com', 'pwd', 'customer') ON CONFLICT DO NOTHING")
+        # Base risk 1.0%, multiplier 3.0 -> effective order risk = 3.0%. Portfolio cap = 2.0%
+        c.execute(
+            """
+            INSERT INTO trading_accounts (id, user_id, metaapi_account_id, mt5_login, encrypted_master_password, broker_server, auto_trade, balance, equity, deployment_state, risk_multiplier, risk_config, created_at)
+            VALUES ('acc_mult_1', 'u_mult_test', 'm_mult_1', '1111', 'enc', 'Server', 1, 10000.0, 10000.0, 'DEPLOYED', 3.0, '{"risk": 1.0, "max_portfolio_risk_pct": 2.0}', ?)
+            """,
+            (now_ts,)
+        )
+
+    sig = {
+        "id": "sig_risk_mult_test",
+        "symbol": "EURUSD",
+        "action": "BUY",
+        "entry_price": 1.0850,
+        "sl": 1.0800,
+        "tp": 1.0950,
+    }
+    accounts = [{
+        "id": "acc_mult_1",
+        "user_id": "u_mult_test",
+        "metaapi_account_id": "m_mult_1",
+        "balance": 10000.0,
+        "equity": 10000.0,
+        "risk_multiplier": 3.0,
+        "risk_config": json.dumps({"risk": 1.0, "max_portfolio_risk_pct": 2.0}),
+        "is_prop_firm_mode": 0,
+        "contract_size": 100000.0,
+    }]
+
+    mock_client = MagicMock()
+    mock_client.execute_order = AsyncMock(return_value={"numericCode": 200, "stringCode": "TRADE_RETCODE_DONE", "orderId": "ord_1"})
+
+    # Should skip acc_mult_1 because 1.0% * 3.0 = 3.0% > 2.0% cap
+    res = await execute_fan_out_for_signal(sig, accounts, metaapi_client=mock_client)
+    assert res.get("executed") == 0
+    assert res.get("skipped") == 1
+
+
+def test_auto_rollback_scoped_to_candidate_symbol():
+    """Verify that losing streak on XAUUSD does NOT pause EURUSD strategy candidate."""
+    with tx() as c:
+        c.execute("DELETE FROM strategy_candidates")
+        c.execute("DELETE FROM metaapi_trade_executions")
+        now_ts = time.time()
+        # Seed EURUSD candidate approved in prod
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_acc_1', 'u_acc_1@test.com', 'pwd', 'customer') ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO metaapi_cloud_accounts (id, user_id, login, server, created_at) VALUES ('acc_1', 'u_acc_1', '123', 'Srv', ?) ON CONFLICT DO NOTHING", (now_ts,))
+        c.execute(
+            """
+            INSERT INTO strategy_candidates (id, name, rules_json, win_rate, profit_factor, status, updated_at, created_at)
+            VALUES ('cand_eur_guard', 'EURUSD Momentum', '{"symbol": "EURUSD", "strategy": "strat_trend_breakout"}', 60.0, 1.5, 'APPROVED_FOR_PROD', ?, ?)
+            """,
+            (now_ts - 3600, now_ts - 3600)
+        )
+        # Seed 4 consecutive losing trades strictly on XAUUSD
+        for i in range(4):
+            c.execute(
+                """
+                INSERT INTO metaapi_trade_executions (id, account_id, signal_id, symbol, action, volume, entry_price, status, profit, executed_at)
+                VALUES (?, 'acc_1', ?, 'XAUUSD', 'BUY', 0.1, 2600.0, 'CLOSED', -50.0, ?)
+                """,
+                (f"exec_xau_loss_{i}", f"ag_xau_loss_{i}", now_ts - 1000 + i * 100)
+            )
+
+        cand_row = c.execute("SELECT * FROM strategy_candidates WHERE id = 'cand_eur_guard'").fetchone()
+
+        # Coordinate strategies for EURUSD
+        res = coordinate_strategies([], timeframe="M15", symbol="EURUSD", candidate=cand_row, db_cursor=c)
+
+        # EURUSD candidate should remain APPROVED_FOR_PROD, NOT PAUSED_DRAWDOWN_GUARD
+        st = c.execute("SELECT status FROM strategy_candidates WHERE id = 'cand_eur_guard'").fetchone()[0]
+        assert st == "APPROVED_FOR_PROD"
+
+
+@pytest.mark.asyncio
+async def test_background_crypto_scanner_scans_saved_checkout_wallet(monkeypatch):
+    """Verify background scanner queries the wallet address saved at checkout even if admin updated config."""
+    from app.domains.billing.crypto_direct import scan_and_reconcile_pending_crypto_orders
+    import urllib.request
+
+    now_ts = time.time()
+    old_wallet = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+    new_admin_wallet = "TLv5vFw5zZ4J6k9N8M7Q3X2Y1P0A9B8C7D"
+
+    with tx() as c:
+        c.execute("DELETE FROM orders WHERE id = 'ord_old_wallet_test'")
+        c.execute("DELETE FROM users WHERE id = 'u_wallet_test'")
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_wallet_test', 'w@test.com', 'pwd', 'customer') ON CONFLICT DO NOTHING")
+        c.execute(
+            """
+            INSERT INTO orders (id, user_id, amount_usd, locked_exchange_rate, amount_vnd, plan_tier, status, payment_gateway, expected_amount_usdt, expires_at, created_at)
+            VALUES ('ord_old_wallet_test', 'u_wallet_test', 25.0, 25400.0, 635000, 'pro', 'PENDING', 'USDT_TRC20', 25.0, ?, ?)
+            """,
+            (now_ts + 3600, now_ts)
+        )
+        c.execute("DELETE FROM kv WHERE key = 'order_wallet:ord_old_wallet_test'")
+        c.execute("INSERT INTO kv (key, value) VALUES ('order_wallet:ord_old_wallet_test', ?)", (old_wallet,))
+
+    queried_urls = []
+
+    def mock_urlopen(req, timeout=10):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        queried_urls.append(url)
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({"data": []}).encode("utf-8")
+        return mock_resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    # Admin config currently points to new_admin_wallet
+    monkeypatch.setattr("app.domains.billing.crypto_direct.get_crypto_wallets_config", lambda: {"trc20_address": new_admin_wallet, "bep20_address": "0x1111"})
+
+    res = await scan_and_reconcile_pending_crypto_orders()
+    assert res.get("scanned") == 1
+
+    # Verify that TronGrid was queried for the old_wallet saved on the order!
+    assert any(old_wallet in url for url in queried_urls)
+
+
+def test_allowed_strategy_ids_passed_and_filtered():
+    """Verify accounts with allowed_strategy_ids only receive matching strategies."""
+    from app.domains.execution.fanout import execute_fan_out_for_signal
+
+    accounts = [
+        {
+            "id": "acc_trend_only",
+            "user_id": "u1",
+            "metaapi_account_id": "m1",
+            "balance": 10000.0,
+            "equity": 10000.0,
+            "allowed_strategy_ids": "strat_trend_breakout",
+            "risk_config": json.dumps({"risk": 1.0}),
+        },
+        {
+            "id": "acc_scalp_only",
+            "user_id": "u2",
+            "metaapi_account_id": "m2",
+            "balance": 10000.0,
+            "equity": 10000.0,
+            "allowed_strategy_ids": "strat_mean_reversion",
+            "risk_config": json.dumps({"risk": 1.0}),
+        },
+    ]
+
+    sig = {
+        "id": "sig_strat_test",
+        "strategy": "strat_trend_breakout",
+        "symbol": "EURUSD",
+        "action": "BUY",
+        "entry_price": 1.0850,
+        "sl": 1.0800,
+        "tp": 1.0950,
+    }
+
+    mock_client = MagicMock()
+    mock_client.get_open_positions = AsyncMock(return_value=[])
+    mock_client.execute_order = AsyncMock(return_value={"numericCode": 200, "stringCode": "TRADE_RETCODE_DONE", "orderId": "ord_ok"})
+
+    # Run loop synchronously
+    loop = asyncio.new_event_loop()
+    try:
+        res = loop.run_until_complete(execute_fan_out_for_signal(sig, accounts, metaapi_client=mock_client))
+        # acc_trend_only should execute, acc_scalp_only should be skipped
+        assert res.get("executed") == 1
+        assert res.get("skipped") == 1
+    finally:
+        loop.close()
+
 
 
 
