@@ -125,8 +125,10 @@ def test_tradingview_webhook_normalization():
 @pytest.mark.asyncio
 async def test_four_mandatory_safety_guards():
     """Test all 4 mandatory guards: Mandatory SL, News Shield, Slippage, and Deduplication."""
-    from app.db import init
+    from app.db import init, tx
     init()
+    with tx() as c:
+        c.execute("DELETE FROM candles WHERE symbol = 'XAUUSD'")
     # Guard 1: Auto-attach ATR(14) Stop Loss if missing
     p_no_sl = TradingViewWebhookPayload(
         action="BUY",

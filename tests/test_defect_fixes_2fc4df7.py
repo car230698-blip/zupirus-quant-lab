@@ -362,8 +362,12 @@ def test_customer_cleanup_with_dependent_records():
     """Verify customer fixture cleanup pattern deletes dependent FK records so user can be re-registered without 409."""
     with tx() as c:
         now_ts = time.time()
-        # Seed user with active dependent child records using ANSI SQL
-        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_alice', 'alice@example.com', 'pwd', 'customer') ON CONFLICT DO NOTHING")
+        # Clean any conflicting records first to guarantee u_alice is inserted without FK violation
+        c.execute("DELETE FROM sessions WHERE user_id = 'u_alice' OR user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+        c.execute("DELETE FROM subscriptions WHERE user_id = 'u_alice' OR user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+        c.execute("DELETE FROM trading_accounts WHERE user_id = 'u_alice' OR user_id IN (SELECT id FROM users WHERE email = 'alice@example.com')")
+        c.execute("DELETE FROM users WHERE email = 'alice@example.com' OR id = 'u_alice'")
+        c.execute("INSERT INTO users (id, email, password, role) VALUES ('u_alice', 'alice@example.com', 'pwd', 'customer')")
         c.execute("DELETE FROM sessions WHERE token = 'tok_alice'")
         c.execute("INSERT INTO sessions (token, user_id, expires) VALUES ('tok_alice', 'u_alice', ?)", (now_ts + 3600,))
         c.execute("DELETE FROM subscriptions WHERE user_id = 'u_alice'")
@@ -535,6 +539,19 @@ def test_auto_rollback_scoped_to_candidate_symbol():
         # EURUSD candidate should remain APPROVED_FOR_PROD, NOT PAUSED_DRAWDOWN_GUARD
         st = c.execute("SELECT status FROM strategy_candidates WHERE id = 'cand_eur_guard'").fetchone()[0]
         assert st == "APPROVED_FOR_PROD"
+
+        # Now test that 4 consecutive losses with broker suffix EURUSD.m DOES trigger rollback for EURUSD candidate
+        for i in range(4):
+            c.execute(
+                """
+                INSERT INTO metaapi_trade_executions (id, account_id, signal_id, symbol, action, volume, entry_price, status, profit, executed_at)
+                VALUES (?, 'acc_1', ?, 'EURUSD.m', 'BUY', 0.1, 1.0850, 'CLOSED', -50.0, ?)
+                """,
+                (f"exec_eur_loss_{i}", f"ag_eur_loss_{i}", now_ts + 100 + i * 100)
+            )
+        res_m = coordinate_strategies([], timeframe="M15", symbol="EURUSD", candidate=cand_row, db_cursor=c)
+        st_m = c.execute("SELECT status FROM strategy_candidates WHERE id = 'cand_eur_guard'").fetchone()[0]
+        assert st_m == "PAUSED_DRAWDOWN_GUARD"
 
 
 @pytest.mark.asyncio

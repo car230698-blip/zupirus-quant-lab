@@ -234,7 +234,7 @@ async def execute_fan_out_for_signal(
                 pass
         if allowed_strats_raw and str(allowed_strats_raw).strip():
             allowed_list = [s.strip().lower() for s in str(allowed_strats_raw).split(",") if s.strip()]
-            sig_strat = str(signal.get("strategy") or signal.get("source") or "").strip().lower()
+            sig_strat = str(signal.get("strategy") or signal.get("strategy_id") or signal.get("source") or "").strip().lower()
             if allowed_list and sig_strat and (sig_strat not in allowed_list and "all" not in allowed_list):
                 logger.info(
                     f"Account {acc_id} skipped: STRATEGY_NOT_SUBSCRIBED (strategy '{sig_strat}' not in {allowed_list})."

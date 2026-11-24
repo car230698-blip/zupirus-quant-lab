@@ -141,8 +141,11 @@ class CursorWrapper:
         # Translate PRAGMA statements away
         if sql.strip().upper().startswith("PRAGMA"):
             return "SELECT 1"
+        # Escape any raw % characters that are not part of psycopg2 parameter substitution
+        # First escape all '%' to '%%' before converting '?' to '%s'
+        escaped = sql.replace('%', '%%')
         # Translate ? to %s
-        translated = re.sub(r'\?', '%s', sql)
+        translated = re.sub(r'\?', '%s', escaped)
         # Translate INSERT OR IGNORE INTO table ... -> INSERT INTO table ... ON CONFLICT DO NOTHING
         if re.search(r'INSERT\s+OR\s+IGNORE\s+INTO', translated, re.IGNORECASE):
             translated = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', translated, flags=re.IGNORECASE)

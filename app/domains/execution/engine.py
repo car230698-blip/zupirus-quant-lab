@@ -116,22 +116,24 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol
         cand_updated_at = float((cand.get("updated_at") if hasattr(cand, "get") else (cand["updated_at"] if hasattr(cand, "keys") else (cand[5] if len(cand) > 5 else 0.0))) or 0.0)
 
         # Auto-Rollback / Auto-Disable ("Bad Lesson" Protection):
-        # Group by signal_id and scope strictly to signals of the candidate's symbol executed AFTER approval
+        # Group by signal_id and scope strictly to signals of the candidate's symbol (allowing broker suffixes like .m) executed AFTER approval
         cand_symbol = str(rules.get("symbol") or symbol or "XAUUSD").strip()
         try:
             active_cur = db_cursor
             if active_cur is not None:
+                cand_sym_prefix = f"{cand_symbol}%"
                 recent_signals = active_cur.execute(
                     """
                     SELECT signal_id, AVG(profit) AS avg_profit, MAX(executed_at) AS last_ts
                     FROM metaapi_trade_executions
-                    WHERE profit IS NOT NULL AND signal_id IS NOT NULL AND signal_id LIKE 'ag_%'
-                      AND symbol = ?
+                    WHERE profit IS NOT NULL AND signal_id IS NOT NULL
+                      AND signal_id LIKE ?
+                      AND (symbol = ? OR symbol LIKE ?)
                       AND executed_at >= ?
                     GROUP BY signal_id
                     ORDER BY last_ts DESC LIMIT 6
                     """,
-                    (cand_symbol, cand_updated_at),
+                    ("ag_%", cand_symbol, cand_sym_prefix, cand_updated_at),
                 ).fetchall()
                 losses_in_a_row = 0
                 for rx in recent_signals:
@@ -795,6 +797,9 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
                     "entry_price": sanitized.entry_price,
                     "sl": sanitized.stop_loss,
                     "tp": sanitized.take_profit,
+                    "strategy": str(cand_d.get("strategy") or cand_d.get("name") or "strat_trend_breakout").strip(),
+                    "source": getattr(sanitized, "source", "ZUPIRUS_AGENT"),
+                    "strategy_tier": getattr(sanitized, "strategy_tier", "STANDARD"),
                 },
                 accounts=eligible,
                 metaapi_client=MetaApiClient(),

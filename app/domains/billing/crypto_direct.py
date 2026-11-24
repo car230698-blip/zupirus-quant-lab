@@ -789,12 +789,12 @@ async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
             """
             SELECT id, user_id, expected_amount_usdt, payment_gateway, expires_at
             FROM orders
-            WHERE payment_gateway LIKE 'USDT%'
+            WHERE payment_gateway LIKE ?
               AND status = 'PENDING'
               AND expires_at > ?
               AND expected_amount_usdt IS NOT NULL
             """,
-            (now_ts,)
+            ("USDT%", now_ts)
         ).fetchall()
         order_wallets = {}
         for r in rows:

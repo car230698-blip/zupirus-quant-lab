@@ -306,6 +306,8 @@ async def handle_tradingview_webhook(
         "entry_price": sanitized_signal.entry_price,
         "sl": sanitized_signal.stop_loss,
         "tp": sanitized_signal.take_profit,
+        "strategy": str(getattr(p, "strategy", None) or getattr(sanitized_signal, "strategy", None) or "webhook_strategy").strip(),
+        "source": getattr(sanitized_signal, "source", "TRADINGVIEW"),
         "strategy_tier": sanitized_signal.strategy_tier,
     }
 

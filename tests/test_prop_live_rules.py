@@ -71,6 +71,7 @@ async def test_prop_live_1pct_cap_does_not_affect_personal_or_challenge_accounts
             "contract_size": 100.0,
             "is_prop_firm_mode": 0,
             "prop_stage": "LIVE",  # ignored because is_prop_firm_mode == 0
+            "risk_config": '{"max_portfolio_risk_pct": 3.0}',
         },
         {
             "id": "acc_challenge",
@@ -84,6 +85,7 @@ async def test_prop_live_1pct_cap_does_not_affect_personal_or_challenge_accounts
             "contract_size": 100.0,
             "is_prop_firm_mode": 1,
             "prop_stage": "CHALLENGE",
+            "risk_config": '{"max_portfolio_risk_pct": 3.0}',
         },
         {
             "id": "acc_prop_live",
