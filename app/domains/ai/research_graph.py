@@ -713,19 +713,22 @@ def run_autonomous_induction_and_wfo(force: bool = False):
             prices = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3]), "time": r[4]} for r in reversed(candle_rows)] if candle_rows else []
 
             cutoff_ts = None
+            from app.db import to_epoch_ts
             if candle_rows and len(candle_rows) >= 60:
                 try:
                     oos_cand = candle_rows[59]  # 60th candle from most recent
                     t_val = oos_cand[4]
-                    if isinstance(t_val, (int, float)):
-                        cutoff_ts = float(t_val)
-                    elif isinstance(t_val, str):
-                        from datetime import datetime
-                        cutoff_ts = datetime.fromisoformat(t_val.replace("Z", "+00:00")).timestamp()
+                    cutoff_ts = to_epoch_ts(t_val)
                 except Exception:
-                    cutoff_ts = time.time() - (60 * 15 * 60)
+                    cutoff_ts = None
             else:
                 cutoff_ts = time.time() - (60 * 15 * 60)
+
+            # Issue 11 Fix: Validate that cutoff_ts is a valid positive timestamp
+            # Never run walk-forward lookahead bias check with invalid/None cutoff
+            if cutoff_ts is None or cutoff_ts <= 0:
+                logger.warning("WFO aborted: Invalid or missing candle cutoff timestamp.")
+                return
 
             # 2. Discover inductive candidate strictly before out-of-sample window to avoid lookahead bias
             cand = discover_candidate_from_observations(c, symbol="XAUUSD", max_created_at=cutoff_ts)

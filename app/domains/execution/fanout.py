@@ -1,5 +1,6 @@
 import os
 import time
+import math
 import uuid
 import json
 import asyncio
@@ -78,6 +79,7 @@ async def execute_fan_out_for_signal(
 
     from app.services.symbol_mapper import resolve_broker_symbol
     from app.services.account_classifier import calculate_normalized_lot_size
+    from app.services.symbol_precision import contract_size_for_symbol, quote_to_usd_rate
     from app.services.signal_ingestion.sanitizer import check_live_spread_guard
     from app.services.execution.watcher import is_account_drawdown_halted
     from app.domains.execution.regime_strategies import RegimeMetaRouter, is_market_open_gap_cooldown
@@ -520,6 +522,24 @@ async def execute_fan_out_for_signal(
                 volume = min(volume, max_lot)
             volume = round(volume, 2)
 
+            # Issue 2 Fix: Re-calculate exact order risk from final adjusted volume before reservation
+            if sl_dist > 0 and base_capital > 0:
+                eff_contract = contract_size_for_symbol(symbol, is_cent=is_cent_acc, account_contract_size=c_size)
+                base_cap_usd = (base_capital / 100.0) if is_cent_acc else base_capital
+                final_risk_usd = sl_dist * volume * eff_contract * quote_to_usd_rate(symbol, entry_price)
+                final_calc_risk_pct = (final_risk_usd / base_cap_usd) * 100.0 if base_cap_usd > 0 else 0.0
+                
+                # Cap risk strictly to remaining idea / prop live limits
+                if prop_stage == "LIVE" and final_calc_risk_pct > remaining_idea_risk_pct:
+                    # Scale down volume to fit remaining_idea_risk_pct
+                    scale_factor = remaining_idea_risk_pct / max(final_calc_risk_pct, 0.001)
+                    volume = max(min_vol, round(math.floor((volume * scale_factor) / vol_step) * vol_step, 2))
+                    final_risk_usd = sl_dist * volume * eff_contract * quote_to_usd_rate(symbol, entry_price)
+                    final_calc_risk_pct = (final_risk_usd / base_cap_usd) * 100.0 if base_cap_usd > 0 else 0.0
+
+                effective_risk_pct = round(final_calc_risk_pct, 4)
+                effective_mult = 1.0
+
         if volume <= 0:
             logger.info(f"Account {acc_id} skipped: calculated volume={volume} <= 0 (risk budget too small for min_lot).")
             continue
@@ -765,7 +785,7 @@ async def execute_fan_out_for_signal(
                         _record_skip(reason)
                         continue
 
-                # 2. Atomic 2.0% Total Risk Cap calculation
+                # 2. Atomic 2.0% Total Risk Cap & 1.0% Prop LIVE Idea Risk Cap calculation
                 # Unreflected risks in DB:
                 live_tickets = set()
                 if open_positions_cache:
@@ -774,18 +794,40 @@ async def execute_fan_out_for_signal(
                         if p_t:
                             live_tickets.add(p_t)
 
+                from app.services.symbol_mapper import canonical_symbol
+                canon_target_sym = canonical_symbol(symbol)
                 unreflected_risk_pct = 0.0
+                unreflected_idea_risk_pct = 0.0
                 for ar in active_rows:
                     ar_row = dict(ar) if hasattr(ar, "keys") else {}
+                    ar_sym = ar_row.get("symbol") or ar[0]
+                    ar_act = ar_row.get("action") or ar[1]
                     st = ar_row.get("status") or ar[3]
                     p_id = str(ar_row.get("position_id") or ar[4] or "")
                     t_id = str(ar_row.get("ticket") or (ar[5] if len(ar) > 5 else "") or "")
                     r_pct = float(ar_row.get("reserved_risk_pct") or ar[2] or 0.0)
 
+                    is_unref = False
                     if st in ('PENDING_SUBMIT', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED'):
-                        unreflected_risk_pct += r_pct
+                        is_unref = True
                     elif st == 'FILLED' and p_id not in live_tickets and t_id not in live_tickets:
+                        is_unref = True
+
+                    if is_unref:
                         unreflected_risk_pct += r_pct
+                        if canonical_symbol(ar_sym) == canon_target_sym and str(ar_act).upper() == action.upper():
+                            unreflected_idea_risk_pct += r_pct
+
+                actual_order_risk_pct = round(effective_risk_pct * effective_mult, 4)
+
+                # Check atomic 1.0% Same-Idea Risk Cap for Prop LIVE
+                if is_prop_mode and prop_stage == "LIVE":
+                    total_in_flight_idea = open_idea_risk_pct + unreflected_idea_risk_pct
+                    if total_in_flight_idea + actual_order_risk_pct > 1.0 + 0.001:
+                        reason = f"BỎ QUA: Chạm trần rủi ro cùng ý tưởng 1.0% (hiện có={total_in_flight_idea:.2f}%, mới={actual_order_risk_pct:.2f}%)"
+                        logger.warning(f"Account {acc_id} skipped: {reason}.")
+                        _record_skip(reason)
+                        continue
 
                 risk_cfg = {}
                 try:
@@ -799,7 +841,6 @@ async def execute_fan_out_for_signal(
 
                 total_in_flight_risk = total_open_portfolio_risk_pct + unreflected_risk_pct
                 max_allowed_cap = max_portfolio_risk_pct if (is_prop_mode and prop_stage == "LIVE") else float(risk_cfg.get("max_portfolio_risk_pct") or 2.0)
-                actual_order_risk_pct = round(effective_risk_pct * effective_mult, 4)
                 if total_in_flight_risk + actual_order_risk_pct > max_allowed_cap + 0.001:
                     reason = f"BỎ QUA: Chạm ngưỡng rủi ro {max_allowed_cap}% (hiện có={total_in_flight_risk:.2f}%, mới={actual_order_risk_pct:.2f}%)"
                     logger.warning(f"Account {acc_id} skipped: {reason}.")

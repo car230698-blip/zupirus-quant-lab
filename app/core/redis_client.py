@@ -438,7 +438,7 @@ def poll_realtime_events(channel: str, since_ts: float) -> List[Dict[str, Any]]:
         r = get_redis_client()
         stream_key = f"zupirus:rt:{channel}"
         if hasattr(r, "xrevrange"):
-            rows = r.xrevrange(stream_key, count=20)
+            rows = r.xrevrange(stream_key, count=100)
             for _msg_id, fields in reversed(rows):
                 raw = fields.get("payload") if isinstance(fields, dict) else None
                 if not raw:

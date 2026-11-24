@@ -303,7 +303,8 @@ def retrieve_relevant_knowledge(
                     "content": r["content"] if hasattr(r, "keys") else r[5],
                     "similarity": round(float(r["similarity"] if hasattr(r, "keys") else r[6]), 4),
                 })
-            return results
+            if results:
+                return results
         except Exception:
             c.execute("ROLLBACK TO SAVEPOINT sp_rag_query")
 

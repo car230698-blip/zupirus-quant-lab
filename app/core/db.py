@@ -447,8 +447,14 @@ def to_epoch_ts(val: Any) -> float:
     if isinstance(val, (int, float)):
         return float(val)
     if hasattr(val, "timestamp"):
-        return float(val.timestamp())
-    return float(val)
+        try:
+            return float(val.timestamp())
+        except Exception:
+            return 0.0
+    try:
+        return float(val)
+    except Exception:
+        return 0.0
 
 
 def insert_timescale_candle(

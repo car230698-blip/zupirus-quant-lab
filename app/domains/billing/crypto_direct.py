@@ -233,16 +233,30 @@ def allocate_unique_usdt_amount(base_amount_usd: float, network: str, db_cursor:
 
         # Also query active KV holds (for uncommitted or very fresh orders)
         held_rows = c.execute(
-            "SELECT key FROM kv WHERE key LIKE ?",
+            "SELECT key, value FROM kv WHERE key LIKE ?",
             (f"usdt_hold:{gateway}:%",)
         ).fetchall()
         held_amounts = set()
+        expired_hold_keys = []
         for hr in held_rows:
             try:
-                amt_str = str(hr[0]).split(":")[-1]
+                k_str = hr[0]
+                hold_ord_id = hr[1] if len(hr) > 1 else None
+                if hold_ord_id:
+                    ord_row = c.execute("SELECT status, expires_at FROM orders WHERE id = ?", (str(hold_ord_id),)).fetchone()
+                    if ord_row:
+                        st = ord_row[0]
+                        exp = float(ord_row[1] or 0.0)
+                        if st != "PENDING" or exp <= now_ts:
+                            expired_hold_keys.append(k_str)
+                            continue
+                amt_str = str(k_str).split(":")[-1]
                 held_amounts.add(round(float(amt_str), 2))
             except Exception:
                 pass
+
+        for ek in expired_hold_keys:
+            c.execute("DELETE FROM kv WHERE key = ?", (ek,))
 
         rows = c.execute(
             """
@@ -274,13 +288,14 @@ def allocate_unique_usdt_amount(base_amount_usd: float, network: str, db_cursor:
         # Pick the lowest available unique amount for predictable sequential pricing
         return available[0]
 
-    # In extreme load, fallback to millicent or 2 decimals
+    # In extreme load, fallback to extended range up to base + 5.00
     for ext_cent in range(100, 500):
         cand = round(base + (ext_cent / 100.0), 2)
         if cand not in taken:
             return cand
 
-    return round(base + 0.01, 2)
+    # Issue 8 Fix: Fail closed! Never re-issue an amount that is already occupied!
+    raise RuntimeError("USDT_CAPACITY_EXHAUSTED: Toàn bộ mức số tiền USDT đang bận. Vui lòng thử lại sau vài phút.")
 
 
 ALPHABET_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"

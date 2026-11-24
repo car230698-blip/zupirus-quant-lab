@@ -51,7 +51,16 @@ async def stream_topbar(request: Request, oneshot: bool = Query(default=False)):
             try:
                 snap = await asyncio.to_thread(get_topbar_telemetry if oneshot else _get_cached_topbar_telemetry)
                 xau = snap.get("xauusd") or {}
-                sig = (xau.get("bid"), xau.get("ask"), xau.get("mid"), xau.get("spread_pips"), snap.get("system_status"))
+                sig = (
+                    xau.get("bid"),
+                    xau.get("ask"),
+                    xau.get("mid"),
+                    xau.get("spread_pips"),
+                    snap.get("system_status"),
+                    json.dumps(snap.get("shield") or {}, sort_keys=True),
+                    snap.get("usd_vnd_rate"),
+                    snap.get("exchange_rate"),
+                )
                 if sig != last_sig or oneshot:
                     last_sig = sig
                     yield _sse_frame("topbar", snap)

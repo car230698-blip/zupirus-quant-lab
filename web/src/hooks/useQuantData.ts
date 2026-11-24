@@ -167,7 +167,7 @@ export function useLiveTopbarTelemetry() {
       return apiGet<LiveTopbarTelemetry>('/api/v1/telemetry/topbar');
     },
     staleTime: sseConnected ? 30_000 : 2500,
-    refetchInterval: sseConnected ? false : 5000,
+    refetchInterval: sseConnected ? 30_000 : 5000,
   });
 }
 

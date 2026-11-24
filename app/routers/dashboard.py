@@ -125,15 +125,18 @@ def dashboard(
         if is_pg:
             c.execute("SAVEPOINT sp_dashboard_exec")
         try:
+            # Issue 17 Fix: Filter by account_id in SQL before pagination
+            acc_filter_clause = " AND e.account_id = ?" if account_id else ""
+            exec_params = [u['id'], account_id] if account_id else [u['id']]
             cloud_exec_rows = c.execute(
-                """
+                f"""
                 SELECT e.*, ta.mt5_login AS account_login, ta.broker_server AS account_server
                 FROM metaapi_trade_executions e
                 JOIN trading_accounts ta ON e.account_id = ta.id
-                WHERE ta.user_id = ?
+                WHERE ta.user_id = ?{acc_filter_clause}
                 ORDER BY e.executed_at DESC LIMIT 100
                 """,
-                (u['id'],),
+                tuple(exec_params),
             ).fetchall()
             if is_pg:
                 c.execute("RELEASE SAVEPOINT sp_dashboard_exec")
@@ -203,18 +206,20 @@ def dashboard(
 
         # Legacy dispatches / Replay orders if present
         try:
+            leg_filter_clause = " AND d.account_id = ?" if account_id else ""
+            leg_params = [u['id'], account_id] if account_id else [u['id']]
             legacy_orders = [
                 dict(r) for r in c.execute(
-                    """
+                    f"""
                     SELECT d.*, s.side, s.price, s.sl, s.tp, s.source AS signal_source,
                            a.login AS account_login, a.server AS account_server, a.mode AS account_mode, a.mode AS mode
                     FROM dispatches d
                     JOIN accounts a ON d.account_id = a.id
                     LEFT JOIN signals s ON d.signal_id = s.id
-                    WHERE a.user_id = ?
+                    WHERE a.user_id = ?{leg_filter_clause}
                     ORDER BY d.created DESC LIMIT 100
                     """,
-                    (u['id'],)
+                    tuple(leg_params)
                 )
             ]
             for lod in legacy_orders:
@@ -244,7 +249,8 @@ def dashboard(
             is_open = d.get('state') == 'filled' and not d.get('closed_at')
 
             if is_open and fp > 0:
-                hb_positions = (acc_obj or {}).get('cached_heartbeat', {}).get('open_positions') if acc_obj else None
+                # Issue 15 Fix: Handle expired / None cached_heartbeat gracefully without raising AttributeError
+                hb_positions = ((acc_obj or {}).get('cached_heartbeat') or {}).get('open_positions') if acc_obj else None
                 matched_hb_pos = None
                 if isinstance(hb_positions, list):
                     for hp in hb_positions:
@@ -271,12 +277,22 @@ def dashboard(
                     implied_live = (fp + price_delta) if side_u == 'BUY' else (fp - price_delta)
                     d['live_price'] = round(implied_live, 3)
                     d['mt5_exact_pnl'] = True
-                elif live_mid > 0:
-                    diff = (live_mid - fp) if side_u == 'BUY' else (fp - live_mid)
-                    contract_sz = float((acc_obj or {}).get('contract_size') or 100.0)
-                    d['pnl'] = round(diff * vol * contract_sz, 2)
-                    d['profit'] = d['pnl']
-                    d['live_price'] = live_mid
+                else:
+                    # Issue 16 Fix: Use symbol-specific live quote rather than assuming gold (2700) for EUR/USD
+                    d_sym = str(d.get('symbol') or 'XAUUSD').upper()
+                    target_live_px = live_mid if 'XAU' in d_sym else None
+                    if not target_live_px:
+                        from app.domains.signals.ingestion.context import get_fresh_live_price
+                        target_live_px = get_fresh_live_price(c, d_sym, max_age_sec=300.0)
+                    if target_live_px and target_live_px > 0:
+                        diff = (target_live_px - fp) if side_u == 'BUY' else (fp - target_live_px)
+                        from app.services.symbol_precision import contract_size_for_symbol, quote_to_usd_rate
+                        contract_sz = contract_size_for_symbol(d_sym, account_contract_size=float((acc_obj or {}).get('contract_size') or 100.0))
+                        conv = quote_to_usd_rate(d_sym, target_live_px)
+                        d['pnl'] = round(diff * vol * contract_sz * conv, 2)
+                        d['profit'] = d['pnl']
+                        d['live_price'] = target_live_px
+                        d['mt5_exact_pnl'] = False
 
         orders = sorted(
             all_orders,
@@ -309,11 +325,11 @@ def dashboard(
                     WHERE s.ts >= ?
                       AND (EXISTS (SELECT 1 FROM trading_accounts ta WHERE ta.id = s.account_id AND ta.user_id = ?)
                            OR EXISTS (SELECT 1 FROM accounts a WHERE a.id = s.account_id AND a.user_id = ?))
-                    ORDER BY s.ts ASC LIMIT 1200
+                    ORDER BY s.ts DESC LIMIT 1200
                     """,
                     (cutoff_ts, u['id'], u['id']),
                 )
-            ]
+            ][::-1]
             distinct_acc_ids = {str(pt.get('account_id') or 'default') for pt in raw_series}
             if len(distinct_acc_ids) <= 1:
                 series = raw_series[-400:]

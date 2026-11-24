@@ -515,11 +515,20 @@ def list_payments(u=Depends(get_current_admin)):
             ORDER BY p.created_at DESC LIMIT 50
         """).fetchall()
 
-        total_row = c.execute("SELECT COALESCE(SUM(amount), 0) FROM payment_transactions WHERE status IN ('completed', 'manual_approved')").fetchone()
-        total_vnd = total_row[0] if total_row else 0.0
+        # Issue 9 Fix: Segregate VND and USDT revenue correctly
+        total_vnd_row = c.execute("SELECT COALESCE(SUM(amount), 0) FROM payment_transactions WHERE status IN ('completed', 'manual_approved') AND UPPER(currency) = 'VND'").fetchone()
+        total_vnd = float(total_vnd_row[0] if total_vnd_row else 0.0)
+
+        total_usdt_row = c.execute("SELECT COALESCE(SUM(amount), 0) FROM payment_transactions WHERE status IN ('completed', 'manual_approved') AND UPPER(currency) IN ('USDT', 'USD')").fetchone()
+        total_usdt = float(total_usdt_row[0] if total_usdt_row else 0.0)
 
     return {
-        "total_revenue_vnd": float(total_vnd),
+        "total_revenue_vnd": total_vnd,
+        "total_revenue_usdt": total_usdt,
+        "revenue_by_currency": {
+            "VND": total_vnd,
+            "USDT": total_usdt
+        },
         "total_transactions": len(rows),
         "transactions": [dict(r) for r in rows]
     }

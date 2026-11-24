@@ -424,14 +424,25 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
     updated_sources = set()
 
     with tx() as c:
+        symbol_subquery = "SELECT DISTINCT symbol FROM candles WHERE timeframe = 'M1'"
         if source_id:
             pending = c.execute(
-                "SELECT * FROM shadow_signals WHERE source_id = ? AND eval_status IN ('PENDING', 'OPEN') ORDER BY signal_time ASC LIMIT 500",
+                f"""
+                SELECT * FROM shadow_signals
+                WHERE source_id = ? AND eval_status IN ('PENDING', 'OPEN')
+                ORDER BY CASE WHEN symbol IN ({symbol_subquery}) THEN 0 ELSE 1 END, signal_time DESC
+                LIMIT 500
+                """,
                 (source_id,)
             ).fetchall()
         else:
             pending = c.execute(
-                "SELECT * FROM shadow_signals WHERE eval_status IN ('PENDING', 'OPEN') ORDER BY signal_time ASC LIMIT 500"
+                f"""
+                SELECT * FROM shadow_signals
+                WHERE eval_status IN ('PENDING', 'OPEN')
+                ORDER BY CASE WHEN symbol IN ({symbol_subquery}) THEN 0 ELSE 1 END, signal_time DESC
+                LIMIT 500
+                """
             ).fetchall()
         if not pending:
             return {"evaluated": 0, "status": "no_pending_signals"}
@@ -470,8 +481,15 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
                 if str(c_item.get("symbol") or "XAUUSD").upper() == symbol and float(c_item["time"]) >= sig_t
             ]
             
-            # If no stored M1 candles yet, keep in PENDING awaiting live candle ingestion
+            # If no stored M1 candles yet:
             if not future_candles:
+                # Issue 13 Fix: If signal is older than 3 days and has no candle data, mark NO_CANDLE_DATA
+                # to prevent permanently deadlocking the shadow evaluation queue
+                if (now_ts - sig_t) > (86400 * 3):
+                    c.execute(
+                        "UPDATE shadow_signals SET eval_status = 'NO_CANDLE_DATA', exit_reason = 'NO_M1_CANDLES_IN_WINDOW' WHERE id = ?",
+                        (p["id"],)
+                    )
                 continue
 
             outcome = _evaluate_against_candles(future_candles, entry, sl, tp, side, symbol=symbol, sig_time=sig_t)
@@ -656,13 +674,15 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
         return {"ok": False, "error": "Nguồn không tồn tại."}
 
     with tx() as c:
-        # Check actual recorded signals for this source
+        # Issue 12 Fix: Filter strictly by requested replay window (days)
+        cutoff_ts = now_ts - float(days * 86400)
         signals = c.execute(
             """
             SELECT pnl_pips, eval_status, stop_loss FROM shadow_signals
             WHERE source_id = ? AND eval_status IN ('WIN_TP', 'LOSS_SL', 'EXPIRED')
+              AND signal_time >= ?
             """,
-            (source_id,)
+            (source_id, cutoff_ts)
         ).fetchall()
 
         active_cnt_row = c.execute("SELECT count(*) FROM signal_sources WHERE status = 'ACTIVE_LIVE'").fetchone()
@@ -675,8 +695,9 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
             pf = float(updated.get("profit_factor", 0.0))
             mdd = float(updated.get("max_drawdown_pips", 0.0))
             is_qualified = bool(pf >= 1.5 and mdd <= 80.0)
-            new_status = "ACTIVE_LIVE" if is_qualified and active_count < MAX_ACTIVE_LIVE_SOURCES else source["status"]
-            c.execute("UPDATE signal_sources SET status = ?, updated_at = ? WHERE id = ?", (new_status, now_ts, source_id))
+            # Issue 12 Fix: Keep current status, do NOT auto-promote to ACTIVE_LIVE during backtest replay
+            new_status = source["status"]
+            c.execute("UPDATE signal_sources SET updated_at = ? WHERE id = ?", (now_ts, source_id))
             return {
                 "ok": True,
                 "source_id": source_id,

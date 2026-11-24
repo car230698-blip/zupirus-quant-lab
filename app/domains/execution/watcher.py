@@ -675,17 +675,28 @@ class PositionWatcher:
                 continue
             res = await self.client.close_position(metaapi_account_id, pos_id)
             is_success = _is_metaapi_success(res)
+            num_code = int(res.get("numericCode") or 0) if isinstance(res, dict) else 0
             str_code = str(res.get("stringCode") or "") if isinstance(res, dict) else ""
+            is_placed_only = (str_code == "TRADE_RETCODE_PLACED" or num_code == 10008)
             closed_vol = float(res.get("volume") or 0.0) if isinstance(res, dict) else 0.0
             pos_vol = float(p.get("volume") or 0.0)
             is_partial = (str_code == "TRADE_RETCODE_DONE_PARTIAL") or (closed_vol > 0 and closed_vol < pos_vol - 0.001)
 
-            if is_success and not is_partial:
+            if is_success and not is_partial and not is_placed_only:
                 closed_count += 1
                 with tx() as c:
                     c.execute(
                         "UPDATE metaapi_trade_executions SET status = 'CLOSED', closed_at = ?, closed_volume = volume WHERE account_id = ? AND (position_id = ? OR ticket = ?)",
                         (time.time(), account_id, pos_id, pos_id)
+                    )
+            elif is_placed_only:
+                # Issue 3 Fix: Broker accepted order into queue (TRADE_RETCODE_PLACED), not yet filled/confirmed.
+                # Keep in CLOSE_PENDING, do not count as closed_count, await deal or verified read.
+                failed_count += 1
+                with tx() as c:
+                    c.execute(
+                        "UPDATE metaapi_trade_executions SET status = 'CLOSE_PENDING' WHERE account_id = ? AND (position_id = ? OR ticket = ?)",
+                        (account_id, pos_id, pos_id)
                     )
             elif is_success and is_partial:
                 # Partial close on broker: do NOT mark CLOSED, do NOT clear closed_volume = volume

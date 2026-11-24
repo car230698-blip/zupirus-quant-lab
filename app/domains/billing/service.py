@@ -8,7 +8,7 @@ import asyncio
 import json
 from typing import Dict, Any, Tuple, Optional, List
 from urllib.parse import quote
-from app.db import tx
+from app.db import tx, audit
 from app.config import (
     CLOUD_SLOT_MONTHLY_USD,
     TIER_STARTER_MONTHLY_USD,
@@ -192,7 +192,11 @@ def create_checkout_order(
         if is_usdt:
             from app.domains.billing.crypto_direct import allocate_unique_usdt_amount
             for attempt in range(10):
-                expected_usdt = allocate_unique_usdt_amount(total_usd, gateway, db_cursor=c)
+                try:
+                    expected_usdt = allocate_unique_usdt_amount(total_usd, gateway, db_cursor=c)
+                except RuntimeError as r_err:
+                    from app.routers.deps import fail
+                    fail(429, "Toàn bộ mức số tiền USDT đang bận. Vui lòng thử lại sau vài phút.")
                 hold_key = f"usdt_hold:{gateway}:{expected_usdt:.2f}"
                 existing_hold = c.execute("SELECT value FROM kv WHERE key = ?", (hold_key,)).fetchone()
                 if existing_hold and existing_hold[0] != order_id:
@@ -203,6 +207,7 @@ def create_checkout_order(
                     "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     (hold_key, order_id)
                 )
+                break
                 break
 
         try:
@@ -268,6 +273,21 @@ def create_checkout_order(
     encoded_memo = quote(content_memo)
     qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={amount_vnd}&des={encoded_memo}"
 
+    # Preserve checkout bank instructions for consistent polling and underpaid QR generation
+    try:
+        with tx() as c:
+            c.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"order_bank_info:{order_id}", json.dumps({
+                    "bank_name": bank_name,
+                    "account_number": bank_acc,
+                    "account_holder": bank_holder,
+                    "content_memo": content_memo,
+                }))
+            )
+    except Exception as b_err:
+        logger.debug(f"Failed to cache order bank info: {b_err}")
+
     return {
         "id": order_id,
         "order_id": order_id,
@@ -329,29 +349,10 @@ async def process_successful_payment(
             return False
 
         order = dict(row)
-        if order["status"] == "PAID":
-            logger.info(f"Order {order['id']} is already fulfilled (idempotent return).")
-            return True
-
-        # Check status: must be PENDING, UNDERPAID, or recently EXPIRED
-        if order["status"] not in ("PENDING", "UNDERPAID", "EXPIRED"):
-            logger.warning(f"Order {order['id']} cannot be fulfilled: status is '{order['status']}'.")
-            return False
-
-        # If order was marked or is expired, verify it is within the 48-hour bank transfer grace window
-        exp_ts = float(order.get("expires_at") or 0.0)
-        if exp_ts and exp_ts < now_ts:
-            if (now_ts - exp_ts) <= (48 * 3600):
-                logger.info(f"Order {order['id']} past expiration, but payment arrived within 48h grace window. Reviving and fulfilling order.")
-            else:
-                logger.warning(f"Order {order['id']} has expired beyond 48h grace window (expired at {exp_ts}).")
-                c.execute("UPDATE orders SET status = 'EXPIRED', payment_status = 'EXPIRED' WHERE id = ? AND status != 'PAID'", (order["id"],))
-                return False
-
         expected_vnd = float(order.get("amount_vnd") or 0.0)
         received_now = float(amount_received_vnd) if amount_received_vnd is not None else expected_vnd
 
-        # 2. Atomic deduplication on sepay_trans_id FIRST before any state mutation
+        # 2. Atomic deduplication and recording on sepay_trans_id FIRST before any state check/mutation
         tx_id = f"tx_{secrets.token_hex(8)}"
         eff_sepay_id = str(sepay_trans_id).strip() if sepay_trans_id else f"manual_{order['id']}_{int(now_ts * 1000)}"
         ins_cur = c.execute(
@@ -373,6 +374,32 @@ async def process_successful_payment(
         if getattr(ins_cur, "rowcount", 1) <= 0:
             logger.info(f"SePay transaction {eff_sepay_id} was already processed (atomic ON CONFLICT DO NOTHING).")
             return order["status"] == "PAID"
+
+        # Issue 7 Fix: If order was already fulfilled (PAID), record transaction for reconciliation rather than dropping it
+        if order["status"] == "PAID":
+            logger.info(f"Order {order['id']} was already fulfilled. Recorded secondary SePay transaction {eff_sepay_id} ({received_now} VND) in payment_transactions.")
+            audit(c, "billing", "secondary_payment_received_for_paid_order", {
+                "order_id": order["id"],
+                "sepay_id": eff_sepay_id,
+                "amount": received_now,
+                "status": "RECONCILE_SURPLUS"
+            })
+            return True
+
+        # Check status: must be PENDING, UNDERPAID, or recently EXPIRED
+        if order["status"] not in ("PENDING", "UNDERPAID", "EXPIRED"):
+            logger.warning(f"Order {order['id']} cannot be fulfilled: status is '{order['status']}'.")
+            return False
+
+        # If order was marked or is expired, verify it is within the 48-hour bank transfer grace window
+        exp_ts = float(order.get("expires_at") or 0.0)
+        if exp_ts and exp_ts < now_ts:
+            if (now_ts - exp_ts) <= (48 * 3600):
+                logger.info(f"Order {order['id']} past expiration, but payment arrived within 48h grace window. Reviving and fulfilling order.")
+            else:
+                logger.warning(f"Order {order['id']} has expired beyond 48h grace window (expired at {exp_ts}).")
+                c.execute("UPDATE orders SET status = 'EXPIRED', payment_status = 'EXPIRED' WHERE id = ? AND status != 'PAID'", (order["id"],))
+                return False
 
         # 3. Accumulate paid_amount_vnd atomically and verify cumulative amount
         prev_paid = float(order.get("paid_amount_vnd") or 0.0)

@@ -319,24 +319,47 @@ async def ingest_trading_document(
         if chunks:
             try:
                 c.execute("DELETE FROM knowledge_chunks WHERE skill_id = ?", (skill_id,))
+                from app.db import is_postgres
+                is_pg = is_postgres()
                 for chk in chunks:
-                    emb_json = json.dumps(chk.get("embedding", []))
-                    c.execute(
-                        """
-                        INSERT INTO knowledge_chunks (id, skill_id, school, doc_type, chunk_index, content, embedding_json, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            chk["id"],
-                            skill_id,
-                            packaged.get("school", "PRICE_ACTION"),
-                            detected_doc_type,
-                            chk["chunk_index"],
-                            chk["content"],
-                            emb_json,
-                            now,
-                        ),
-                    )
+                    emb_list = chk.get("embedding", [])
+                    emb_json = json.dumps(emb_list)
+                    if is_pg and emb_list:
+                        vec_str = "[" + ",".join(str(x) for x in emb_list) + "]"
+                        c.execute(
+                            """
+                            INSERT INTO knowledge_chunks (id, skill_id, school, doc_type, chunk_index, content, embedding, embedding_json, created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s::vector, %s, %s)
+                            """,
+                            (
+                                chk["id"],
+                                skill_id,
+                                packaged.get("school", "PRICE_ACTION"),
+                                detected_doc_type,
+                                chk["chunk_index"],
+                                chk["content"],
+                                vec_str,
+                                emb_json,
+                                now,
+                            ),
+                        )
+                    else:
+                        c.execute(
+                            """
+                            INSERT INTO knowledge_chunks (id, skill_id, school, doc_type, chunk_index, content, embedding_json, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                chk["id"],
+                                skill_id,
+                                packaged.get("school", "PRICE_ACTION"),
+                                detected_doc_type,
+                                chk["chunk_index"],
+                                chk["content"],
+                                emb_json,
+                                now,
+                            ),
+                        )
             except Exception as e:
                 logger.warning(f"Failed to persist knowledge_chunks: {e}")
 

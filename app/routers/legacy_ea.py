@@ -111,7 +111,9 @@ def download_ea_bridge():
         mq5_path = root / "public" / "ZupirusDemoBridge.mq5"
     if not mq5_path.exists():
         mq5_path = root / "dist" / "ZupirusDemoBridge.mq5"
-    content = mq5_path.read_text(encoding="utf-8") if mq5_path.exists() else "// ZupirusDemoBridge.mq5 not found"
+    if not mq5_path.exists():
+        fail(404, "Tệp ZupirusDemoBridge.mq5 không tồn tại trên máy chủ")
+    content = mq5_path.read_text(encoding="utf-8")
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",
@@ -326,9 +328,10 @@ def next_dispatch(p: Identity, request: Request):
     with tx() as c:
         a = device(c, request, p)
         now_ts = time.time()
-        # Intent Auto-Reaper: Expire abandoned intents older than 60s so they never deadlock the dispatch queue
+        # Intent Auto-Reaper: Mark unconfirmed intents older than 60s as 'unknown' rather than 'expired'
+        # so unverified risk reservation is preserved until reconciliation while allowing next dispatches
         c.execute(
-            "UPDATE dispatches SET state='expired', updated=? WHERE account_id=? AND state='intent' AND (? - updated) > 60",
+            "UPDATE dispatches SET state='unknown', updated=? WHERE account_id=? AND state='intent' AND (? - updated) > 60",
             (now_ts, a['id'], now_ts)
         )
         d = c.execute(
@@ -418,7 +421,7 @@ def report(p: Receipt, request: Request):
         if d['state'] == 'filled':
             if p.state == 'filled' and (d['ticket'], d['deal']) == (p.ticket, p.deal): return 'OK'
             fail(409, 'Final receipt immutable')
-        if d['state'] not in ('intent', 'unknown'): fail(409, 'Invalid transition')
+        if d['state'] not in ('intent', 'unknown', 'expired'): fail(409, 'Invalid transition')
         try:
             if p.price is not None:
                 c.execute('UPDATE dispatches SET state=?,ticket=?,deal=?,reason=?,updated=?,fill_price=? WHERE id=?', (p.state, p.ticket or None, p.deal or None, p.reason, time.time(), p.price, p.dispatch))

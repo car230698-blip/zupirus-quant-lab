@@ -288,7 +288,26 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
                             break
                     req_side = str(kwargs.get("side") or "").upper()
                     side_match = (not req_side) or (rule_side in ("BOTH", req_side))
-                    passed = bool(r_d.get("enabled")) and sess_match and side_match
+
+                    # Issue 14 Fix: Validate symbol and trend matching identical to runtime evaluator
+                    req_symbol = str(kwargs.get("symbol") or "").upper().replace("/", "").replace("_", "")
+                    symbol_match = True
+                    for candidate_sym in ("XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "BTCUSD", "USDCAD", "AUDUSD"):
+                        if candidate_sym in text_blob:
+                            if req_symbol and candidate_sym != req_symbol:
+                                symbol_match = False
+                            break
+
+                    req_trend = str(kwargs.get("h1_trend") or kwargs.get("trend") or "").upper()
+                    trend_match = True
+                    for candidate_trend in ("BULLISH", "BEARISH", "NEUTRAL"):
+                        if candidate_trend in text_blob:
+                            if req_trend and candidate_trend != req_trend:
+                                trend_match = False
+                            break
+
+                    matches_all = sess_match and side_match and symbol_match and trend_match
+                    passed = bool(r_d.get("enabled")) and matches_all
                     return {
                         "skill_id": skill_id,
                         "name": r_d.get("name"),
@@ -297,11 +316,11 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
                         "type": "self_learned_rule_filter",
                         "current_session": cur_session,
                         "recommended_side": rule_side,
-                        "matches_context": sess_match and side_match,
+                        "matches_context": matches_all,
                         "verdict": "PASS" if passed else ("INACTIVE" if not r_d.get("enabled") else "FILTER_OUT"),
                         "result": (
                             f"Quy tắc phân tích tự học (Read-Only Filter) đã được đối chiếu trên bối cảnh thị trường hiện tại "
-                            f"[Phiên={cur_session}, Chiều={rule_side}, Kết quả={'KHỚP' if (sess_match and side_match) else 'LỌC'}]."
+                            f"[Phiên={cur_session}, Chiều={rule_side}, Mã={'KHỚP' if symbol_match else 'LỆCH'}, Xu hướng={'KHỚP' if trend_match else 'LỆCH'}, Kết quả={'KHỚP' if matches_all else 'LỌC'}]."
                         ),
                         "parameters": kwargs,
                     }
