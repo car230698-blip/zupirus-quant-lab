@@ -605,15 +605,17 @@ async def execute_fan_out_for_signal(
                     if int(acc_row[0] or 0) != 1 or str(acc_row[1] or "") != "DEPLOYED":
                         logger.warning(f"Account {acc_id} skipped: auto_trade disabled or state is {acc_row[1]}.")
                         continue
-                    # Fail-Closed check: do not execute on disconnected broker
+                    # Fail-Closed check: only execute when broker connection_status is verified CONNECTED
                     rc_raw = acc_row[2] or "{}"
                     try:
                         rc_data = json.loads(rc_raw) if isinstance(rc_raw, str) else dict(rc_raw)
-                        if str(rc_data.get("connection_status", "")).upper() == "DISCONNECTED":
-                            logger.warning(f"Account {acc_id} skipped: broker connection_status is DISCONNECTED.")
+                        conn_st = str(rc_data.get("connection_status", "")).upper()
+                        if conn_st != "CONNECTED":
+                            logger.warning(f"Account {acc_id} skipped: broker connection_status is '{conn_st}' (must be CONNECTED).")
                             continue
-                    except Exception:
-                        pass
+                    except Exception as ex:
+                        logger.warning(f"Account {acc_id} skipped: failed to verify risk_config connection_status ({ex}).")
+                        continue
                 elif acc.get("deployment_state") and acc.get("deployment_state") != "DEPLOYED":
                     logger.warning(f"Account {acc_id} skipped: state is {acc.get('deployment_state')}.")
                     continue

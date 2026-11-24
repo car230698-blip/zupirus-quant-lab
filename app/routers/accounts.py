@@ -4,6 +4,7 @@ import json
 import time
 import secrets
 import logging
+import uuid
 from typing import Dict, Optional, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -280,13 +281,21 @@ async def _create_account_locked(
     if existing_meta_id and not client.is_mock:
         try:
             acc_chk = await client.get_account_information(existing_meta_id)
-            if acc_chk and acc_chk.get("error") != "NOT_FOUND":
-                meta_id = existing_meta_id
-                reusing_terminal = True
-                await client.deploy_account(meta_id)
-                meta_state = "DEPLOYED"
-                prov = {"id": meta_id, "_id": meta_id, "state": "DEPLOYED"}
-                logger.info(f"Reusing existing MetaApi terminal {meta_id} for login {p.login}")
+            has_fatal_err = (
+                not acc_chk
+                or acc_chk.get("error") in ("NOT_FOUND", "UNAVAILABLE", "ACCOUNT_NOT_FOUND", "BROKER_DISCONNECTED")
+                or acc_chk.get("connected") is False
+            )
+            if not has_fatal_err:
+                dep_ok = await client.deploy_account(existing_meta_id)
+                if dep_ok:
+                    meta_id = existing_meta_id
+                    reusing_terminal = True
+                    meta_state = "DEPLOYED"
+                    prov = {"id": meta_id, "_id": meta_id, "state": "DEPLOYED"}
+                    logger.info(f"Reusing existing MetaApi terminal {meta_id} for login {p.login}")
+                else:
+                    logger.warning(f"Existing terminal {existing_meta_id} deploy failed, falling back to new provision.")
         except Exception as ex:
             logger.warning(f"Existing terminal {existing_meta_id} probe failed: {ex}")
 
@@ -813,13 +822,20 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
                 conn_status = info.get("connection_status") or "DISCONNECTED"
                 sync_msg = info.get("message") or "Tài khoản đang ngắt kết nối với broker MT5 (trên MetaApi hiển thị Disconnected). Vui lòng kiểm tra lại mật khẩu MT5 hoặc máy chủ sàn."
             else:
-                new_eq = float(info.get("equity") or 0.0)
-                new_bal = float(info.get("balance") or 0.0)
-                if new_eq > 0 or new_bal > 0:
-                    eq = new_eq
-                    bal = new_bal
-                    conn_status = "CONNECTED"
-                    is_connected = True
+                new_eq = info.get("equity")
+                new_bal = info.get("balance")
+                if new_bal is not None:
+                    try:
+                        bal = float(new_bal)
+                    except (ValueError, TypeError):
+                        pass
+                if new_eq is not None:
+                    try:
+                        eq = float(new_eq)
+                    except (ValueError, TypeError):
+                        pass
+                conn_status = "CONNECTED"
+                is_connected = True
         try:
             if is_connected:
                 cur_open = await client.get_open_positions(meta_id) or []
@@ -896,7 +912,8 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
         "id": real_id,
         "equity": eq,
         "balance": bal,
-        "last_sync": now_ts,
+        "last_sync": now_ts if is_connected else (acc.get("last_sync") or 0.0),
+        "last_verified_at": now_ts,
         "connected": is_connected,
         "connection_status": conn_status,
         "message": sync_msg,
@@ -905,7 +922,7 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
 
 @router.delete("/api/v1/accounts/{account_id}")
 @router.delete("/api/metaapi/accounts/{account_id}")
-async def delete_account(account_id: str, u: dict = Depends(get_current_user)):
+async def delete_account(account_id: str, request: Request, u: dict = Depends(get_current_user)):
     """Undeploy and delete cloud terminal on MetaApi and remove account strictly for the owning user."""
     is_admin = u.get("role") == "admin"
     user_id = u["id"]

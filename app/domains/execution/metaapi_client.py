@@ -231,12 +231,21 @@ class MetaApiClient:
                             region = reg
                             self._account_regions[metaapi_account_id] = reg
                         conn_status = p_data.get("connectionStatus")
+                elif p_resp.status_code == 404:
+                    return {
+                        "balance": 0.0,
+                        "equity": 0.0,
+                        "connected": False,
+                        "connection_status": "DISCONNECTED",
+                        "error": "NOT_FOUND",
+                        "message": "Không tìm thấy tài khoản trên MetaApi (404 Not Found).",
+                    }
         except Exception as e:
             logger.debug(f"Provisioning check error for {metaapi_account_id}: {e}")
 
         # If MetaApi itself reports the terminal is DISCONNECTED from the broker,
         # return immediately without hanging on client API 504 timeouts.
-        if conn_status == "DISCONNECTED":
+        if conn_status in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER"):
             return {
                 "balance": 0.0,
                 "equity": 0.0,
@@ -253,9 +262,24 @@ class MetaApiClient:
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, dict):
-                        data["connected"] = True
-                        data["connection_status"] = "CONNECTED"
+                        # Do not mark connected if broker is disconnected
+                        if conn_status in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER") or data.get("connected") is False:
+                            data["connected"] = False
+                            data["connection_status"] = conn_status or "DISCONNECTED"
+                            data["error"] = "BROKER_DISCONNECTED"
+                        else:
+                            data["connected"] = True
+                            data["connection_status"] = "CONNECTED"
                         return data
+                elif resp.status_code == 404:
+                    return {
+                        "balance": 0.0,
+                        "equity": 0.0,
+                        "connected": False,
+                        "connection_status": "DISCONNECTED",
+                        "error": "NOT_FOUND",
+                        "message": "Không tìm thấy tài khoản trên MetaApi (404 Not Found).",
+                    }
                 elif resp.status_code == 504:
                     logger.warning(f"MetaApi account {metaapi_account_id} broker connection timeout (504): broker is disconnected")
                     return {
@@ -678,6 +702,8 @@ class MetaApiClient:
                             if isinstance(data, dict):
                                 if "numericCode" in data or "stringCode" in data:
                                     body_ok = _is_metaapi_success(data)
+                                elif data.get("error") or (data.get("message") and "error" in str(data.get("message")).lower()) or data.get("stringCode") in ("TRADE_RETCODE_REJECT", "TRADE_RETCODE_ERROR"):
+                                    body_ok = False
                                 elif data.get("orderId") or data.get("positionId"):
                                     body_ok = True
                         except Exception:
@@ -685,6 +711,8 @@ class MetaApiClient:
                     elif isinstance(res, dict):
                         if "numericCode" in res or "stringCode" in res:
                             body_ok = _is_metaapi_success(res)
+                        elif res.get("error") or (res.get("message") and "error" in str(res.get("message")).lower()) or res.get("stringCode") in ("TRADE_RETCODE_REJECT", "TRADE_RETCODE_ERROR"):
+                            body_ok = False
                         elif res.get("orderId") or res.get("positionId"):
                             body_ok = True
                     if body_ok:
