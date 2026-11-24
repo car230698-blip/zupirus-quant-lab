@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class NormalizedSignalSchema(BaseModel):
     id: str
     source: str = "TRADINGVIEW"
-    strategy_tier: Literal['STANDARD', 'ALPHA'] = 'STANDARD'
+    strategy_tier: Literal['STANDARD', 'ALPHA', 'CANARY'] = 'STANDARD'
     symbol: str = "XAUUSD"
     action: Literal['BUY', 'SELL']
     entry_price: float

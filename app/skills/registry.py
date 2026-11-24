@@ -316,7 +316,9 @@ def execute_skill(skill_id: str, **kwargs) -> Dict[str, Any]:
 
 def _normalize_session_slug(sess_str: str) -> str:
     import re
-    return re.sub(r"[^a-z0-9]+", "_", str(sess_str or "").lower()).strip("_")
+    s = re.sub(r"[^a-z0-9]+", "_", str(sess_str or "").lower()).strip("_")
+    s = s.replace("london_ny_overlap", "london_new_york_overlap")
+    return s
 
 
 def evaluate_active_learned_skills(
@@ -336,6 +338,20 @@ def evaluate_active_learned_skills(
     allowed_sides = set()
     blocked_sides = set()
     matched_skills = []
+
+    KNOWN_SESSIONS = [
+        "london_new_york_overlap",
+        "london_ny_overlap",
+        "new_york",
+        "late_ny_pre_asia",
+        "asia",
+        "asian",
+        "london",
+        "sydney",
+        "tokyo",
+        "overlap",
+    ]
+
     try:
         def _query(cur):
             return cur.execute(
@@ -350,27 +366,40 @@ def evaluate_active_learned_skills(
         for r in rows:
             rd = dict(r)
             sid = str(rd.get("skill_id") or "").lower()
-            # Match learned_[symbol_]session_side[_context]_type
-            m = re.match(r"^learned_(?:([a-z0-9]+)_)?([a-z0-9]+)_(buy|sell)(?:_([a-z0-9_]+))?_(filter|avoid)$", sid)
+            # Match learned_{prefix}_{buy|sell}[_{context}]_{filter|avoid}
+            m = re.match(r"^learned_(.+?)_(buy|sell)(?:_([a-z0-9_]+))?_(filter|avoid)$", sid)
             if m:
-                part1 = m.group(1)
-                part2 = m.group(2)
-                skill_side = m.group(3).upper()
-                skill_ctx = m.group(4)
-                skill_type = m.group(5)
+                prefix = m.group(1)
+                skill_side = m.group(2).upper()
+                skill_ctx = m.group(3)
+                skill_type = m.group(4)
 
-                # Determine if part1 is symbol or if part2 is session
-                known_sessions = {"asia", "london", "new_york", "asian", "sydney", "tokyo", "overlap"}
-                if part1 and part1 not in known_sessions:
-                    skill_sym = part1
-                    skill_sess_slug = part2
-                else:
-                    skill_sym = None
-                    skill_sess_slug = part1 or part2
+                skill_sym = None
+                skill_sess = None
+                for s_slug in KNOWN_SESSIONS:
+                    if prefix == s_slug:
+                        skill_sess = s_slug
+                        skill_sym = None
+                        break
+                    elif prefix.endswith(f"_{s_slug}"):
+                        skill_sess = s_slug
+                        skill_sym = prefix[: -(len(s_slug) + 1)]
+                        break
 
-                # Symbol scoping check
-                if skill_sym and sym_slug and skill_sym not in ("all", "any") and skill_sym != sym_slug:
+                if not skill_sess:
                     continue
+
+                skill_sess_slug = _normalize_session_slug(skill_sess)
+
+                # Symbol scoping check:
+                # - If rule is scoped to a specific symbol, it REQUIRES symbol input and exact match.
+                # - If rule is a legacy rule without symbol, it only applies to primary asset (xauusd), not cross-symbol.
+                if skill_sym:
+                    if not sym_slug or (skill_sym not in ("all", "any") and skill_sym != sym_slug):
+                        continue
+                else:
+                    if sym_slug and sym_slug not in ("xauusd", "xau_usd", "all", "any"):
+                        continue
 
                 # Session scoping check
                 if skill_sess_slug != cur_sess_slug:
@@ -378,7 +407,6 @@ def evaluate_active_learned_skills(
 
                 # Contextual requirements check (e.g. H1 trend or swept liquidity)
                 if skill_ctx:
-                    # Context data MUST be present and valid to satisfy a contextual rule
                     if not ctx:
                         continue
                     act_trend = str(ctx.get("h1_trend") or ctx.get("trend") or "").lower()
@@ -482,13 +510,20 @@ def register_learned_skill(
 
     def _do_register(c):
         effective_md = skill_md
+        effective_name = name
+        effective_desc = description
         try:
-            ex_row = c.execute("SELECT enabled, description, skill_md FROM agent_skills WHERE skill_id = ?", (skill_id,)).fetchone()
+            ex_row = c.execute("SELECT enabled, name, description, skill_md FROM agent_skills WHERE skill_id = ?", (skill_id,)).fetchone()
             if ex_row:
                 was_enabled = ex_row["enabled"] if hasattr(ex_row, "keys") else ex_row[0]
-                prev_md = ex_row["skill_md"] if hasattr(ex_row, "keys") else ex_row[2]
-                if was_enabled == 1 and prev_md and "## Phiên Bản Bằng Chứng Được Duyệt" not in effective_md:
-                    effective_md = skill_md + f"\n\n## Phiên Bản Bằng Chứng Được Duyệt (Approved Baseline)\n*(Bằng chứng đã duyệt trước đó được bảo toàn đối chiếu)*\n"
+                prev_name = ex_row["name"] if hasattr(ex_row, "keys") else ex_row[1]
+                prev_desc = ex_row["description"] if hasattr(ex_row, "keys") else ex_row[2]
+                prev_md = ex_row["skill_md"] if hasattr(ex_row, "keys") else ex_row[3]
+                if was_enabled == 1:
+                    effective_name = prev_name
+                    effective_desc = prev_desc
+                    if prev_md and "## Phiên Bản Bằng Chứng Được Duyệt" not in effective_md:
+                        effective_md = skill_md + f"\n\n## Phiên Bản Bằng Chứng Được Duyệt (Approved Baseline)\n*(Bằng chứng đã duyệt trước đó được bảo toàn đối chiếu)*\n\n```markdown\n{prev_md.strip()}\n```\n"
 
             c.execute(
                 """
@@ -503,7 +538,7 @@ def register_learned_skill(
                     skill_md = excluded.skill_md,
                     updated_at = excluded.updated_at
                 """,
-                (skill_record_id, skill_id, name, description, trigger_condition, effective_md, enabled_val, now_ts, now_ts)
+                (skill_record_id, skill_id, effective_name, effective_desc, trigger_condition, effective_md, enabled_val, now_ts, now_ts)
             )
         except Exception:
             try:
@@ -515,7 +550,7 @@ def register_learned_skill(
                         skill_md, is_builtin, usage_count, enabled, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
                     """,
-                    (skill_record_id, skill_id, name, description, trigger_condition, effective_md, enabled_val, now_ts, now_ts)
+                    (skill_record_id, skill_id, effective_name, effective_desc, trigger_condition, effective_md, enabled_val, now_ts, now_ts)
                 )
             except Exception as e:
                 logger.error(f"Error registering learned skill {skill_id}: {e}")

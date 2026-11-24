@@ -65,6 +65,14 @@ def test_rag_ingest_and_retrieval(tmp_path):
     now = time.time()
     with tx() as c:
         c.execute("DELETE FROM knowledge_chunks WHERE skill_id = ?", (skill_id,))
+        c.execute(
+            """
+            INSERT INTO agent_skills (id, skill_id, name, description, trigger_condition, skill_md, is_builtin, usage_count, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'on_demand', '', 1, 0, 1, ?, ?)
+            ON CONFLICT(skill_id) DO UPDATE SET enabled = 1
+            """,
+            (f"rec_{skill_id}", skill_id, "Fed Macro Policy", "Document skill for fed policy", now, now),
+        )
         for chk in packaged["chunks"]:
             c.execute(
                 """

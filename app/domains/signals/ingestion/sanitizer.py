@@ -34,9 +34,10 @@ def check_redis_deduplication(signal: NormalizedSignalSchema) -> Tuple[bool, Opt
     """Lớp 1: Chặn ngay tín hiệu trùng lặp ở cửa vào trong 60s bằng Redis Idempotency Key."""
     from app.services.symbol_precision import digits_for_symbol
     dec = digits_for_symbol(signal.symbol)
-    raw_key = f"{signal.source}:{signal.symbol}:{signal.action}:{round(float(signal.entry_price), dec)}"
+    tier = str(getattr(signal, "strategy_tier", "STANDARD") or "STANDARD").upper()
+    raw_key = f"{signal.source}:{tier}:{signal.symbol}:{signal.action}:{round(float(signal.entry_price), dec)}"
     sig_hash = hashlib.sha256(raw_key.encode()).hexdigest()[:16]
-    redis_key = f"signal_ingest:{signal.source}:{sig_hash}"
+    redis_key = f"signal_ingest:{signal.source}:{tier}:{sig_hash}"
 
     try:
         redis_cli = get_redis_client()
@@ -68,11 +69,11 @@ def check_redis_deduplication(signal: NormalizedSignalSchema) -> Tuple[bool, Opt
             recent_dup = c.execute(
                 """
                 SELECT id FROM signal_audit_logs
-                WHERE source_name = ? AND symbol = ? AND side = ? AND ABS(entry_price - ?) < ? AND (? - created_at) < 60
+                WHERE source_name = ? AND symbol = ? AND side = ? AND strategy_tier = ? AND ABS(entry_price - ?) < ? AND (? - created_at) < 60
                   AND status NOT IN ('REJECTED', 'FANOUT_FAILED')
                 LIMIT 1
                 """,
-                (signal.source, signal.symbol, signal.action, signal.entry_price, tol, now_sec)
+                (signal.source, signal.symbol, signal.action, tier, signal.entry_price, tol, now_sec)
             ).fetchone()
             if recent_dup:
                 reason = f"REJECTED_DUPLICATE_SIGNAL: Identical signal found in DB within 60s window (id={recent_dup[0]})"
@@ -88,9 +89,10 @@ def clear_signal_deduplication(signal: NormalizedSignalSchema) -> None:
     try:
         from app.services.symbol_precision import digits_for_symbol
         dec = digits_for_symbol(signal.symbol)
-        raw_key = f"{signal.source}:{signal.symbol}:{signal.action}:{round(float(signal.entry_price), dec)}"
+        tier = str(getattr(signal, "strategy_tier", "STANDARD") or "STANDARD").upper()
+        raw_key = f"{signal.source}:{tier}:{signal.symbol}:{signal.action}:{round(float(signal.entry_price), dec)}"
         sig_hash = hashlib.sha256(raw_key.encode()).hexdigest()[:16]
-        redis_key = f"signal_ingest:{signal.source}:{sig_hash}"
+        redis_key = f"signal_ingest:{signal.source}:{tier}:{sig_hash}"
         try:
             redis_cli = get_redis_client()
             redis_cli.delete(redis_key)

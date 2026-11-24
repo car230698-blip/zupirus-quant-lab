@@ -237,6 +237,31 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol
 
         # Evaluate learned rule criteria against recent price action (10-interval slope matching backtest)
         if len(close_prices) >= 15:
+            # Evaluate session constraint if candidate rule specifies preferred_session
+            pref_sess = rules.get("preferred_session")
+            if pref_sess and str(pref_sess).upper() not in ("ALL", "ANY"):
+                from app.services.signal_ingestion.context import get_trading_session
+                from app.skills.registry import _normalize_session_slug
+                bar_ts = time.time()
+                if ohlc_list:
+                    last_b = ohlc_list[-1]
+                    if isinstance(last_b, dict) and "time" in last_b:
+                        from app.db import to_epoch_ts
+                        bar_ts = to_epoch_ts(last_b["time"])
+                    elif isinstance(last_b, (list, tuple)) and len(last_b) >= 1:
+                        from app.db import to_epoch_ts
+                        bar_ts = to_epoch_ts(last_b[0])
+                cur_sess = get_trading_session(bar_ts)
+                if _normalize_session_slug(cur_sess) != _normalize_session_slug(pref_sess):
+                    return {
+                        "side": None,
+                        "strategy": cand_name,
+                        "timeframe": timeframe,
+                        "parameters": rules,
+                        "version": STRATEGY_VERSION,
+                        "reason": f"STAND_ASIDE: Phiên hiện tại [{cur_sess}] không khớp với phiên ưu tiên [{pref_sess}] của chiến lược.",
+                    }
+
             p_back10 = close_prices[-11] if len(close_prices) >= 11 else close_prices[-10]
             recent_slope = (close_prices[-1] - p_back10) / 10.0
             target_action = rules.get("action", "BUY")
@@ -299,6 +324,8 @@ def strategy(prices, fast_n=5, slow_n=20):
     """Tabula Rasa backward-compatible wrapper."""
     dec = coordinate_strategies(prices)
     return dec.get("side")
+
+evaluate_strategy_rules = coordinate_strategies
 
 def news_blocked(c, now):
     return c.execute("SELECT 1 FROM news WHERE currency IN ('USD','ALL') AND impact='high' AND abs(ts-?)<900", (now,)).fetchone() is not None
@@ -574,7 +601,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         if active_mode != "ZUPIRUS_AGENT":
             return {"status": "SKIPPED", "reason": f"MODE_IS_{active_mode}"}
 
-        # Load latest Admin-approved strategy candidate (APPROVED_FOR_PROD) or active trial (CANARY_DEMO)
+        # Load latest Admin-approved strategy candidate (APPROVED_FOR_PROD) and active trial (CANARY_DEMO)
         cands = c.execute(
             """
             SELECT id, name, rules_json, updated_at, status
@@ -586,8 +613,10 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         if not cands:
             return {"status": "SKIPPED", "reason": "NO_APPROVED_OR_CANARY_STRATEGY"}
 
-        cand = None
-        cand_rules = {}
+        prod_cand = None
+        prod_rules = {}
+        canary_cand = None
+        canary_rules = {}
         for row in cands:
             r_dict = dict(row)
             try:
@@ -595,20 +624,30 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
             except Exception:
                 rj = {}
             rsym = str(rj.get("symbol") or "XAUUSD").strip().upper()
-            if rsym == sym_u:
-                cand = r_dict
-                cand_rules = rj
-                break
-            elif rsym in ("ANY", "ALL") and cand is None:
-                cand = r_dict
-                cand_rules = rj
+            c_status = str(r_dict.get("status") or "").upper()
+            if c_status == "APPROVED_FOR_PROD":
+                if rsym == sym_u and (prod_cand is None or str(prod_rules.get("symbol") or "").strip().upper() != sym_u):
+                    prod_cand = r_dict
+                    prod_rules = rj
+                elif rsym in ("ANY", "ALL") and prod_cand is None:
+                    prod_cand = r_dict
+                    prod_rules = rj
+            elif c_status == "CANARY_DEMO":
+                if rsym == sym_u and (canary_cand is None or str(canary_rules.get("symbol") or "").strip().upper() != sym_u):
+                    canary_cand = r_dict
+                    canary_rules = rj
+                elif rsym in ("ANY", "ALL") and canary_cand is None:
+                    canary_cand = r_dict
+                    canary_rules = rj
 
-        if not cand:
+        eval_candidates = []
+        if prod_cand:
+            eval_candidates.append((prod_cand, prod_rules))
+        if canary_cand:
+            eval_candidates.append((canary_cand, canary_rules))
+
+        if not eval_candidates:
             return {"status": "SKIPPED", "reason": f"NO_APPROVED_OR_CANARY_STRATEGY_FOR_SYMBOL_{sym_u}"}
-
-        rules = cand_rules
-        cand_d = cand
-        is_canary = (str(cand_d.get("status") or "").upper() == "CANARY_DEMO")
 
         bars = c.execute(
             """
@@ -660,12 +699,24 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         except Exception as r_err:
             logger.debug(f"Regime classifier & shadow router evaluation note: {r_err}")
 
-        decision = coordinate_strategies(bars_asc, timeframe="M15", db_cursor=c, symbol=sym_u, candidate=cand)
-        side = force_side or decision.get("side")
-        if not side:
+        cand_decisions = []
+        for cand_item, rj in eval_candidates:
+            dec = coordinate_strategies(bars_asc, timeframe="M15", db_cursor=c, symbol=sym_u, candidate=cand_item)
+            c_side = force_side or dec.get("side")
+            cand_decisions.append({
+                "cand": cand_item,
+                "rules": rj,
+                "decision": dec,
+                "side": c_side,
+            })
+
+        active_decisions = [cd for cd in cand_decisions if cd["side"]]
+        if not active_decisions:
             setkv(c, last_ts_key, str(latest_bar_ts))
-            setkv(c, "strategy_last_decision", json.dumps(decision, ensure_ascii=False))
-            return {"status": "STAND_ASIDE", "reason": decision.get("reason", "NO_SIGNAL")}
+            first_dec = cand_decisions[0]["decision"] if cand_decisions else {"reason": "NO_SIGNAL"}
+            setkv(c, "strategy_last_decision", json.dumps(first_dec, ensure_ascii=False))
+            reasons = [cd["decision"].get("reason", "NO_SIGNAL") for cd in cand_decisions]
+            return {"status": "STAND_ASIDE", "reason": "; ".join(reasons) if reasons else "NO_SIGNAL"}
 
         # Fetch fresh live price (with Redis quote fallback)
         from app.domains.signals.ingestion.context import get_fresh_live_price, get_market_atr14
@@ -696,184 +747,221 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
     except Exception as sw_err:
         logger.debug(f"Swarm cycle note: {sw_err}")
 
-    # Run 4-Layer Safety Sanitizer + Fan-Out Execution outside the short DB tx
+    # Run 4-Layer Safety Sanitizer + Fan-Out Execution for each active candidate decision
+    dispatched_results = []
+    stand_aside_reasons = []
+    zero_exec_results = []
     try:
         from app.schemas.signals import NormalizedSignalSchema
         from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
         from app.metaapi import MetaApiClient, execute_fan_out_for_signal
         from app.redis_client import get_redis_client
-        sl_mult = float(rules.get("atr_sl_mult", 1.5))
-        tp_mult = float(rules.get("atr_tp_mult", sl_mult * 2.0))
-        sl_pts = float(rules.get("sl_points", round(atr_val * sl_mult, dec)))
-        tp_pts = float(rules.get("tp_points", round(atr_val * tp_mult, dec)))
-        is_buy = side.upper() == "BUY"
-        sig_id = f"ag_{'canary_' if is_canary else ''}{sym_u.lower()}_{int(latest_bar_ts)}_{side.lower()}"
-        norm_sig = NormalizedSignalSchema(
-            id=sig_id,
-            source="src_zupirus_agent",
-            strategy_tier="CANARY" if is_canary else "ALPHA",
-            symbol=sym_u,
-            action=side.upper(),
-            entry_price=entry_price,
-            stop_loss=round(entry_price - sl_pts if is_buy else entry_price + sl_pts, dec),
-            take_profit=round(entry_price + tp_pts if is_buy else entry_price - tp_pts, dec),
-            raw_payload={
-                "candidate": cand_d["name"],
-                "candidate_id": cand_d["id"],
-                "strategy_id": cand_d["id"],
-                "status": cand_d.get("status"),
-                "decision": decision,
-                "swarm": swarm_report.get("cycle"),
-            },
-            created_at=now,
-        )
-        approved, reason, sanitized = sanitize_and_audit_signal(norm_sig, live_price=entry_price, current_time=now)
-        if not approved:
-            logger.info(f"Autonomous Agent signal {sig_id} blocked by 4-Layer Shield: {reason}")
-            return {"status": "REJECTED_BY_SHIELD", "reason": reason, "signal_id": sig_id}
 
-        with tx() as c:
-            rows = c.execute(
-                """
-                SELECT a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
-                       a.max_lot,
-                       a.currency, a.tick_value,
-                       a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
-                       a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
-                       a.account_type, a.contract_size, a.allowed_strategy_ids,
-                       s.allow_alpha_strategies
-                FROM trading_accounts a
-                LEFT JOIN subscriptions s ON s.user_id = a.user_id
-                WHERE a.auto_trade = 1 AND a.deployment_state = 'DEPLOYED'
-                  AND a.equity > 0
-                  AND (
-                      (s.service_expires_at IS NOT NULL AND s.service_expires_at > ?)
-                      OR (a.cloud_expires_at IS NOT NULL AND a.cloud_expires_at > ?)
-                      OR a.user_id IN (SELECT id FROM users WHERE role = 'admin')
-                  )
-                """,
-                (now, now),
-            ).fetchall()
-            eligible = []
-            seen_acc_ids = set()
-            for r in rows:
-                d = dict(r)
-                if d["id"] in seen_acc_ids:
-                    continue
-                seen_acc_ids.add(d["id"])
-                if is_canary:
-                    acc_tp = str(d.get("account_type") or "").upper()
-                    if acc_tp not in ("DEMO", "DEMO_PRO", "CENT_DEMO") and str(d.get("mode") or "").upper() != "DEMO":
-                        continue
-                elif sanitized.strategy_tier == "ALPHA" and not d.get("allow_alpha_strategies"):
-                    continue
-                raw_cfg = d.get("risk_config")
-                rc = {}
-                if raw_cfg:
-                    try:
-                        rc = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
-                    except Exception:
-                        rc = {}
-                d["risk_percent"] = float(rc.get("risk_percent", 1.0))
-                d_max = d.get("max_lot")
-                if d_max is not None and float(d_max) > 0:
-                    d["max_lot"] = float(d_max)
-                else:
-                    d["max_lot"] = float(rc.get("max_lot", 5.0) or 5.0)
-                eligible.append(d)
+        for ad in active_decisions:
+            cand_d = ad["cand"]
+            rules = ad["rules"]
+            decision = ad["decision"]
+            side = ad["side"]
+            is_canary = (str(cand_d.get("status") or "").upper() == "CANARY_DEMO")
 
-            # Enqueue into Direct MT5 EA Bridge (dispatches) for any connected & enabled DEMO EA terminals
-            try:
-                from app.routers.ea import _ensure_ea_tables
-                _ensure_ea_tables(c)
-                ea_rows = c.execute(
+            sl_mult = float(rules.get("atr_sl_mult", 1.5))
+            tp_mult = float(rules.get("atr_tp_mult", sl_mult * 2.0))
+            sl_pts = float(rules.get("sl_points", round(atr_val * sl_mult, dec)))
+            tp_pts = float(rules.get("tp_points", round(atr_val * tp_mult, dec)))
+            is_buy = side.upper() == "BUY"
+            sig_id = f"ag_{'canary_' if is_canary else ''}{sym_u.lower()}_{int(latest_bar_ts)}_{side.lower()}"
+            norm_sig = NormalizedSignalSchema(
+                id=sig_id,
+                source="src_zupirus_agent",
+                strategy_tier="CANARY" if is_canary else "ALPHA",
+                symbol=sym_u,
+                action=side.upper(),
+                entry_price=entry_price,
+                stop_loss=round(entry_price - sl_pts if is_buy else entry_price + sl_pts, dec),
+                take_profit=round(entry_price + tp_pts if is_buy else entry_price - tp_pts, dec),
+                raw_payload={
+                    "candidate": cand_d["name"],
+                    "candidate_id": cand_d["id"],
+                    "strategy_id": cand_d["id"],
+                    "status": cand_d.get("status"),
+                    "decision": decision,
+                    "swarm": swarm_report.get("cycle"),
+                },
+                created_at=now,
+            )
+            approved, reason, sanitized = sanitize_and_audit_signal(norm_sig, live_price=entry_price, current_time=now)
+            if not approved:
+                logger.info(f"Autonomous Agent signal {sig_id} blocked by 4-Layer Shield: {reason}")
+                stand_aside_reasons.append(f"{sig_id} REJECTED_BY_SHIELD: {reason}")
+                continue
+
+            with tx() as c:
+                rows = c.execute(
                     """
-                    SELECT a.id FROM accounts a
-                    JOIN devices d ON d.account_id = a.id
-                    WHERE a.enabled = 1 AND a.mode = 'DEMO'
-                    """
+                    SELECT a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
+                           a.max_lot,
+                           a.currency, a.tick_value,
+                           a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
+                           a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
+                           a.account_type, a.contract_size, a.allowed_strategy_ids,
+                           s.allow_alpha_strategies
+                    FROM trading_accounts a
+                    LEFT JOIN subscriptions s ON s.user_id = a.user_id
+                    WHERE a.auto_trade = 1 AND a.deployment_state = 'DEPLOYED'
+                      AND a.equity > 0
+                      AND (
+                          (s.service_expires_at IS NOT NULL AND s.service_expires_at > ?)
+                          OR (a.cloud_expires_at IS NOT NULL AND a.cloud_expires_at > ?)
+                          OR a.user_id IN (SELECT id FROM users WHERE role = 'admin')
+                      )
+                    """,
+                    (now, now),
                 ).fetchall()
-                if ea_rows:
-                    act_u = sanitized.action.upper()
-                    c.execute(
+                eligible = []
+                seen_acc_ids = set()
+                for r in rows:
+                    d = dict(r)
+                    if d["id"] in seen_acc_ids:
+                        continue
+                    seen_acc_ids.add(d["id"])
+                    if is_canary:
+                        acc_tp = str(d.get("account_type") or "").upper()
+                        if acc_tp not in ("DEMO", "DEMO_PRO", "CENT_DEMO") and str(d.get("mode") or "").upper() != "DEMO":
+                            continue
+                    elif sanitized.strategy_tier == "ALPHA" and not d.get("allow_alpha_strategies"):
+                        continue
+                    raw_cfg = d.get("risk_config")
+                    rc = {}
+                    if raw_cfg:
+                        try:
+                            rc = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
+                        except Exception:
+                            rc = {}
+                    d["risk_percent"] = float(rc.get("risk_percent", 1.0))
+                    d_max = d.get("max_lot")
+                    if d_max is not None and float(d_max) > 0:
+                        d["max_lot"] = float(d_max)
+                    else:
+                        d["max_lot"] = float(rc.get("max_lot", 5.0) or 5.0)
+                    eligible.append(d)
+
+                # Enqueue into Direct MT5 EA Bridge (dispatches) for any connected & enabled DEMO EA terminals
+                try:
+                    from app.routers.ea import _ensure_ea_tables
+                    _ensure_ea_tables(c)
+                    ea_rows = c.execute(
                         """
-                        INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
-                        VALUES(?, 'DEMO', ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(id) DO NOTHING
-                        """,
-                        (sanitized.id, act_u, float(sanitized.entry_price), float(sanitized.stop_loss or 0), float(sanitized.take_profit or 0), now, now + 300),
-                    )
-                    for er in ea_rows:
+                        SELECT a.id FROM accounts a
+                        JOIN devices d ON d.account_id = a.id
+                        WHERE a.enabled = 1 AND a.mode = 'DEMO'
+                        """
+                    ).fetchall()
+                    if ea_rows:
+                        act_u = sanitized.action.upper()
                         c.execute(
                             """
-                            INSERT INTO dispatches(signal_id, account_id, state, volume, created, updated)
-                            VALUES(?, ?, 'queued', 0.01, ?, ?)
-                            ON CONFLICT(account_id, signal_id) DO UPDATE SET updated=excluded.updated
+                            INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
+                            VALUES(?, 'DEMO', ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(id) DO NOTHING
                             """,
-                            (sanitized.id, er["id"], now, now),
+                            (sanitized.id, act_u, float(sanitized.entry_price), float(sanitized.stop_loss or 0), float(sanitized.take_profit or 0), now, now + 300),
                         )
-            except Exception as ea_e:
-                logger.debug(f"EA Bridge dispatch enqueue note: {ea_e}")
+                        for er in ea_rows:
+                            c.execute(
+                                """
+                                INSERT INTO dispatches(signal_id, account_id, state, volume, created, updated)
+                                VALUES(?, ?, 'queued', 0.01, ?, ?)
+                                ON CONFLICT(account_id, signal_id) DO UPDATE SET updated=excluded.updated
+                               """,
+                                (sanitized.id, er["id"], now, now),
+                            )
+                except Exception as ea_e:
+                    logger.debug(f"EA Bridge dispatch enqueue note: {ea_e}")
 
-        if eligible:
-            redis_cli = None
-            try:
-                redis_cli = get_redis_client()
-            except Exception as exc:
-                logger.debug("Redis client unavailable for signal fan-out: %s", exc)
-            strat_code = str(
-                cand_d.get("id")
-                if is_canary else (
-                    rules.get("strategy")
-                    or rules.get("strategy_id")
-                    or rules.get("code")
-                    or cand_d.get("strategy")
-                    or cand_d.get("strategy_id")
-                    or cand_d.get("name")
-                    or "strat_trend_breakout"
-                )
-            ).strip()
-            report = await execute_fan_out_for_signal(
-                signal={
-                    "id": sanitized.id,
-                    "symbol": sanitized.symbol,
-                    "action": sanitized.action,
-                    "entry_price": sanitized.entry_price,
-                    "sl": sanitized.stop_loss,
-                    "tp": sanitized.take_profit,
-                    "strategy": strat_code,
-                    "strategy_id": cand_d.get("id") if is_canary else strat_code,
-                    "strategy_name": str(cand_d.get("name") or "").strip(),
-                    "source": getattr(sanitized, "source", "ZUPIRUS_AGENT"),
-                    "strategy_tier": getattr(sanitized, "strategy_tier", "STANDARD"),
-                },
-                accounts=eligible,
-                metaapi_client=MetaApiClient(),
-                redis_client=redis_cli,
-            )
-            executed_count = int(report.get("executed", 0))
-            if executed_count > 0:
-                with tx() as c_up:
-                    setkv(c_up, last_ts_key, str(latest_bar_ts))
-                return {"status": "DISPATCHED", "signal_id": sanitized.id, "report": report}
-            else:
+            if eligible:
+                redis_cli = None
                 try:
-                    from app.domains.signals.ingestion.sanitizer import clear_signal_deduplication
-                    clear_signal_deduplication(sanitized)
-                except Exception as clear_err:
-                    logger.debug(f"Failed to clear signal deduplication after zero executions: {clear_err}")
-                logger.info(
-                    f"Signal {sanitized.id} fan-out executed 0 orders across {len(eligible)} accounts (all skipped or failed). Deduplication lock released for retry."
+                    redis_cli = get_redis_client()
+                except Exception as exc:
+                    logger.debug("Redis client unavailable for signal fan-out: %s", exc)
+                strat_code = str(
+                    cand_d.get("id")
+                    if is_canary else (
+                        rules.get("strategy")
+                        or rules.get("strategy_id")
+                        or rules.get("code")
+                        or cand_d.get("strategy")
+                        or cand_d.get("strategy_id")
+                        or cand_d.get("name")
+                        or "strat_trend_breakout"
+                    )
+                ).strip()
+                report = await execute_fan_out_for_signal(
+                    signal={
+                        "id": sanitized.id,
+                        "symbol": sanitized.symbol,
+                        "action": sanitized.action,
+                        "entry_price": sanitized.entry_price,
+                        "sl": sanitized.stop_loss,
+                        "tp": sanitized.take_profit,
+                        "strategy": strat_code,
+                        "strategy_id": cand_d.get("id") if is_canary else strat_code,
+                        "strategy_name": str(cand_d.get("name") or "").strip(),
+                        "source": getattr(sanitized, "source", "ZUPIRUS_AGENT"),
+                        "strategy_tier": getattr(sanitized, "strategy_tier", "STANDARD"),
+                    },
+                    accounts=eligible,
+                    metaapi_client=MetaApiClient(),
+                    redis_client=redis_cli,
                 )
-                return {
-                    "status": "FANOUT_NO_EXECUTIONS",
-                    "signal_id": sanitized.id,
-                    "reason": "ALL_ACCOUNTS_SKIPPED_OR_FAILED",
-                    "report": report,
-                }
-        with tx() as c_up:
-            setkv(c_up, last_ts_key, str(latest_bar_ts))
-        return {"status": "APPROVED_NO_ACCOUNTS", "signal_id": sanitized.id}
+                executed_count = int(report.get("executed", 0))
+                if executed_count > 0:
+                    dispatched_results.append({
+                        "signal_id": sanitized.id,
+                        "report": report,
+                        "is_canary": is_canary,
+                        "candidate_id": cand_d.get("id"),
+                    })
+                else:
+                    try:
+                        from app.domains.signals.ingestion.sanitizer import clear_signal_deduplication
+                        clear_signal_deduplication(sanitized)
+                    except Exception as clear_err:
+                        logger.debug(f"Failed to clear signal deduplication after zero executions: {clear_err}")
+                    logger.info(
+                        f"Signal {sanitized.id} fan-out executed 0 orders across {len(eligible)} accounts (all skipped or failed). Deduplication lock released for retry."
+                    )
+                    zero_exec_results.append({
+                        "status": "FANOUT_NO_EXECUTIONS",
+                        "signal_id": sanitized.id,
+                        "reason": "ALL_ACCOUNTS_SKIPPED_OR_FAILED",
+                        "report": report,
+                    })
+            else:
+                stand_aside_reasons.append(f"{sig_id}: APPROVED_NO_ACCOUNTS")
+
+        if dispatched_results:
+            with tx() as c_up:
+                setkv(c_up, last_ts_key, str(latest_bar_ts))
+            primary = dispatched_results[0]
+            res = {
+                "status": "DISPATCHED",
+                "signal_id": primary["signal_id"],
+                "report": primary["report"],
+            }
+            if len(dispatched_results) > 1:
+                res["all_dispatched"] = dispatched_results
+            return res
+        elif zero_exec_results:
+            return zero_exec_results[0]
+        elif stand_aside_reasons:
+            with tx() as c_up:
+                setkv(c_up, last_ts_key, str(latest_bar_ts))
+            return {"status": "STAND_ASIDE", "reason": "; ".join(stand_aside_reasons)}
+        else:
+            with tx() as c_up:
+                setkv(c_up, last_ts_key, str(latest_bar_ts))
+            return {"status": "APPROVED_NO_ACCOUNTS", "signal_id": active_decisions[0]["cand"].get("id")}
     except Exception as e:
         logger.warning(f"Autonomous agent dispatch error: {e}")
         return {"status": "ERROR", "error": str(e)}

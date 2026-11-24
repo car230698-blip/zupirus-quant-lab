@@ -350,13 +350,15 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
         ctx_str = r["context_snapshot"]
         is_sh = bool(r.get("is_shadow"))
         session = "London"
-        h1_trend = "NEUTRAL"
+        h1_trend = "UNKNOWN"
         swept = False
         if ctx_str:
             try:
                 c_data = json.loads(ctx_str)
                 session = c_data.get("session", "London")
-                h1_trend = c_data.get("h1_trend", "NEUTRAL")
+                raw_trend = c_data.get("h1_trend") or c_data.get("trend")
+                if raw_trend:
+                    h1_trend = str(raw_trend).strip().upper()
                 swept = bool(c_data.get("swept_liquidity", False))
             except Exception:
                 pass
@@ -365,7 +367,8 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
         k_leg = (sym_u, session, side)
         item = {"pnl": pnl, "is_shadow": is_sh}
 
-        clusters_detailed.setdefault(k_det, []).append(item)
+        if h1_trend != "UNKNOWN":
+            clusters_detailed.setdefault(k_det, []).append(item)
         clusters_legacy.setdefault(k_leg, []).append(item)
 
     # If any detailed cluster meets min_samples, use detailed clustering; otherwise fallback to legacy 3-tuple
@@ -396,7 +399,13 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
             shadow_wins = sum(1 for p in shadow_pnls if p > 0)
             total_samples = live_cnt + shadow_cnt
 
-            win_rate = round((live_wins + shadow_wins) / max(total_samples, 1), 2)
+            if live_cnt >= min_samples:
+                win_rate = round(live_wins / live_cnt, 2)
+                effective_samples = live_cnt
+            else:
+                win_rate = round((live_wins + shadow_wins) / max(total_samples, 1), 2)
+                effective_samples = total_samples
+
             live_total_pnl = round(sum(live_pnls), 2)
             live_expectancy = round(live_total_pnl / max(live_cnt, 1), 3) if live_cnt > 0 else 0.0
             shadow_total_pnl = round(sum(shadow_pnls), 2)
