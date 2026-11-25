@@ -769,6 +769,12 @@ async def toggle_account(account_id: str, request: Request, u: dict = Depends(ge
                 c.execute("UPDATE metaapi_cloud_accounts SET auto_trade=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
             except Exception:
                 pass
+            if not new_state:
+                c.execute("DELETE FROM kv WHERE key=?", (f"expiry_suspended_auto_trade:{real_id}",))
+            c.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"user_manual_auto_trade:{real_id}", str(new_state)),
+            )
         audit(c, u["id"], "trading_account_toggle_auto_trade", {
             "account_id": real_id,
             "auto_trade": new_state

@@ -468,15 +468,26 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
 
 @router.post("/api/admin/billing/orders/{order_id}/approve")
 async def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_admin)):
-    """Admin manual override to approve an order and activate its subscription."""
-    from app.services.billing_service import process_successful_payment
+    """Admin manual override to approve an order and activate/recover its subscription entitlements."""
+    from app.services.billing_service import process_successful_payment, fulfill_order_entitlements
     with tx() as c:
         row = c.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
         if not row:
             fail(404, f"Không tìm thấy đơn hàng {order_id}")
         order = dict(row)
-        if order.get("status") == "PAID":
-            return {"status": "ALREADY_PAID", "message": f"Đơn hàng {order_id} đã được thanh toán trước đó."}
+
+    if order.get("status") == "PAID":
+        ent_st = str(order.get("entitlement_status") or "").upper()
+        dep_st = str(order.get("cloud_deploy_status") or "").upper()
+        if ent_st not in ("GRANTED", "APPLIED") or dep_st in ("FAILED", "PENDING", ""):
+            recovered = await fulfill_order_entitlements(order_id)
+            if not recovered:
+                fail(400, f"Không thể cấp bù quyền cho đơn hàng {order_id}.")
+            return {
+                "status": "ENTITLEMENTS_RECOVERED",
+                "message": f"Đã cấp bù quyền gói cước và kích hoạt Cloud cho đơn hàng {order_id}.",
+            }
+        return {"status": "ALREADY_PAID", "message": f"Đơn hàng {order_id} đã được thanh toán và cấp quyền đầy đủ trước đó."}
 
     remaining_vnd = max(0.0, float(order.get("amount_vnd") or 0) - float(order.get("paid_amount_vnd") or 0))
     success = await process_successful_payment(

@@ -90,8 +90,8 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   const handleManualApproveOrder = async (orderId: string) => {
     setBusyId(orderId);
     try {
-      await api.post(`/api/admin/billing/orders/${encodeURIComponent(orderId)}/approve`);
-      setMsg(`Đã duyệt bù đơn hàng ${orderId} và kích hoạt gói cước.`);
+      const res: any = await api.post(`/api/admin/billing/orders/${encodeURIComponent(orderId)}/approve`);
+      setMsg(res?.message || `Đã duyệt bù đơn hàng ${orderId} và kích hoạt gói cước.`);
       await loadBilling();
     } catch (err: any) {
       setMsg(`Không thể duyệt bù đơn hàng: ${err.message || ''}`);

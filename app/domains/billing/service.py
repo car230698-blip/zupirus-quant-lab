@@ -492,24 +492,105 @@ async def process_successful_payment(
     return True
 
 
+def _enforce_slot_limit_on_user_accounts(c, user_id: str, max_slots: int) -> None:
+    """When a user's active slot count is reduced (e.g. via downgrade), disable auto_trade
+    and undeploy/suspend excess accounts beyond the first max_slots terminals."""
+    max_slots = max(0, int(max_slots or 0))
+    rows = c.execute(
+        """
+        SELECT id, auto_trade, deployment_state
+        FROM trading_accounts
+        WHERE user_id = ?
+        ORDER BY created_at ASC, id ASC
+        """,
+        (user_id,),
+    ).fetchall()
+    if len(rows) <= max_slots:
+        return
+    for excess_row in rows[max_slots:]:
+        ex_d = dict(excess_row)
+        ex_id = ex_d["id"]
+        open_bot = c.execute(
+            """
+            SELECT 1 FROM metaapi_trade_executions
+            WHERE account_id = ? AND status IN ('OPEN', 'FILLED', 'PENDING_SUBMIT', 'UNKNOWN_EXECUTION', 'CLOSE_PENDING')
+            LIMIT 1
+            """,
+            (ex_id,),
+        ).fetchone()
+        next_dep_state = "EXPIRED_PROTECTING" if open_bot else "UNDEPLOYED"
+        c.execute(
+            "UPDATE trading_accounts SET auto_trade = 0, deployment_state = ? WHERE id = ? AND user_id = ?",
+            (next_dep_state, ex_id, user_id),
+        )
+
+
+def _normalize_queued_segments(raw_val: Any) -> List[Dict[str, Any]]:
+    if not raw_val:
+        return []
+    try:
+        parsed = json.loads(raw_val) if isinstance(raw_val, str) else raw_val
+    except Exception:
+        return []
+    if isinstance(parsed, dict):
+        if "segments" in parsed and isinstance(parsed["segments"], list):
+            segs = [dict(s) for s in parsed["segments"] if isinstance(s, dict)]
+        elif parsed.get("target_tier"):
+            segs = [dict(parsed)]
+        else:
+            segs = []
+    elif isinstance(parsed, list):
+        segs = [dict(s) for s in parsed if isinstance(s, dict)]
+    else:
+        segs = []
+    segs.sort(key=lambda s: float(s.get("effective_after", 0)))
+    return segs
+
+
+def _serialize_queued_segments(segments: List[Dict[str, Any]]) -> str:
+    if len(segments) == 1:
+        return json.dumps(segments[0])
+    first = dict(segments[0]) if segments else {}
+    return json.dumps({
+        **first,
+        "segments": segments,
+    })
+
+
 def apply_queued_downgrade_if_due(c, user_id: str, now_ts: float) -> bool:
-    """Apply queued lower-tier downgrade if effective_after has passed, preserving full purchased expiration and slots."""
+    """Apply matured queued lower-tier downgrade segment(s) if effective_after has passed,
+    preserving full purchased expiration, slots, and any subsequent queued segments."""
     qd_raw = c.execute("SELECT value FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",)).fetchone()
     if not qd_raw or not qd_raw[0]:
         return False
     try:
-        qd = json.loads(qd_raw[0])
-        eff_after = float(qd.get("effective_after", 0))
-        if now_ts < eff_after:
+        segments = _normalize_queued_segments(qd_raw[0])
+        if not segments:
+            c.execute("DELETE FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",))
             return False
-        target_tier = str(qd.get("target_tier", "starter")).lower()
+
+        matured = [s for s in segments if float(s.get("effective_after", 0)) <= now_ts]
+        if not matured:
+            return False
+
+        # Find the segment that is active at now_ts (latest matured segment whose expires_at > now_ts, or latest matured)
+        active_seg = matured[-1]
+        for s in matured:
+            if float(s.get("expires_at", 0)) > now_ts:
+                active_seg = s
+                break
+
+        future_segments = [s for s in segments if float(s.get("effective_after", 0)) > now_ts]
+
+        target_tier = str(active_seg.get("target_tier", "starter")).lower()
         sub_cur = c.execute("SELECT service_expires_at FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
         cur_exp = float(sub_cur[0] or 0) if sub_cur and sub_cur[0] else 0.0
-        target_exp = max(float(qd.get("expires_at", 0)), cur_exp)
+        max_queued_exp = max([float(s.get("expires_at", 0)) for s in segments] + [cur_exp])
+        target_exp = max(float(active_seg.get("expires_at", 0)), max_queued_exp, cur_exp)
         if target_exp > now_ts:
             is_growth = target_tier in ("growth", "alpha")
             is_alpha = target_tier == "alpha"
-            raw_slots = int(qd.get("cloud_slots") or 1)
+            raw_slots = int(active_seg.get("cloud_slots") or 1)
             cloud_slots = clamp_cloud_slots(target_tier, raw_slots)
             c.execute(
                 """
@@ -535,7 +616,15 @@ def apply_queued_downgrade_if_due(c, user_id: str, now_ts: float) -> bool:
                     now_ts, user_id,
                 ),
             )
-        c.execute("DELETE FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",))
+            _enforce_slot_limit_on_user_accounts(c, user_id, cloud_slots)
+
+        if future_segments:
+            c.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"queued_downgrade:{user_id}", _serialize_queued_segments(future_segments)),
+            )
+        else:
+            c.execute("DELETE FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",))
         return True
     except Exception as qd_err:
         logger.debug(f"Queued downgrade apply note for {user_id}: {qd_err}")
@@ -573,45 +662,68 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
 
     new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
     existing_qd_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",)).fetchone()
-    existing_qd = None
-    if existing_qd_row and existing_qd_row[0]:
-        try:
-            existing_qd = json.loads(existing_qd_row[0])
-        except Exception:
-            existing_qd = None
+    existing_segments = _normalize_queued_segments(existing_qd_row[0] if existing_qd_row else None)
 
     if is_lower_tier_on_active:
-        # Sequential queuing: Lower-tier subscription is queued to activate after current higher-tier expires
-        qd_eff_after = float(existing_qd.get("effective_after", current_sub_exp)) if existing_qd else current_sub_exp
+        # Sequential multi-segment queuing: insert new segment in descending tier rank order
+        # so higher paid tiers run before lower paid tiers, and no paid period is ever lost.
+        new_seg = {
+            "target_tier": tier,
+            "cloud_slots": clamp_cloud_slots(tier, cloud_slots),
+            "duration_sec": duration_sec,
+            "order_id": order.get("id"),
+        }
+        base_start = float(existing_segments[0].get("effective_after", current_sub_exp)) if existing_segments else current_sub_exp
+        all_segs = existing_segments + [new_seg]
+        all_segs.sort(key=lambda s: -_tier_rank.get(str(s.get("target_tier", "starter")).lower(), 1))
+        cursor_ts = base_start
+        rebuilt_segs = []
+        for s in all_segs:
+            dur = float(s.get("duration_sec") or duration_sec)
+            seg_end = cursor_ts + dur
+            rebuilt_segs.append({
+                "target_tier": str(s.get("target_tier", "starter")).lower(),
+                "cloud_slots": clamp_cloud_slots(str(s.get("target_tier", "starter")).lower(), int(s.get("cloud_slots") or 1)),
+                "duration_sec": dur,
+                "effective_after": cursor_ts,
+                "expires_at": seg_end,
+                "order_id": s.get("order_id"),
+            })
+            cursor_ts = seg_end
+        new_sub_exp = max(new_sub_exp, cursor_ts)
         try:
             c.execute(
                 "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (f"queued_downgrade:{user_id}", json.dumps({
-                    "target_tier": tier,
-                    "cloud_slots": clamp_cloud_slots(tier, cloud_slots),
-                    "duration_sec": duration_sec,
-                    "effective_after": qd_eff_after,
-                    "expires_at": new_sub_exp,
-                    "order_id": order.get("id"),
-                })),
+                (f"queued_downgrade:{user_id}", _serialize_queued_segments(rebuilt_segs)),
             )
         except Exception as q_err:
             logger.debug(f"Queued downgrade KV insertion note: {q_err}")
-    elif existing_qd:
-        # User purchased a same-or-higher tier while a lower-tier downgrade was queued:
-        # Shift the queued downgrade's effective_after forward by duration_sec and preserve full new_sub_exp
-        old_target = str(existing_qd.get("target_tier", "starter")).lower()
-        if _tier_rank.get(tier, 1) > _tier_rank.get(old_target, 1):
-            old_eff = max(float(existing_qd.get("effective_after", now_ts)), now_ts)
-            shifted_eff = old_eff + duration_sec
+    elif existing_segments:
+        # User purchased a same-or-higher tier while lower-tier segments were queued:
+        # Shift all lower-tier queued segments forward by duration_sec; merge or shift equal-tier segments.
+        base_start = max(float(existing_segments[0].get("effective_after", now_ts)), now_ts) + duration_sec
+        cursor_ts = base_start
+        shifted_segs = []
+        for s in existing_segments:
+            s_tier = str(s.get("target_tier", "starter")).lower()
+            dur = float(s.get("duration_sec") or duration_sec)
+            if _tier_rank.get(tier, 1) > _tier_rank.get(s_tier, 1):
+                seg_end = cursor_ts + dur
+                shifted_segs.append({
+                    **s,
+                    "effective_after": cursor_ts,
+                    "expires_at": seg_end,
+                })
+                cursor_ts = seg_end
+            else:
+                # Same or lower rank than queued segment: extend total duration
+                cursor_ts += dur
+        new_sub_exp = max(new_sub_exp, cursor_ts)
+        if shifted_segs:
             try:
                 c.execute(
                     "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                    (f"queued_downgrade:{user_id}", json.dumps({
-                        **existing_qd,
-                        "effective_after": shifted_eff,
-                        "expires_at": new_sub_exp,
-                    })),
+                    (f"queued_downgrade:{user_id}", _serialize_queued_segments(shifted_segs)),
                 )
             except Exception as q_err:
                 logger.debug(f"Queued downgrade shift note: {q_err}")
@@ -620,10 +732,10 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
 
     is_growth = effective_tier in ("growth", "alpha")
     is_alpha = effective_tier == "alpha"
-    max_accounts = max(
-        clamp_cloud_slots(effective_tier, cloud_slots),
-        int(sub_d.get("max_mt5_accounts") or 1) if (sub_d and current_sub_exp > now_ts) else 1,
-    )
+    if is_lower_tier_on_active and sub_d and current_sub_exp > now_ts:
+        max_accounts = int(sub_d.get("max_mt5_accounts") or 1)
+    else:
+        max_accounts = clamp_cloud_slots(effective_tier, cloud_slots)
     tier = effective_tier
 
     sub_id = sub_d["id"] if sub_d else f"sub_{secrets.token_hex(6)}"
@@ -672,8 +784,10 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
             )
         )
 
+    _enforce_slot_limit_on_user_accounts(c, user_id, max_accounts)
+
     acc_rows = c.execute(
-        "SELECT id, metaapi_account_id, cloud_expires_at, deployment_state, auto_trade FROM trading_accounts WHERE user_id = ? LIMIT ?",
+        "SELECT id, metaapi_account_id, cloud_expires_at, deployment_state, auto_trade FROM trading_accounts WHERE user_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
         (user_id, max_accounts)
     ).fetchall()
     accounts_to_deploy: List[Tuple[str, str]] = []
@@ -684,11 +798,16 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
         new_c_exp = new_sub_exp
         dep_st = str(a.get("deployment_state") or "").upper()
         was_expired_or_undeployed = dep_st in ("UNDEPLOYED", "EXPIRED_PROTECTING", "DEPLOY_PENDING") or (curr_c_exp > 0 and curr_c_exp <= now_ts)
-        # Preserve user's manual auto_trade=0 configuration, but restore auto_trade=1 if it was suspended specifically by subscription expiry
+        # Preserve user's manual auto_trade=0 configuration, and only restore auto_trade=1 if suspended by expiry AND user hasn't explicitly disabled it
         exp_susp_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"expiry_suspended_auto_trade:{a['id']}",)).fetchone()
+        manual_pref_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"user_manual_auto_trade:{a['id']}",)).fetchone()
+        manual_pref = str(manual_pref_row[0]).strip() if manual_pref_row and manual_pref_row[0] is not None else None
         if exp_susp_row and str(exp_susp_row[0]) == "1":
-            next_auto_trade = 1
             c.execute("DELETE FROM kv WHERE key = ?", (f"expiry_suspended_auto_trade:{a['id']}",))
+            if manual_pref == "0":
+                next_auto_trade = 0
+            else:
+                next_auto_trade = 1
         else:
             next_auto_trade = int(a.get("auto_trade") if a.get("auto_trade") is not None else 0)
         if a.get("metaapi_account_id") and (was_expired_or_undeployed or dep_st != "DEPLOYED"):

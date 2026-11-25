@@ -37,14 +37,18 @@ def get_public_track_record(request: Request) -> Dict[str, Any]:
         exec_rows = c.execute(
             """
             SELECT e.symbol, e.action, e.volume, e.entry_price, e.sl, e.tp,
-                   e.profit, e.latency_ms, e.executed_at, e.closed_at, e.status,
-                   ta.account_type, ta.prop_stage
+                   e.profit, e.latency_ms, e.executed_at, e.closed_at, e.status, e.origin,
+                   ta.account_type, ta.prop_stage, ta.currency
             FROM metaapi_trade_executions e
             JOIN trading_accounts ta ON e.account_id = ta.id
             WHERE e.profit IS NOT NULL
+              AND e.closed_at IS NOT NULL
+              AND UPPER(COALESCE(e.status, '')) IN ('CLOSED', 'COMPLETED')
+              AND UPPER(COALESCE(e.origin, 'BOT')) = 'BOT'
               AND UPPER(COALESCE(e.symbol, 'XAUUSD')) LIKE 'XAU%'
               AND UPPER(COALESCE(ta.account_type, '')) IN ('PROP', 'PROP_FIRM')
               AND UPPER(COALESCE(ta.prop_stage, '')) = 'LIVE'
+              AND UPPER(COALESCE(ta.currency, 'USD')) IN ('USD', 'USC')
             ORDER BY COALESCE(e.closed_at, e.executed_at) DESC
             LIMIT 250
             """
@@ -53,11 +57,12 @@ def get_public_track_record(request: Request) -> Dict[str, Any]:
 
         acc_rows = c.execute(
             """
-            SELECT account_type, prop_stage, balance, equity
+            SELECT account_type, prop_stage, balance, equity, currency
             FROM trading_accounts
             WHERE deployment_state = 'DEPLOYED'
               AND UPPER(COALESCE(account_type, '')) IN ('PROP', 'PROP_FIRM')
               AND UPPER(COALESCE(prop_stage, '')) = 'LIVE'
+              AND UPPER(COALESCE(currency, 'USD')) IN ('USD', 'USC')
             """
         ).fetchall()
 
@@ -106,7 +111,8 @@ def get_public_track_record(request: Request) -> Dict[str, Any]:
             "volume": float(t.get("volume") or 0),
             "entry_price": float(t.get("entry_price") or 0),
             "profit": round(float(t.get("profit") or 0), 2),
-            "latency_ms": int(t.get("latency_ms") or 11),
+            "currency": "USD",
+            "latency_ms": int(t["latency_ms"]) if (t.get("latency_ms") is not None and int(t.get("latency_ms") or 0) > 0) else None,
             "tier": "PROP LIVE" if str(t.get("prop_stage") or "").upper() == "LIVE" else "STANDARD",
             "closed_at": t.get("closed_at") or t.get("executed_at"),
         }

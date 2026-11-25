@@ -277,6 +277,13 @@ class CursorWrapper:
             self._cur.execute(adapted)
         else:
             adapted = self._adapt_sql(sql, has_params=True)
+            if self._is_pg and "to_timestamp(" in adapted and isinstance(params, (list, tuple)):
+                import datetime as _dt
+                norm_params = [
+                    float(p.timestamp()) if isinstance(p, _dt.datetime) else p
+                    for p in params
+                ]
+                params = tuple(norm_params) if isinstance(params, tuple) else norm_params
             self._cur.execute(adapted, params)
         return self
 

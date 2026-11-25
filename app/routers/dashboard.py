@@ -462,8 +462,10 @@ def export_orders_csv(
 
         if is_cent:
             orig_unit = curr if curr else "USC"
-            profit_orig_str = f"{raw_profit:.2f} {orig_unit}"
-            profit_usd = round(raw_profit / 100.0, 2)
+            # metaapi_trade_executions.profit is already normalized to USD in watcher.py
+            profit_usd = round(raw_profit, 2)
+            profit_orig = round(raw_profit * 100.0, 2)
+            profit_orig_str = f"{profit_orig:.2f} {orig_unit}"
         else:
             orig_unit = curr if curr else "USD"
             profit_orig_str = f"{raw_profit:.2f} {orig_unit}"

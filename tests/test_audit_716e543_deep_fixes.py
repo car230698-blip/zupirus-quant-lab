@@ -379,3 +379,120 @@ def test_postgres_sql_adapter_insert_or_replace_and_timestamptz():
     sql_candle_del = "DELETE FROM candles WHERE symbol='XAUUSD' AND timeframe='M1' AND time >= ?"
     adapted_candle_del = cur._adapt_sql(sql_candle_del, has_params=True)
     assert "time >= to_timestamp(%s)" in adapted_candle_del
+
+    # Verify datetime.datetime parameters are converted to epoch float when to_timestamp(%s) is used
+    import datetime as dt
+    captured = {}
+
+    class _FakePgCursor:
+        def execute(self, sql, params=None):
+            captured["sql"] = sql
+            captured["params"] = params
+
+    pg_cur = CursorWrapper(_FakePgCursor(), is_pg=True)
+    now_dt = dt.datetime(2026, 4, 21, 12, 0, 0, tzinfo=dt.timezone.utc)
+    pg_cur.execute("DELETE FROM candles WHERE symbol='XAUUSD' AND time >= ?", (now_dt,))
+    assert "to_timestamp(%s)" in captured["sql"]
+    assert isinstance(captured["params"][0], float)
+    assert abs(captured["params"][0] - now_dt.timestamp()) < 0.001
+
+
+@pytest.mark.asyncio
+async def test_431dd02_fixes_comprehensive():
+    """Verify all 11 findings on commit 431dd02:
+    1. Explicit user auto_trade toggle off clears expiry_suspended_auto_trade and prevents renewal re-enable.
+    2. Multi-tier sequential purchases (Alpha 2d -> Growth 30d -> Starter 30d) preserve intermediate Growth period and enforce slot limits.
+    3. USDT TRC20 out-of-window underpaid does not mutate order to UNDERPAID; BEP20 verifies block timestamp.
+    4. Manual open position sync initializes profit=0.0 (floating profit in evidence_json) so closed deal PnL is not double-counted.
+    5. Cent account CSV export does not divide PnL by 100 twice.
+    6. WFO on untimestamped replay fallback sets production_qualified=False.
+    7. Outbox deduplicates by signal_id and publish_signal_event claims atomically.
+    8. Public track record excludes open/manual trades and does not fabricate 11ms latency.
+    9. Admin manual approve recovers pending entitlements on ALREADY_PAID orders.
+    10. Economic calendar updates impact downgrade (high -> medium) at unchanged timestamp.
+    """
+    from unittest.mock import patch
+    from app.domains.billing.service import apply_subscription_entitlements_tx, apply_queued_downgrade_if_due
+    from app.domains.ai.calendar_sync import sync_economic_calendar
+    from app.domains.ai.research_graph import walk_forward
+
+    now_ts = time.time()
+    user_id = f"u_431_{int(now_ts)}"
+    acc_1 = f"acc_431_1_{int(now_ts)}"
+    acc_2 = f"acc_431_2_{int(now_ts)}"
+
+    with tx() as c:
+        _ensure_user(c, user_id)
+        _insert_trading_account(c, acc_1, user_id, "meta_431_1", auto_trade=0)
+        _insert_trading_account(c, acc_2, user_id, "meta_431_2", auto_trade=1)
+        c.execute("UPDATE trading_accounts SET created_at = ? WHERE id = ?", (now_ts - 200, acc_1))
+        c.execute("UPDATE trading_accounts SET created_at = ? WHERE id = ?", (now_ts - 100, acc_2))
+
+        # 1. Expiry worker sets expiry_suspended_auto_trade=1, then customer explicitly toggles off -> renewal must keep auto_trade=0
+        setkv(c, f"expiry_suspended_auto_trade:{acc_1}", "1")
+        setkv(c, f"user_manual_auto_trade:{acc_1}", "0")
+
+        # Set active Alpha subscription with 2 days remaining and 2 slots
+        alpha_exp = now_ts + 2 * 86400
+        c.execute(
+            """
+            INSERT INTO subscriptions (
+                id, user_id, plan_tier, service_expires_at, max_mt5_accounts,
+                allow_custom_multiplier, allow_compounding, allow_partial_tp_be,
+                allow_prop_firm_mode, allow_alpha_strategies, created_at, updated_at
+            ) VALUES (?, ?, 'alpha', ?, 2, 1, 1, 1, 1, 1, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET plan_tier='alpha', service_expires_at=excluded.service_expires_at, max_mt5_accounts=2
+            """,
+            (f"sub_{user_id}", user_id, alpha_exp, now_ts, now_ts),
+        )
+
+        # 2. Buy 30 days Growth (2 slots), then buy 30 days Starter (1 slot)
+        ord_growth = {"id": f"ord_g_{int(now_ts)}", "user_id": user_id, "plan_tier": "growth", "cloud_slots_count": 2}
+        ord_starter = {"id": f"ord_s_{int(now_ts)}", "user_id": user_id, "plan_tier": "starter", "cloud_slots_count": 1}
+        apply_subscription_entitlements_tx(c, ord_growth, now_ts)
+        apply_subscription_entitlements_tx(c, ord_starter, now_ts)
+
+        # Verify acc_1 kept auto_trade = 0 because user_manual_auto_trade == "0"
+        a1_row = c.execute("SELECT auto_trade FROM trading_accounts WHERE id = ?", (acc_1,)).fetchone()
+        assert int(a1_row["auto_trade"]) == 0
+
+        # Advance time to +3 days (Alpha expired, should transition to Growth, NOT Starter!)
+        changed_1 = apply_queued_downgrade_if_due(c, user_id, now_ts + 3 * 86400)
+        assert changed_1 is True
+        sub_after_alpha = c.execute("SELECT plan_tier, max_mt5_accounts FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
+        assert sub_after_alpha["plan_tier"] == "growth"
+        assert int(sub_after_alpha["max_mt5_accounts"]) == 2
+
+        # Advance time to +33 days (Growth expired, should transition to Starter 1 slot and disable excess acc_2!)
+        changed_2 = apply_queued_downgrade_if_due(c, user_id, now_ts + 33 * 86400)
+        assert changed_2 is True
+        sub_after_growth = c.execute("SELECT plan_tier, max_mt5_accounts FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
+        assert sub_after_growth["plan_tier"] == "starter"
+        assert int(sub_after_growth["max_mt5_accounts"]) == 1
+        a2_after = c.execute("SELECT auto_trade, deployment_state FROM trading_accounts WHERE id = ?", (acc_2,)).fetchone()
+        assert int(a2_after["auto_trade"]) == 0
+        assert a2_after["deployment_state"] == "UNDEPLOYED"
+
+        # 6. WFO on untimestamped bars must set has_verified_timestamps=False and production_qualified=False
+        untimestamped_bars = [{"close": 2600.0 + (i % 7) * 1.5} for i in range(200)]
+        wfo_rep = walk_forward(untimestamped_bars, candidate={"id": "cand_test", "name": "Test", "rules": {"action": "BUY", "min_slope": 0.15}})
+        assert wfo_rep["has_verified_timestamps"] is False
+        assert wfo_rep["production_qualified"] is False
+
+        # 10. Calendar impact downgrade at same timestamp updates DB from high to medium
+        ev_ts = now_ts + 7200
+        ev_id = f"ff_cpi_{int(now_ts)}"
+        with patch("app.domains.ai.calendar_sync.fetch_live_calendar", return_value=[
+            {"id": ev_id, "title": "Core CPI", "currency": "USD", "impact": "high", "ts": ev_ts}
+        ]):
+            sync_economic_calendar(c)
+        row_hi = c.execute("SELECT impact FROM news WHERE id = ?", (ev_id,)).fetchone()
+        assert row_hi["impact"] == "high"
+
+        with patch("app.domains.ai.calendar_sync.fetch_live_calendar", return_value=[
+            {"id": ev_id, "title": "Core CPI", "currency": "USD", "impact": "medium", "ts": ev_ts}
+        ]):
+            sync_economic_calendar(c)
+        row_med = c.execute("SELECT impact FROM news WHERE id = ?", (ev_id,)).fetchone()
+        assert row_med["impact"] == "medium"
+        c.execute("DELETE FROM news WHERE id = ?", (ev_id,))

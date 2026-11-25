@@ -313,6 +313,12 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         return None
 
     first_fold_cutoff_ts = _bar_ts(prices[119]) if len(prices) >= 120 else None
+    has_verified_timestamps = bool(
+        len(prices) >= 180
+        and first_fold_cutoff_ts is not None
+        and _bar_ts(prices[0]) is not None
+        and _bar_ts(prices[-1]) is not None
+    )
     if candidate is None:
         candidate = discover_candidate_from_observations(max_created_at=first_fold_cutoff_ts)
 
@@ -411,7 +417,8 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         sharpe_ratio = 0.0
 
     is_qualified = bool(
-        trades_count >= 10
+        has_verified_timestamps
+        and trades_count >= 10
         and net_oos > 0
         and max_dd_pct <= 8.0
         and win_rate >= 0.52
@@ -450,6 +457,7 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         'profit_factor': profit_factor,
         'sharpe_ratio': sharpe_ratio,
         'trades': trades_count,
+        'has_verified_timestamps': has_verified_timestamps,
         'production_qualified': is_qualified,
     }
 
@@ -537,8 +545,11 @@ def graph(saver):
         try:
             with tx() as c:
                 if cand_id:
-                    # Enforce rigorous validation: Must be approved by admin AND verified production_qualified by WFO
-                    is_prod_qualified = bool(rep.get('production_qualified', False))
+                    # Enforce rigorous validation: Must be approved by admin AND verified production_qualified by WFO with timestamped candles
+                    is_prod_qualified = bool(
+                        rep.get('production_qualified', False)
+                        and rep.get('has_verified_timestamps', False)
+                    )
                     if approved:
                         new_status = 'APPROVED_FOR_PROD' if is_prod_qualified else 'APPROVED_FOR_DEMO'
                     else:

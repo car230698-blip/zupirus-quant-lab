@@ -520,6 +520,26 @@ def verify_bep20_transaction(
         logger.warning(f"Confirmations calculation error: {conf_err}")
         return False, "Lỗi tính toán số xác nhận khối BSC. Vui lòng thử lại sau vài giây.", {}
 
+    # Resolve block timestamp from receipt or eth_getBlockByNumber
+    block_ts_sec = 0.0
+    raw_rec_ts = receipt.get("blockTimestamp") or receipt.get("timestamp")
+    if raw_rec_ts is not None:
+        try:
+            val_ts = int(raw_rec_ts, 16) if isinstance(raw_rec_ts, str) and raw_rec_ts.startswith("0x") else float(raw_rec_ts)
+            block_ts_sec = (val_ts / 1000.0) if val_ts > 1e11 else float(val_ts)
+        except Exception:
+            block_ts_sec = 0.0
+    if block_ts_sec <= 0:
+        block_hex_param = block_hex if (isinstance(block_hex, str) and block_hex.startswith("0x")) else hex(tx_block)
+        block_obj = _call_bsc_rpc("eth_getBlockByNumber", [block_hex_param, False])
+        if isinstance(block_obj, dict) and block_obj.get("timestamp") is not None:
+            try:
+                b_ts = block_obj.get("timestamp")
+                val_ts = int(b_ts, 16) if isinstance(b_ts, str) and b_ts.startswith("0x") else float(b_ts)
+                block_ts_sec = (val_ts / 1000.0) if val_ts > 1e11 else float(val_ts)
+            except Exception:
+                block_ts_sec = 0.0
+
     logs = receipt.get("logs") or []
     usdt_contract_clean = USDT_BEP20_CONTRACT.lower()
     expected_to_unpadded = expected_to.replace("0x", "")
@@ -556,12 +576,14 @@ def verify_bep20_transaction(
                         "network": "BEP20",
                         "contract": contract_addr,
                         "to": expected_to,
+                        "timestamp": block_ts_sec,
                     }
                 elif actual_usdt < expected_amount:
                     return False, f"Số tiền chuyển thiếu: nhận được {actual_usdt:.4f} USDT, yêu cầu {expected_amount:.4f} USDT.", {
                         "underpaid": True,
                         "received": actual_usdt,
                         "expected": expected_amount,
+                        "timestamp": block_ts_sec,
                     }
                 else:
                     return True, f"Xác minh thành công (chuyển dư: {actual_usdt:.4f} USDT).", {
@@ -570,6 +592,7 @@ def verify_bep20_transaction(
                         "network": "BEP20",
                         "contract": contract_addr,
                         "to": expected_to,
+                        "timestamp": block_ts_sec,
                     }
 
     return False, "Giao dịch không chuyển đúng hợp đồng Binance-Peg USDT chính thức hoặc sai địa chỉ ví nhận.", {}
@@ -648,7 +671,24 @@ async def verify_and_fulfill_crypto_order(
     else:
         return {"ok": False, "message": f"Phương thức thanh toán {gateway} không hỗ trợ xác minh On-Chain."}
 
-    # Underpaid branch
+    # Check transaction timestamp against the order's active validity window FIRST (before mutating to UNDERPAID or PAID)
+    raw_tx_ts = float(details.get("timestamp") or details.get("block_timestamp") or 0.0) if isinstance(details, dict) else 0.0
+    tx_ts_sec = (raw_tx_ts / 1000.0) if raw_tx_ts > 1e11 else raw_tx_ts
+    ord_created = float(order.get("created_at") or 0.0)
+    ord_expires = float(order.get("expires_at") or 0.0)
+    if (valid or (isinstance(details, dict) and details.get("underpaid"))) and ord_created > 0:
+        if tx_ts_sec <= 0:
+            return {
+                "ok": False,
+                "message": "Không thể xác minh thời gian khối (block timestamp) của giao dịch để đối chiếu với đơn hàng.",
+            }
+        if (ord_created > 0 and tx_ts_sec < ord_created - 60.0) or (ord_expires > 0 and tx_ts_sec > ord_expires + 300.0):
+            return {
+                "ok": False,
+                "message": "Giao dịch nằm ngoài khung thời gian hiệu lực của đơn hàng này.",
+            }
+
+    # Underpaid branch (only reached if transaction timestamp is within order validity window)
     if not valid and details.get("underpaid"):
         with tx() as c:
             curr_row = c.execute(f"SELECT status FROM orders WHERE id = ?{for_update}", (order["id"],)).fetchone()
@@ -679,18 +719,6 @@ async def verify_and_fulfill_crypto_order(
 
     if not valid:
         return {"ok": False, "message": msg}
-
-    # Check transaction timestamp against the order's active validity window if timestamp is available
-    raw_tx_ts = float(details.get("timestamp") or details.get("block_timestamp") or 0.0)
-    tx_ts_sec = (raw_tx_ts / 1000.0) if raw_tx_ts > 1e11 else raw_tx_ts
-    ord_created = float(order.get("created_at") or 0.0)
-    ord_expires = float(order.get("expires_at") or 0.0)
-    if tx_ts_sec > 0:
-        if (ord_created > 0 and tx_ts_sec < ord_created - 60.0) or (ord_expires > 0 and tx_ts_sec > ord_expires + 300.0):
-            return {
-                "ok": False,
-                "message": "Giao dịch nằm ngoài khung thời gian hiệu lực của đơn hàng này.",
-            }
 
     # 4. Fulfill order atomically with re-verification under row lock
     from app.domains.billing.service import apply_subscription_entitlements_tx, _deploy_with_retries

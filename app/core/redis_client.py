@@ -262,12 +262,78 @@ def publish_signal_event(signal_data: Dict[str, Any]) -> str:
         "expires": str(signal_data.get("expires", time.time() + 45)),
     }
     dedup_key = f"outbox:published_stream_id:{event_id}"
+    claim_key = f"outbox:claim:{event_id}"
     try:
         existing_stream_id = r.get(dedup_key)
         if existing_stream_id:
             return str(existing_stream_id)
     except Exception:
         pass
+
+    # Atomic claim (or Lua script on real Redis) to prevent concurrent duplicate XADD
+    if hasattr(r, "eval"):
+        try:
+            lua_script = """
+            local existing = redis.call('GET', KEYS[1])
+            if existing then
+                return existing
+            end
+            local sid = redis.call(
+                'XADD', KEYS[2], 'MAXLEN', '~', '1000', '*',
+                'event_id', ARGV[1],
+                'signal_id', ARGV[2],
+                'source', ARGV[3],
+                'side', ARGV[4],
+                'price', ARGV[5],
+                'sl', ARGV[6],
+                'tp', ARGV[7],
+                'created', ARGV[8],
+                'expires', ARGV[9]
+            )
+            redis.call('SET', KEYS[1], sid, 'EX', 3600)
+            return sid
+            """
+            stream_id_raw = r.eval(
+                lua_script,
+                2,
+                dedup_key,
+                STREAM_SIGNALS,
+                payload["event_id"],
+                payload["signal_id"],
+                payload["source"],
+                payload["side"],
+                payload["price"],
+                payload["sl"],
+                payload["tp"],
+                payload["created"],
+                payload["expires"],
+            )
+            stream_id = stream_id_raw.decode("utf-8") if isinstance(stream_id_raw, bytes) else str(stream_id_raw)
+            try:
+                r.publish(CHANNEL_SIGNALS, json.dumps(payload))
+            except Exception:
+                pass
+            return stream_id
+        except Exception:
+            pass
+
+    claimed = True
+    try:
+        claim_res = r.set(claim_key, "1", nx=True, ex=3600)
+        claimed = bool(claim_res)
+    except Exception:
+        claimed = True
+
+    if not claimed:
+        for _ in range(20):
+            try:
+                existing_stream_id = r.get(dedup_key)
+                if existing_stream_id:
+                    return str(existing_stream_id)
+            except Exception:
+                break
+            time.sleep(0.01)
+        return f"dedup:{event_id}"
 
     # Add to stream
     stream_id = r.xadd(STREAM_SIGNALS, payload, maxlen=1000)

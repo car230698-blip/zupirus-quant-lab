@@ -130,24 +130,31 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
         row = None
         if event_id:
             row = c.execute(
-                "SELECT id, ts, title, currency FROM news WHERE id = ?",
+                "SELECT id, ts, title, currency, impact FROM news WHERE id = ?",
                 (str(event_id),),
             ).fetchone()
         else:
             row = c.execute(
-                "SELECT id, ts, title, currency FROM news WHERE title = ? AND upper(currency) = upper(?) AND abs(ts - ?) <= 60",
+                "SELECT id, ts, title, currency, impact FROM news WHERE title = ? AND upper(currency) = upper(?) AND abs(ts - ?) <= 60",
                 (title, currency, ts),
             ).fetchone()
 
+        is_cancelled = bool(ev.get("cancelled") or str(impact).strip().lower() in ("cancelled", "canceled", "deleted"))
         if row:
             existing += 1
             existing_id = row["id"] if hasattr(row, "keys") else row[0]
             existing_ts = float(row["ts"] if hasattr(row, "keys") else row[1])
+            existing_title = str(row["title"] if hasattr(row, "keys") else row[2])
+            existing_currency = str(row["currency"] if hasattr(row, "keys") else row[3])
+            existing_impact = str(row["impact"] if (hasattr(row, "keys") and "impact" in row) else (row[4] if len(row) > 4 else ""))
+            if is_cancelled:
+                c.execute("DELETE FROM news WHERE id = ?", (existing_id,))
+                continue
             # If the event was rescheduled (timestamp shifted by > 1.0s), update to the new event_time and log audit
             if abs(existing_ts - ts) > 1.0:
                 c.execute(
-                    "UPDATE news SET ts = ?, impact = ?, currency = ? WHERE id = ?",
-                    (ts, impact, currency, existing_id),
+                    "UPDATE news SET ts = ?, impact = ?, currency = ?, title = ? WHERE id = ?",
+                    (ts, impact, currency, title, existing_id),
                 )
                 try:
                     c.execute(
@@ -169,7 +176,16 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
                 logger.info(
                     f"Calendar Event Rescheduled: '{title}' shifted from {existing_ts} to {ts} (shift: {(ts - existing_ts)/60.0:+.1f}m)"
                 )
-        else:
+            elif (
+                existing_impact.lower() != str(impact).lower()
+                or existing_currency.upper() != str(currency).upper()
+                or existing_title != title
+            ):
+                c.execute(
+                    "UPDATE news SET impact = ?, currency = ?, title = ? WHERE id = ?",
+                    (impact, currency, title, existing_id),
+                )
+        elif not is_cancelled:
             nid = str(event_id) if event_id else f"news_auto_{secrets.token_hex(6)}"
             c.execute(
                 "INSERT INTO news (id, title, currency, impact, ts) VALUES (?, ?, ?, ?, ?)",

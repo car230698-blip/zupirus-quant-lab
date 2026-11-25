@@ -1021,11 +1021,15 @@ class PositionWatcher:
                                             id, signal_id, account_id, metaapi_account_id, symbol, action, volume,
                                             entry_price, sl, tp, position_id, order_id, status, latency_ms,
                                             error_message, executed_at, profit, ticket, origin, reserved_risk_pct,
-                                            sl_confirmed, last_verified_at
+                                            sl_confirmed, last_verified_at, evidence_json
                                         )
-                                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', 15, 'Cloud MT5 Real-time Synced', ?, ?, ?, 'MANUAL', 0.0, 0, ?)
+                                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FILLED', 15, 'Cloud MT5 Real-time Synced', ?, 0.0, ?, 'MANUAL', 0.0, 0, ?, ?)
                                         """,
-                                        (exec_id, sig_id, acc_id, meta_id, op["symbol"], op["side"], op["volume"], op["open_price"], op["sl"], op["tp"], t_str, t_str, now_watch_ts, op["profit"], t_str, now_watch_ts),
+                                        (
+                                            exec_id, sig_id, acc_id, meta_id, op["symbol"], op["side"], op["volume"],
+                                            op["open_price"], op["sl"], op["tp"], t_str, t_str, now_watch_ts,
+                                            t_str, now_watch_ts, json.dumps({"floating_profit": op["profit"]}),
+                                        ),
                                     )
                     except Exception as sync_op_err:
                         logger.debug(f"PositionWatcher sync manual positions note for {acc_id}: {sync_op_err}")
