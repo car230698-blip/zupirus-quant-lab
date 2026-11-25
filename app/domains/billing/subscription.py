@@ -198,6 +198,20 @@ async def run_subscription_lifecycle_cycle(
                             setkv(c, f"expiry_suspended_auto_trade:{a_exp['id']}", "1")
                     c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE user_id = ?", (user_id,))
                     stats["expired_suspended"] += len(accs)
+        else:
+            # Active subscription: check if any excess accounts were marked EXPIRED_PROTECTING due to slot downgrade
+            with tx() as c:
+                acc_rows = c.execute(
+                    """
+                    SELECT id, metaapi_account_id, auto_trade, deployment_state
+                    FROM trading_accounts
+                    WHERE user_id = ? AND deployment_state = 'EXPIRED_PROTECTING'
+                    """,
+                    (user_id,),
+                ).fetchall()
+                accs = [dict(a) for a in acc_rows]
+
+        if remaining <= 0 or accs:
 
             for acc in accs:
                 meta_id = acc.get("metaapi_account_id")
@@ -301,13 +315,22 @@ async def run_subscription_lifecycle_cycle(
 
                 with tx() as c:
                     if undeploy_ok:
-                        upd_res = c.execute(
-                            """
-                            UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0
-                            WHERE id = ? AND (cloud_expires_at IS NULL OR cloud_expires_at <= ?)
-                            """,
-                            (acc["id"], now),
-                        )
+                        if remaining <= 0:
+                            upd_res = c.execute(
+                                """
+                                UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0
+                                WHERE id = ? AND (cloud_expires_at IS NULL OR cloud_expires_at <= ?)
+                                """,
+                                (acc["id"], now),
+                            )
+                        else:
+                            upd_res = c.execute(
+                                """
+                                UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0
+                                WHERE id = ? AND deployment_state = 'EXPIRED_PROTECTING'
+                                """,
+                                (acc["id"],),
+                            )
                         was_updated = getattr(upd_res, "rowcount", 0) > 0
                         if not was_updated:
                             logger.info(f"Account {acc['id']} was renewed during undeploy call! Setting DEPLOY_PENDING and triggering immediate re-deploy.")

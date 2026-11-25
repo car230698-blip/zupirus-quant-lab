@@ -518,6 +518,12 @@ async def _create_account_locked(
                 c.execute("UPDATE trading_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
                 c.execute("UPDATE metaapi_cloud_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
 
+        if meta_state == "DEPLOYED":
+            c.execute(
+                "UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE user_id = ? AND status = 'PAID' AND UPPER(COALESCE(cloud_deploy_status, '')) IN ('PENDING_LINK', 'AWAITING_ACCOUNT', 'PENDING', '')",
+                (user_id,),
+            )
+
         audit(c, user_id, "trading_account_cloud_connected", {
             "account_id": account_id,
             "login": p.login,
@@ -683,8 +689,15 @@ def update_account_risk(
             rc["allowed_strategy_ids"] = clean_strats
 
         if p.auto_trade is not None:
+            new_at_state = 1 if p.auto_trade else 0
             updates.append("auto_trade=?")
-            params.append(1 if p.auto_trade else 0)
+            params.append(new_at_state)
+            if not new_at_state:
+                c.execute("DELETE FROM kv WHERE key=?", (f"expiry_suspended_auto_trade:{real_id}",))
+            c.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"user_manual_auto_trade:{real_id}", str(new_at_state)),
+            )
 
         if acc.get("_is_ea_bridge"):
             if p.prop_daily_dd_limit_pct is not None:

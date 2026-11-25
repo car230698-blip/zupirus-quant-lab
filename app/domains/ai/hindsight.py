@@ -226,10 +226,10 @@ def reflect_on_signal_outcome(
         c.execute(
             """
             UPDATE signal_audit_logs
-            SET pnl = ?, mae = ?, mfe = ?, processed_at = ?
+            SET pnl = ?, mae = ?, mfe = ?, processed_at = ?, reject_reason = CASE WHEN ? != '' THEN ? ELSE reject_reason END
             WHERE signal_id = ?
             """,
-            (effective_pnl, mae, mfe, now_ts, signal_id)
+            (effective_pnl, mae, mfe, now_ts, str(exit_reason or ""), str(exit_reason or ""), signal_id)
         )
     except Exception as e:
         logger.warning(f"Could not update signal audit log outcome: {e}")

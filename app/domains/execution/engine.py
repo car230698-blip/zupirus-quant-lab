@@ -375,10 +375,17 @@ def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[
         "expires": expires_at,
         "meta": meta
     }
-    existing_outbox = c.execute(
-        "SELECT id FROM outbox WHERE event_type='signal_created' AND payload LIKE ? LIMIT 1",
-        (f'%"{sid}"%',),
-    ).fetchone()
+    from app.core.db import is_postgres
+    if is_postgres():
+        existing_outbox = c.execute(
+            "SELECT id FROM outbox WHERE event_type='signal_created' AND (payload->>'id' = ? OR payload->>'event_id' = ?) LIMIT 1",
+            (sid, event_id),
+        ).fetchone()
+    else:
+        existing_outbox = c.execute(
+            "SELECT id FROM outbox WHERE event_type='signal_created' AND (json_extract(payload, '$.id') = ? OR payload LIKE ?) LIMIT 1",
+            (sid, f'%"{sid}"%'),
+        ).fetchone()
     if not existing_outbox:
         c.execute(
             "INSERT INTO outbox(event_type, payload, status, retry_count, created_at) VALUES(?,?,?,?,?)",
@@ -583,7 +590,9 @@ def flush_outbox(c):
                 payload["outbox_id"] = oid
                 payload.setdefault("event_id", f"sig_evt_{sig_id}" if sig_id else f"outbox_{oid}")
             if etype == "signal_created":
-                publish_signal_event(payload)
+                sid_res = publish_signal_event(payload)
+                if not sid_res or str(sid_res).strip() in ("0", "None", ""):
+                    raise RuntimeError(f"Invalid Redis stream ID returned: {sid_res!r}")
             c.execute("UPDATE outbox SET status='published', published_at=? WHERE id=?", (time.time(), oid))
         except Exception as e:
             c.execute("UPDATE outbox SET retry_count=retry_count+1, error=? WHERE id=?", (str(e), oid))

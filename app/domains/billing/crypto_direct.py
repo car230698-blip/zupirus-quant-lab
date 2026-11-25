@@ -676,12 +676,7 @@ async def verify_and_fulfill_crypto_order(
     tx_ts_sec = (raw_tx_ts / 1000.0) if raw_tx_ts > 1e11 else raw_tx_ts
     ord_created = float(order.get("created_at") or 0.0)
     ord_expires = float(order.get("expires_at") or 0.0)
-    if (valid or (isinstance(details, dict) and details.get("underpaid"))) and ord_created > 0:
-        if tx_ts_sec <= 0:
-            return {
-                "ok": False,
-                "message": "Không thể xác minh thời gian khối (block timestamp) của giao dịch để đối chiếu với đơn hàng.",
-            }
+    if tx_ts_sec > 0:
         if (ord_created > 0 and tx_ts_sec < ord_created - 60.0) or (ord_expires > 0 and tx_ts_sec > ord_expires + 300.0):
             return {
                 "ok": False,

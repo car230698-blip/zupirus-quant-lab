@@ -122,8 +122,13 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 font-mono tabular-nums">
         <div className="rounded-xl border border-emerald-500/25 bg-[#040814] p-3.5">
           <div className="text-[10px] text-slate-400">{lang === 'en' ? 'NET PROFIT' : 'LỢI NHUẬN RÒNG'}</div>
-          <div className="mt-1 text-lg font-extrabold text-emerald-400">
-            +${Number(summary.net_pnl_usd ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          <div
+            className={`mt-1 text-lg font-extrabold ${
+              Number(summary.net_pnl_usd ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
+            }`}
+          >
+            {Number(summary.net_pnl_usd ?? 0) >= 0 ? '+' : '-'}$
+            {Math.abs(Number(summary.net_pnl_usd ?? 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-[#040814] p-3.5">
@@ -160,7 +165,10 @@ export const PublicTrackRecordSection: React.FC<{ onEnterPortal: () => void }> =
             <span className="text-slate-300 font-bold">
               {lang === 'en' ? 'Cumulative Profit Curve (USD)' : 'Đường Cong Lợi Nhuận Tích Lũy (USD)'}
             </span>
-            <span className="text-emerald-400 font-bold">+{Number(summary.roi_pct ?? 0).toFixed(1)}% ROI</span>
+            <span className={`font-bold ${Number(summary.roi_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {Number(summary.roi_pct ?? 0) >= 0 ? '+' : ''}
+              {Number(summary.roi_pct ?? 0).toFixed(1)}% ROI
+            </span>
           </div>
           <svg viewBox="0 0 600 165" className="w-full h-44 select-none">
             <defs>

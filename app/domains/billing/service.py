@@ -493,12 +493,13 @@ async def process_successful_payment(
 
 
 def _enforce_slot_limit_on_user_accounts(c, user_id: str, max_slots: int) -> None:
-    """When a user's active slot count is reduced (e.g. via downgrade), disable auto_trade
-    and undeploy/suspend excess accounts beyond the first max_slots terminals."""
+    """When a user's active slot count is reduced (e.g. via downgrade), disable auto_trade=0 immediately
+    and transition excess deployed terminals to EXPIRED_PROTECTING so PositionWatcher continues monitoring
+    and lifecycle worker verifies broker positions/orders before undeploying."""
     max_slots = max(0, int(max_slots or 0))
     rows = c.execute(
         """
-        SELECT id, auto_trade, deployment_state
+        SELECT id, metaapi_account_id, auto_trade, deployment_state
         FROM trading_accounts
         WHERE user_id = ?
         ORDER BY created_at ASC, id ASC
@@ -510,15 +511,12 @@ def _enforce_slot_limit_on_user_accounts(c, user_id: str, max_slots: int) -> Non
     for excess_row in rows[max_slots:]:
         ex_d = dict(excess_row)
         ex_id = ex_d["id"]
-        open_bot = c.execute(
-            """
-            SELECT 1 FROM metaapi_trade_executions
-            WHERE account_id = ? AND status IN ('OPEN', 'FILLED', 'PENDING_SUBMIT', 'UNKNOWN_EXECUTION', 'CLOSE_PENDING')
-            LIMIT 1
-            """,
-            (ex_id,),
-        ).fetchone()
-        next_dep_state = "EXPIRED_PROTECTING" if open_bot else "UNDEPLOYED"
+        cur_dep = str(ex_d.get("deployment_state") or "DEPLOYED").upper()
+        has_meta = bool(ex_d.get("metaapi_account_id"))
+        if cur_dep == "UNDEPLOYED" or not has_meta:
+            next_dep_state = "UNDEPLOYED"
+        else:
+            next_dep_state = "EXPIRED_PROTECTING"
         c.execute(
             "UPDATE trading_accounts SET auto_trade = 0, deployment_state = ? WHERE id = ? AND user_id = ?",
             (next_dep_state, ex_id, user_id),
@@ -663,6 +661,10 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
     new_sub_exp = max(current_sub_exp, now_ts) + duration_sec
     existing_qd_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",)).fetchone()
     existing_segments = _normalize_queued_segments(existing_qd_row[0] if existing_qd_row else None)
+    # Purge any stale queued segments from a previous subscription that do not belong to the active subscription window
+    if existing_segments and (not sub_d or current_sub_exp <= now_ts or max(float(s.get("expires_at", 0)) for s in existing_segments) > current_sub_exp + 366 * 86400 or abs(max(float(s.get("expires_at", 0)) for s in existing_segments) - current_sub_exp) > 5.0):
+        existing_segments = []
+        c.execute("DELETE FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",))
 
     if is_lower_tier_on_active:
         # Sequential multi-segment queuing: insert new segment in descending tier rank order
@@ -823,17 +825,84 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
             )
 
     if not accounts_to_deploy:
-        c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))
+        if not acc_rows:
+            c.execute("UPDATE orders SET cloud_deploy_status = 'PENDING_LINK' WHERE id = ?", (order["id"],))
+        else:
+            c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))
 
     return new_sub_exp, accounts_to_deploy
 
 
+async def retry_order_cloud_deployment(order_id: str) -> Dict[str, Any]:
+    """Retry MetaApi Cloud deployment for an order whose subscription entitlements were ALREADY granted,
+    without re-adding subscription duration."""
+    now_ts = time.time()
+    accounts_to_deploy: List[Tuple[str, str]] = []
+    has_any_account = False
+    with tx() as c:
+        row = c.execute("SELECT * FROM orders WHERE LOWER(id) = ?", (order_id.strip().lower(),)).fetchone()
+        if not row:
+            return {"ok": False, "status": "NOT_FOUND", "message": f"Không tìm thấy đơn hàng {order_id}."}
+        order = dict(row)
+        user_id = order["user_id"]
+        sub = c.execute("SELECT max_mt5_accounts, service_expires_at FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
+        max_accounts = int(sub["max_mt5_accounts"] or 1) if sub else int(order.get("cloud_slots_count") or 1)
+        sub_exp = float(sub["service_expires_at"] or 0) if sub and sub["service_expires_at"] else (now_ts + 30 * 86400)
+
+        acc_rows = c.execute(
+            "SELECT id, metaapi_account_id, deployment_state FROM trading_accounts WHERE user_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
+            (user_id, max_accounts),
+        ).fetchall()
+        has_any_account = len(acc_rows) > 0
+        for a_row in acc_rows:
+            a = dict(a_row)
+            dep_st = str(a.get("deployment_state") or "").upper()
+            if a.get("metaapi_account_id") and dep_st != "DEPLOYED":
+                c.execute(
+                    "UPDATE trading_accounts SET cloud_expires_at = CASE WHEN cloud_expires_at IS NULL OR cloud_expires_at < ? THEN ? ELSE cloud_expires_at END, deployment_state = 'DEPLOY_PENDING' WHERE id = ?",
+                    (sub_exp, sub_exp, a["id"]),
+                )
+                accounts_to_deploy.append((a["id"], a["metaapi_account_id"]))
+
+        if not has_any_account:
+            c.execute("UPDATE orders SET cloud_deploy_status = 'PENDING_LINK' WHERE id = ?", (order["id"],))
+            return {
+                "ok": True,
+                "status": "PENDING_LINK",
+                "message": f"Đơn hàng {order_id} đã được cấp quyền. Đang chờ khách hàng liên kết tài khoản MT5.",
+            }
+        if not accounts_to_deploy:
+            c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))
+            return {
+                "ok": True,
+                "status": "CLOUD_DEPLOYED",
+                "message": f"Tất cả trạm Cloud MT5 của đơn hàng {order_id} đã ở trạng thái DEPLOYED.",
+            }
+
+    await _deploy_with_retries(accounts_to_deploy, order_id=order["id"], max_retries=3, delay=1)
+    with tx() as c:
+        updated_ord = c.execute("SELECT cloud_deploy_status FROM orders WHERE id = ?", (order["id"],)).fetchone()
+        final_dep_st = str(updated_ord[0] or "FAILED").upper() if updated_ord else "FAILED"
+    if final_dep_st == "DEPLOYED":
+        return {
+            "ok": True,
+            "status": "CLOUD_RECOVERED",
+            "message": f"Đã khôi phục kết nối Cloud thành công cho đơn hàng {order_id}.",
+        }
+    return {
+        "ok": False,
+        "status": "CLOUD_DEPLOY_FAILED",
+        "message": f"Thử triển khai lại Cloud cho đơn hàng {order_id} chưa thành công (giữ nguyên thời hạn gói cước).",
+    }
+
+
 async def fulfill_order_entitlements(order_id: str) -> bool:
     """Grant subscription tier, cloud slots, extend trading_accounts cloud expiration,
-    trigger MetaAPI deployment, and publish real-time events.
+    trigger MetaAPI deployment, and publish real-time events. Idempotent against already-GRANTED orders.
     """
     now_ts = time.time()
     accounts_to_deploy = []
+    already_granted = False
     from app.db import is_postgres
     for_update = " FOR UPDATE" if is_postgres() else ""
     with tx() as c:
@@ -842,8 +911,19 @@ async def fulfill_order_entitlements(order_id: str) -> bool:
             logger.error(f"Order {order_id} not found for entitlement fulfillment.")
             return False
         order = dict(row)
-        new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, order, now_ts)
-        c.execute("UPDATE orders SET entitlement_status = 'GRANTED' WHERE id = ?", (order["id"],))
+        ent_st = str(order.get("entitlement_status") or "").upper()
+        already_granted = ent_st in ("GRANTED", "APPLIED") or bool(c.execute("SELECT value FROM kv WHERE key = ?", (f"order_entitlement_granted:{order['id']}",)).fetchone())
+        if not already_granted:
+            new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, order, now_ts)
+            c.execute("UPDATE orders SET entitlement_status = 'GRANTED' WHERE id = ?", (order["id"],))
+            c.execute(
+                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (f"order_entitlement_granted:{order['id']}", str(now_ts)),
+            )
+
+    if already_granted:
+        retry_res = await retry_order_cloud_deployment(order["id"])
+        return bool(retry_res.get("ok"))
 
     # MetaApi Auto-Deploy with 3 retries and truthful status persistence
     if accounts_to_deploy:

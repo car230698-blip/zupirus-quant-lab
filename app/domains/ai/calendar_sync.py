@@ -73,21 +73,39 @@ def fetch_live_calendar() -> List[Dict[str, Any]]:
                     for item in data:
                         if not isinstance(item, dict):
                             continue
-                        impact = str(item.get("impact", "")).lower()
-                        country = str(item.get("country", "")).upper()
-                        if country in ("USD", "ALL", "US") and ("high" in impact or "holiday" in impact):
+                        impact_raw = str(item.get("impact", "")).strip().lower()
+                        country = str(item.get("country", "")).strip().upper()
+                        is_cancelled_item = bool(
+                            item.get("cancelled")
+                            or item.get("canceled")
+                            or str(item.get("status", "")).strip().lower() in ("cancelled", "canceled", "deleted")
+                            or impact_raw in ("cancelled", "canceled", "deleted")
+                        )
+                        if country in ("USD", "ALL", "US") and (
+                            is_cancelled_item
+                            or any(k in impact_raw for k in ("high", "holiday", "medium", "low"))
+                        ):
                             title = str(item.get("title", "US Economic Event")).strip()
                             date_val = item.get("date") or item.get("time")
                             ts = parse_event_time(str(date_val)) if date_val else None
                             if ts and ts > time.time() - 86400:
+                                if is_cancelled_item:
+                                    norm_impact = "cancelled"
+                                elif "high" in impact_raw or "holiday" in impact_raw:
+                                    norm_impact = "high"
+                                elif "medium" in impact_raw:
+                                    norm_impact = "medium"
+                                else:
+                                    norm_impact = "low"
                                 ev_obj = {
                                     "title": title,
                                     "currency": "USD",
-                                    "impact": "high",
-                                    "ts": ts
+                                    "impact": norm_impact,
+                                    "ts": ts,
+                                    "cancelled": is_cancelled_item,
                                 }
-                                if item.get("id"):
-                                    ev_obj["id"] = str(item.get("id"))
+                                if item.get("id") or item.get("event_id"):
+                                    ev_obj["id"] = str(item.get("id") or item.get("event_id"))
                                 events.append(ev_obj)
             if events:
                 logger.info(f"Successfully fetched {len(events)} events from {url}")
@@ -185,7 +203,7 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
                     "UPDATE news SET impact = ?, currency = ?, title = ? WHERE id = ?",
                     (impact, currency, title, existing_id),
                 )
-        elif not is_cancelled:
+        elif not is_cancelled and str(impact).strip().lower() == "high":
             nid = str(event_id) if event_id else f"news_auto_{secrets.token_hex(6)}"
             c.execute(
                 "INSERT INTO news (id, title, currency, impact, ts) VALUES (?, ?, ?, ?, ?)",

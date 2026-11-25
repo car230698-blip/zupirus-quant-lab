@@ -462,14 +462,32 @@ def export_orders_csv(
 
         if is_cent:
             orig_unit = curr if curr else "USC"
-            # metaapi_trade_executions.profit is already normalized to USD in watcher.py
-            profit_usd = round(raw_profit, 2)
+            # metaapi_trade_executions.profit is already normalized to 1/100 major unit in watcher.py
             profit_orig = round(raw_profit * 100.0, 2)
             profit_orig_str = f"{profit_orig:.2f} {orig_unit}"
+            if orig_unit == "EUC":
+                from app.services.symbol_precision import _lookup_quote_mid, _FALLBACK_USD_RATES
+                eur_rate = _lookup_quote_mid("EURUSD") or _FALLBACK_USD_RATES.get("EUR", 1.08)
+                profit_usd = round(raw_profit * eur_rate, 2)
+            else:
+                profit_usd = round(raw_profit, 2)
         else:
             orig_unit = curr if curr else "USD"
             profit_orig_str = f"{raw_profit:.2f} {orig_unit}"
-            profit_usd = round(raw_profit, 2)
+            if orig_unit == "USD":
+                profit_usd = round(raw_profit, 2)
+            else:
+                from app.services.symbol_precision import _lookup_quote_mid, _FALLBACK_USD_RATES
+                fx_rate = 0.0
+                if orig_unit in ("EUR", "GBP", "AUD", "NZD"):
+                    fx_rate = _lookup_quote_mid(f"{orig_unit}USD")
+                elif orig_unit in ("CAD", "CHF", "JPY"):
+                    inv_mid = _lookup_quote_mid(f"USD{orig_unit}")
+                    if inv_mid > 0:
+                        fx_rate = 1.0 / inv_mid
+                if fx_rate <= 0:
+                    fx_rate = float(_FALLBACK_USD_RATES.get(orig_unit, 0.0))
+                profit_usd = round(raw_profit * fx_rate, 2) if fx_rate > 0 else f"{raw_profit:.2f} {orig_unit}"
 
         acc_name = d.get("account_name", "")
         mt5_login = d.get("mt5_login", "")

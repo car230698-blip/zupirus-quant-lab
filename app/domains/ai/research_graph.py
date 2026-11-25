@@ -312,12 +312,37 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
                 return None
         return None
 
+    now_wfo_ts = time.time()
     first_fold_cutoff_ts = _bar_ts(prices[119]) if len(prices) >= 120 else None
+    first_bar_ts = _bar_ts(prices[0]) if len(prices) >= 180 else None
+    last_bar_ts = _bar_ts(prices[-1]) if len(prices) >= 180 else None
+    has_untrusted_source = any(
+        isinstance(b, dict) and str(b.get("source") or "").strip().upper() == "YAHOO_REFERENCE"
+        for b in prices
+    )
+    has_future_or_unclosed_bars = bool(
+        last_bar_ts is not None and (last_bar_ts + 900.0) > (now_wfo_ts + 60.0)
+    )
+    is_strictly_chronological = True
+    if len(prices) >= 180 and first_bar_ts is not None and last_bar_ts is not None:
+        prev_t = first_bar_ts
+        for b in prices[1:]:
+            bt = _bar_ts(b)
+            if bt is None or bt <= prev_t:
+                is_strictly_chronological = False
+                break
+            prev_t = bt
+    else:
+        is_strictly_chronological = False
+
     has_verified_timestamps = bool(
         len(prices) >= 180
         and first_fold_cutoff_ts is not None
-        and _bar_ts(prices[0]) is not None
-        and _bar_ts(prices[-1]) is not None
+        and first_bar_ts is not None
+        and last_bar_ts is not None
+        and not has_untrusted_source
+        and not has_future_or_unclosed_bars
+        and is_strictly_chronological
     )
     if candidate is None:
         candidate = discover_candidate_from_observations(max_created_at=first_fold_cutoff_ts)
@@ -483,22 +508,49 @@ def graph(saver):
         cand = None
         try:
             from app.db import to_epoch_ts
+            now_eval_ts = time.time()
             with tx() as c:
                 candle_rows = c.execute(
-                    "SELECT open, high, low, close, time FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
+                    """
+                    SELECT open, high, low, close, time, source
+                    FROM candles
+                    WHERE symbol = 'XAUUSD' AND timeframe = 'M15'
+                      AND (source IS NULL OR source != 'YAHOO_REFERENCE')
+                    ORDER BY time DESC LIMIT 1000
+                    """
                 ).fetchall()
                 if not candle_rows:
                     candle_rows = c.execute(
-                        "SELECT open, high, low, close, time FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1000"
+                        """
+                        SELECT open, high, low, close, time, source
+                        FROM candles
+                        WHERE symbol = 'XAUUSD'
+                          AND (source IS NULL OR source != 'YAHOO_REFERENCE')
+                        ORDER BY time DESC LIMIT 1000
+                        """
                     ).fetchall()
-                if candle_rows and len(candle_rows) >= 180:
-                    prices = [
-                        {"open": float(row[0]), "high": float(row[1]), "low": float(row[2]), "close": float(row[3]), "time": row[4]}
+                if candle_rows:
+                    raw_bars = [
+                        {
+                            "open": float(row[0]),
+                            "high": float(row[1]),
+                            "low": float(row[2]),
+                            "close": float(row[3]),
+                            "time": row[4],
+                            "source": row[5] if len(row) > 5 else None,
+                        }
                         for row in reversed(candle_rows)
                     ]
-                    first_train_end_ts = to_epoch_ts(prices[119].get("time"))
-                    if first_train_end_ts and first_train_end_ts > 0:
-                        cand = discover_candidate_from_observations(c, symbol="XAUUSD", max_created_at=first_train_end_ts)
+                    # Keep only closed historical M15 candles (bar_start + 900 <= now)
+                    closed_bars = [
+                        b for b in raw_bars
+                        if to_epoch_ts(b.get("time")) > 0 and (to_epoch_ts(b.get("time")) + 900.0) <= now_eval_ts
+                    ]
+                    if len(closed_bars) >= 180:
+                        prices = closed_bars
+                        first_train_end_ts = to_epoch_ts(prices[119].get("time"))
+                        if first_train_end_ts and first_train_end_ts > 0:
+                            cand = discover_candidate_from_observations(c, symbol="XAUUSD", max_created_at=first_train_end_ts)
         except Exception as e:
             logger.warning(f"Error loading candles from DB for WFO: {e}")
 
@@ -765,12 +817,32 @@ def run_autonomous_induction_and_wfo(force: bool = False):
 
             # 1. Fetch historical candles first to isolate out-of-sample window (last 60 bars = 15 hours on M15)
             candle_rows = c.execute(
-                "SELECT open, high, low, close, time FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
+                """
+                SELECT open, high, low, close, time, source
+                FROM candles
+                WHERE symbol = 'XAUUSD' AND timeframe = 'M15'
+                  AND (source IS NULL OR source != 'YAHOO_REFERENCE')
+                ORDER BY time DESC LIMIT 1000
+                """
             ).fetchall()
-            prices = [{"open": float(r[0]), "high": float(r[1]), "low": float(r[2]), "close": float(r[3]), "time": r[4]} for r in reversed(candle_rows)] if candle_rows else []
+            from app.db import to_epoch_ts
+            raw_prices = [
+                {
+                    "open": float(r[0]),
+                    "high": float(r[1]),
+                    "low": float(r[2]),
+                    "close": float(r[3]),
+                    "time": r[4],
+                    "source": r[5] if len(r) > 5 else None,
+                }
+                for r in reversed(candle_rows)
+            ] if candle_rows else []
+            prices = [
+                b for b in raw_prices
+                if to_epoch_ts(b.get("time")) > 0 and (to_epoch_ts(b.get("time")) + 900.0) <= now
+            ]
 
             cutoff_ts = None
-            from app.db import to_epoch_ts
             if prices and len(prices) >= 180:
                 try:
                     # First fold train is prices[0:120], first fold OOS test starts at prices[120]
@@ -795,12 +867,12 @@ def run_autonomous_induction_and_wfo(force: bool = False):
 
             # Issue 11 Fix: Validate that cutoff_ts is a valid positive timestamp
             # Never run walk-forward lookahead bias check with invalid/None cutoff
-            if cutoff_ts is None or cutoff_ts <= 0:
-                logger.warning("WFO aborted: Invalid or missing candle cutoff timestamp.")
-                return
-
-            # 2. Discover inductive candidate strictly before out-of-sample window to avoid lookahead bias
-            cand = discover_candidate_from_observations(c, symbol="XAUUSD", max_created_at=cutoff_ts)
+            cand = None
+            if cutoff_ts is not None and cutoff_ts > 0:
+                # 2. Discover inductive candidate strictly before out-of-sample window to avoid lookahead bias
+                cand = discover_candidate_from_observations(c, symbol="XAUUSD", max_created_at=cutoff_ts)
+            else:
+                logger.warning("WFO discovery skipped: Invalid or missing candle cutoff timestamp.")
             if cand and cand.get("id"):
                 if len(prices) >= 180:
                     rep = walk_forward(prices, candidate=cand)
@@ -896,15 +968,30 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                 if canary_age >= 7 * 86400:
                     log_rows = c.execute(
                         """
-                        SELECT pnl
-                        FROM signal_audit_logs
-                        WHERE (strategy_id = ? OR source_name = ? OR signal_id = ? OR signal_id LIKE ? OR signal_id LIKE ?) AND created_at >= ? AND pnl IS NOT NULL
-                          AND signal_id NOT IN (
+                        SELECT l.pnl
+                        FROM signal_audit_logs l
+                        WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
+                          AND l.created_at >= ?
+                          AND l.pnl IS NOT NULL
+                          AND UPPER(COALESCE(l.reject_reason, '')) != 'BROKER_PARTIAL_CLOSED'
+                          AND (
+                              EXISTS (
+                                  SELECT 1 FROM metaapi_trade_executions e
+                                  WHERE e.signal_id = l.signal_id
+                                    AND UPPER(COALESCE(e.status, '')) IN ('CLOSED', 'COMPLETED')
+                                    AND e.closed_at IS NOT NULL
+                              )
+                              OR NOT EXISTS (
+                                  SELECT 1 FROM metaapi_trade_executions e2
+                                  WHERE e2.signal_id = l.signal_id
+                              )
+                          )
+                          AND l.signal_id NOT IN (
                               SELECT signal_id FROM metaapi_trade_executions 
                               WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
                                  OR evidence_json LIKE '%"manual_closed_by_user":true%'
                           )
-                        ORDER BY created_at ASC
+                        ORDER BY l.created_at ASC
                         """,
                         (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
                     ).fetchall()

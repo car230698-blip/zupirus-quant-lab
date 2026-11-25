@@ -614,7 +614,7 @@ async def execute_fan_out_for_signal(
                     final_risk_usd = final_sl_dist * volume * eff_contract * quote_to_usd_rate(symbol, entry_price)
                     final_calc_risk_pct = (final_risk_usd / base_cap_usd) * 100.0 if base_cap_usd > 0 else 0.0
 
-                effective_risk_pct = round(final_calc_risk_pct, 4)
+                effective_risk_pct = max(round(effective_risk_pct * effective_mult, 4), round(final_calc_risk_pct, 4))
                 effective_mult = 1.0
 
             if volume <= 0:

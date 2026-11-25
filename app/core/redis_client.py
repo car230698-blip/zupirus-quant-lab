@@ -71,9 +71,29 @@ class InMemoryRedisMock:
             return count
 
     def eval(self, script: str, numkeys: int, *keys_and_args: Any) -> Any:
-        # Atomic lock release simulation: if get(k1) == arg1 then del(k1) return 1 else return 0
         with self._lock:
             self._purge_expired()
+            if "XADD" in str(script).upper() and numkeys >= 2 and len(keys_and_args) >= 11:
+                dedup_k = str(keys_and_args[0])
+                stream_k = str(keys_and_args[1])
+                existing = self._data.get(dedup_k)
+                if existing:
+                    return existing
+                fields = {
+                    "event_id": str(keys_and_args[2]),
+                    "signal_id": str(keys_and_args[3]),
+                    "source": str(keys_and_args[4]),
+                    "side": str(keys_and_args[5]),
+                    "price": str(keys_and_args[6]),
+                    "sl": str(keys_and_args[7]),
+                    "tp": str(keys_and_args[8]),
+                    "created": str(keys_and_args[9]),
+                    "expires": str(keys_and_args[10]),
+                }
+                sid = self.xadd(stream_k, fields, maxlen=1000)
+                self.set(dedup_k, sid, ex=3600)
+                return sid
+            # Atomic lock release simulation: if get(k1) == arg1 then del(k1) return 1 else return 0
             key = str(keys_and_args[0])
             val = str(keys_and_args[1]) if len(keys_and_args) > 1 else ""
             if self._data.get(key) == val:
@@ -263,15 +283,22 @@ def publish_signal_event(signal_data: Dict[str, Any]) -> str:
     }
     dedup_key = f"outbox:published_stream_id:{event_id}"
     claim_key = f"outbox:claim:{event_id}"
+
+    def _is_valid_stream_id(val: Any) -> bool:
+        if val is None or isinstance(val, bool):
+            return False
+        s = val.decode("utf-8") if isinstance(val, bytes) else str(val).strip()
+        return bool(s and "-" in s and s not in ("0", "0-0", "None"))
+
     try:
         existing_stream_id = r.get(dedup_key)
-        if existing_stream_id:
-            return str(existing_stream_id)
+        if _is_valid_stream_id(existing_stream_id):
+            return existing_stream_id.decode("utf-8") if isinstance(existing_stream_id, bytes) else str(existing_stream_id)
     except Exception:
         pass
 
-    # Atomic claim (or Lua script on real Redis) to prevent concurrent duplicate XADD
-    if hasattr(r, "eval"):
+    # Atomic Lua script on real Redis (or InMemoryRedisMock) to prevent concurrent duplicate XADD
+    if hasattr(r, "eval") and not isinstance(r, InMemoryRedisMock):
         try:
             lua_script = """
             local existing = redis.call('GET', KEYS[1])
@@ -308,45 +335,55 @@ def publish_signal_event(signal_data: Dict[str, Any]) -> str:
                 payload["created"],
                 payload["expires"],
             )
-            stream_id = stream_id_raw.decode("utf-8") if isinstance(stream_id_raw, bytes) else str(stream_id_raw)
-            try:
-                r.publish(CHANNEL_SIGNALS, json.dumps(payload))
-            except Exception:
-                pass
-            return stream_id
+            if _is_valid_stream_id(stream_id_raw):
+                stream_id = stream_id_raw.decode("utf-8") if isinstance(stream_id_raw, bytes) else str(stream_id_raw)
+                try:
+                    r.publish(CHANNEL_SIGNALS, json.dumps(payload))
+                except Exception:
+                    pass
+                return stream_id
         except Exception:
             pass
 
     claimed = True
     try:
-        claim_res = r.set(claim_key, "1", nx=True, ex=3600)
+        claim_res = r.set(claim_key, "1", nx=True, ex=30)
         claimed = bool(claim_res)
     except Exception:
         claimed = True
 
     if not claimed:
-        for _ in range(20):
+        for _ in range(30):
             try:
                 existing_stream_id = r.get(dedup_key)
-                if existing_stream_id:
-                    return str(existing_stream_id)
+                if _is_valid_stream_id(existing_stream_id):
+                    return existing_stream_id.decode("utf-8") if isinstance(existing_stream_id, bytes) else str(existing_stream_id)
             except Exception:
                 break
             time.sleep(0.01)
-        return f"dedup:{event_id}"
+        raise RuntimeError(f"Concurrent publish in progress or unconfirmed for {event_id}")
 
-    # Add to stream
-    stream_id = r.xadd(STREAM_SIGNALS, payload, maxlen=1000)
     try:
-        r.set(dedup_key, str(stream_id), ex=3600)
+        stream_id = r.xadd(STREAM_SIGNALS, payload, maxlen=1000)
+        if not _is_valid_stream_id(stream_id):
+            raise RuntimeError(f"Redis XADD returned invalid stream_id: {stream_id!r}")
+        try:
+            r.set(dedup_key, str(stream_id), ex=3600)
+        except Exception:
+            pass
     except Exception:
-        pass
+        try:
+            r.delete(claim_key)
+        except Exception:
+            pass
+        raise
+
     # Broadcast to Pub/Sub subscribers
     try:
         r.publish(CHANNEL_SIGNALS, json.dumps(payload))
     except Exception:
         pass
-    return stream_id
+    return str(stream_id)
 
 
 def read_recent_signals(count: int = 20) -> List[Dict[str, Any]]:

@@ -199,7 +199,15 @@ class CursorWrapper:
                 m_cols = re.search(r'INSERT\s+INTO\s+metaapi_cloud_accounts\s*\(([^)]+)\)', translated, re.IGNORECASE)
                 if m_cols:
                     cols = [c.strip() for c in m_cols.group(1).split(",") if c.strip()]
-                    if "id" in [c.lower() for c in cols] and len(cols) <= 6:
+                    cols_l = [c.lower() for c in cols]
+                    if "login" in cols_l and "server" in cols_l:
+                        upd_cols = [c for c in cols if c.lower() not in ("id", "login", "server")]
+                        if upd_cols and len(cols) <= 6:
+                            upd = ", ".join(f"{c}=EXCLUDED.{c}" for c in upd_cols)
+                            translated += f" ON CONFLICT (login, server) DO UPDATE SET {upd}"
+                        else:
+                            translated += " ON CONFLICT (login, server) DO UPDATE SET metaapi_account_id=EXCLUDED.metaapi_account_id, metaapi_state=EXCLUDED.metaapi_state, auto_trade=EXCLUDED.auto_trade, encrypted_password=EXCLUDED.encrypted_password, last_sync=EXCLUDED.last_sync"
+                    elif "id" in cols_l and len(cols) <= 6:
                         upd = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c.lower() != "id")
                         translated += f" ON CONFLICT (id) DO UPDATE SET {upd}"
                     else:

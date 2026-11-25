@@ -37,7 +37,7 @@ def get_public_track_record(request: Request) -> Dict[str, Any]:
         exec_rows = c.execute(
             """
             SELECT e.symbol, e.action, e.volume, e.entry_price, e.sl, e.tp,
-                   e.profit, e.latency_ms, e.executed_at, e.closed_at, e.status, e.origin,
+                   e.profit, e.latency_ms, e.executed_at, e.closed_at, e.status, e.origin, e.evidence_json,
                    ta.account_type, ta.prop_stage, ta.currency
             FROM metaapi_trade_executions e
             JOIN trading_accounts ta ON e.account_id = ta.id
@@ -45,6 +45,13 @@ def get_public_track_record(request: Request) -> Dict[str, Any]:
               AND e.closed_at IS NOT NULL
               AND UPPER(COALESCE(e.status, '')) IN ('CLOSED', 'COMPLETED')
               AND UPPER(COALESCE(e.origin, 'BOT')) = 'BOT'
+              AND (
+                  e.evidence_json IS NULL
+                  OR (
+                      e.evidence_json NOT LIKE '%"manual_closed_by_user": true%'
+                      AND e.evidence_json NOT LIKE '%"manual_closed_by_user":true%'
+                  )
+              )
               AND UPPER(COALESCE(e.symbol, 'XAUUSD')) LIKE 'XAU%'
               AND UPPER(COALESCE(ta.account_type, '')) IN ('PROP', 'PROP_FIRM')
               AND UPPER(COALESCE(ta.prop_stage, '')) = 'LIVE'
@@ -76,7 +83,15 @@ def get_public_track_record(request: Request) -> Dict[str, Any]:
     win_rate = round((len(wins) / closed_cnt) * 100.0, 1) if closed_cnt > 0 else 0.0
     profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else (9.99 if gross_profit > 0 else 0.0)
 
-    total_live_equity = round(sum(float(r["equity"] or r["balance"] or 0) for r in acc_rows), 2)
+    def _acc_equity_usd(r: Any) -> float:
+        raw_val = float(r["equity"] or r["balance"] or 0.0)
+        curr_u = str((r["currency"] if hasattr(r, "keys") and "currency" in r.keys() else "USD") or "USD").upper()
+        acc_tp_u = str((r["account_type"] if hasattr(r, "keys") and "account_type" in r.keys() else "") or "").upper()
+        if curr_u in ("USC", "EUC") or acc_tp_u == "CENT":
+            return raw_val / 100.0
+        return raw_val
+
+    total_live_equity = round(sum(_acc_equity_usd(r) for r in acc_rows), 2)
     prop_live_count = sum(
         1 for r in acc_rows
         if str(r["account_type"] or "").upper() == "PROP" and str(r["prop_stage"] or "").upper() == "LIVE"

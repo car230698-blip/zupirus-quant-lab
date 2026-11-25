@@ -353,10 +353,14 @@ def get_admin_billing_orders(
                 d["entitlement_applied"] = False
             else:
                 d["entitlement_applied"] = (ent_st in ("APPLIED", "GRANTED")) or (is_paid and not ent_st)
-            d["cloud_ready"] = (cld_st == "DEPLOYED")
+            acc_cnt_row = c.execute("SELECT count(*) FROM trading_accounts WHERE user_id = ?", (d.get("user_id"),)).fetchone()
+            user_acc_cnt = int(acc_cnt_row[0]) if acc_cnt_row else 0
+            if cld_st == "DEPLOYED" and user_acc_cnt == 0:
+                cld_st = "PENDING_LINK"
+            d["cloud_ready"] = (cld_st == "DEPLOYED" and user_acc_cnt > 0)
             d["payment_status"] = "CONFIRMED" if d["payment_confirmed"] else (pay_st or st or "PENDING")
             d["entitlement_status"] = "APPLIED" if d["entitlement_applied"] else (ent_st or "PENDING")
-            d["cloud_deploy_status"] = "DEPLOYED" if d["cloud_ready"] else (cld_st or "PENDING")
+            d["cloud_deploy_status"] = "DEPLOYED" if d["cloud_ready"] else (cld_st or ("PENDING_LINK" if (d["entitlement_applied"] and user_acc_cnt == 0) else "PENDING"))
 
             orders_list.append(d)
 
@@ -468,8 +472,8 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
 
 @router.post("/api/admin/billing/orders/{order_id}/approve")
 async def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_admin)):
-    """Admin manual override to approve an order and activate/recover its subscription entitlements."""
-    from app.services.billing_service import process_successful_payment, fulfill_order_entitlements
+    """Admin manual override to approve an order and activate/recover its subscription entitlements or cloud deploy."""
+    from app.services.billing_service import process_successful_payment, fulfill_order_entitlements, retry_order_cloud_deployment
     with tx() as c:
         row = c.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
         if not row:
@@ -479,13 +483,20 @@ async def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_a
     if order.get("status") == "PAID":
         ent_st = str(order.get("entitlement_status") or "").upper()
         dep_st = str(order.get("cloud_deploy_status") or "").upper()
-        if ent_st not in ("GRANTED", "APPLIED") or dep_st in ("FAILED", "PENDING", ""):
+        if ent_st not in ("GRANTED", "APPLIED"):
             recovered = await fulfill_order_entitlements(order_id)
             if not recovered:
                 fail(400, f"Không thể cấp bù quyền cho đơn hàng {order_id}.")
             return {
                 "status": "ENTITLEMENTS_RECOVERED",
                 "message": f"Đã cấp bù quyền gói cước và kích hoạt Cloud cho đơn hàng {order_id}.",
+            }
+        if dep_st in ("FAILED", "PENDING", "DEPLOY_PENDING", ""):
+            retry_res = await retry_order_cloud_deployment(order_id)
+            return {
+                "status": retry_res.get("status", "CLOUD_DEPLOY_FAILED"),
+                "ok": bool(retry_res.get("ok")),
+                "message": retry_res.get("message"),
             }
         return {"status": "ALREADY_PAID", "message": f"Đơn hàng {order_id} đã được thanh toán và cấp quyền đầy đủ trước đó."}
 

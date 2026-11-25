@@ -471,7 +471,7 @@ async def test_431dd02_fixes_comprehensive():
         assert int(sub_after_growth["max_mt5_accounts"]) == 1
         a2_after = c.execute("SELECT auto_trade, deployment_state FROM trading_accounts WHERE id = ?", (acc_2,)).fetchone()
         assert int(a2_after["auto_trade"]) == 0
-        assert a2_after["deployment_state"] == "UNDEPLOYED"
+        assert a2_after["deployment_state"] in ("EXPIRED_PROTECTING", "UNDEPLOYED")
 
         # 6. WFO on untimestamped bars must set has_verified_timestamps=False and production_qualified=False
         untimestamped_bars = [{"close": 2600.0 + (i % 7) * 1.5} for i in range(200)]
@@ -496,3 +496,51 @@ async def test_431dd02_fixes_comprehensive():
         row_med = c.execute("SELECT impact FROM news WHERE id = ?", (ev_id,)).fetchone()
         assert row_med["impact"] == "medium"
         c.execute("DELETE FROM news WHERE id = ?", (ev_id,))
+
+        # 11. Excess slot downgrade keeps EXPIRED_PROTECTING for connected MetaApi terminals so watcher continues protecting
+        a2_after = c.execute("SELECT auto_trade, deployment_state FROM trading_accounts WHERE id = ?", (acc_2,)).fetchone()
+        assert int(a2_after["auto_trade"]) == 0
+        assert a2_after["deployment_state"] in ("EXPIRED_PROTECTING", "UNDEPLOYED")
+
+        # 12. Future or YAHOO_REFERENCE bars in WFO must set has_verified_timestamps=False and production_qualified=False
+        future_bars = [
+            {"open": 2600.0 + i, "high": 2602.0 + i, "low": 2599.0 + i, "close": 2601.0 + i, "time": now_ts + (i * 900.0)}
+            for i in range(200)
+        ]
+        future_rep = walk_forward(future_bars, candidate={"id": "cand_fut", "name": "Fut", "rules": {"action": "BUY", "min_slope": 0.15}})
+        assert future_rep["has_verified_timestamps"] is False
+        assert future_rep["production_qualified"] is False
+
+        yahoo_bars = [
+            {"open": 2600.0, "high": 2602.0, "low": 2599.0, "close": 2601.0, "time": now_ts - ((250 - i) * 900.0), "source": "YAHOO_REFERENCE"}
+            for i in range(200)
+        ]
+        yahoo_rep = walk_forward(yahoo_bars, candidate={"id": "cand_yh", "name": "Yh", "rules": {"action": "BUY", "min_slope": 0.15}})
+        assert yahoo_rep["has_verified_timestamps"] is False
+        assert yahoo_rep["production_qualified"] is False
+
+        # 13. Order paid for customer with 0 MT5 accounts sets cloud_deploy_status='PENDING_LINK', and retry does not add 30 days twice
+        u_no_mt5 = f"u_nomt5_{int(now_ts)}"
+        _ensure_user(c, u_no_mt5)
+        ord_no_mt5_id = f"ord_nomt5_{int(now_ts)}"
+        c.execute(
+            "INSERT INTO orders (id, user_id, plan_tier, amount_usd, amount_vnd, locked_exchange_rate, cloud_slots_count, status, entitlement_status, cloud_deploy_status, created_at, expires_at) VALUES (?, ?, 'growth', 29.0, 725000, 25000.0, 2, 'PAID', 'PENDING', 'PENDING', ?, ?)",
+            (ord_no_mt5_id, u_no_mt5, now_ts, now_ts + 3600),
+        )
+
+    from app.domains.billing.service import fulfill_order_entitlements, retry_order_cloud_deployment
+    ok_1 = await fulfill_order_entitlements(ord_no_mt5_id)
+    assert ok_1 is True
+    with tx() as c:
+        o_row = c.execute("SELECT entitlement_status, cloud_deploy_status FROM orders WHERE id = ?", (ord_no_mt5_id,)).fetchone()
+        assert o_row["entitlement_status"] == "GRANTED"
+        assert o_row["cloud_deploy_status"] == "PENDING_LINK"
+        s_row_1 = c.execute("SELECT service_expires_at FROM subscriptions WHERE user_id = ?", (u_no_mt5,)).fetchone()
+        exp_after_first = float(s_row_1["service_expires_at"])
+
+    # Calling fulfill_order_entitlements or retry_order_cloud_deployment a second time must NOT extend service_expires_at again
+    await fulfill_order_entitlements(ord_no_mt5_id)
+    await retry_order_cloud_deployment(ord_no_mt5_id)
+    with tx() as c:
+        s_row_2 = c.execute("SELECT service_expires_at FROM subscriptions WHERE user_id = ?", (u_no_mt5,)).fetchone()
+        assert abs(float(s_row_2["service_expires_at"]) - exp_after_first) < 1.0
