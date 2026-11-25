@@ -172,6 +172,9 @@ async def test_position_close_reconciliation_no_double_volume_and_multi_account_
         _insert_trading_account(c, acc_2, u_2, "meta_iso_2")
         c.execute("DELETE FROM metaapi_trade_executions WHERE account_id IN (?, ?)", (acc_1, acc_2))
         c.execute("DELETE FROM kv WHERE key LIKE 'deal_synced:%'")
+        c.execute("DELETE FROM kv WHERE key LIKE 'emergency_close_pending:%'")
+        c.execute("DELETE FROM kv WHERE key LIKE 'drawdown_locked:%'")
+        c.execute("DELETE FROM kv WHERE key LIKE 'daily_start_bal:%'")
         setkv(c, f"deals_reconciled_watermark:{acc_1}", old_wm)
 
         for aid, eid, mid in [(acc_1, "exec_iso_1", "meta_iso_1"), (acc_2, "exec_iso_2", "meta_iso_2")]:
@@ -305,13 +308,14 @@ def test_calendar_sync_provider_id_and_no_id_deduplication():
         {"title": "Fed Governor Speech", "ts": ts2, "currency": "USD", "impact": "high"},
     ]
     with tx() as c:
-        c.execute("DELETE FROM news WHERE title = 'Fed Governor Speech'")
+        c.execute("DELETE FROM news WHERE title IN ('Fed Governor Speech', 'Speech by Fed Chair')")
         with patch("app.domains.ai.calendar_sync.fetch_live_calendar", return_value=fake_events):
             added, existing = sync_economic_calendar(c)
         assert added == 2
         assert existing == 0
         count = c.execute("SELECT count(*) FROM news WHERE title = 'Fed Governor Speech'").fetchone()[0]
         assert count == 2
+        c.execute("DELETE FROM news WHERE title IN ('Fed Governor Speech', 'Speech by Fed Chair')")
 
 
 def test_dashboard_sql_status_filtering():
@@ -355,3 +359,23 @@ def test_dashboard_sql_status_filtering():
         assert len(rows) == 1
         assert rows[0]["id"] == "exec_c_1"
         assert rows[0]["status"] == "CLOSED"
+
+
+def test_postgres_sql_adapter_insert_or_replace_and_timestamptz():
+    """Verify CursorWrapper._adapt_sql translates generic INSERT OR REPLACE and candles/quotes TIMESTAMPTZ comparisons for PostgreSQL."""
+    from app.core.db import CursorWrapper
+
+    cur = CursorWrapper(raw_cur=None, is_pg=True)
+
+    sql_replace = "INSERT OR REPLACE INTO signal_sources (id, name, status) VALUES (?, ?, ?)"
+    adapted_replace = cur._adapt_sql(sql_replace, has_params=True)
+    assert "INSERT OR REPLACE" not in adapted_replace.upper()
+    assert "ON CONFLICT (id) DO UPDATE SET" in adapted_replace
+
+    sql_candle_ins = "INSERT INTO candles (symbol, timeframe, time, open, high, low, close) VALUES ('XAUUSD', 'M15', ?, ?, ?, ?, ?)"
+    adapted_candle_ins = cur._adapt_sql(sql_candle_ins, has_params=True)
+    assert "to_timestamp(%s)" in adapted_candle_ins
+
+    sql_candle_del = "DELETE FROM candles WHERE symbol='XAUUSD' AND timeframe='M1' AND time >= ?"
+    adapted_candle_del = cur._adapt_sql(sql_candle_del, has_params=True)
+    assert "time >= to_timestamp(%s)" in adapted_candle_del

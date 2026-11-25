@@ -243,12 +243,12 @@ def reconcile_account_positions(
             if pid:
                 deals_by_pos.setdefault(pid, []).append(dl)
 
-    # 1. Reconcile OPEN / FILLED executions
+    # 1. Reconcile OPEN / FILLED / CLOSE_PENDING / PARTIAL_CLOSED executions
     open_db_rows = c.execute(
         """
         SELECT id, position_id, ticket, client_order_id, symbol, action, volume, closed_volume, sl_confirmed, origin, evidence_json, entry_price, sl, tp
         FROM metaapi_trade_executions
-        WHERE account_id = ? AND status IN ('FILLED', 'OPEN')
+        WHERE account_id = ? AND status IN ('FILLED', 'OPEN', 'CLOSE_PENDING', 'PARTIAL_CLOSED')
         """,
         (acc_id,),
     ).fetchall()

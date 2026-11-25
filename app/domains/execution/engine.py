@@ -677,7 +677,7 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
         latest_bar_close = latest_bar_ts + 900.0
         # Enforce fresh M15 candle arrival: latest candle must have closed within expected current M15 window (+5m grace)
         # Replaces loose 4-hour threshold so stale candle structures with fresh tick prices are rejected
-        if (now - latest_bar_close) > 1200.0:
+        if not force_side and (now - latest_bar_close) > 1200.0:
             return {"status": "SKIPPED", "reason": f"STALE_CANDLES_{sym_u}"}
 
         # Check continuity across closed candle sequence (no abnormal gap > 1800s between consecutive bars)

@@ -684,8 +684,13 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
         new_c_exp = new_sub_exp
         dep_st = str(a.get("deployment_state") or "").upper()
         was_expired_or_undeployed = dep_st in ("UNDEPLOYED", "EXPIRED_PROTECTING", "DEPLOY_PENDING") or (curr_c_exp > 0 and curr_c_exp <= now_ts)
-        # Preserve user's auto_trade configuration; never automatically enable auto_trade=1
-        next_auto_trade = int(a.get("auto_trade") if a.get("auto_trade") is not None else 0)
+        # Preserve user's manual auto_trade=0 configuration, but restore auto_trade=1 if it was suspended specifically by subscription expiry
+        exp_susp_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"expiry_suspended_auto_trade:{a['id']}",)).fetchone()
+        if exp_susp_row and str(exp_susp_row[0]) == "1":
+            next_auto_trade = 1
+            c.execute("DELETE FROM kv WHERE key = ?", (f"expiry_suspended_auto_trade:{a['id']}",))
+        else:
+            next_auto_trade = int(a.get("auto_trade") if a.get("auto_trade") is not None else 0)
         if a.get("metaapi_account_id") and (was_expired_or_undeployed or dep_st != "DEPLOYED"):
             c.execute(
                 "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = ?, deployment_state = 'DEPLOY_PENDING' WHERE id = ? AND user_id = ?",

@@ -159,18 +159,23 @@ def check_news_shield(current_time: float) -> Tuple[bool, Optional[str]]:
                 reason = "REJECTED_NEWS_SHIELD: Macro calendar unverified (Fail-Closed active, no calendar sync in 24h)"
                 logger.warning(reason)
                 return False, reason
-        row = c.execute(
+        rows = c.execute(
             """
             SELECT title, currency FROM news
             WHERE lower(impact) = 'high' AND upper(currency) IN ('USD', 'ALL')
             AND ts >= ? AND ts <= ?
-            LIMIT 1
+            ORDER BY abs(ts - ?) ASC
             """,
-            (current_time - window_sec, current_time + window_sec)
-        ).fetchone()
+            (current_time - window_sec, current_time + window_sec, current_time)
+        ).fetchall()
 
-        if row:
-            event_name = row["title"] if hasattr(row, 'keys') and "title" in row else row[0]
+        if rows:
+            titles = []
+            for r in rows:
+                t_val = r["title"] if hasattr(r, 'keys') and "title" in r else r[0]
+                if t_val and str(t_val) not in titles:
+                    titles.append(str(t_val))
+            event_name = ", ".join(titles)
             reason = f"REJECTED_NEWS_SHIELD: High-Impact USD event '{event_name}' within ±{NEWS_SHIELD_MINUTES}m"
             logger.warning(reason)
             return False, reason

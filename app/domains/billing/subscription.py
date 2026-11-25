@@ -112,7 +112,10 @@ async def run_subscription_lifecycle_cycle(
             undep_ok = False
             if can_undeploy:
                 try:
-                    undep_ok = bool(await meta_client.undeploy_account(acc["metaapi_account_id"]))
+                    if hasattr(meta_client, "undeploy_account"):
+                        undep_ok = bool(await meta_client.undeploy_account(acc["metaapi_account_id"]))
+                    else:
+                        undep_ok = True
                 except Exception as undep_err:
                     logger.debug(f"Undeploy note for expired account {acc['id']}: {undep_err}")
                     undep_ok = False
@@ -190,6 +193,9 @@ async def run_subscription_lifecycle_cycle(
                 ).fetchall()
                 accs = [dict(a) for a in acc_rows]
                 if accs:
+                    for a_exp in accs:
+                        if int(a_exp.get("auto_trade") or 0) == 1:
+                            setkv(c, f"expiry_suspended_auto_trade:{a_exp['id']}", "1")
                     c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE user_id = ?", (user_id,))
                     stats["expired_suspended"] += len(accs)
 

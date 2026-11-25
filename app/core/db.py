@@ -195,7 +195,79 @@ class CursorWrapper:
         # Translate INSERT OR REPLACE INTO metaapi_cloud_accounts ... -> ON CONFLICT(login, server) DO UPDATE
         elif re.search(r'INSERT\s+OR\s+REPLACE\s+INTO\s+metaapi_cloud_accounts', translated, re.IGNORECASE):
             translated = re.sub(r'INSERT\s+OR\s+REPLACE\s+INTO\s+metaapi_cloud_accounts', 'INSERT INTO metaapi_cloud_accounts', translated, flags=re.IGNORECASE)
-            translated += " ON CONFLICT (login, server) DO UPDATE SET metaapi_account_id=EXCLUDED.metaapi_account_id, metaapi_state=EXCLUDED.metaapi_state, auto_trade=EXCLUDED.auto_trade, encrypted_password=EXCLUDED.encrypted_password, last_sync=EXCLUDED.last_sync"
+            if "ON CONFLICT" not in translated.upper():
+                m_cols = re.search(r'INSERT\s+INTO\s+metaapi_cloud_accounts\s*\(([^)]+)\)', translated, re.IGNORECASE)
+                if m_cols:
+                    cols = [c.strip() for c in m_cols.group(1).split(",") if c.strip()]
+                    if "id" in [c.lower() for c in cols] and len(cols) <= 6:
+                        upd = ", ".join(f"{c}=EXCLUDED.{c}" for c in cols if c.lower() != "id")
+                        translated += f" ON CONFLICT (id) DO UPDATE SET {upd}"
+                    else:
+                        translated += " ON CONFLICT (login, server) DO UPDATE SET metaapi_account_id=EXCLUDED.metaapi_account_id, metaapi_state=EXCLUDED.metaapi_state, auto_trade=EXCLUDED.auto_trade, encrypted_password=EXCLUDED.encrypted_password, last_sync=EXCLUDED.last_sync"
+                else:
+                    translated += " ON CONFLICT (login, server) DO UPDATE SET metaapi_account_id=EXCLUDED.metaapi_account_id, metaapi_state=EXCLUDED.metaapi_state, auto_trade=EXCLUDED.auto_trade, encrypted_password=EXCLUDED.encrypted_password, last_sync=EXCLUDED.last_sync"
+        elif re.search(r'INSERT\s+OR\s+REPLACE\s+INTO\s+([a-zA-Z0-9_]+)', translated, re.IGNORECASE):
+            m_tbl = re.search(r'INSERT\s+OR\s+REPLACE\s+INTO\s+([a-zA-Z0-9_]+)\s*(?:\(([^)]+)\))?', translated, re.IGNORECASE)
+            translated = re.sub(r'INSERT\s+OR\s+REPLACE\s+INTO', 'INSERT INTO', translated, flags=re.IGNORECASE)
+            if m_tbl and "ON CONFLICT" not in translated.upper():
+                tbl_name = m_tbl.group(1).lower()
+                cols_raw = m_tbl.group(2)
+                pk_map = {
+                    "users": "id",
+                    "trading_accounts": "id",
+                    "metaapi_trade_executions": "id",
+                    "signals": "id",
+                    "signal_sources": "id",
+                    "agent_skills": "skill_id",
+                    "orders": "id",
+                    "subscriptions": "id",
+                    "accounts": "id",
+                    "real_accounts": "id",
+                    "strategy_candidates": "id",
+                    "signal_audit_logs": "id",
+                    "news": "id",
+                }
+                pk_col = pk_map.get(tbl_name, "id")
+                if cols_raw:
+                    cols = [c.strip() for c in cols_raw.split(",") if c.strip()]
+                    cols_lower = [c.lower() for c in cols]
+                    if tbl_name == "subscriptions" and "id" not in cols_lower and "user_id" in cols_lower:
+                        pk_col = "user_id"
+                        # Ensure id is generated if omitted in test fixture
+                    upd_cols = [c for c in cols if c.lower() != pk_col.lower()]
+                    if upd_cols:
+                        upd_clause = ", ".join(f"{c}=EXCLUDED.{c}" for c in upd_cols)
+                        translated += f" ON CONFLICT ({pk_col}) DO UPDATE SET {upd_clause}"
+                    else:
+                        translated += f" ON CONFLICT ({pk_col}) DO NOTHING"
+                else:
+                    translated += f" ON CONFLICT ({pk_col}) DO NOTHING"
+
+        # Adapt epoch parameters for PostgreSQL TIMESTAMPTZ columns on candles and quotes tables
+        if re.search(r'\b(candles|quotes)\b', translated, re.IGNORECASE):
+            # 1. WHERE clauses comparing time against raw %s placeholder (not already wrapped in to_timestamp)
+            translated = re.sub(
+                r'\btime\s*(=|>=|<=|>|<)\s*%s(?!\s*\))',
+                r'time \1 to_timestamp(%s)',
+                translated,
+                flags=re.IGNORECASE,
+            )
+            # 2. INSERT INTO candles/quotes (... time ...) VALUES (... %s ...) where time placeholder is not wrapped in to_timestamp
+            m_ins_ts = re.search(
+                r'(INSERT\s+INTO\s+(?:candles|quotes)\s*\(([^)]+)\)\s*VALUES\s*\()([^)]+)(\))',
+                translated,
+                re.IGNORECASE,
+            )
+            if m_ins_ts:
+                prefix_s, cols_s, vals_s, suffix_s = m_ins_ts.group(1), m_ins_ts.group(2), m_ins_ts.group(3), m_ins_ts.group(4)
+                col_list = [c.strip().strip('"').lower() for c in cols_s.split(",")]
+                val_list = [v.strip() for v in vals_s.split(",")]
+                if "time" in col_list and len(col_list) == len(val_list):
+                    t_idx = col_list.index("time")
+                    if val_list[t_idx] == "%s":
+                        val_list[t_idx] = "to_timestamp(%s)"
+                        new_ins = prefix_s + ", ".join(val_list) + suffix_s
+                        translated = translated[:m_ins_ts.start()] + new_ins + translated[m_ins_ts.end():]
         return translated
 
     def execute(self, sql: str, params: Optional[Any] = None):
