@@ -3,7 +3,16 @@ import time
 import secrets
 from typing import Dict, Any
 from app.schemas.signals import NormalizedSignalSchema, TradingViewWebhookPayload
-from app.services.symbol_precision import digits_for_symbol
+
+
+def digits_for_symbol(symbol: str) -> int:
+    sym = str(symbol or "XAUUSD").upper()
+    if "XAU" in sym or "GOLD" in sym:
+        return 2
+    if "JPY" in sym:
+        return 3
+    return 5
+
 
 
 def normalize_tradingview_signal(p: TradingViewWebhookPayload) -> NormalizedSignalSchema:

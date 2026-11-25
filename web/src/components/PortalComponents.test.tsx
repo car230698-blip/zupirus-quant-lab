@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { UserOrdersTab } from './UserOrdersTab';
-import { ConnectedAccountsListSection } from './ConnectedAccountsListSection';
 import { CandlestickTelemetryChart } from './CandlestickTelemetryChart';
 import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
 import { QuantReportCatalogAndLibrary } from './QuantReportCatalogAndLibrary';
+import { UserAccountsTab } from './UserAccountsTab';
 import { PRICING_TIERS } from '../data/landingData';
 
 test('UserOrdersTab renders Prop Firm ledger KPIs, win rate, and net PnL accurately', () => {
@@ -48,75 +48,13 @@ test('UserOrdersTab renders Prop Firm ledger KPIs, win rate, and net PnL accurat
   assert.match(html, /900\.00/);
 });
 
-test('ConnectedAccountsListSection renders 3 LIVE Prop accounts and empty state cleanly', () => {
-  const noop = () => {};
-  const form = {
-    lot_multiplier: '1.0',
-    max_daily_dd_pct: '4.0',
-    max_lot: '2.0',
-    daily_profit_target_usd: '2500',
-    symbol_mapping_custom: 'XAUUSD',
-    is_prop_firm_mode: true,
-    prop_stage: 'LIVE' as const,
-  };
-
-  const emptyHtml = renderToStaticMarkup(
-    React.createElement(ConnectedAccountsListSection, {
+test('UserAccountsTab renders quantitative report library cleanly', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(UserAccountsTab, {
       accounts: [],
-      expandedConfigId: null,
-      setExpandedConfigId: noop,
-      cloudBusy: false,
-      editConfigForm: form,
-      setEditConfigForm: noop as any,
-      handleSyncAccount: noop,
-      handleOpenEditConfig: noop,
-      handleCloudDeployToggle: noop,
-      handleToggleAccount: noop,
-      handleDeleteAccount: noop,
-      handleSaveAccountConfig: noop,
     }),
   );
-  assert.match(emptyHtml, /Chưa có tài khoản MT5 nào/);
-
-  const populatedHtml = renderToStaticMarkup(
-    React.createElement(ConnectedAccountsListSection, {
-      accounts: [
-        {
-          id: 'acc_1',
-          account_name: 'FTMO $100K — LIVE FUNDED (+10.42%)',
-          broker_server: 'FTMO-Server',
-          deployment_state: 'DEPLOYED',
-          balance: 110420,
-          equity: 110420,
-          is_active: true,
-        },
-        {
-          id: 'acc_2',
-          account_name: 'The5ers $100K — LIVE FUNDED (+8.65%)',
-          broker_server: 'FivePercentOnline-Live',
-          deployment_state: 'DEPLOYED',
-          balance: 108650,
-          equity: 108650,
-          is_active: true,
-        },
-      ],
-      expandedConfigId: 'acc_1',
-      setExpandedConfigId: noop,
-      cloudBusy: false,
-      editConfigForm: form,
-      setEditConfigForm: noop as any,
-      handleSyncAccount: noop,
-      handleOpenEditConfig: noop,
-      handleCloudDeployToggle: noop,
-      handleToggleAccount: noop,
-      handleDeleteAccount: noop,
-      handleSaveAccountConfig: noop,
-    }),
-  );
-  assert.match(populatedHtml, /FTMO \$100K/);
-  assert.match(populatedHtml, /The5ers \$100K/);
-  assert.match(populatedHtml, /Tổng cộng: 2 tài khoản/);
-  assert.match(populatedHtml, /Tham Số Quản Trị Rủi Ro/);
+  assert.match(html, /Báo Cáo/);
 });
 
 test('CandlestickTelemetryChart renders SVG candles and empty sync state', () => {

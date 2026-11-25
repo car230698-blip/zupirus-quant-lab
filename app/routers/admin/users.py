@@ -92,7 +92,6 @@ def reset_user_password(target_uid: str, p: UpdateUserPassword, u=Depends(get_cu
 async def delete_admin_user(target_uid: str, u=Depends(get_current_admin)):
     if target_uid == u['id']:
         fail(400, 'Không thể xóa tài khoản của chính mình')
-    meta_ids_to_cleanup = set()
     user_email = ""
     with tx() as c:
         row = c.execute('SELECT id, email, role FROM users WHERE id=?', (target_uid,)).fetchone()
@@ -100,74 +99,22 @@ async def delete_admin_user(target_uid: str, u=Depends(get_current_admin)):
             fail(404, 'Không tìm thấy người dùng')
         user_email = row[1]
 
-        try:
-            for r in c.execute('SELECT metaapi_account_id FROM trading_accounts WHERE user_id=?', (target_uid,)).fetchall():
-                if r and r[0]:
-                    meta_ids_to_cleanup.add(str(r[0]))
-        except Exception:
-            pass
-        try:
-            for r in c.execute('SELECT metaapi_account_id FROM metaapi_cloud_accounts WHERE user_id=?', (target_uid,)).fetchall():
-                if r and r[0]:
-                    meta_ids_to_cleanup.add(str(r[0]))
-        except Exception:
-            pass
-
-    with tx() as c:
-        # 1. Accounts belonging to user & their foreign key children (including pairings & devices)
-        acc_ids = [r[0] for r in c.execute('SELECT id FROM accounts WHERE user_id=?', (target_uid,)).fetchall()]
-        for aid in acc_ids:
-            for dep_t in ('snapshots', 'sim_positions', 'dispatches', 'metaapi_trade_executions', 'account_symbol_map', 'pairings', 'devices'):
-                try:
-                    c.execute(f'DELETE FROM {dep_t} WHERE account_id=?', (aid,))
-                except Exception:
-                    pass
-            c.execute('DELETE FROM accounts WHERE id=? AND user_id=?', (aid, target_uid))
-
-        # 2. Cloud trading accounts & executions
-        for dep_t in ('metaapi_trade_executions', 'account_symbol_map', 'signal_dispatch_locks'):
-            try:
-                c.execute(f'DELETE FROM {dep_t} WHERE account_id IN (SELECT id FROM trading_accounts WHERE user_id=?)', (target_uid,))
-            except Exception:
-                pass
-        try:
-            c.execute('DELETE FROM trading_accounts WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-        try:
-            c.execute('DELETE FROM metaapi_cloud_accounts WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-
-        # 3. Real accounts
-        try:
-            c.execute('DELETE FROM real_accounts WHERE user_id=?', (target_uid,))
-        except Exception:
-            pass
-
-        # 4. User level records (orders, subscriptions, transactions, disclaimers, sessions, memories, otp_codes)
-        for usr_t in ('orders', 'subscriptions', 'payment_transactions', 'legal_disclaimers', 'sessions', 'hindsight_memories'):
+        # 1. Purge report entitlements and user related records
+        for usr_t in ('report_entitlements', 'orders', 'subscriptions', 'payment_transactions', 'legal_disclaimers', 'sessions', 'hindsight_memories', 'otp_codes'):
             try:
                 c.execute(f'DELETE FROM {usr_t} WHERE user_id=?', (target_uid,))
             except Exception:
                 pass
 
-        # 5. Delete user record
-        c.execute('DELETE FROM users WHERE id=?', (target_uid,))
-        audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': user_email, 'cleaned_metaapi_ids': list(meta_ids_to_cleanup)})
+        # 2. Purge any legacy tables if they exist
+        for leg_t in ('accounts', 'trading_accounts', 'real_accounts', 'metaapi_cloud_accounts'):
+            try:
+                c.execute(f'DELETE FROM {leg_t} WHERE user_id=?', (target_uid,))
+            except Exception:
+                pass
 
-    # 6. Clean up remote MetaApi resources only AFTER DB transaction commits cleanly
-    if meta_ids_to_cleanup:
-        from app.metaapi import MetaApiClient
-        client = MetaApiClient()
-        for mid in meta_ids_to_cleanup:
-            try:
-                await client.undeploy_account(mid)
-            except Exception as e:
-                logger.warning(f"Failed to undeploy MetaApi account {mid} during user deletion: {e}")
-            try:
-                await client.delete_account(mid)
-            except Exception as e:
-                logger.warning(f"Failed to delete MetaApi account {mid} during user deletion: {e}")
+        # 3. Delete user record
+        c.execute('DELETE FROM users WHERE id=?', (target_uid,))
+        audit(c, u['id'], 'user_deleted', {'target_user_id': target_uid, 'email': user_email})
 
     return {'ok': True, 'message': f'Đã xoá người dùng {user_email} thành công.'}

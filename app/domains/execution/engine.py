@@ -1166,17 +1166,7 @@ def tick():
         except Exception as e:
             logger.debug(f"Live market feed cycle note: {e}")
 
-    # 2. Run Position Watcher (Auto-BE, Partial TP, Prop DD Guard) every 5s (or every 30s when market closed)
-    watcher_interval = 30.0 if market_closed else 5.0
-    if now - _last_watcher_ts >= watcher_interval:
-        _last_watcher_ts = now
-        try:
-            from app.services.execution.watcher import get_position_watcher
-            _run_coro(get_position_watcher().run_cycle())
-        except Exception as e:
-            logger.debug(f"Position watcher cycle error: {e}")
-
-    # 3. Run Autonomous AI Agent Signal Evaluation every 30s (skip when market closed, non-blocking thread)
+    # 2. Run Autonomous AI Agent Quantitative Evaluation every 30s (skip when market closed, non-blocking thread)
     if not os.getenv("PYTEST_CURRENT_TEST") and not market_closed and now - _last_agent_eval_ts >= 30.0:
         if not _agent_step_in_flight:
             _last_agent_eval_ts = now
@@ -1188,16 +1178,7 @@ def tick():
                 _agent_step_in_flight = False
                 logger.error(f"Failed to start autonomous agent background thread: {start_err}")
 
-    # 4. Run Subscription Lifecycle Worker (reminders, expiry undeploy, pending retries) every 1 hour
-    if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_sub_lifecycle_ts >= 3600.0:
-        _last_sub_lifecycle_ts = now
-        try:
-            from app.services.subscription_lifecycle import run_subscription_lifecycle_cycle
-            _run_coro(run_subscription_lifecycle_cycle(now_ts=now))
-        except Exception as e:
-            logger.debug(f"Subscription lifecycle cycle error: {e}")
-
-    # 5. Run Background Blockchain Scanner for PENDING USDT Direct Orders every 30s (non-blocking thread)
+    # 3. Run Background Blockchain Scanner for PENDING USDT Direct Orders every 30s (non-blocking thread)
     if not os.getenv("PYTEST_CURRENT_TEST") and now - _last_crypto_scan_ts >= 30.0:
         if not _crypto_scan_in_flight:
             _last_crypto_scan_ts = now

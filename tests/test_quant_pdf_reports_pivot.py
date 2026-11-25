@@ -12,9 +12,6 @@ from app.domains.ai.research_graph import (
     walk_forward,
 )
 from app.domains.billing.service import process_successful_payment
-from app.domains.billing.subscription import run_subscription_lifecycle_cycle
-from app.domains.execution.fanout import execute_fan_out_for_signal
-from app.domains.execution.watcher import PositionWatcher
 from app.domains.reports.pdf_builder import build_pdf_bytes
 
 
@@ -315,21 +312,7 @@ def test_4_customer_auto_trading_and_background_dispatch_strictly_disabled(clien
     send new orders or close/modify existing positions when customer auto-trading is disabled."""
     monkeypatch.delenv("ENABLE_LEGACY_CUSTOMER_EXECUTION", raising=False)
 
-    # Seed an existing legacy trading account in DB to verify read-only preservation & no mutation
     _register_and_login(client, "legacy_trader@example.com")
-    with db.tx() as c:
-        u_row = c.execute("SELECT id FROM users WHERE email = 'legacy_trader@example.com'").fetchone()
-        uid = str(u_row[0])
-        now_t = time.time()
-        c.execute(
-            """
-            INSERT INTO trading_accounts (
-                id, user_id, mt5_login, encrypted_master_password, broker_server,
-                metaapi_account_id, balance, equity, auto_trade, deployment_state, created_at, last_sync
-            ) VALUES (?, ?, '88990011', 'enc_dummy', 'Exness-MT5Real', 'meta_acc_legacy_1', 10000, 10000, 0, 'DEPLOYED', ?, ?)
-            """,
-            ("acc_legacy_1", uid, now_t, now_t),
-        )
 
     # 1. Customer cannot connect a new MT5 account (route removed or forbidden)
     conn_res = client.post(
@@ -373,45 +356,23 @@ def test_4_customer_auto_trading_and_background_dispatch_strictly_disabled(clien
     )
     assert disp_res.status_code in (403, 404)
 
-    # 5. Fanout engine returns CUSTOMER_EXECUTION_DISABLED_RESEARCH_ONLY and executes 0 orders
-    import asyncio
-    fanout_res = asyncio.run(
-        execute_fan_out_for_signal(
-            signal={
-                "id": "sig_test_disabled_01",
-                "symbol": "XAUUSD",
-                "action": "BUY",
-                "entry_price": 2650.0,
-                "sl": 2640.0,
-                "tp": 2670.0,
-            },
-            accounts=[{"id": "acc_legacy_1", "metaapi_account_id": "meta_acc_legacy_1"}],
-            metaapi_client=None,
-        )
-    )
-    assert fanout_res["error"] == "CUSTOMER_EXECUTION_DISABLED_RESEARCH_ONLY"
-    assert fanout_res["executed"] == 0
+    # 5. Legacy routes return 404 (completely pruned from router tree)
+    r_accs = client.get("/api/accounts")
+    assert r_accs.status_code in (404, 405)
 
-    # 6. PositionWatcher in read-only mode never closes or modifies any positions
-    watcher = PositionWatcher()
-    with patch.object(watcher, "close_bot_positions_only", new_callable=AsyncMock, create=True) as mock_close_bot, \
-         patch.object(watcher.client, "close_position", new_callable=AsyncMock, create=True) as mock_close_pos, \
-         patch.object(watcher.client, "modify_position_sl_tp", new_callable=AsyncMock, create=True) as mock_mod_pos, \
-         patch.object(watcher.client, "get_account_information", new_callable=AsyncMock, create=True) as mock_info, \
-         patch.object(watcher.client, "get_open_positions", new_callable=AsyncMock, create=True) as mock_pos, \
-         patch.object(watcher.client, "get_closed_deals_verified", new_callable=AsyncMock, create=True) as mock_deals:
-        mock_info.return_value = {"connected": True, "balance": 10000.0, "equity": 8000.0, "currency": "USD"}
-        mock_pos.return_value = [{"id": "pos_1", "symbol": "XAUUSD", "type": "POSITION_TYPE_BUY", "volume": 1.0, "openPrice": 2650.0, "currentPrice": 2630.0, "profit": -2000.0}]
-        mock_deals.return_value = (True, [])
-        asyncio.run(watcher._run_cycle_locked())
-        mock_close_bot.assert_not_called()
-        mock_close_pos.assert_not_called()
-        mock_mod_pos.assert_not_called()
+    r_ea = client.get("/api/ea/dispatches")
+    assert r_ea.status_code in (404, 405)
 
-    # 7. Subscription lifecycle worker does not undeploy or close positions on expired subscriptions
-    with patch("app.domains.execution.metaapi_client.MetaApiClient.undeploy_account", new_callable=AsyncMock) as mock_undep:
-        asyncio.run(run_subscription_lifecycle_cycle())
-        mock_undep.assert_not_called()
+    # 6. Legacy broker execution modules are completely purged from codebase
+    import pytest
+    with pytest.raises(ImportError):
+        import app.domains.execution.fanout  # noqa: F401
+    with pytest.raises(ImportError):
+        import app.domains.execution.watcher  # noqa: F401
+    with pytest.raises(ImportError):
+        import app.domains.billing.subscription  # noqa: F401
+    with pytest.raises(ImportError):
+        import app.routers.accounts  # noqa: F401
 
 
 def test_5_wfo_out_of_sample_session_h1_liquidity_and_insufficient_evidence():

@@ -14,7 +14,6 @@ from .db import ROOT, check_db_health, check_timescale_metadata, init, is_postgr
 from .redis_client import get_redis_client
 from .security import bootstrap
 from app.routers import (
-    accounts_router,
     admin_ai_router,
     admin_billing_router,
     admin_ops_router,
@@ -23,8 +22,6 @@ from app.routers import (
     auth_router,
     billing_router,
     dashboard_router,
-    ea_router,
-    metaapi_dispatch_router,
     notifications_router,
     realtime_router,
     reports_router,

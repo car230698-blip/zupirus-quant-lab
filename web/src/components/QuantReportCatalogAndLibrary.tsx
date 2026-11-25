@@ -60,6 +60,8 @@ export interface ResearchReportItem {
   updated_at?: number;
   is_owned?: boolean;
   owned_versions?: string[];
+  can_purchase?: boolean;
+  commercial_sale_enabled?: boolean;
 }
 
 export interface LibraryEntitlementItem {

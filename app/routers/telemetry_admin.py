@@ -224,15 +224,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         current_regime = macro_state.get("regime", "RANGING")
         router_scale = router.get_strategy_scale(active_strat_id, current_regime)
 
-        unver_row = c.execute(
-            """
-            SELECT count(*) FROM metaapi_trade_executions
-            WHERE status IN ('UNKNOWN_EXECUTION', 'PENDING_SUBMIT', 'AMBIGUOUS_LOCKED')
-               OR (origin = 'BOT' AND status IN ('OPEN', 'FILLED') AND sl_confirmed = 0)
-            """
-        ).fetchone()
-        unver_cnt = unver_row[0] if unver_row else 0
-
+        unver_cnt = 0
         cb_active = bool(c.execute("SELECT 1 FROM kv WHERE key LIKE 'circuit_breaker:%' AND value LIKE '%circuit_open_until%' AND value NOT LIKE '%circuit_open_until\": 0.0%'").fetchone())
 
     health_cards = [

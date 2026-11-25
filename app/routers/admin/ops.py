@@ -19,101 +19,33 @@ def admin_orders(
     limit: int = 50,
     offset: int = 0
 ):
-    """System-wide order queries merging both Cloud MT5 executions (metaapi_trade_executions) and legacy dispatches."""
+    """System-wide quantitative report orders and purchases."""
     limit = min(max(limit, 1), 200)
     offset = max(offset, 0)
     with tx() as c:
         query = '''
-            SELECT d.*, s.side, s.price, s.sl, s.tp, s.source,
-                   a.login AS account_login, a.server AS account_server,
-                   u.email AS user_email
-            FROM dispatches d
-            JOIN signals s ON s.id=d.signal_id
-            JOIN accounts a ON a.id=d.account_id
-            JOIN users u ON u.id=a.user_id
+            SELECT o.*, u.email AS user_email, r.title AS report_title, r.slug AS report_slug
+            FROM orders o
+            LEFT JOIN users u ON u.id = o.user_id
+            LEFT JOIN research_reports r ON r.id = o.report_id
             WHERE 1=1
         '''
         params: List[Any] = []
-        if account_id:
-            query += ' AND d.account_id=?'
-            params.append(account_id)
         if state:
-            query += ' AND d.state=?'
-            params.append(state)
-        if team and team != 'all':
-            if team == 'execution':
-                query += " AND s.source='DEMO'"
-            elif team == 'replay':
-                query += " AND s.source='REPLAY'"
+            query += ' AND UPPER(o.status) = ?'
+            params.append(state.upper())
         if search and search.strip():
             s_val = f"%{search.strip()}%"
-            clause = " AND (d.signal_id LIKE ? OR d.ticket LIKE ? OR d.deal LIKE ? OR CAST(d.id AS TEXT) LIKE ? OR a.login LIKE ? OR u.email LIKE ?)"
-            query += clause
-            params.extend([s_val, s_val, s_val, s_val, s_val, s_val])
+            query += " AND (CAST(o.id AS TEXT) LIKE ? OR u.email LIKE ? OR o.payment_gateway LIKE ? OR r.title LIKE ?)"
+            params.extend([s_val, s_val, s_val, s_val])
 
-        query += ' ORDER BY d.id DESC LIMIT 200'
+        query += ' ORDER BY o.created_at DESC LIMIT 200'
         rows = [dict(r) for r in c.execute(query, tuple(params))]
         for r in rows:
-            r.pop('nonce', None)
+            r['state'] = (r.get('status') or 'PENDING').lower()
+            r['created'] = r.get('created_at')
+            r['updated'] = r.get('created_at')
 
-        # Merge Cloud MT5 executions from metaapi_trade_executions
-        try:
-            cloud_q = """
-                SELECT e.*,
-                       COALESCE(ta.mt5_login, ma.login, e.account_id) AS account_login,
-                       COALESCE(ta.broker_server, ma.server, 'MT5-Cloud') AS account_server,
-                       COALESCE(u1.email, u2.email, 'trader@zupirus.com') AS user_email
-                FROM metaapi_trade_executions e
-                LEFT JOIN trading_accounts ta ON e.account_id = ta.id
-                LEFT JOIN users u1 ON ta.user_id = u1.id
-                LEFT JOIN metaapi_cloud_accounts ma ON e.account_id = ma.id
-                LEFT JOIN users u2 ON ma.user_id = u2.id
-                ORDER BY e.executed_at DESC LIMIT 200
-            """
-            cloud_rows = c.execute(cloud_q).fetchall()
-            for cr in cloud_rows:
-                cd = dict(cr)
-                mapped_state = 'filled' if str(cd.get('status', '')).upper() == 'FILLED' else 'rejected'
-                if account_id and cd.get('account_id') != account_id:
-                    continue
-                if state and mapped_state != state:
-                    continue
-                if team == 'replay':
-                    continue
-                item = {
-                    'id': cd.get('id'),
-                    'signal_id': cd.get('signal_id'),
-                    'account_id': cd.get('account_id'),
-                    'account_login': cd.get('account_login'),
-                    'account_server': cd.get('account_server'),
-                    'user_email': cd.get('user_email'),
-                    'symbol': cd.get('symbol') or 'XAUUSD',
-                    'side': cd.get('action') or 'BUY',
-                    'volume': cd.get('volume') or 0.01,
-                    'price': cd.get('entry_price') or 0.0,
-                    'fill_price': cd.get('entry_price') or 0.0,
-                    'sl': cd.get('sl') or cd.get('stop_loss'),
-                    'tp': cd.get('tp') or cd.get('take_profit'),
-                    'ticket': cd.get('position_id') or '',
-                    'deal': cd.get('order_id') or '',
-                    'state': mapped_state,
-                    'status': cd.get('status') or 'FILLED',
-                    'source': 'CLOUD_MT5',
-                    'reason': cd.get('error_message') or '',
-                    'latency_ms': cd.get('latency_ms') or 0,
-                    'created': cd.get('executed_at'),
-                    'updated': cd.get('executed_at'),
-                }
-                if search and search.strip():
-                    sq = search.strip().lower()
-                    haystack = f"{item['id']} {item['signal_id']} {item['ticket']} {item['deal']} {item['account_login']} {item['user_email']}".lower()
-                    if sq not in haystack:
-                        continue
-                rows.append(item)
-        except Exception as e:
-            logger.warning(f"Error merging metaapi_trade_executions into /api/admin/orders: {e}")
-
-        rows.sort(key=lambda x: float(x.get('updated') or x.get('created') or 0), reverse=True)
         total = len(rows)
         paged = rows[offset:offset + limit]
         return {'total': total, 'orders': paged, 'limit': limit, 'offset': offset}
@@ -121,41 +53,10 @@ def admin_orders(
 @router.get('/api/admin/monitor', tags=["admin-core"])
 def monitor(u=Depends(get_current_admin)):
     with tx() as c:
-        accs = []
-        try:
-            cloud_accs = [dict(r) for r in c.execute('SELECT t.*, u.email FROM trading_accounts t JOIN users u ON u.id=t.user_id')]
-            for ca in cloud_accs:
-                ca.pop('encrypted_master_password', None)
-                ca.pop('password', None)
-                ca['login'] = ca.get('mt5_login', ca.get('login'))
-                ca['server'] = ca.get('broker_server', ca.get('server'))
-                ca['mode'] = 'REAL'
-                ca['enabled'] = ca.get('auto_trade', 1)
-            accs.extend(cloud_accs)
-        except Exception:
-            pass
-        try:
-            real_accs = [dict(r) for r in c.execute('SELECT r.*,u.email FROM real_accounts r JOIN users u ON u.id=r.user_id')]
-            accs.extend(real_accs)
-        except Exception:
-            pass
-        try:
-            legacy_accs = [dict(r) for r in c.execute("SELECT a.*,u.email FROM accounts a JOIN users u ON u.id=a.user_id WHERE a.server != 'ZUPIRUS-SYNTHETIC'")]
-            accs.extend(legacy_accs)
-        except Exception:
-            pass
-
-        seen_m = set()
-        dedup_accs = []
-        for a in accs:
-            k = (str(a.get('login') or a.get('id')), str(a.get('server') or '').lower())
-            if k not in seen_m:
-                seen_m.add(k)
-                dedup_accs.append(a)
-        accs = dedup_accs
-
         return {
-            'accounts': accs,
+            'accounts': [],
+            'reports_count': c.execute('SELECT COUNT(*) FROM research_reports').fetchone()[0] or 0,
+            'entitlements_count': c.execute('SELECT COUNT(*) FROM report_entitlements').fetchone()[0] or 0,
             'audit': [dict(r) for r in c.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')],
             'jobs': [dict(r) for r in c.execute('SELECT * FROM jobs ORDER BY created DESC LIMIT 30')],
             'news': [dict(r) for r in c.execute('SELECT * FROM news ORDER BY ts DESC LIMIT 50')],
@@ -527,24 +428,24 @@ def get_prometheus_metrics(_admin=Depends(get_current_admin)):
     """Exposes Prometheus plain-text metrics for external monitoring systems (Grafana / Prometheus)."""
     from fastapi.responses import PlainTextResponse
     with tx() as c:
-        exec_count = c.execute("SELECT COUNT(*) FROM metaapi_trade_executions").fetchone()[0] or 0
-        avg_lat = c.execute("SELECT AVG(latency_ms) FROM metaapi_trade_executions WHERE latency_ms > 0").fetchone()[0] or 24.0
-        active_accs = c.execute("SELECT COUNT(*) FROM trading_accounts WHERE auto_trade = 1").fetchone()[0] or 0
-        dd_halts = c.execute("SELECT COUNT(*) FROM kv WHERE key LIKE 'drawdown_locked:%'").fetchone()[0] or 0
+        rep_count = c.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0] or 0
+        ent_count = c.execute("SELECT COUNT(*) FROM report_entitlements").fetchone()[0] or 0
+        ord_count = c.execute("SELECT COUNT(*) FROM orders").fetchone()[0] or 0
+        user_count = c.execute("SELECT COUNT(*) FROM users").fetchone()[0] or 0
 
     lines = [
-        "# HELP zupirus_fanout_executions_total Total count of trade executions dispatched via cloud fanout",
-        "# TYPE zupirus_fanout_executions_total counter",
-        f"zupirus_fanout_executions_total {int(exec_count)}",
-        "# HELP zupirus_fanout_latency_ms Average execution latency in milliseconds",
-        "# TYPE zupirus_fanout_latency_ms gauge",
-        f"zupirus_fanout_latency_ms {round(float(avg_lat), 2)}",
-        "# HELP zupirus_accounts_active Number of active cloud trading accounts",
-        "# TYPE zupirus_accounts_active gauge",
-        f"zupirus_accounts_active {int(active_accs)}",
-        "# HELP zupirus_active_drawdown_halts Number of accounts currently locked by drawdown guard",
-        "# TYPE zupirus_active_drawdown_halts gauge",
-        f"zupirus_active_drawdown_halts {int(dd_halts)}",
+        "# HELP zupirus_research_reports_total Total count of quantitative research reports",
+        "# TYPE zupirus_research_reports_total gauge",
+        f"zupirus_research_reports_total {int(rep_count)}",
+        "# HELP zupirus_report_entitlements_total Total granted report entitlements",
+        "# TYPE zupirus_report_entitlements_total counter",
+        f"zupirus_report_entitlements_total {int(ent_count)}",
+        "# HELP zupirus_orders_total Total customer purchase orders",
+        "# TYPE zupirus_orders_total counter",
+        f"zupirus_orders_total {int(ord_count)}",
+        "# HELP zupirus_users_total Total registered users",
+        "# TYPE zupirus_users_total gauge",
+        f"zupirus_users_total {int(user_count)}",
     ]
     return PlainTextResponse(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4; charset=utf-8")
 

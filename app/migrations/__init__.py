@@ -141,6 +141,11 @@ MIGRATIONS = [
         "version": 27,
         "name": "027_quant_research_reports_and_entitlements",
         "description": "Create research_reports, report_versions, report_entitlements tables and extend orders for per-report PDF sales"
+    },
+    {
+        "version": 28,
+        "name": "028_prune_legacy_trading_schema",
+        "description": "Prune legacy customer MT5 copy-trading and execution tables"
     }
 ]
 
@@ -160,6 +165,7 @@ from .seed_and_fixes import (
     apply_migration_019, apply_migration_020, apply_migration_021,
     apply_migration_022, apply_migration_023, apply_migration_024,
     apply_migration_025, apply_migration_026, apply_migration_027,
+    apply_migration_028,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -195,6 +201,7 @@ def run_all_migrations(c, is_pg: bool):
         25: apply_migration_025,
         26: apply_migration_026,
         27: apply_migration_027,
+        28: apply_migration_028,
     }
 
     for m in MIGRATIONS:

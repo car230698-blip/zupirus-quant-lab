@@ -890,6 +890,36 @@ def apply_migration_027(c, is_pg: bool):
         logger.debug(f"Seed flagship report note in migration 027: {seed_err}")
 
 
+def apply_migration_028(c, is_pg: bool):
+    """Migration 028: Prune legacy MT5 copy-trading and execution tables.
+    ZUPIRUS Quant Lab operates exclusively as a quantitative research & PDF report platform.
+    """
+    tables_to_drop = [
+        "metaapi_trade_executions",
+        "metaapi_cloud_accounts",
+        "trading_accounts",
+        "real_accounts",
+        "dispatches",
+        "account_symbol_map",
+        "signal_dispatch_locks",
+        "devices",
+        "pairings",
+    ]
+    if is_pg:
+        for tbl in tables_to_drop:
+            try:
+                c.execute(f"DROP TABLE IF EXISTS {tbl} CASCADE;")
+            except Exception as e:
+                logger.warning(f"Migration 028 drop table {tbl} warning: {e}")
+    else:
+        for tbl in tables_to_drop:
+            try:
+                c.execute(f"DROP TABLE IF EXISTS {tbl};")
+            except Exception as e:
+                logger.warning(f"Migration 028 drop table {tbl} warning: {e}")
+
+
+
 
 
 

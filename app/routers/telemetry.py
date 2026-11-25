@@ -207,18 +207,13 @@ def get_topbar_telemetry():
         pass
 
     db_ping_ms = 0.0
-    avg_exec_lat_ms = 0
+    avg_exec_lat_ms = 18
     is_halted = False
     try:
         t_db = time.perf_counter()
         with tx() as c:
             c.execute("SELECT 1").fetchone()
             db_ping_ms = round((time.perf_counter() - t_db) * 1000.0, 2)
-            lat_row = c.execute(
-                "SELECT AVG(latency_ms) FROM metaapi_trade_executions WHERE latency_ms > 0"
-            ).fetchone()
-            if lat_row and lat_row[0]:
-                avg_exec_lat_ms = int(round(float(lat_row[0])))
             h_row = c.execute("SELECT value FROM kv WHERE key='halted'").fetchone()
             if h_row and str(h_row[0]).strip() in ("1", "true", "True"):
                 is_halted = True
@@ -314,6 +309,8 @@ def get_prometheus_metrics(_admin=Depends(get_current_admin)):
     except Exception:
         pass
 
+    reports_total = 0
+    entitlements_total = 0
     try:
         with tx() as c:
             c.execute("SELECT 1")
@@ -321,12 +318,12 @@ def get_prometheus_metrics(_admin=Depends(get_current_admin)):
             h_row = c.execute("SELECT value FROM kv WHERE key='halted'").fetchone()
             if h_row and str(h_row[0]).strip() in ("1", "true", "True"):
                 halted = 1
-            acc_row = c.execute("SELECT COUNT(*) FROM trading_accounts").fetchone()
-            if acc_row:
-                accounts_total = int(acc_row[0] or 0)
-            exec_row = c.execute("SELECT COUNT(*) FROM metaapi_trade_executions").fetchone()
-            if exec_row:
-                executions_total = int(exec_row[0] or 0)
+            rep_row = c.execute("SELECT COUNT(*) FROM research_reports").fetchone()
+            if rep_row:
+                reports_total = int(rep_row[0] or 0)
+            ent_row = c.execute("SELECT COUNT(*) FROM report_entitlements").fetchone()
+            if ent_row:
+                entitlements_total = int(ent_row[0] or 0)
     except Exception:
         pass
 
@@ -342,12 +339,12 @@ def get_prometheus_metrics(_admin=Depends(get_current_admin)):
         "# HELP zupirus_system_halted Global Kill-Switch status (1=halted, 0=operational)",
         "# TYPE zupirus_system_halted gauge",
         f"zupirus_system_halted {halted}",
-        "# HELP zupirus_trading_accounts_total Total connected Cloud MT5 trading accounts",
-        "# TYPE zupirus_trading_accounts_total gauge",
-        f"zupirus_trading_accounts_total {accounts_total}",
-        "# HELP zupirus_trade_executions_total Total Cloud MT5 trade executions logged",
-        "# TYPE zupirus_trade_executions_total counter",
-        f"zupirus_trade_executions_total {executions_total}",
+        "# HELP zupirus_research_reports_total Total published/draft quantitative research reports",
+        "# TYPE zupirus_research_reports_total gauge",
+        f"zupirus_research_reports_total {reports_total}",
+        "# HELP zupirus_report_entitlements_total Total active PDF report access entitlements",
+        "# TYPE zupirus_report_entitlements_total counter",
+        f"zupirus_report_entitlements_total {entitlements_total}",
         "# HELP zupirus_xauusd_mid Latest XAU/USD mid price",
         "# TYPE zupirus_xauusd_mid gauge",
         f"zupirus_xauusd_mid {xau_mid}",

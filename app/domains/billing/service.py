@@ -20,7 +20,6 @@ from app.config import (
     SEPAY_ACCOUNT_HOLDER,
 )
 from app.services.fx_rate import get_usd_vnd_rate, convert_usd_to_vnd
-from app.metaapi import MetaApiClient
 
 logger = logging.getLogger("zupirus.billing")
 
@@ -994,7 +993,12 @@ async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = No
     from app.core.config import is_customer_auto_trading_enabled
     if not is_customer_auto_trading_enabled() and client is None:
         return
-    client = client or MetaApiClient()
+    if client is None:
+        try:
+            from app.metaapi import MetaApiClient
+            client = MetaApiClient()
+        except Exception:
+            return
     all_ok = True
     for item in account_pairs:
         if isinstance(item, tuple):

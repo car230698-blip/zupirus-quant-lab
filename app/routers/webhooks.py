@@ -16,7 +16,6 @@ from app.services.signal_ingestion.sanitizer import sanitize_and_audit_signal
 from app.services.signal_ingestion.context import get_fresh_live_price, capture_market_context_snapshot
 from app.domains.signals.sources.curator import get_active_signal_mode, score_external_signal_hybrid
 from app.services.billing_service import process_successful_payment
-from app.metaapi import MetaApiClient, execute_fan_out_for_signal
 from app.redis_client import get_redis_client
 
 logger = logging.getLogger("zupirus.webhooks")
@@ -197,138 +196,28 @@ async def handle_tradingview_webhook(
             "executed": 0,
         }
 
-    # 6. Query active accounts entitled to receive this signal
+    # 6. Quantitative Research Mode (ZUPIRUS Quant Lab): Record signal into shadow ledger for research analysis
+    # Customer auto-trading and MT5 broker execution are strictly eliminated.
+    from app.services.sources.curator import record_shadow_signal
     with tx() as c:
-        # Accounts must have active service subscription AND active cloud slot (or admin bypass)
-        query = """
-            SELECT
-                a.id, a.user_id, a.metaapi_account_id, a.balance, a.equity,
-                a.max_lot,
-                a.risk_config, a.risk_multiplier, a.is_compounding, a.is_prop_firm_mode,
-                a.prop_stage, a.prop_daily_dd_limit_pct, a.prop_profit_target_pct,
-                a.account_type, a.contract_size, a.allowed_strategy_ids,
-                s.plan_tier, s.allow_alpha_strategies
-            FROM trading_accounts a
-            LEFT JOIN subscriptions s ON s.user_id = a.user_id
-            WHERE a.auto_trade = 1
-              AND a.deployment_state = 'DEPLOYED'
-              AND a.equity > 0
-              AND (
-                  (s.service_expires_at IS NOT NULL AND s.service_expires_at > ?)
-                  OR (a.cloud_expires_at IS NOT NULL AND a.cloud_expires_at > ?)
-                  OR a.user_id IN (SELECT id FROM users WHERE role = 'admin')
-              )
-        """
-        rows = c.execute(query, (now_ts, now_ts)).fetchall()
-
-    eligible_accounts = []
-    seen_acc_ids = set()
-    import json
-    for r in rows:
-        d = dict(r)
-        if d["id"] in seen_acc_ids:
-            continue
-        seen_acc_ids.add(d["id"])
-        # If strategy is ALPHA, verify user subscription permits ALPHA strategies
-        if sanitized_signal.strategy_tier == "ALPHA" and not d.get("allow_alpha_strategies"):
-            continue
-        raw_cfg = d.get("risk_config")
-        rc = {}
-        if raw_cfg:
-            try:
-                rc = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
-            except Exception:
-                rc = {}
-        d["risk_percent"] = float(rc.get("risk_percent", 1.0))
-        d_max = d.get("max_lot")
-        if d_max is not None and float(d_max) > 0:
-            d["max_lot"] = float(d_max)
-        else:
-            d["max_lot"] = float(rc.get("max_lot", 5.0) or 5.0)
-        eligible_accounts.append(d)
-
-    # Also enqueue into Direct MT5 EA Bridge (dispatches) for any connected & enabled DEMO EA terminals
-    ea_queued = 0
-    try:
-        from app.routers.ea import _ensure_ea_tables
-        with tx() as c_ea:
-            _ensure_ea_tables(c_ea)
-            ea_rows = c_ea.execute(
-                """
-                SELECT a.id FROM accounts a
-                JOIN devices d ON d.account_id = a.id
-                WHERE a.enabled = 1 AND a.mode = 'DEMO'
-                """
-            ).fetchall()
-            if ea_rows:
-                act_u = sanitized_signal.action.upper()
-                c_ea.execute(
-                    """
-                    INSERT INTO signals(id, source, side, price, sl, tp, created, expires)
-                    VALUES(?, 'DEMO', ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO NOTHING
-                    """,
-                    (sanitized_signal.id, act_u, float(sanitized_signal.entry_price), float(sanitized_signal.stop_loss or 0), float(sanitized_signal.take_profit or 0), now_ts, now_ts + 300),
-                )
-                for er in ea_rows:
-                    c_ea.execute(
-                        """
-                        INSERT INTO dispatches(signal_id, account_id, state, volume, created, updated)
-                        VALUES(?, ?, 'queued', 0.01, ?, ?)
-                        ON CONFLICT(account_id, signal_id) DO UPDATE SET updated=excluded.updated
-                        """,
-                        (sanitized_signal.id, er["id"], now_ts, now_ts),
-                    )
-                    ea_queued += 1
-    except Exception as ea_err:
-        logger.warning(f"EA Bridge dispatch enqueue skipped in webhook: {ea_err}")
-
-    if not eligible_accounts:
-        logger.info(f"Signal {sanitized_signal.id} approved, but no active eligible accounts currently online.")
-        return {
-            "status": "APPROVED",
-            "signal_id": sanitized_signal.id,
-            "message": "Signal passed all 4 guards, but no active eligible accounts found.",
-            "total_accounts": 0,
-            "executed": 0,
-        }
-
-    # 6. Fan-Out Direct Dispatch
-    client = MetaApiClient()
-    redis_cli = None
-    try:
-        redis_cli = get_redis_client()
-    except Exception:
-        pass
-
-    sig_dict = {
-        "id": sanitized_signal.id,
+        record_shadow_signal(
+            source_id=sanitized_signal.source,
+            symbol=sanitized_signal.symbol,
+            side=sanitized_signal.action,
+            entry_price=sanitized_signal.entry_price,
+            sl=sanitized_signal.stop_loss,
+            tp=sanitized_signal.take_profit,
+            db_cursor=c,
+        )
+    logger.info(f"Signal {sanitized_signal.id} approved for quantitative research observation. Zero broker executions.")
+    return {
+        "status": "RECORDED_RESEARCH",
+        "signal_id": sanitized_signal.id,
         "symbol": sanitized_signal.symbol,
         "action": sanitized_signal.action,
         "entry_price": sanitized_signal.entry_price,
-        "sl": sanitized_signal.stop_loss,
-        "tp": sanitized_signal.take_profit,
-        "strategy": str(getattr(p, "strategy", None) or getattr(sanitized_signal, "strategy", None) or "webhook_strategy").strip(),
-        "strategy_id": str(getattr(p, "strategy", None) or getattr(sanitized_signal, "strategy", None) or "webhook_strategy").strip(),
-        "source": getattr(sanitized_signal, "source", "TRADINGVIEW"),
-        "strategy_tier": sanitized_signal.strategy_tier,
-    }
-
-    report = await execute_fan_out_for_signal(
-        signal=sig_dict,
-        accounts=eligible_accounts,
-        metaapi_client=client,
-        redis_client=redis_cli,
-    )
-
-    logger.info(f"Dispatched signal {sanitized_signal.id} to {len(eligible_accounts)} accounts. Executed: {report.get('executed')}")
-    return {
-        "status": "APPROVED",
-        "signal_id": sanitized_signal.id,
-        "total_eligible_accounts": len(eligible_accounts),
-        "executed": report.get("executed", 0),
-        "failed": report.get("failed", 0),
-        "avg_latency_ms": report.get("avg_latency_ms", 0),
+        "message": "Signal recorded in quantitative research shadow ledger for WFO evaluation. Customer execution disabled.",
+        "executed": 0,
     }
 
 
