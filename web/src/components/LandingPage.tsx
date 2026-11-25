@@ -4,7 +4,6 @@ import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { LandingQrPreviewModal } from './LandingQrPreviewModal';
 import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
 import { LandingFooter } from './LandingFooter';
-import { PublicTrackRecordSection } from './PublicTrackRecordSection';
 import { LandingLotCalculator } from './LandingLotCalculator';
 import { PRICING_TIERS, getPricingTiers } from '../data/landingData';
 import { LandingHeader } from './LandingHeader';
@@ -75,7 +74,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* Atmospheric High-Tech Ambient Backdrop */}
       <FintechAmbientBackdrop />
 
-      {/* Header with live ticker & Discord link */}
+      {/* Header with live ticker */}
       <LandingHeader
         onEnterPortal={onEnterPortal}
         spotPrice={spotPrice}
@@ -179,10 +178,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           lotCalc={lotCalc}
         />
 
-        {/* SECTION 7: PUBLIC TRACK RECORD */}
-        <PublicTrackRecordSection onEnterPortal={onEnterPortal} />
-
-        {/* SECTION 8: PRICING & FAQ */}
+        {/* SECTION 6: PRICING & FAQ */}
         <LandingPricingAndFaqSection
           tiers={getPricingTiers(lang)}
           billingCycle={billingCycle}

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { EquityHistory } from './EquityHistory';
 import { CandlestickTelemetryChart } from './CandlestickTelemetryChart';
-import { PropCertificateModal } from './PropCertificateModal';
 import { fmtNum, fmtPnL } from '../utils/strategyDecision';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { apiGet } from '../api/client.ts';
@@ -73,7 +72,6 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
   const [localChartMode, setLocalChartMode] = useState<'candles' | 'equity'>('candles');
   const [showEmaOverlay, setShowEmaOverlay] = useState(true);
   const [showBbChannel, setShowBbChannel] = useState(true);
-  const [certModalOpen, setCertModalOpen] = useState(false);
   const [hoveredCandleIdx, setHoveredCandleIdx] = useState<number | null>(null);
   const [activeShieldIdx, setActiveShieldIdx] = useState<number>(0);
   const [subInfo, setSubInfo] = useState<any>(null);
@@ -280,7 +278,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                     {lang === 'en' ? '01 // AGGREGATED CAPITAL & COCKPIT' : '01 // TỔNG VỐN & BUỒNG LÁI ĐỊNH LƯỢNG'}
                   </span>
                   <span className="rounded bg-amber-500/15 border border-amber-400/35 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-amber-300">
-                    USD LIVE
+                    USD
                   </span>
                 </div>
                 <div className="flex flex-wrap items-baseline gap-3">
@@ -307,15 +305,6 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
 
               {/* Toggles */}
               <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {(totalAccountsCount ?? 0) > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setCertModalOpen(true)}
-                    className="rounded-xl border border-amber-400/45 bg-amber-500/15 px-3 py-1.5 font-mono text-xs font-bold text-amber-200 hover:bg-amber-500/25 transition whitespace-nowrap shrink-0 cursor-pointer"
-                  >
-                    {lang === 'en' ? '🏆 Prop Pass' : '🏆 Pass Quỹ'}
-                  </button>
-                )}
                 <div className="flex rounded-xl border border-white/10 bg-[#040710] p-0.5">
                   <button
                     type="button"
@@ -464,27 +453,18 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
                     <span className="text-amber-300 font-bold truncate max-w-[130px]" title={propAccounts[0]?.broker_server}>
                       {propAccounts[0]?.broker_server || 'PROP CHALLENGE'}
                     </span>
-                    {isTargetPassed && (
-                      <button
-                        type="button"
-                        onClick={() => setCertModalOpen(true)}
-                        className="rounded-lg border border-amber-400/50 bg-amber-500/20 px-1.5 py-0.5 text-[9.5px] font-bold text-amber-300 hover:bg-amber-500/30 transition shrink-0 cursor-pointer font-sans"
-                      >
-                        {lang === 'en' ? '🏆 Certificate' : '🏆 Xuất Chứng Chỉ'}
-                      </button>
-                    )}
                   </div>
                   <RadialRiskGauge
-                    title={lang === 'en' ? 'Prop Target (8%)' : 'Mục Tiêu Pass Quỹ (8%)'}
+                    title={lang === 'en' ? 'Prop Target (8%)' : 'Mục Tiêu Quỹ (8%)'}
                     value={Math.max(0, propPnlPct)}
                     max={8.0}
                     tone="gold"
-                    badgeLabel={isTargetPassed ? (lang === 'en' ? 'TARGET PASSED' : 'ĐÃ ĐẠT TARGET') : 'PROP LIVE'}
+                    badgeLabel={isTargetPassed ? (lang === 'en' ? 'TARGET PASSED' : 'ĐÃ ĐẠT TARGET') : 'PROP'}
                     badgeTone="gold"
                     subtitle={
                       <div className="space-y-1 text-[11px] text-slate-300 font-sans">
                         <div>{lang === 'en' ? 'Progress: ' : 'Tiến độ: '}<strong className="text-emerald-300 font-mono tabular-nums">+{fmtNum(Math.max(0, propPnlPct), 2)}%</strong> / 8.0%</div>
-                        <div>{lang === 'en' ? 'Accounts: ' : 'Tài khoản: '}<strong className="text-cyan-300">{propAccounts.length} {lang === 'en' ? 'Prop Live' : 'Quỹ Live'}</strong></div>
+                        <div>{lang === 'en' ? 'Accounts: ' : 'Tài khoản: '}<strong className="text-cyan-300">{propAccounts.length} {lang === 'en' ? 'Prop' : 'Quỹ'}</strong></div>
                       </div>
                     }
                   />
@@ -733,13 +713,6 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
           </span>
         </div>
       </SpotlightBento>
-      <PropCertificateModal
-        open={certModalOpen}
-        onClose={() => setCertModalOpen(false)}
-        totalEquity={totalEquity ?? totalBalance ?? 0}
-        netPnl={totalPnl ?? 0}
-        accountsCount={totalAccountsCount ?? 0}
-      />
     </div>
   );
 };

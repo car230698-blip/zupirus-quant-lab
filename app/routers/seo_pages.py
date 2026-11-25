@@ -103,7 +103,7 @@ GUIDES: List[Dict[str, object]] = [
             ),
             (
                 "Bước 2: Chọn gói hạ tầng Cloud MT5 & kích hoạt SePay VietQR 24/7",
-                "Chọn gói phù hợp với số lượng tài khoản MT5 bạn muốn chạy: Starter ($25/tháng — 1 tài khoản), Growth ($39/tháng — tối đa 3 tài khoản) hoặc Alpha VIP ($59/tháng — tối đa 5 tài khoản kèm Prop Firm Guard). Quét mã SePay VietQR để hệ thống tự động đối soát và mở slot trong vài giây."
+                "Chọn gói phù hợp với số lượng tài khoản MT5 bạn muốn chạy: Starter ($25/tháng — 1 tài khoản), Growth ($39/tháng — tối đa 3 tài khoản) hoặc Alpha ($59/tháng — tối đa 5 tài khoản kèm Prop Firm Guard). Quét mã SePay VietQR để hệ thống tự động đối soát và mở slot trong vài giây."
             ),
             (
                 "Bước 3: Đấu nối MT5 Login & cấu hình lớp giáp rủi ro",
@@ -130,7 +130,7 @@ GUIDES: List[Dict[str, object]] = [
             ),
             (
                 "3. Khuyến nghị phân bổ danh mục quỹ cho trader định lượng",
-                "Thay vì dồn toàn bộ vốn mua 1 tài khoản lớn ở một quỹ duy nhất, trader chuyên nghiệp thường chia đều 3 quỹ (ví dụ: FTMO $100K + The5ers $100K + FundedNext $200K) và đồng bộ qua gói Alpha VIP (tối đa 5 tài khoản MT5) với mức rủi ro 0.75%/lệnh. Cách này vừa phân tán rủi ro đối tác quỹ, vừa tận dụng tối đa nguồn vốn cấp lên tới $400,000+."
+                "Thay vì dồn toàn bộ vốn mua 1 tài khoản lớn ở một quỹ duy nhất, trader chuyên nghiệp thường chia đều 3 quỹ (ví dụ: FTMO $100K + The5ers $100K + FundedNext $200K) và đồng bộ qua gói Alpha (tối đa 5 tài khoản MT5) với mức rủi ro 0.75%/lệnh. Cách này vừa phân tán rủi ro đối tác quỹ, vừa tận dụng tối đa nguồn vốn cấp lên tới $400,000+."
             ),
         ],
     },
@@ -428,12 +428,9 @@ def _render_shell(
     <div class="nav">
       <a class="brand" href="https://zupirus.com/">⚡ ZUPIRUS QUANT LAB</a>
       <div class="nav-links">
-        <a href="https://zupirus.com/#track-record">{nav_perf}</a>
         <a href="/cong-cu/tinh-lot-size-xauusd">{nav_lot}</a>
         <a href="/cong-cu/tinh-drawdown-quy-prop-firm">{nav_dd}</a>
         <a href="/huong-dan">{nav_guide}</a>
-        <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a>
-        <a href="https://discord.gg/yxCx3dVe34" target="_blank" rel="noopener noreferrer">Discord</a>
         <a class="cta" href="https://app.zupirus.com/">{nav_cta}</a>
       </div>
     </div>
@@ -441,7 +438,7 @@ def _render_shell(
   <main>{body_html}</main>
   <footer>
     © 2026 ZUPIRUS Quant Lab · {footer_tagline} ·
-    <a href="https://zupirus.com/">{footer_home}</a> · <a href="/cong-cu/tinh-lot-size-xauusd">{nav_lot}</a> · <a href="/cong-cu/tinh-drawdown-quy-prop-firm">{nav_dd}</a> · <a href="/huong-dan">{footer_guides}</a> · <a href="https://www.youtube.com/@ZupirusTradingAcademy" target="_blank" rel="noopener noreferrer">YouTube</a> · <a href="https://app.zupirus.com/">{footer_login}</a>
+    <a href="https://zupirus.com/">{footer_home}</a> · <a href="/cong-cu/tinh-lot-size-xauusd">{nav_lot}</a> · <a href="/cong-cu/tinh-drawdown-quy-prop-firm">{nav_dd}</a> · <a href="/huong-dan">{footer_guides}</a> · <a href="https://app.zupirus.com/">{footer_login}</a>
   </footer>
 </body>
 </html>"""

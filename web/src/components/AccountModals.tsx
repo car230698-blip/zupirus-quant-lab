@@ -425,7 +425,7 @@ export const AccountModals: React.FC<AccountModalsProps> = ({
                       <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-3.5 text-xs text-amber-200">
                         {lang === 'en'
                           ? 'Admin wallet address is being set up. Please contact Admin.'
-                          : 'Địa chỉ ví của Admin đang được cập nhật. Vui lòng liên hệ Admin qua Discord.'}
+                          : 'Địa chỉ ví của Admin đang được cập nhật. Vui lòng liên hệ Admin.'}
                       </div>
                     )}
 

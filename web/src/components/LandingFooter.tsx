@@ -10,7 +10,7 @@ export const LandingFooter: React.FC<LandingFooterProps> = ({ onEnterPortal }) =
 
   return (
     <>
-      {/* Institutional Fintech Footer with Discord Community Links */}
+      {/* Institutional Fintech Footer */}
       <footer className="border-t border-slate-800/80 bg-[#050914] py-12 pb-24 sm:pb-12 text-xs text-slate-400 font-mono">
         <div className="mx-auto max-w-6xl px-6 space-y-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -21,17 +21,7 @@ export const LandingFooter: React.FC<LandingFooterProps> = ({ onEnterPortal }) =
               <span className="text-sm font-bold text-white tracking-wider">ZUPIRUS QUANT LAB</span>
             </div>
             <div className="flex items-center gap-6 text-slate-400">
-              <a
-                href="https://discord.gg/yxCx3dVe34"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[#8EA1FF] hover:underline flex items-center gap-1 font-bold"
-              >
-                <span>{t.footer.discordLink}</span>
-                <span>↗</span>
-              </a>
               <a href="#pipeline" className="hover:text-white transition">{t.footer.shieldsLink}</a>
-              <a href="#track-record" className="hover:text-white transition">{t.footer.perfLink}</a>
               <a href="#lot-calculator" className="hover:text-white transition">{t.footer.calcLink}</a>
               <a href="#pricing" className="hover:text-white transition">{t.footer.pricingLink}</a>
               {onEnterPortal && (
@@ -53,16 +43,6 @@ export const LandingFooter: React.FC<LandingFooterProps> = ({ onEnterPortal }) =
 
       {/* Mobile WebApp Bottom Dock on Landing Page (Fixed on phones for app-like conversion) */}
       <div className="fixed bottom-0 inset-x-0 z-40 flex sm:hidden items-center justify-between gap-2 border-t border-slate-800/90 bg-[#070c18]/95 px-3 py-2.5 backdrop-blur-xl shadow-2xl pb-[max(0.6rem,env(safe-area-inset-bottom))]">
-        <a
-          href="https://discord.gg/yxCx3dVe34"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 rounded-xl border border-[#3b4b7a] bg-[#0c1326] px-3 py-2 text-xs font-mono font-bold text-[#8EA1FF] whitespace-nowrap"
-        >
-          <span>Discord</span>
-          <span className="text-[10px]">↗</span>
-        </a>
-
         <button
           type="button"
           onClick={() => {

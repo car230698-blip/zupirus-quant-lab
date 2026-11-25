@@ -369,15 +369,6 @@ export function PortalShell({
                 <span className="text-amber-300 font-mono tabular-nums">London G2 · OK</span>
               </div>
               <div className="flex flex-col gap-1.5 pt-0.5 w-full">
-                <a
-                  href="https://discord.gg/yxCx3dVe34"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-400/25 transition-colors flex items-center justify-between"
-                >
-                  <span>{lang === 'en' ? 'Discord Community' : 'Cộng Đồng Discord'}</span>
-                  <span className="text-[10px] text-indigo-300">↗</span>
-                </a>
                 <button
                   type="button"
                   onClick={() => setCmdOpen(true)}
@@ -390,10 +381,6 @@ export function PortalShell({
             </>
           ) : (
             <div className="flex flex-col items-center gap-3 w-full pb-1">
-              <div className="flex flex-col items-center gap-1 group relative cursor-pointer" title="Live SSE Feed: London G2 · 24ms">
-                <span className="pulse-wrap"><span className="pulse-core" /></span>
-                <span className="text-[8px] font-mono text-[#12B5A6] font-bold">LIVE</span>
-              </div>
               <button
                 type="button"
                 onClick={() => setCmdOpen(true)}
@@ -781,16 +768,6 @@ export function PortalShell({
                 <span>{lang === 'en' ? 'Change Password' : 'Đổi Mật Khẩu'}</span>
                 <span className="text-slate-500">→</span>
               </button>
-
-              <a
-                href="https://discord.gg/yxCx3dVe34"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full flex items-center justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-left text-[#8EA1FF] hover:bg-indigo-500/20 transition"
-              >
-                <span>{lang === 'en' ? 'Discord Community' : 'Cộng Đồng Discord'}</span>
-                <span>↗</span>
-              </a>
 
               <button
                 type="button"

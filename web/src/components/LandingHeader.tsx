@@ -44,9 +44,6 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
           <a href="#pipeline" className="hover:text-white transition-colors">
             {t.nav.shields}
           </a>
-          <a href="#track-record" className="hover:text-white transition-colors">
-            {t.nav.performance}
-          </a>
           <a href="#lot-calculator" className="hover:text-white transition-colors">
             {t.nav.lotCalculator}
           </a>
@@ -55,19 +52,8 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({
           </a>
         </nav>
 
-        {/* Right: Discord + Login + Primary CTA (Language auto-detected via IP) */}
+        {/* Right: Login + Primary CTA (Language auto-detected via IP) */}
         <div className="flex items-center gap-2.5">
-          <a
-            href="https://discord.gg/yxCx3dVe34"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-[#3b4b7a] bg-[#0c1326] px-3.5 py-2 text-xs font-mono font-bold text-[#8EA1FF] hover:bg-[#5865F2]/20 hover:border-[#5865F2]/50 transition"
-            title="Tham gia cộng đồng ZUPIRUS Quant Lab trên Discord"
-          >
-            <span>{t.nav.discord}</span>
-            <span className="text-[11px]">↗</span>
-          </a>
-
           <button
             type="button"
             onClick={onEnterPortal}
