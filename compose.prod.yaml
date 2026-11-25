@@ -2,7 +2,7 @@
 services:
   timescaledb:
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-zupirus}
+      POSTGRES_DB: ${POSTGRES_DB:-zupirus_quant}
       POSTGRES_USER: ${POSTGRES_USER:-zupirus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}
     ports:
@@ -20,7 +20,8 @@ services:
       APP_ENV: "production"
       COOKIE_SECURE: "true"
       ENABLE_LEGACY_EA_BRIDGE: "false"
-      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}@timescaledb:5432/${POSTGRES_DB:-zupirus}
+      COMMERCIAL_REPORTS_SALE_ENABLED: ${COMMERCIAL_REPORTS_SALE_ENABLED:-false}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}@timescaledb:5432/${POSTGRES_DB:-zupirus_quant}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set in production}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in production}
@@ -31,7 +32,7 @@ services:
       SEPAY_BANK_NAME: ${SEPAY_BANK_NAME:-}
       SEPAY_ACCOUNT_NUMBER: ${SEPAY_ACCOUNT_NUMBER:-}
       SEPAY_ACCOUNT_HOLDER: ${SEPAY_ACCOUNT_HOLDER:-}
-      METAAPI_TOKEN: ${METAAPI_TOKEN:?METAAPI_TOKEN must be set in production}
+      METAAPI_TOKEN: ${METAAPI_TOKEN:-}
     networks:
       private:
       npm_default:
@@ -42,13 +43,20 @@ services:
     environment:
       APP_ENV: "production"
       ENABLE_LEGACY_EA_BRIDGE: "false"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}@timescaledb:5432/${POSTGRES_DB:-zupirus_quant}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
 
   research:
     environment:
       APP_ENV: "production"
       ENABLE_LEGACY_EA_BRIDGE: "false"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}@timescaledb:5432/${POSTGRES_DB:-zupirus_quant}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
+
+volumes:
+  lab_data:
+    external: true
+    name: zupirus_quant_lab_data
 
 networks:
   npm_default:
