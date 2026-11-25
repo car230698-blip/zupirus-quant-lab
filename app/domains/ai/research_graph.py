@@ -317,7 +317,7 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
     first_bar_ts = _bar_ts(prices[0]) if len(prices) >= 180 else None
     last_bar_ts = _bar_ts(prices[-1]) if len(prices) >= 180 else None
     has_untrusted_source = any(
-        isinstance(b, dict) and str(b.get("source") or "").strip().upper() == "YAHOO_REFERENCE"
+        isinstance(b, dict) and str(b.get("source") or "").strip().upper().startswith("YAHOO")
         for b in prices
     )
     has_future_or_unclosed_bars = bool(
@@ -515,7 +515,7 @@ def graph(saver):
                     SELECT open, high, low, close, time, source
                     FROM candles
                     WHERE symbol = 'XAUUSD' AND timeframe = 'M15'
-                      AND (source IS NULL OR source != 'YAHOO_REFERENCE')
+                      AND (source IS NULL OR UPPER(source) NOT LIKE 'YAHOO%')
                     ORDER BY time DESC LIMIT 1000
                     """
                 ).fetchall()
@@ -525,7 +525,7 @@ def graph(saver):
                         SELECT open, high, low, close, time, source
                         FROM candles
                         WHERE symbol = 'XAUUSD'
-                          AND (source IS NULL OR source != 'YAHOO_REFERENCE')
+                          AND (source IS NULL OR UPPER(source) NOT LIKE 'YAHOO%')
                         ORDER BY time DESC LIMIT 1000
                         """
                     ).fetchall()
@@ -821,7 +821,7 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                 SELECT open, high, low, close, time, source
                 FROM candles
                 WHERE symbol = 'XAUUSD' AND timeframe = 'M15'
-                  AND (source IS NULL OR source != 'YAHOO_REFERENCE')
+                  AND (source IS NULL OR UPPER(source) NOT LIKE 'YAHOO%')
                 ORDER BY time DESC LIMIT 1000
                 """
             ).fetchall()
@@ -966,35 +966,57 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                 canary_age = now - c_started_at
                 # Only evaluate after 7 days trial
                 if canary_age >= 7 * 86400:
-                    log_rows = c.execute(
+                    exec_pnl_rows = c.execute(
                         """
-                        SELECT l.pnl
-                        FROM signal_audit_logs l
+                        SELECT e.profit
+                        FROM metaapi_trade_executions e
+                        JOIN signal_audit_logs l ON l.signal_id = e.signal_id
                         WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
                           AND l.created_at >= ?
-                          AND l.pnl IS NOT NULL
-                          AND UPPER(COALESCE(l.reject_reason, '')) != 'BROKER_PARTIAL_CLOSED'
+                          AND e.profit IS NOT NULL
+                          AND e.closed_at IS NOT NULL
+                          AND UPPER(COALESCE(e.status, '')) IN ('CLOSED', 'COMPLETED')
                           AND (
-                              EXISTS (
-                                  SELECT 1 FROM metaapi_trade_executions e
-                                  WHERE e.signal_id = l.signal_id
-                                    AND UPPER(COALESCE(e.status, '')) IN ('CLOSED', 'COMPLETED')
-                                    AND e.closed_at IS NOT NULL
-                              )
-                              OR NOT EXISTS (
-                                  SELECT 1 FROM metaapi_trade_executions e2
-                                  WHERE e2.signal_id = l.signal_id
+                              e.evidence_json IS NULL
+                              OR (
+                                  e.evidence_json NOT LIKE '%"manual_closed_by_user": true%'
+                                  AND e.evidence_json NOT LIKE '%"manual_closed_by_user":true%'
                               )
                           )
-                          AND l.signal_id NOT IN (
-                              SELECT signal_id FROM metaapi_trade_executions 
-                              WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
-                                 OR evidence_json LIKE '%"manual_closed_by_user":true%'
-                          )
-                        ORDER BY l.created_at ASC
+                        ORDER BY COALESCE(e.closed_at, e.executed_at, l.created_at) ASC
                         """,
                         (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
                     ).fetchall()
+                    any_exec_rows = c.execute(
+                        """
+                        SELECT 1
+                        FROM metaapi_trade_executions e
+                        JOIN signal_audit_logs l ON l.signal_id = e.signal_id
+                        WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
+                          AND l.created_at >= ?
+                        LIMIT 1
+                        """,
+                        (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
+                    ).fetchone()
+                    if any_exec_rows is not None:
+                        log_rows = exec_pnl_rows
+                    else:
+                        log_rows = c.execute(
+                            """
+                            SELECT l.pnl
+                            FROM signal_audit_logs l
+                            WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
+                              AND l.created_at >= ?
+                              AND l.pnl IS NOT NULL
+                              AND UPPER(COALESCE(l.reject_reason, '')) != 'BROKER_PARTIAL_CLOSED'
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM metaapi_trade_executions e2
+                                  WHERE e2.signal_id = l.signal_id
+                              )
+                            ORDER BY l.created_at ASC
+                            """,
+                            (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
+                        ).fetchall()
                     pnls = [float(r[0]) for r in log_rows]
                     closed_cnt = len(pnls)
                     expectancy = (sum(pnls) / max(closed_cnt, 1)) if closed_cnt > 0 else 0.0

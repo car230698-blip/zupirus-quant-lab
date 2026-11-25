@@ -81,14 +81,17 @@ def fetch_live_calendar() -> List[Dict[str, Any]]:
                             or str(item.get("status", "")).strip().lower() in ("cancelled", "canceled", "deleted")
                             or impact_raw in ("cancelled", "canceled", "deleted")
                         )
-                        if country in ("USD", "ALL", "US") and (
+                        if country in ("USD", "ALL", "US", "") and (
                             is_cancelled_item
                             or any(k in impact_raw for k in ("high", "holiday", "medium", "low"))
                         ):
                             title = str(item.get("title", "US Economic Event")).strip()
                             date_val = item.get("date") or item.get("time")
                             ts = parse_event_time(str(date_val)) if date_val else None
-                            if ts and ts > time.time() - 86400:
+                            item_id = item.get("id") or item.get("event_id")
+                            if is_cancelled_item and item_id and not ts:
+                                ts = time.time()
+                            if ts and (ts > time.time() - 86400 or is_cancelled_item):
                                 if is_cancelled_item:
                                     norm_impact = "cancelled"
                                 elif "high" in impact_raw or "holiday" in impact_raw:
@@ -104,8 +107,8 @@ def fetch_live_calendar() -> List[Dict[str, Any]]:
                                     "ts": ts,
                                     "cancelled": is_cancelled_item,
                                 }
-                                if item.get("id") or item.get("event_id"):
-                                    ev_obj["id"] = str(item.get("id") or item.get("event_id"))
+                                if item_id:
+                                    ev_obj["id"] = str(item_id)
                                 events.append(ev_obj)
             if events:
                 logger.info(f"Successfully fetched {len(events)} events from {url}")
@@ -137,8 +140,8 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
     existing = 0
 
     for ev in raw_events:
-        title = ev["title"].strip()
-        ts = float(ev["ts"])
+        title = str(ev.get("title") or "US Economic Event").strip()
+        ts = float(ev.get("ts") or time.time())
         currency = ev.get("currency", "USD")
         impact = ev.get("impact", "high")
         event_id = ev.get("id") or ev.get("event_id")

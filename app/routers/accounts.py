@@ -288,15 +288,21 @@ async def _create_account_locked(
                 # Terminal exists on MetaApi (may be DEPLOYED, DISCONNECTED, or offline)
                 # 1. Update credentials on existing MetaApi Cloud terminal if password/server provided
                 if p.password:
+                    upd_ok = False
                     try:
-                        await client.update_account_credentials(
+                        upd_ok = bool(await client.update_account_credentials(
                             existing_meta_id,
                             password=p.password,
                             login=p.login,
                             server=p.server,
-                        )
+                        ))
+                    except HTTPException:
+                        raise
                     except Exception as upd_err:
                         logger.warning(f"Failed to update MetaApi credentials on {existing_meta_id}: {upd_err}")
+                        fail(400, f"Không thể cập nhật mật khẩu/thông tin tài khoản trên MetaApi Cloud: {upd_err}")
+                    if not upd_ok:
+                        fail(400, "MetaApi Cloud từ chối cập nhật thông tin đăng nhập MT5. Vui lòng kiểm tra lại mật khẩu hoặc máy chủ sàn.")
                 # 2. Deploy existing terminal without creating duplicate cloud terminals
                 dep_ok = await client.deploy_account(existing_meta_id)
                 meta_id = existing_meta_id
@@ -387,6 +393,15 @@ async def _create_account_locked(
             initial_auto_trade = 0
 
     account_id = existing_same_acc["id"] if existing_same_acc else f"acc_{secrets.token_hex(8)}"
+    if existing_same_acc:
+        with tx() as c:
+            manual_pref_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"user_manual_auto_trade:{account_id}",)).fetchone()
+            manual_pref = str(manual_pref_row[0]).strip() if manual_pref_row and manual_pref_row[0] is not None else None
+            exp_susp_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"expiry_suspended_auto_trade:{account_id}",)).fetchone()
+            was_exp_susp = bool(exp_susp_row and str(exp_susp_row[0]).strip() == "1")
+        prev_at = existing_same_acc.get("auto_trade")
+        if manual_pref == "0" or (prev_at is not None and int(prev_at) == 0 and not was_exp_susp):
+            initial_auto_trade = 0
     enc_pwd = encrypt_secret(p.password)
 
     # Cloud expiration defaults to 30 days or matches subscription
@@ -503,11 +518,15 @@ async def _create_account_locked(
         c.execute(
             """
             UPDATE trading_accounts
-            SET account_type=?, contract_size=?, auto_be_partial_tp=?, is_prop_firm_mode=?, latency_ms=28
+            SET account_type=?, currency=?, contract_size=?, auto_be_partial_tp=?, is_prop_firm_mode=?, latency_ms=28
             WHERE id=?
             """,
-            (acc_type, contract_size, auto_be_default, auto_prop_default, account_id),
+            (acc_type, acc_currency, contract_size, auto_be_default, auto_prop_default, account_id),
         )
+        try:
+            c.execute("UPDATE metaapi_cloud_accounts SET currency=? WHERE id=?", (acc_currency, account_id))
+        except Exception:
+            pass
         discover_and_map_account_symbols(account_id, broker_symbols_list or ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"], db_cursor=c)
 
         # Attempt immediate live balance synchronization from broker
@@ -518,11 +537,38 @@ async def _create_account_locked(
                 c.execute("UPDATE trading_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
                 c.execute("UPDATE metaapi_cloud_accounts SET balance=?, equity=? WHERE id=?", (real_bal, real_eq, account_id))
 
-        if meta_state == "DEPLOYED":
-            c.execute(
-                "UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE user_id = ? AND status = 'PAID' AND UPPER(COALESCE(cloud_deploy_status, '')) IN ('PENDING_LINK', 'AWAITING_ACCOUNT', 'PENDING', '')",
+        if meta_state == "DEPLOYED" and initial_conn_status == "CONNECTED":
+            # Count how many verified DEPLOYED + CONNECTED accounts this user now has
+            user_accs = c.execute(
+                "SELECT id, deployment_state, risk_config FROM trading_accounts WHERE user_id = ?",
                 (user_id,),
-            )
+            ).fetchall()
+            ready_acc_cnt = 0
+            for ua in user_accs:
+                ua_d = dict(ua)
+                if str(ua_d.get("deployment_state") or "").upper() != "DEPLOYED":
+                    continue
+                try:
+                    ua_rc = json.loads(ua_d.get("risk_config") or "{}") if isinstance(ua_d.get("risk_config"), str) else (ua_d.get("risk_config") or {})
+                except Exception:
+                    ua_rc = {}
+                if str(ua_rc.get("connection_status") or "").upper() == "CONNECTED":
+                    ready_acc_cnt += 1
+            pending_orders = c.execute(
+                """
+                SELECT id, cloud_slots_count FROM orders
+                WHERE user_id = ? AND status = 'PAID'
+                  AND UPPER(COALESCE(cloud_deploy_status, '')) IN ('PENDING_LINK', 'AWAITING_ACCOUNT', 'PENDING', '')
+                ORDER BY created_at ASC, id ASC
+                """,
+                (user_id,),
+            ).fetchall()
+            for po in pending_orders:
+                po_d = dict(po)
+                req_slots = max(1, int(po_d.get("cloud_slots_count") or 1))
+                if ready_acc_cnt >= req_slots:
+                    c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (po_d["id"],))
+                    break
 
         audit(c, user_id, "trading_account_cloud_connected", {
             "account_id": account_id,
@@ -860,9 +906,12 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
     conn_status = "CONNECTED"
     sync_msg = "Đã đồng bộ số dư mới nhất từ sàn."
 
+    sync_currency = str(acc.get("currency") or "USD").upper()
     if not acc.get("_is_ea_bridge") and not client.is_mock:
         info = await client.get_account_information(meta_id)
         if isinstance(info, dict):
+            if info.get("currency"):
+                sync_currency = str(info.get("currency")).strip().upper()
             if info.get("connected") is False or info.get("connection_status") == "DISCONNECTED":
                 is_connected = False
                 conn_status = info.get("connection_status") or "DISCONNECTED"
@@ -938,13 +987,13 @@ async def sync_account(account_id: str, u: dict = Depends(get_current_user)):
         else:
             if is_connected:
                 c.execute(
-                    "UPDATE trading_accounts SET equity=?, balance=?, last_sync=?, last_verified_at=?, risk_config=? WHERE id=? AND user_id=?",
-                    (eq, bal, now_ts, now_ts, updated_rc_json, real_id, owner_id)
+                    "UPDATE trading_accounts SET equity=?, balance=?, currency=?, last_sync=?, last_verified_at=?, risk_config=? WHERE id=? AND user_id=?",
+                    (eq, bal, sync_currency, now_ts, now_ts, updated_rc_json, real_id, owner_id)
                 )
                 try:
                     c.execute(
-                        "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, last_sync=? WHERE id=? AND user_id=?",
-                        (eq, bal, now_ts, real_id, owner_id)
+                        "UPDATE metaapi_cloud_accounts SET equity=?, balance=?, currency=?, last_sync=? WHERE id=? AND user_id=?",
+                        (eq, bal, sync_currency, now_ts, real_id, owner_id)
                     )
                 except Exception:
                     pass

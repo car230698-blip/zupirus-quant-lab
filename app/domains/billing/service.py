@@ -845,18 +845,29 @@ async def retry_order_cloud_deployment(order_id: str) -> Dict[str, Any]:
             return {"ok": False, "status": "NOT_FOUND", "message": f"Không tìm thấy đơn hàng {order_id}."}
         order = dict(row)
         user_id = order["user_id"]
+        u_row = c.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+        is_admin = bool(u_row and str(u_row[0] or "").lower() == "admin")
         sub = c.execute("SELECT max_mt5_accounts, service_expires_at FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
         max_accounts = int(sub["max_mt5_accounts"] or 1) if sub else int(order.get("cloud_slots_count") or 1)
-        sub_exp = float(sub["service_expires_at"] or 0) if sub and sub["service_expires_at"] else (now_ts + 30 * 86400)
+        sub_exp = float(sub["service_expires_at"] or 0) if sub and sub["service_expires_at"] else 0.0
+        if not is_admin and sub_exp <= now_ts:
+            return {
+                "ok": False,
+                "status": "SUBSCRIPTION_EXPIRED",
+                "message": f"Gói thuê bao của khách hàng đã hết hạn, không thể triển khai lại trạm Cloud cho đơn {order_id}.",
+            }
 
         acc_rows = c.execute(
-            "SELECT id, metaapi_account_id, deployment_state FROM trading_accounts WHERE user_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
+            "SELECT id, metaapi_account_id, deployment_state, cloud_expires_at FROM trading_accounts WHERE user_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
             (user_id, max_accounts),
         ).fetchall()
         has_any_account = len(acc_rows) > 0
         for a_row in acc_rows:
             a = dict(a_row)
             dep_st = str(a.get("deployment_state") or "").upper()
+            c_exp = float(a.get("cloud_expires_at") or 0)
+            if not is_admin and c_exp > 0 and c_exp <= now_ts and sub_exp <= now_ts:
+                continue
             if a.get("metaapi_account_id") and dep_st != "DEPLOYED":
                 c.execute(
                     "UPDATE trading_accounts SET cloud_expires_at = CASE WHEN cloud_expires_at IS NULL OR cloud_expires_at < ? THEN ? ELSE cloud_expires_at END, deployment_state = 'DEPLOY_PENDING' WHERE id = ?",

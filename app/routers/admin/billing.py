@@ -353,11 +353,27 @@ def get_admin_billing_orders(
                 d["entitlement_applied"] = False
             else:
                 d["entitlement_applied"] = (ent_st in ("APPLIED", "GRANTED")) or (is_paid and not ent_st)
-            acc_cnt_row = c.execute("SELECT count(*) FROM trading_accounts WHERE user_id = ?", (d.get("user_id"),)).fetchone()
-            user_acc_cnt = int(acc_cnt_row[0]) if acc_cnt_row else 0
-            if cld_st == "DEPLOYED" and user_acc_cnt == 0:
-                cld_st = "PENDING_LINK"
-            d["cloud_ready"] = (cld_st == "DEPLOYED" and user_acc_cnt > 0)
+            acc_rows_u = c.execute(
+                "SELECT deployment_state, risk_config FROM trading_accounts WHERE user_id = ?",
+                (d.get("user_id"),),
+            ).fetchall()
+            user_acc_cnt = len(acc_rows_u)
+            ready_acc_cnt = 0
+            for ar_u in acc_rows_u:
+                ar_d = dict(ar_u)
+                if str(ar_d.get("deployment_state") or "").upper() != "DEPLOYED":
+                    continue
+                try:
+                    ar_rc = json.loads(ar_d.get("risk_config") or "{}") if isinstance(ar_d.get("risk_config"), str) else (ar_d.get("risk_config") or {})
+                except Exception:
+                    ar_rc = {}
+                conn_u = str(ar_rc.get("connection_status") or "").upper()
+                if conn_u not in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER", "UNAVAILABLE"):
+                    ready_acc_cnt += 1
+            req_slots = max(1, int(d.get("cloud_slots_count") or 1))
+            if cld_st == "DEPLOYED" and (user_acc_cnt == 0 or ready_acc_cnt < req_slots):
+                cld_st = "PENDING_LINK" if user_acc_cnt < req_slots else "PENDING"
+            d["cloud_ready"] = (cld_st == "DEPLOYED" and ready_acc_cnt >= req_slots)
             d["payment_status"] = "CONFIRMED" if d["payment_confirmed"] else (pay_st or st or "PENDING")
             d["entitlement_status"] = "APPLIED" if d["entitlement_applied"] else (ent_st or "PENDING")
             d["cloud_deploy_status"] = "DEPLOYED" if d["cloud_ready"] else (cld_st or ("PENDING_LINK" if (d["entitlement_applied"] and user_acc_cnt == 0) else "PENDING"))

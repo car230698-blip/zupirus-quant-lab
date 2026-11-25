@@ -672,16 +672,23 @@ async def verify_and_fulfill_crypto_order(
         return {"ok": False, "message": f"Phương thức thanh toán {gateway} không hỗ trợ xác minh On-Chain."}
 
     # Check transaction timestamp against the order's active validity window FIRST (before mutating to UNDERPAID or PAID)
+    has_ts_field = isinstance(details, dict) and ("timestamp" in details or "block_timestamp" in details)
     raw_tx_ts = float(details.get("timestamp") or details.get("block_timestamp") or 0.0) if isinstance(details, dict) else 0.0
     tx_ts_sec = (raw_tx_ts / 1000.0) if raw_tx_ts > 1e11 else raw_tx_ts
     ord_created = float(order.get("created_at") or 0.0)
     ord_expires = float(order.get("expires_at") or 0.0)
-    if tx_ts_sec > 0:
-        if (ord_created > 0 and tx_ts_sec < ord_created - 60.0) or (ord_expires > 0 and tx_ts_sec > ord_expires + 300.0):
+    if (valid or (isinstance(details, dict) and details.get("underpaid"))) and ord_created > 0:
+        if (gateway == "USDT_BEP20" or has_ts_field) and tx_ts_sec <= 0:
             return {
                 "ok": False,
-                "message": "Giao dịch nằm ngoài khung thời gian hiệu lực của đơn hàng này.",
+                "message": "Không thể xác minh thời gian khối (block timestamp) của giao dịch để đối chiếu với đơn hàng.",
             }
+        if tx_ts_sec > 0:
+            if (ord_created > 0 and tx_ts_sec < ord_created - 60.0) or (ord_expires > 0 and tx_ts_sec > ord_expires + 300.0):
+                return {
+                    "ok": False,
+                    "message": "Giao dịch nằm ngoài khung thời gian hiệu lực của đơn hàng này.",
+                }
 
     # Underpaid branch (only reached if transaction timestamp is within order validity window)
     if not valid and details.get("underpaid"):

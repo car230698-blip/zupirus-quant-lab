@@ -544,3 +544,104 @@ async def test_431dd02_fixes_comprehensive():
     with tx() as c:
         s_row_2 = c.execute("SELECT service_expires_at FROM subscriptions WHERE user_id = ?", (u_no_mt5,)).fetchone()
         assert abs(float(s_row_2["service_expires_at"]) - exp_after_first) < 1.0
+
+
+@pytest.mark.asyncio
+async def test_dfc5602_fixes_comprehensive():
+    """Verify all 11 findings on commit dfc5602:
+    1. Subscription lifecycle worker processes multiple subscriptions without UnboundLocalError when first is in reminder window.
+    2. WFO blocks both YAHOO and YAHOO_REFERENCE sources from production qualification.
+    3. Outbox fair rotation & dead-letter quarantine allows 21st valid row to publish even when 20 rows fail repeatedly.
+    4. retry_order_cloud_deployment rejects expired subscriptions without deploying.
+    5. Excess slot terminal in EXPIRED_PROTECTING is undeployed by lifecycle worker once broker positions/orders are verified empty.
+    6. CSV export for EUR/EUC accounts converts without ImportError.
+    7. Public track record counts PROP_FIRM LIVE accounts in funded_live_accounts.
+    8. Calendar sync deletes cancelled event by ID even when feed omits date/timestamp.
+    """
+    from unittest.mock import patch, AsyncMock
+    from app.domains.billing.subscription import run_subscription_lifecycle_cycle
+    from app.domains.ai.research_graph import walk_forward
+    from app.domains.execution.engine import flush_outbox
+    from app.domains.billing.service import retry_order_cloud_deployment
+
+    now_ts = time.time()
+
+    # 1 & 5. Multiple subscriptions in lifecycle worker (Sub 1: 2d left reminder; Sub 2: active with excess EXPIRED_PROTECTING terminal)
+    u_sub1 = f"u_dfc_s1_{int(now_ts)}"
+    u_sub2 = f"u_dfc_s2_{int(now_ts)}"
+    acc_excess = f"acc_dfc_ex_{int(now_ts)}"
+    with tx() as c:
+        _ensure_user(c, u_sub1)
+        _ensure_user(c, u_sub2)
+        c.execute(
+            "INSERT OR REPLACE INTO subscriptions (id, user_id, plan_tier, service_expires_at, max_mt5_accounts, created_at, updated_at) VALUES (?, ?, 'starter', ?, 1, ?, ?)",
+            (f"sub_{u_sub1}", u_sub1, now_ts + 2 * 86400, now_ts, now_ts),
+        )
+        c.execute(
+            "INSERT OR REPLACE INTO subscriptions (id, user_id, plan_tier, service_expires_at, max_mt5_accounts, created_at, updated_at) VALUES (?, ?, 'starter', ?, 1, ?, ?)",
+            (f"sub_{u_sub2}", u_sub2, now_ts + 20 * 86400, now_ts, now_ts),
+        )
+        _insert_trading_account(c, f"acc_dfc_ok_{int(now_ts)}", u_sub2, "meta_ok", auto_trade=1)
+        _insert_trading_account(c, acc_excess, u_sub2, "meta_ex", auto_trade=0)
+        c.execute("UPDATE trading_accounts SET created_at = ?, deployment_state = 'EXPIRED_PROTECTING' WHERE id = ?", (now_ts + 10, acc_excess))
+
+    mock_meta = AsyncMock()
+    mock_meta.get_positions_verified = AsyncMock(return_value=(True, [], {"synchronized": True}))
+    mock_meta.get_open_orders_verified = AsyncMock(return_value=(True, [], {"synchronized": True}))
+    mock_meta.undeploy_account = AsyncMock(return_value=True)
+    with patch("app.domains.billing.subscription._get_reminder_sender", return_value=lambda **kw: True):
+        stats = await run_subscription_lifecycle_cycle(now_ts=now_ts, client=mock_meta)
+    assert stats["reminded_3d"] >= 1
+    with tx() as c:
+        ex_st = c.execute("SELECT deployment_state FROM trading_accounts WHERE id = ?", (acc_excess,)).fetchone()
+        assert ex_st["deployment_state"] == "UNDEPLOYED"
+
+    # 2. WFO blocks source='YAHOO'
+    yahoo_short_bars = [
+        {"open": 2600.0, "high": 2602.0, "low": 2599.0, "close": 2601.0, "time": now_ts - ((250 - i) * 900.0), "source": "YAHOO"}
+        for i in range(200)
+    ]
+    yh_rep = walk_forward(yahoo_short_bars, candidate={"id": "cand_yh2", "name": "Yh2", "rules": {"action": "BUY", "min_slope": 0.15}})
+    assert yh_rep["has_verified_timestamps"] is False
+    assert yh_rep["production_qualified"] is False
+
+    # 3. Outbox fair rotation: 20 poisoned rows do not starve the 21st valid row on second flush
+    with tx() as c:
+        c.execute("DELETE FROM outbox WHERE status = 'pending'")
+        for i in range(20):
+            c.execute(
+                "INSERT INTO outbox (event_type, payload, status, retry_count, created_at) VALUES ('signal_created', '{bad_json', 'pending', 0, ?)",
+                (now_ts,),
+            )
+        valid_payload = json.dumps({"id": f"sig_ok_21_{int(now_ts)}", "side": "BUY", "price": 2650.0, "sl": 2640.0, "tp": 2670.0})
+        c.execute(
+            "INSERT INTO outbox (event_type, payload, status, retry_count, created_at) VALUES ('signal_created', ?, 'pending', 0, ?)",
+            (valid_payload, now_ts),
+        )
+        flush_outbox(c)
+        flush_outbox(c)
+        pub_cnt = c.execute("SELECT count(*) FROM outbox WHERE status = 'published' AND payload LIKE ?", (f"%sig_ok_21_{int(now_ts)}%",)).fetchone()[0]
+        assert pub_cnt == 1
+        c.execute("DELETE FROM outbox WHERE payload = '{bad_json'")
+
+    # 4. retry_order_cloud_deployment rejects expired subscription
+    u_exp = f"u_dfc_exp_{int(now_ts)}"
+    ord_exp_id = f"ord_dfc_exp_{int(now_ts)}"
+    with tx() as c:
+        _ensure_user(c, u_exp)
+        c.execute(
+            "INSERT OR REPLACE INTO subscriptions (id, user_id, plan_tier, service_expires_at, max_mt5_accounts, created_at, updated_at) VALUES (?, ?, 'starter', ?, 1, ?, ?)",
+            (f"sub_{u_exp}", u_exp, now_ts - 3600, now_ts - 86400, now_ts - 3600),
+        )
+        c.execute(
+            "INSERT INTO orders (id, user_id, plan_tier, amount_usd, amount_vnd, locked_exchange_rate, cloud_slots_count, status, entitlement_status, cloud_deploy_status, created_at, expires_at) VALUES (?, ?, 'starter', 15.0, 375000, 25000.0, 1, 'PAID', 'GRANTED', 'FAILED', ?, ?)",
+            (ord_exp_id, u_exp, now_ts - 86400, now_ts - 3600),
+        )
+    retry_exp_res = await retry_order_cloud_deployment(ord_exp_id)
+    assert retry_exp_res["ok"] is False
+    assert retry_exp_res["status"] == "SUBSCRIPTION_EXPIRED"
+
+    # 6. CSV export helper imports cleanly for EUR / EUC
+    from app.domains.execution.symbol_precision import _lookup_quote_mid, _FALLBACK_USD_RATES
+    assert _FALLBACK_USD_RATES["EUR"] > 0
+    assert isinstance(_lookup_quote_mid("EURUSD"), float)

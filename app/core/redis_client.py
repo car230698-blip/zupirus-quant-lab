@@ -78,7 +78,7 @@ class InMemoryRedisMock:
                 stream_k = str(keys_and_args[1])
                 existing = self._data.get(dedup_k)
                 if existing:
-                    return existing
+                    return [existing, 0]
                 fields = {
                     "event_id": str(keys_and_args[2]),
                     "signal_id": str(keys_and_args[3]),
@@ -92,7 +92,7 @@ class InMemoryRedisMock:
                 }
                 sid = self.xadd(stream_k, fields, maxlen=1000)
                 self.set(dedup_k, sid, ex=3600)
-                return sid
+                return [sid, 1]
             # Atomic lock release simulation: if get(k1) == arg1 then del(k1) return 1 else return 0
             key = str(keys_and_args[0])
             val = str(keys_and_args[1]) if len(keys_and_args) > 1 else ""
@@ -297,13 +297,13 @@ def publish_signal_event(signal_data: Dict[str, Any]) -> str:
     except Exception:
         pass
 
-    # Atomic Lua script on real Redis (or InMemoryRedisMock) to prevent concurrent duplicate XADD
+    # Atomic Lua script on real Redis (or InMemoryRedisMock) to prevent concurrent duplicate XADD and duplicate Pub/Sub
     if hasattr(r, "eval") and not isinstance(r, InMemoryRedisMock):
         try:
             lua_script = """
             local existing = redis.call('GET', KEYS[1])
             if existing then
-                return existing
+                return {existing, 0}
             end
             local sid = redis.call(
                 'XADD', KEYS[2], 'MAXLEN', '~', '1000', '*',
@@ -318,9 +318,9 @@ def publish_signal_event(signal_data: Dict[str, Any]) -> str:
                 'expires', ARGV[9]
             )
             redis.call('SET', KEYS[1], sid, 'EX', 3600)
-            return sid
+            return {sid, 1}
             """
-            stream_id_raw = r.eval(
+            eval_res = r.eval(
                 lua_script,
                 2,
                 dedup_key,
@@ -335,12 +335,19 @@ def publish_signal_event(signal_data: Dict[str, Any]) -> str:
                 payload["created"],
                 payload["expires"],
             )
+            is_new_pub = True
+            if isinstance(eval_res, (list, tuple)) and len(eval_res) >= 2:
+                stream_id_raw = eval_res[0]
+                is_new_pub = bool(int(eval_res[1]))
+            else:
+                stream_id_raw = eval_res
             if _is_valid_stream_id(stream_id_raw):
                 stream_id = stream_id_raw.decode("utf-8") if isinstance(stream_id_raw, bytes) else str(stream_id_raw)
-                try:
-                    r.publish(CHANNEL_SIGNALS, json.dumps(payload))
-                except Exception:
-                    pass
+                if is_new_pub:
+                    try:
+                        r.publish(CHANNEL_SIGNALS, json.dumps(payload))
+                    except Exception:
+                        pass
                 return stream_id
         except Exception:
             pass

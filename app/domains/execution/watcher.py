@@ -856,6 +856,7 @@ class PositionWatcher:
 
                 raw_eq = acc_info.get("equity")
                 raw_bal = acc_info.get("balance")
+                broker_curr = str(acc_info.get("currency") or acc.get("currency") or "USD").strip().upper()
                 current_equity = _safe_float(raw_eq, _safe_float(acc.get("equity"), 0.0))
                 current_balance = _safe_float(raw_bal, _safe_float(acc.get("balance"), 0.0))
                 from unittest.mock import AsyncMock, MagicMock
@@ -880,8 +881,8 @@ class PositionWatcher:
                 try:
                     with tx() as c:
                         c.execute(
-                            "UPDATE trading_accounts SET equity=?, balance=?, last_sync=?, risk_config=? WHERE id=?",
-                            (current_equity, current_balance, now_watch_ts, json.dumps(rc), acc_id)
+                            "UPDATE trading_accounts SET equity=?, balance=?, currency=?, last_sync=?, risk_config=? WHERE id=?",
+                            (current_equity, current_balance, broker_curr, now_watch_ts, json.dumps(rc), acc_id)
                         )
                 except Exception as db_sync_err:
                     logger.debug(f"PositionWatcher DB equity sync note for {acc_id}: {db_sync_err}")

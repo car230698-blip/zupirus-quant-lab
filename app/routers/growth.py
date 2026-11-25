@@ -94,7 +94,7 @@ def get_public_track_record(request: Request) -> Dict[str, Any]:
     total_live_equity = round(sum(_acc_equity_usd(r) for r in acc_rows), 2)
     prop_live_count = sum(
         1 for r in acc_rows
-        if str(r["account_type"] or "").upper() == "PROP" and str(r["prop_stage"] or "").upper() == "LIVE"
+        if str(r["account_type"] or "").upper() in ("PROP", "PROP_FIRM") and str(r["prop_stage"] or "").upper() == "LIVE"
     )
     base_capital = max(10000.0, total_live_equity - net_pnl) if total_live_equity > net_pnl else 100000.0
     roi_pct = round((net_pnl / base_capital) * 100.0, 2) if base_capital > 0 else 0.0

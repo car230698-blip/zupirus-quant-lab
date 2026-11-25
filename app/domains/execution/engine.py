@@ -579,10 +579,13 @@ def demo_step(c, symbol: str = 'XAUUSD'):
             audit(c, 'engine', 'strategy_stand_aside', decision)
 
 def flush_outbox(c):
-    """Process pending outbox events and publish to Redis Streams with retry and deterministic event_id."""
-    rows = c.execute("SELECT id, event_type, payload, retry_count FROM outbox WHERE status='pending' ORDER BY id LIMIT 20").fetchall()
+    """Process pending outbox events and publish to Redis Streams with retry, fair rotation, and dead-letter quarantine."""
+    rows = c.execute(
+        "SELECT id, event_type, payload, retry_count FROM outbox WHERE status='pending' ORDER BY retry_count ASC, id ASC LIMIT 20"
+    ).fetchall()
     for row in rows:
         oid, etype, payload_raw = row['id'], row['event_type'], row['payload']
+        prev_retries = int(row['retry_count'] if hasattr(row, "keys") and "retry_count" in row.keys() else (row[3] if len(row) > 3 else 0))
         try:
             payload = json.loads(payload_raw) if isinstance(payload_raw, str) else dict(payload_raw)
             if isinstance(payload, dict):
@@ -595,7 +598,11 @@ def flush_outbox(c):
                     raise RuntimeError(f"Invalid Redis stream ID returned: {sid_res!r}")
             c.execute("UPDATE outbox SET status='published', published_at=? WHERE id=?", (time.time(), oid))
         except Exception as e:
-            c.execute("UPDATE outbox SET retry_count=retry_count+1, error=? WHERE id=?", (str(e), oid))
+            next_retries = prev_retries + 1
+            if next_retries >= 5:
+                c.execute("UPDATE outbox SET status='failed', retry_count=?, error=? WHERE id=?", (next_retries, str(e), oid))
+            else:
+                c.execute("UPDATE outbox SET retry_count=?, error=? WHERE id=?", (next_retries, str(e), oid))
 
 
 _last_watcher_ts = 0.0

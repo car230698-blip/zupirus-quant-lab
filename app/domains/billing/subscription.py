@@ -155,6 +155,7 @@ async def run_subscription_lifecycle_cycle(
         user_id = sub["user_id"]
         email = sub.get("email")
         tier = str(sub.get("plan_tier") or "starter")
+        accs = []
 
         # 3-day reminder window: (1 day, 3 days]
         if 86400 < remaining <= 3 * 86400 and email:
@@ -180,7 +181,7 @@ async def run_subscription_lifecycle_cycle(
 
         # Expired subscription: suspend new entries (`auto_trade = 0`), undeploy idle terminals,
         # keep `EXPIRED_PROTECTING` on accounts with active open positions so PositionWatcher guards them.
-        elif remaining <= 0:
+        if remaining <= 0:
             with tx() as c:
                 acc_rows = c.execute(
                     """
@@ -294,15 +295,25 @@ async def run_subscription_lifecycle_cycle(
                         )
                     continue
 
-                # Re-verify latest expiration from DB right before undeploy to eliminate race with concurrent renewals
+                # Re-verify latest expiration and per-terminal slot eligibility from DB right before undeploy to eliminate race with concurrent renewals
                 with tx() as c:
-                    fresh_sub = c.execute("SELECT service_expires_at FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
+                    fresh_sub = c.execute("SELECT service_expires_at, max_mt5_accounts FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
                     fresh_exp = float(fresh_sub[0] or 0) if fresh_sub and fresh_sub[0] else 0.0
-                    fresh_acc = c.execute("SELECT cloud_expires_at FROM trading_accounts WHERE id = ?", (acc["id"],)).fetchone()
+                    fresh_max_slots = int(fresh_sub[1] or 1) if fresh_sub and len(fresh_sub) > 1 and fresh_sub[1] else 1
+                    fresh_acc = c.execute("SELECT cloud_expires_at, deployment_state FROM trading_accounts WHERE id = ?", (acc["id"],)).fetchone()
                     fresh_acc_exp = float(fresh_acc[0] or 0) if fresh_acc and fresh_acc[0] else 0.0
+                    allowed_rows = c.execute(
+                        "SELECT id FROM trading_accounts WHERE user_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
+                        (user_id, max(0, fresh_max_slots)),
+                    ).fetchall()
+                    allowed_ids = {str(r[0]) for r in allowed_rows}
 
-                if fresh_exp > now or fresh_acc_exp > now:
+                is_within_active_slot = (acc["id"] in allowed_ids) and (fresh_exp > now or fresh_acc_exp > now)
+                if remaining <= 0 and (fresh_exp > now or fresh_acc_exp > now) and (acc["id"] in allowed_ids):
                     logger.info(f"Account {acc['id']} was renewed concurrently. Skipping undeploy.")
+                    continue
+                elif remaining > 0 and is_within_active_slot:
+                    logger.info(f"Account {acc['id']} slot was restored concurrently. Skipping undeploy.")
                     continue
 
                 undeploy_ok = True

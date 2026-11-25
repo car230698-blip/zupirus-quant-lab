@@ -466,7 +466,7 @@ def export_orders_csv(
             profit_orig = round(raw_profit * 100.0, 2)
             profit_orig_str = f"{profit_orig:.2f} {orig_unit}"
             if orig_unit == "EUC":
-                from app.services.symbol_precision import _lookup_quote_mid, _FALLBACK_USD_RATES
+                from app.domains.execution.symbol_precision import _lookup_quote_mid, _FALLBACK_USD_RATES
                 eur_rate = _lookup_quote_mid("EURUSD") or _FALLBACK_USD_RATES.get("EUR", 1.08)
                 profit_usd = round(raw_profit * eur_rate, 2)
             else:
@@ -477,7 +477,7 @@ def export_orders_csv(
             if orig_unit == "USD":
                 profit_usd = round(raw_profit, 2)
             else:
-                from app.services.symbol_precision import _lookup_quote_mid, _FALLBACK_USD_RATES
+                from app.domains.execution.symbol_precision import _lookup_quote_mid, _FALLBACK_USD_RATES
                 fx_rate = 0.0
                 if orig_unit in ("EUR", "GBP", "AUD", "NZD"):
                     fx_rate = _lookup_quote_mid(f"{orig_unit}USD")
