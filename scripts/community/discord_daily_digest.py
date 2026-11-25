@@ -46,24 +46,7 @@ def main() -> int:
 
     date_label = time.strftime("%d/%m/%Y", time.gmtime(now))
 
-    # 1. Public Anonymized Quant Digest -> #live-xauusd-tín-hiệu
-    ok_pub = send_discord_embed(
-        "DISCORD_WEBHOOK_SIGNALS",
-        title=f"📊 BÁO CÁO HIỆU SUẤT ĐỊNH LƯỢNG ZUPIRUS ({date_label})",
-        description="Tổng kết hiệu suất XAU/USD Cloud MT5 (dữ liệu ẩn danh xác thực từ hệ thống thực thi).",
-        color=0xF59E0B,
-        fields=[
-            {"name": "Tổng lệnh xác thực", "value": f"{closed_cnt} lệnh", "inline": True},
-            {"name": "Win Rate", "value": f"{wr}%", "inline": True},
-            {"name": "Profit Factor", "value": f"{pf}", "inline": True},
-            {"name": "Độ trễ khớp TB", "value": f"~{avg_lat}ms (London G2)", "inline": True},
-            {"name": "4 Lớp Giáp Vốn", "value": "4/4 ACTIVE · Fail-Closed", "inline": True},
-            {"name": "Track Record", "value": "https://app.zupirus.com/#track-record", "inline": False},
-        ],
-        sync=True,
-    )
-
-    # 2. Admin Executive Report -> #cảnh-báo-hệ-thống (Admin Only)
+    # Admin Executive Report -> #cảnh-báo-hệ-thống (Admin Only)
     ok_adm = send_discord_embed(
         "DISCORD_WEBHOOK_ALERTS",
         title=f"🧭 BÁO CÁO ĐIỀU HÀNH ADMIN ({date_label})",
@@ -80,8 +63,8 @@ def main() -> int:
         sync=True,
     )
 
-    print("DAILY_DIGEST_OK:", {"public": ok_pub, "admin": ok_adm})
-    return 0 if (ok_pub or ok_adm) else 1
+    print("DAILY_DIGEST_OK:", {"admin": ok_adm})
+    return 0 if ok_adm else 1
 
 
 if __name__ == "__main__":

@@ -409,13 +409,8 @@ def setup_bilingual_discord(client: DiscordClient) -> None:
             "readonly": True,
         },
         {
-            "name": "general-en",
+            "name": "general-chat-en",
             "topic": "💬 General English discussions & trader networking",
-            "readonly": False,
-        },
-        {
-            "name": "xauusd-analysis-en",
-            "topic": "📈 Gold (XAU/USD) & Forex technical & quantitative market analysis",
             "readonly": False,
         },
         {

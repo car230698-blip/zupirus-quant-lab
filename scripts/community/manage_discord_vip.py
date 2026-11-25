@@ -125,26 +125,17 @@ def main():
                 print(f"    ✅ Moved '#{t['name']}' successfully.")
                 time.sleep(0.4)
 
-    # 3. FIND '💎 KHU VỰC VIP & PROP FUNDED' CATEGORY
-    vip_cat = None
-    for c in cats.values():
-        if "vip" in c["name"].lower() or "prop" in c["name"].lower():
-            vip_cat = c
-            break
-
-    print(f"\n[4] VIP Category: {vip_cat['name'] if vip_cat else 'None'}")
-
-    # 4. FIND OR CREATE '#kho-sách-miễn-phí' (Free for all members)
+    # 3. FIND OR CREATE '#kho-sách-miễn-phí' (Free for all members)
     kho_sach_ch = None
     for t in texts:
-        if t["name"] in ["kho-sách-miễn-phí", "kho-sách", "kho-sách-vip", "tủ-sách-vip", "thư-viện-vip"]:
+        if t["name"] in ["kho-sách-miễn-phí", "kho-sách"]:
             kho_sach_ch = t
             break
 
     # Look for info/getting started category
     info_cat = None
     for c in cats.values():
-        if "thông tin" in c["name"].lower() or "bắt đầu" in c["name"].lower():
+        if "thông tin" in c["name"].lower() or "bắt đầu" in c["name"].lower() or "việt nam" in c["name"].lower():
             info_cat = c
             break
 
@@ -166,8 +157,6 @@ def main():
         }
         if info_cat:
             payload["parent_id"] = info_cat["id"]
-        elif vip_cat:
-            payload["parent_id"] = vip_cat["id"]
         payload["permission_overwrites"] = free_overwrites
 
         kho_sach_ch = req("POST", f"/guilds/{GID}/channels", payload)

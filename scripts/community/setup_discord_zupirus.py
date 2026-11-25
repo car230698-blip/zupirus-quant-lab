@@ -62,8 +62,6 @@ class DiscordAPI:
 
 ROLES_SPEC = [
     {"key": "admin", "name": "👑 Root Admin", "color": 0xF59E0B, "hoist": True, "permissions": str(PERM_ADMINISTRATOR)},
-    {"key": "prop", "name": "🏆 Prop Funded (LIVE)", "color": 0x10B981, "hoist": True, "permissions": "0"},
-    {"key": "alpha", "name": "⚡ Alpha VIP", "color": 0x38BDF8, "hoist": True, "permissions": "0"},
     {"key": "growth", "name": "📈 Growth Trader", "color": 0xA855F7, "hoist": True, "permissions": "0"},
     {"key": "starter", "name": "🌱 Starter Member", "color": 0x94A3B8, "hoist": False, "permissions": "0"},
 ]
@@ -175,15 +173,6 @@ def main() -> int:
         ow_deny(role_ids["everyone"], 0, PERM_SEND_MESSAGES),
         ow_allow(role_ids["admin"], 0, PERM_VIEW_CHANNEL | PERM_SEND_MESSAGES | PERM_EMBED_LINKS),
     ]
-    vip_base_overwrites = [
-        ow_deny(role_ids["everyone"], 0, PERM_VIEW_CHANNEL),
-        ow_allow(role_ids["admin"], 0, PERM_VIEW_CHANNEL | PERM_SEND_MESSAGES | PERM_READ_HISTORY),
-        ow_allow(role_ids["prop"], 0, PERM_VIEW_CHANNEL | PERM_SEND_MESSAGES | PERM_READ_HISTORY | PERM_ATTACH_FILES),
-        ow_allow(role_ids["alpha"], 0, PERM_VIEW_CHANNEL | PERM_SEND_MESSAGES | PERM_READ_HISTORY | PERM_ATTACH_FILES),
-    ]
-    vip_growth_overwrites = vip_base_overwrites + [
-        ow_allow(role_ids["growth"], 0, PERM_VIEW_CHANNEL | PERM_SEND_MESSAGES | PERM_READ_HISTORY),
-    ]
     admin_only_overwrites = [
         ow_deny(role_ids["everyone"], 0, PERM_VIEW_CHANNEL),
         ow_allow(role_ids["admin"], 0, PERM_VIEW_CHANNEL | PERM_SEND_MESSAGES | PERM_READ_HISTORY),
@@ -205,19 +194,7 @@ def main() -> int:
             "category": "📊 GIAO DỊCH & QUỸ (XAU/USD)",
             "overwrites": [],
             "channels": [
-                ("live-xauusd-tín-hiệu", "Luồng tín hiệu XAU/USD M15 & trạng thái 4 lớp giáp", read_only_overwrites),
-                ("khoe-pass-quỹ", "Nhật ký Pass Quỹ FTMO / The5ers / FundedNext & Payout", []),
-                ("phân-tích-phiên-á-âu-mỹ", "Nhận định cấu trúc thị trường Vàng theo phiên", []),
                 ("thảo-luận-trader", "Giao lưu kinh nghiệm quản trị vốn và chạy quỹ", []),
-            ],
-        },
-        {
-            "category": "💎 KHU VỰC VIP & PROP FUNDED",
-            "overwrites": vip_base_overwrites,
-            "channels": [
-                ("alpha-vip-lounge", "Phòng riêng cho thành viên Alpha VIP & Prop Funded", vip_base_overwrites),
-                ("prop-firm-guard-live", "Theo dõi tài khoản quỹ LIVE & bảo vệ Drawdown", vip_base_overwrites),
-                ("chiến-lược-ai-hindsight", "Phân tích dữ liệu học AI Hindsight & Walk-Forward", vip_growth_overwrites),
             ],
         },
         {
