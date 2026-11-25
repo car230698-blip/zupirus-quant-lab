@@ -1,6 +1,7 @@
 """Dashboard Router — Single Source of Truth for trader portfolio and performance telemetry."""
 import os
 import time
+import json
 import re
 import logging
 from typing import Any, Dict, List, Optional
@@ -125,15 +126,31 @@ def dashboard(
         if is_pg:
             c.execute("SAVEPOINT sp_dashboard_exec")
         try:
-            # Issue 17 Fix: Filter by account_id in SQL before pagination
+            # Filter by account_id and state in SQL before pagination (prevent starvation)
             acc_filter_clause = " AND e.account_id = ?" if account_id else ""
-            exec_params = [u['id'], account_id] if account_id else [u['id']]
+            state_filter_clause = ""
+            exec_params = [u['id']]
+            if account_id:
+                exec_params.append(account_id)
+            if state:
+                st_lower = str(state).strip().lower()
+                if st_lower == "filled":
+                    state_filter_clause = " AND UPPER(e.status) IN ('FILLED', 'OPEN')"
+                elif st_lower == "closed":
+                    state_filter_clause = " AND UPPER(e.status) IN ('CLOSED', 'COMPLETED')"
+                elif st_lower == "queued":
+                    state_filter_clause = " AND UPPER(e.status) IN ('PENDING', 'QUEUED', 'DISPATCHING', 'INTENT', 'PENDING_SUBMIT')"
+                elif st_lower == "skipped":
+                    state_filter_clause = " AND UPPER(e.status) = 'SKIPPED'"
+                elif st_lower == "rejected":
+                    state_filter_clause = " AND UPPER(e.status) NOT IN ('FILLED', 'OPEN', 'CLOSED', 'COMPLETED', 'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT', 'PENDING_SUBMIT', 'SKIPPED')"
+
             cloud_exec_rows = c.execute(
                 f"""
                 SELECT e.*, ta.mt5_login AS account_login, ta.broker_server AS account_server
                 FROM metaapi_trade_executions e
                 JOIN trading_accounts ta ON e.account_id = ta.id
-                WHERE ta.user_id = ?{acc_filter_clause}
+                WHERE ta.user_id = ?{acc_filter_clause}{state_filter_clause}
                 ORDER BY e.executed_at DESC LIMIT 100
                 """,
                 tuple(exec_params),

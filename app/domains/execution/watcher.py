@@ -1417,34 +1417,43 @@ class PositionWatcher:
                         last_ds = getkv(c, f"deals_sync_ts:{acc_id}")
                         should_sync_deals = not last_ds or (time.time() - float(last_ds)) >= 60.0
                         last_rec = getkv(c, f"deals_reconciled_watermark:{acc_id}")
-                    if should_sync_deals and hasattr(self.client, "get_closed_deals"):
+                    if should_sync_deals and hasattr(self.client, "get_closed_deals_verified"):
                         if last_rec:
                             hours_back = max(24.0, (time.time() - float(last_rec)) / 3600.0 + 2.0)
                             hours_to_fetch = int(min(hours_back, 168.0))
                         else:
                             hours_to_fetch = 48
-                        deals = await self.client.get_closed_deals(meta_id, hours=hours_to_fetch)
+                        deals_ok, deals, _deals_meta = await self.client.get_closed_deals_verified(meta_id, hours=hours_to_fetch)
                         open_pos_ids = set()
                         open_pos_api_ok = False
                         try:
-                            cur_open = await self.client.get_open_positions(meta_id)
-                            if cur_open is not None:
+                            if hasattr(self.client, "get_positions_verified"):
+                                open_pos_api_ok, cur_open, _pos_meta = await self.client.get_positions_verified(meta_id)
+                            else:
+                                cur_open = await self.client.get_open_positions(meta_id)
+                                open_pos_api_ok = cur_open is not None
+                            if open_pos_api_ok and cur_open:
                                 open_pos_ids = {str(p.get("id") or "") for p in cur_open if p.get("id")}
-                                open_pos_api_ok = True
                         except Exception:
                             open_pos_ids = set()
                             open_pos_api_ok = False
+
                         with tx() as c:
                             setkv(c, f"deals_sync_ts:{acc_id}", str(time.time()))
-                            setkv(c, f"deals_reconciled_watermark:{acc_id}", str(time.time()))
+                            # Watermark advances strictly when deal history API call succeeded
+                            if deals_ok:
+                                setkv(c, f"deals_reconciled_watermark:{acc_id}", str(time.time()))
+
                             for dl in deals or []:
                                 if str(dl.get("entryType") or "").upper() not in ("DEAL_ENTRY_OUT", "DEAL_ENTRY_OUT_BY", "1", "2", "3", ""):
                                     continue
                                 dl_id = str(dl.get("id") or "")
                                 if not dl_id:
                                     continue
-                                is_synced = bool(getkv(c, f"deal_synced:{acc_id}:{dl_id}"))
+                                is_synced = bool(getkv(c, f"deal_synced:{acc_id}:{dl_id}")) or bool(getkv(c, f"deal_synced:{dl_id}"))
                                 if is_synced:
+                                    setkv(c, f"deal_synced:{acc_id}:{dl_id}", "1")
+                                    setkv(c, f"deal_synced:{dl_id}", "1")
                                     continue
                                 profit_raw = _safe_float(dl.get("profit")) + _safe_float(dl.get("swap")) + _safe_float(dl.get("commission"))
                                 is_cent_deal = (
@@ -1482,7 +1491,7 @@ class PositionWatcher:
                                             )
                                         else:
                                             c.execute(
-                                                "UPDATE metaapi_trade_executions SET profit = COALESCE(profit, 0) + ?, closed_volume = ?, closed_at = ? WHERE id = ?",
+                                                "UPDATE metaapi_trade_executions SET status = 'CLOSED', profit = COALESCE(profit, 0) + ?, closed_volume = ?, closed_at = ? WHERE id = ?",
                                                 (round(profit, 2), new_closed_vol, time.time(), ex_id),
                                             )
                                         hindsight_key = f"hindsight_reflected:{acc_id}:{dl_id}"
@@ -1500,6 +1509,7 @@ class PositionWatcher:
                                                 accumulate_pnl=True,
                                             )
                                         setkv(c, f"deal_synced:{acc_id}:{dl_id}", "1")
+                                        setkv(c, f"deal_synced:{dl_id}", "1")
                 except Exception as ds_err:
                     logger.debug(f"Deal history sync note for {acc_id}: {ds_err}")
 

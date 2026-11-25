@@ -9,7 +9,7 @@ export interface EquityHistoryProps {
 
 export const EquityHistory: React.FC<EquityHistoryProps> = ({ days = 30, series }) => {
   const { data: fetchedData = [], isLoading } = useEquityHistory(days);
-  const data = series && series.length > 0 ? series : fetchedData;
+  const data = (days !== 30 && fetchedData.length > 0) ? fetchedData : (series && series.length > 0 ? series : fetchedData);
 
   const chartStats = useMemo(() => {
     const valid = data.filter(

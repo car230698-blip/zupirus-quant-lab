@@ -706,6 +706,47 @@ def get_user_subscription(user_id: str) -> Dict[str, Any]:
     now_ts = time.time()
     in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST")) and os.getenv("ENFORCE_PAID_SUBSCRIPTION_IN_TEST") != "1"
     with tx() as c:
+        # Check and apply queued downgrade if effective date has arrived
+        qd_raw = c.execute("SELECT value FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",)).fetchone()
+        if qd_raw and qd_raw[0]:
+            try:
+                qd = json.loads(qd_raw[0])
+                eff_after = float(qd.get("effective_after", 0))
+                if now_ts >= eff_after:
+                    target_tier = str(qd.get("target_tier", "starter")).lower()
+                    target_exp = float(qd.get("expires_at", 0))
+                    if target_exp > now_ts:
+                        is_growth = target_tier in ("growth", "alpha")
+                        is_alpha = target_tier == "alpha"
+                        cloud_slots = 1 if target_tier == "starter" else (3 if target_tier == "growth" else 5)
+                        c.execute(
+                            """
+                            UPDATE subscriptions SET
+                                plan_tier = ?,
+                                service_expires_at = ?,
+                                max_mt5_accounts = ?,
+                                allow_custom_multiplier = ?,
+                                allow_compounding = ?,
+                                allow_partial_tp_be = ?,
+                                allow_prop_firm_mode = ?,
+                                allow_alpha_strategies = ?,
+                                updated_at = ?
+                            WHERE user_id = ?
+                            """,
+                            (
+                                target_tier, target_exp, cloud_slots,
+                                1 if is_growth else 0,
+                                1 if is_growth else 0,
+                                1 if is_growth else 0,
+                                1 if is_alpha else 0,
+                                1 if is_alpha else 0,
+                                now_ts, user_id,
+                            ),
+                        )
+                    c.execute("DELETE FROM kv WHERE key = ?", (f"queued_downgrade:{user_id}",))
+            except Exception as qd_err:
+                logger.debug(f"Queued downgrade apply note for {user_id}: {qd_err}")
+
         sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
         connected_count = c.execute("SELECT count(*) FROM trading_accounts WHERE user_id = ?", (user_id,)).fetchone()[0]
 

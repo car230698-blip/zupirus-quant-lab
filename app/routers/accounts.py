@@ -988,26 +988,28 @@ async def update_account_credentials_endpoint(
         except Exception as dep_err:
             logger.warning(f"Error redeploying after credential update {meta_id}: {dep_err}")
 
-    # Update password hash in DB
-    from app.security import password_hash, encrypt_secret
-    pw_hash = password_hash(p.password.strip())
+    # Update credentials and encrypted password in DB
+    from app.security import encrypt_secret
     enc_pw = encrypt_secret(p.password.strip())
+    new_login = str(p.login or acc.get("mt5_login") or acc.get("login") or "").strip()
+    new_server = str(p.server or acc.get("broker_server") or acc.get("server") or "").strip()
+
     with tx() as c:
         if not acc.get("_is_ea_bridge"):
             try:
                 c.execute(
-                    "UPDATE metaapi_cloud_accounts SET password_hash=? WHERE id=? AND user_id=?",
-                    (pw_hash, real_id, owner_id)
+                    "UPDATE metaapi_cloud_accounts SET login=?, server=?, encrypted_password=? WHERE id=? AND user_id=?",
+                    (new_login, new_server, enc_pw, real_id, owner_id)
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Error updating metaapi_cloud_accounts for {real_id}: {e}")
             try:
                 c.execute(
-                    "UPDATE trading_accounts SET password_hash=?, encrypted_master_password=? WHERE id=? AND user_id=?",
-                    (pw_hash, enc_pw, real_id, owner_id)
+                    "UPDATE trading_accounts SET mt5_login=?, broker_server=?, encrypted_master_password=? WHERE id=? AND user_id=?",
+                    (new_login, new_server, enc_pw, real_id, owner_id)
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Error updating trading_accounts for {real_id}: {e}")
 
     # Probe live connection status
     info = await client.get_account_information(meta_id)

@@ -352,31 +352,60 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                               <span
                                 title={lang === 'en' ? 'Step 2: Entitlement Applied' : 'Mốc 2: Đã cấp quyền'}
                                 className={`rounded px-1.5 py-0.5 font-bold ${
-                                  o.entitlement_applied || st === 'PAID'
+                                  o.entitlement_applied
                                     ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                                     : 'bg-slate-700/50 text-slate-400 border border-slate-700'
                                 }`}
                               >
-                                {o.entitlement_applied || st === 'PAID' ? '✓ Quyền' : 'Chờ Quyền'}
+                                {o.entitlement_applied ? '✓ Quyền' : 'Chờ Quyền'}
                               </span>
                               <span className="text-slate-600">→</span>
                               {/* Mốc 3: Terminal Cloud */}
-                              <span
-                                title={lang === 'en' ? 'Step 3: Cloud Terminal Ready' : 'Mốc 3: Terminal Cloud đã sẵn sàng'}
-                                className={`rounded px-1.5 py-0.5 font-bold ${
-                                  o.cloud_ready || (st === 'PAID' && String(o.cloud_deploy_status || '').toUpperCase() !== 'FAILED')
-                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                    : String(o.cloud_deploy_status || '').toUpperCase() === 'FAILED'
-                                    ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                                    : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                                }`}
-                              >
-                                {o.cloud_ready || (st === 'PAID' && String(o.cloud_deploy_status || '').toUpperCase() !== 'FAILED')
-                                  ? '✓ Cloud'
-                                  : String(o.cloud_deploy_status || '').toUpperCase() === 'FAILED'
-                                  ? '✗ Cloud'
-                                  : 'Chờ Cloud'}
-                              </span>
+                              {(() => {
+                                const cloudStatus = String(o.cloud_deploy_status || '').toUpperCase();
+                                const isReady = Boolean(o.cloud_ready || cloudStatus === 'DEPLOYED');
+                                const isFailed = cloudStatus === 'FAILED';
+                                const isAwaitingLink = cloudStatus === 'PENDING_LINK' || cloudStatus === 'AWAITING_ACCOUNT' || (!o.account_id && !o.metaapi_account_id && !isReady);
+                                
+                                if (isReady) {
+                                  return (
+                                    <span
+                                      title={lang === 'en' ? 'Step 3: Cloud Terminal Ready' : 'Mốc 3: Terminal Cloud đã sẵn sàng'}
+                                      className="rounded px-1.5 py-0.5 font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                                    >
+                                      ✓ Cloud
+                                    </span>
+                                  );
+                                }
+                                if (isFailed) {
+                                  return (
+                                    <span
+                                      title={lang === 'en' ? 'Step 3: Cloud Deploy Failed' : 'Mốc 3: Khởi tạo Cloud thất bại'}
+                                      className="rounded px-1.5 py-0.5 font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                                    >
+                                      ✗ Cloud
+                                    </span>
+                                  );
+                                }
+                                if (isAwaitingLink) {
+                                  return (
+                                    <span
+                                      title={lang === 'en' ? 'Step 3: Waiting for MT5 Account Linking' : 'Mốc 3: Chờ khách hàng liên kết tài khoản MT5'}
+                                      className="rounded px-1.5 py-0.5 font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                                    >
+                                      Chờ LK
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span
+                                    title={lang === 'en' ? 'Step 3: Cloud Terminal Pending' : 'Mốc 3: Đang khởi tạo Terminal Cloud'}
+                                    className="rounded px-1.5 py-0.5 font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                                  >
+                                    Chờ Cloud
+                                  </span>
+                                );
+                              })()}
                             </div>
                           </div>
                         </td>

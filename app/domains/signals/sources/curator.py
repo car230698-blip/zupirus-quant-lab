@@ -357,21 +357,35 @@ def record_shadow_signal(
     return sig_id
 
 
-def _recompute_source_metrics(c, source_id: str) -> None:
+def _recompute_source_metrics(c, source_id: str, min_signal_time: Optional[float] = None) -> Dict[str, Any]:
     """Recompute win_rate, profit_factor, max_drawdown_pips, and trust_score from shadow_signals."""
-    rows = c.execute(
-        "SELECT eval_status, pnl_pips FROM shadow_signals WHERE source_id = ? ORDER BY signal_time ASC",
-        (source_id,),
-    ).fetchall()
+    if min_signal_time is not None:
+        rows = c.execute(
+            "SELECT eval_status, pnl_pips FROM shadow_signals WHERE source_id = ? AND signal_time >= ? ORDER BY signal_time ASC",
+            (source_id, min_signal_time),
+        ).fetchall()
+    else:
+        rows = c.execute(
+            "SELECT eval_status, pnl_pips FROM shadow_signals WHERE source_id = ? ORDER BY signal_time ASC",
+            (source_id,),
+        ).fetchall()
     total_signals = len(rows)
     eval_rows = [dict(r) for r in rows if str(r["eval_status"]) in ("WIN_TP", "LOSS_SL", "EXPIRED")]
     evaluated_signals = len(eval_rows)
     if evaluated_signals == 0:
-        c.execute(
-            "UPDATE signal_sources SET total_signals = ?, evaluated_signals = 0, updated_at = ? WHERE id = ?",
-            (total_signals, time.time(), source_id),
-        )
-        return
+        if min_signal_time is None:
+            c.execute(
+                "UPDATE signal_sources SET total_signals = ?, evaluated_signals = 0, updated_at = ? WHERE id = ?",
+                (total_signals, time.time(), source_id),
+            )
+        return {
+            "total_signals": total_signals,
+            "evaluated_signals": 0,
+            "win_rate": 0.0,
+            "profit_factor": 1.0,
+            "max_drawdown_pips": 0.0,
+            "trust_score": 0.0,
+        }
 
     wins = 0
     gross_profit = 0.0
@@ -401,15 +415,25 @@ def _recompute_source_metrics(c, source_id: str) -> None:
     dd_penalty = min(1.0, max_dd / 200.0)
     trust_score = round(max(0.0, min(100.0, (win_rate * 45.0) + (pf_score * 40.0) + ((1.0 - dd_penalty) * 15.0))), 1)
 
-    c.execute(
-        """
-        UPDATE signal_sources
-        SET trust_score = ?, profit_factor = ?, win_rate = ?, max_drawdown_pips = ?,
-            total_signals = ?, evaluated_signals = ?, updated_at = ?
-        WHERE id = ?
-        """,
-        (trust_score, profit_factor, win_rate, round(max_dd, 1), total_signals, evaluated_signals, time.time(), source_id),
-    )
+    if min_signal_time is None:
+        c.execute(
+            """
+            UPDATE signal_sources
+            SET trust_score = ?, profit_factor = ?, win_rate = ?, max_drawdown_pips = ?,
+                total_signals = ?, evaluated_signals = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (trust_score, profit_factor, win_rate, round(max_dd, 1), total_signals, evaluated_signals, time.time(), source_id),
+        )
+
+    return {
+        "total_signals": total_signals,
+        "evaluated_signals": evaluated_signals,
+        "win_rate": win_rate,
+        "profit_factor": profit_factor,
+        "max_drawdown_pips": round(max_dd, 1),
+        "trust_score": trust_score,
+    }
 
 
 def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, Any]:
@@ -430,7 +454,7 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
                 f"""
                 SELECT * FROM shadow_signals
                 WHERE source_id = ? AND eval_status IN ('PENDING', 'OPEN')
-                ORDER BY CASE WHEN symbol IN ({symbol_subquery}) THEN 0 ELSE 1 END, signal_time DESC
+                ORDER BY CASE WHEN symbol IN ({symbol_subquery}) THEN 0 ELSE 1 END, signal_time ASC
                 LIMIT 500
                 """,
                 (source_id,)
@@ -440,7 +464,7 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
                 f"""
                 SELECT * FROM shadow_signals
                 WHERE eval_status IN ('PENDING', 'OPEN')
-                ORDER BY CASE WHEN symbol IN ({symbol_subquery}) THEN 0 ELSE 1 END, signal_time DESC
+                ORDER BY CASE WHEN symbol IN ({symbol_subquery}) THEN 0 ELSE 1 END, signal_time ASC
                 LIMIT 500
                 """
             ).fetchall()
@@ -689,11 +713,11 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
         active_count = active_cnt_row[0] if active_cnt_row else 0
 
         if len(signals) >= 5:
-            _recompute_source_metrics(c, source_id)
-            updated_row = c.execute("SELECT * FROM signal_sources WHERE id = ?", (source_id,)).fetchone()
-            updated = dict(updated_row) if updated_row else {}
-            pf = float(updated.get("profit_factor", 0.0))
-            mdd = float(updated.get("max_drawdown_pips", 0.0))
+            window_metrics = _recompute_source_metrics(c, source_id, min_signal_time=cutoff_ts)
+            pf = float(window_metrics.get("profit_factor", 0.0))
+            mdd = float(window_metrics.get("max_drawdown_pips", 0.0))
+            wr = float(window_metrics.get("win_rate", 0.0))
+            ts = float(window_metrics.get("trust_score", 0.0))
             is_qualified = bool(pf >= 1.5 and mdd <= 80.0)
             # Issue 12 Fix: Keep current status, do NOT auto-promote to ACTIVE_LIVE during backtest replay
             new_status = source["status"]
@@ -705,9 +729,9 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
                 "new_status": new_status,
                 "qualified": is_qualified,
                 "qualified_seed_active": is_qualified,
-                "trust_score": updated.get("trust_score", 0.0),
+                "trust_score": ts,
                 "profit_factor": pf,
-                "win_rate": updated.get("win_rate", 0.0),
+                "win_rate": wr,
                 "max_drawdown_pips": mdd,
                 "sample_size": len(signals),
                 "simulated_trades": len(signals),

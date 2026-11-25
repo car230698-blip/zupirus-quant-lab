@@ -125,23 +125,17 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
         impact = ev.get("impact", "high")
         event_id = ev.get("id") or ev.get("event_id")
 
-        # Match existing event: by provider ID if present, OR by title & currency within ±3600 seconds
+        # Match existing event: strictly by provider ID if present; fallback to title & currency only when no provider ID
         row = None
         if event_id:
             row = c.execute(
                 "SELECT id, ts, title, currency FROM news WHERE id = ?",
                 (str(event_id),),
             ).fetchone()
-        if not row:
+        else:
             row = c.execute(
-                "SELECT id, ts, title, currency FROM news WHERE title = ? AND upper(currency) = upper(?) AND abs(ts - ?) < 3600",
+                "SELECT id, ts, title, currency FROM news WHERE title = ? AND upper(currency) = upper(?) AND abs(ts - ?) < 1800",
                 (title, currency, ts),
-            ).fetchone()
-        if not row:
-            # Fallback title match within ±2 hours for rescheduled events
-            row = c.execute(
-                "SELECT id, ts, title, currency FROM news WHERE title = ? AND abs(ts - ?) < 7200",
-                (title, ts),
             ).fetchone()
 
         if row:

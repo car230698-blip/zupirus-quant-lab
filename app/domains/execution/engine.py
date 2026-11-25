@@ -378,12 +378,8 @@ def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[
         ("signal_created", json.dumps(signal_payload), "pending", 0, now)
     )
 
-    # Publish to Redis Streams & Pub/Sub immediately if connection available
-    try:
-        publish_signal_event(signal_payload)
-        c.execute("UPDATE outbox SET status='published', published_at=? WHERE event_type='signal_created' AND status='pending' AND CAST(payload AS TEXT) LIKE ?", (now, f'%{sid}%'))
-    except Exception as exc:
-        logger.warning("Failed to publish signal event or update outbox for sid %s: %s", sid, exc)
+    # Outbox event remains in 'pending' status inside the uncommitted transaction.
+    # It will be safely published by flush_outbox(c) after transaction commits.
 
     # 2. Iterate accounts and apply Distributed Lock to prevent duplicate dispatches
     for a in c.execute('SELECT * FROM accounts WHERE mode=?', (source,)).fetchall():

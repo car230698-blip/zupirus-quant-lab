@@ -73,18 +73,30 @@ async def run_subscription_lifecycle_cycle(
         is_expired = not is_admin and (sub_exp <= now or (cloud_exp > 0 and cloud_exp <= now))
         if is_expired:
             open_positions = []
+            pos_ok = False
             try:
-                open_positions = await meta_client.get_open_positions(acc["metaapi_account_id"]) or []
+                if hasattr(meta_client, "get_positions_verified"):
+                    pos_ok, open_positions, _pos_meta = await meta_client.get_positions_verified(acc["metaapi_account_id"])
+                else:
+                    open_positions = await meta_client.get_open_positions(acc["metaapi_account_id"]) or []
+                    pos_ok = True
             except Exception:
                 open_positions = []
+                pos_ok = False
+
             with tx() as c:
-                if open_positions:
+                if not pos_ok or open_positions:
+                    # Fail-closed: keep protecting under EXPIRED_PROTECTING if positions open or API unverifiable
                     c.execute(
                         "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
                         (acc["id"],),
                     )
                     stats["protecting_open"] += 1
                 else:
+                    try:
+                        await meta_client.undeploy_account(acc["metaapi_account_id"])
+                    except Exception as undep_err:
+                        logger.debug(f"Undeploy note for expired account {acc['id']}: {undep_err}")
                     c.execute(
                         "UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0 WHERE id = ?",
                         (acc["id"],),

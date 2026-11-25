@@ -271,6 +271,9 @@ def retrieve_relevant_knowledge(
     query_vec = embed_text(query)
     is_pg = bool(getattr(c, "_is_pg", False))
 
+    pg_results: List[Dict[str, Any]] = []
+    pg_ids = set()
+
     # 1. Try pgvector if on PostgreSQL
     if is_pg:
         try:
@@ -292,10 +295,11 @@ def retrieve_relevant_knowledge(
 
             rows = c.execute(sql, tuple(params)).fetchall()
             c.execute("RELEASE SAVEPOINT sp_rag_query")
-            results = []
             for r in rows:
-                results.append({
-                    "id": r["id"] if hasattr(r, "keys") else r[0],
+                cid = r["id"] if hasattr(r, "keys") else r[0]
+                pg_ids.add(cid)
+                pg_results.append({
+                    "id": cid,
                     "skill_id": r["skill_id"] if hasattr(r, "keys") else r[1],
                     "school": r["school"] if hasattr(r, "keys") else r[2],
                     "doc_type": r["doc_type"] if hasattr(r, "keys") else r[3],
@@ -303,16 +307,15 @@ def retrieve_relevant_knowledge(
                     "content": r["content"] if hasattr(r, "keys") else r[5],
                     "similarity": round(float(r["similarity"] if hasattr(r, "keys") else r[6]), 4),
                 })
-            if results:
-                return results
         except Exception:
             c.execute("ROLLBACK TO SAVEPOINT sp_rag_query")
 
-    # 2. Hybrid Python fallback (SQLite or Postgres without pgvector extension)
+    # 2. Hybrid Python fallback (SQLite or legacy JSON chunks coexisting on PostgreSQL)
     sql = """
         SELECT id, skill_id, school, doc_type, chunk_index, content, embedding_json
         FROM knowledge_chunks
         WHERE (skill_id IS NULL OR skill_id = '' OR skill_id IN (SELECT skill_id FROM agent_skills WHERE enabled = 1))
+          AND embedding_json IS NOT NULL
     """
     params_fb: List[Any] = []
     if school:
@@ -326,9 +329,11 @@ def retrieve_relevant_knowledge(
         logger.debug(f"Failed to query knowledge_chunks: {e}")
         return []
 
-    scored = []
+    scored = list(pg_results)
     for r in rows:
         cid = r["id"] if hasattr(r, "keys") else r[0]
+        if cid in pg_ids:
+            continue
         sk_id = r["skill_id"] if hasattr(r, "keys") else r[1]
         sch = r["school"] if hasattr(r, "keys") else r[2]
         dtype = r["doc_type"] if hasattr(r, "keys") else r[3]

@@ -492,10 +492,12 @@ class MetaApiClient:
             raise RuntimeError(f"MetaApi get_open_orders unverified: {meta}")
         return orders
 
-    async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
-        """Retrieve closed execution deals from MetaApi history for real PnL reflection."""
+    async def get_closed_deals_verified(
+        self, metaapi_account_id: str, hours: int = 24
+    ) -> Tuple[bool, List[Dict[str, Any]], Dict[str, Any]]:
+        """Retrieve closed execution deals from MetaApi history with fail-closed status verification."""
         if self._is_mock_account(metaapi_account_id):
-            return []
+            return True, [], {"mock": True}
         from datetime import datetime, timedelta, timezone
         end_dt = datetime.now(timezone.utc)
         start_dt = end_dt - timedelta(hours=hours)
@@ -507,10 +509,18 @@ class MetaApiClient:
                 resp = await client.get(url, headers=self._headers())
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data if isinstance(data, list) else []
+                    if isinstance(data, list):
+                        return True, data, {"status_code": 200}
+                    return False, [], {"status_code": 200, "error": f"Invalid response type: {type(data).__name__}"}
+                return False, [], {"status_code": resp.status_code, "error": resp.text[:160]}
         except Exception as e:
-            logger.debug(f"get_closed_deals error for {metaapi_account_id}: {e}")
-        return []
+            logger.debug(f"get_closed_deals_verified error for {metaapi_account_id}: {e}")
+            return False, [], {"error": str(e)}
+
+    async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
+        """Retrieve closed execution deals from MetaApi history for real PnL reflection."""
+        ok, deals, _meta = await self.get_closed_deals_verified(metaapi_account_id, hours=hours)
+        return deals if ok else []
 
     async def modify_position_sl(
         self,

@@ -3,6 +3,7 @@ import time
 import math
 import uuid
 import json
+import hashlib
 import asyncio
 import logging
 import datetime
@@ -563,7 +564,7 @@ async def execute_fan_out_for_signal(
 
             # Recalculate lot size if Stop-Loss distance was widened/adjusted by compliance constraints
             from app.domains.execution.symbol_precision import point_size_for_symbol
-            adjusted_sl_dist = abs(entry_price - rounded_sl)
+            adjusted_sl_dist = abs(entry_price - rounded_sl) if rounded_sl is not None else sl_dist
             adjusted_sl_points = max(1.0, adjusted_sl_dist / point_size_for_symbol(sym_u))
             if adjusted_sl_points > sl_points + 1e-4:
                 volume = calculate_normalized_lot_size(
@@ -593,13 +594,36 @@ async def execute_fan_out_for_signal(
                 if volume <= 0:
                     logger.info(f"Account {acc_id} skipped after SL adjustment: calculated volume={volume} <= 0.")
                     continue
+
+            # Re-verify and clamp exact risk percentage after compliant SL and volume adjustments
+            final_sl_dist = abs(entry_price - rounded_sl) if rounded_sl is not None else sl_dist
+            if final_sl_dist > 0 and base_capital > 0:
+                eff_contract = contract_size_for_symbol(symbol, is_cent=is_cent_acc, account_contract_size=c_size)
+                base_cap_usd = (base_capital / 100.0) if is_cent_acc else base_capital
+                final_risk_usd = final_sl_dist * volume * eff_contract * quote_to_usd_rate(symbol, entry_price)
+                final_calc_risk_pct = (final_risk_usd / base_cap_usd) * 100.0 if base_cap_usd > 0 else 0.0
+
+                if is_prop_mode and prop_stage == "LIVE" and final_calc_risk_pct > remaining_idea_risk_pct:
+                    scale_factor = remaining_idea_risk_pct / max(final_calc_risk_pct, 0.001)
+                    vol_step = float(broker_spec.get("volumeStep") or 0.01)
+                    volume = max(0.0, round(math.floor((volume * scale_factor) / vol_step) * vol_step, 2))
+                    final_risk_usd = final_sl_dist * volume * eff_contract * quote_to_usd_rate(symbol, entry_price)
+                    final_calc_risk_pct = (final_risk_usd / base_cap_usd) * 100.0 if base_cap_usd > 0 else 0.0
+
+                effective_risk_pct = round(final_calc_risk_pct, 4)
+                effective_mult = 1.0
+
+            if volume <= 0:
+                logger.info(f"Account {acc_id} skipped after final risk clamp: volume <= 0.")
+                continue
         else:
             rounded_sl = round(sl, dec_places) if sl is not None else None
             rounded_tp = round(tp, dec_places) if tp is not None else None
 
-        client_order_id = f"ZV2_{uuid.uuid4().hex[:8]}"
-        exec_id = f"exec_{uuid.uuid4().hex[:16]}"
         now_ts = time.time()
+        # Deterministic client_order_id across retries for the same signal and account
+        client_order_id = f"ZV2_{hashlib.sha256(f'{signal_id}_{acc_id}'.encode()).hexdigest()[:12]}"
+        exec_id = f"exec_{hashlib.sha256(f'{signal_id}_{acc_id}_{now_ts}'.encode()).hexdigest()[:16]}"
 
         # Helper for USD direction
         def _get_usd_dir(s: str, act: str) -> str:
@@ -874,7 +898,20 @@ async def execute_fan_out_for_signal(
                 except Exception as fk_err:
                     logger.debug(f"metaapi_cloud_accounts insert failed: {fk_err}")
 
-                # Insert durable PENDING_SUBMIT record BEFORE network call
+                # Fast check within transaction to prevent race conditions
+                existing_exec = c.execute(
+                    "SELECT id, status, client_order_id FROM metaapi_trade_executions WHERE signal_id = ? AND account_id = ?",
+                    (signal_id, acc_id)
+                ).fetchone()
+                if existing_exec:
+                    ex_st = existing_exec["status"] if hasattr(existing_exec, "keys") else existing_exec[1]
+                    if str(ex_st).upper() in ('PENDING_SUBMIT', 'SUBMITTED', 'OPEN', 'FILLED', 'SUCCESS', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED'):
+                        logger.warning(
+                            f"Concurrent execution race avoided: account {acc_id} signal {signal_id} already has active status {ex_st}."
+                        )
+                        continue
+
+                # Insert durable PENDING_SUBMIT record BEFORE network call with conditional conflict update
                 c.execute(
                     """
                     INSERT INTO metaapi_trade_executions(
@@ -899,6 +936,7 @@ async def execute_fan_out_for_signal(
                         executed_at=excluded.executed_at,
                         error_message=NULL,
                         evidence_json=excluded.evidence_json
+                    WHERE metaapi_trade_executions.status NOT IN ('PENDING_SUBMIT', 'SUBMITTED', 'OPEN', 'FILLED', 'SUCCESS', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED')
                     """,
                     (
                         exec_id, signal_id, acc_id, meta_id, broker_sym, action, volume,
@@ -906,6 +944,12 @@ async def execute_fan_out_for_signal(
                         now_ts, json.dumps({"state": "PENDING_SUBMIT", "ts": now_ts})
                     )
                 )
+                cursor_rc = getattr(c, "rowcount", None)
+                if cursor_rc is not None and cursor_rc == 0:
+                    logger.warning(
+                        f"Concurrent execution race: account {acc_id} signal {signal_id} claimed by concurrent worker (rowcount=0)."
+                    )
+                    continue
                 reservation_ok = True
         except Exception as res_err:
             logger.error(f"Failed atomic reservation for account {acc_id}: {res_err}")

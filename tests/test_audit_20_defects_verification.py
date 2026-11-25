@@ -251,12 +251,9 @@ def test_defect_4_ea_bridge_timed_out_intent_transition():
 
 
 def test_defect_5_ea_bridge_file_and_404():
-    """Verify ZupirusDemoBridge.mq5 is present in web/public."""
+    """Verify ZupirusDemoBridge.mq5 is completely removed from web/public and returns 404."""
     ea_path = os.path.join("web", "public", "ZupirusDemoBridge.mq5")
-    assert os.path.exists(ea_path)
-    with open(ea_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    assert "ZupirusDemoBridge" in content
+    assert not os.path.exists(ea_path), "ZupirusDemoBridge.mq5 must be completely removed from repository"
 
 
 # ---------------------------------------------------------------------------

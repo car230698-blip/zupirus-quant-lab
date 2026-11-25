@@ -55,12 +55,13 @@ def discover_candidate_from_observations(
                   AND COALESCE(processed_at, created_at) <= ?
                   AND signal_id NOT IN (
                       SELECT signal_id FROM metaapi_trade_executions 
-                      WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
-                         OR evidence_json LIKE '%"manual_closed_by_user":true%'
+                      WHERE (evidence_json LIKE '%"manual_closed_by_user": true%' 
+                         OR evidence_json LIKE '%"manual_closed_by_user":true%')
+                         OR (closed_at IS NOT NULL AND closed_at > ?)
                   )
                 ORDER BY created_at DESC LIMIT 200
                 """,
-                (sym_u, cutoff_val, cutoff_val),
+                (sym_u, cutoff_val, cutoff_val, cutoff_val),
             ).fetchall()
         else:
             rows = c.execute(

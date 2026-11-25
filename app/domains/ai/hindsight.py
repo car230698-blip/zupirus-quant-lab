@@ -222,13 +222,14 @@ def reflect_on_signal_outcome(
             if accumulate_pnl and prev_pnl is not None:
                 effective_pnl = round(float(prev_pnl) + effective_pnl, 2)
 
+        now_ts = time.time()
         c.execute(
             """
             UPDATE signal_audit_logs
-            SET pnl = ?, mae = ?, mfe = ?
+            SET pnl = ?, mae = ?, mfe = ?, processed_at = ?
             WHERE signal_id = ?
             """,
-            (effective_pnl, mae, mfe, signal_id)
+            (effective_pnl, mae, mfe, now_ts, signal_id)
         )
     except Exception as e:
         logger.warning(f"Could not update signal audit log outcome: {e}")
