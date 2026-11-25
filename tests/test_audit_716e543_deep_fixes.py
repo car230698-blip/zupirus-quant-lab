@@ -365,7 +365,7 @@ def test_postgres_sql_adapter_insert_or_replace_and_timestamptz():
     """Verify CursorWrapper._adapt_sql translates generic INSERT OR REPLACE and candles/quotes TIMESTAMPTZ comparisons for PostgreSQL."""
     from app.core.db import CursorWrapper
 
-    cur = CursorWrapper(raw_cur=None, is_pg=True)
+    cur = CursorWrapper(None, is_pg=True)
 
     sql_replace = "INSERT OR REPLACE INTO signal_sources (id, name, status) VALUES (?, ?, ?)"
     adapted_replace = cur._adapt_sql(sql_replace, has_params=True)
