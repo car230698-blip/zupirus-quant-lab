@@ -441,7 +441,15 @@ async def process_successful_payment(
             return True
 
         # ATOMIC ENTITLEMENT GRANT inside the same database transaction:
-        new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, order, now_ts)
+        prod_type = str(order.get("product_type") or "").upper()
+        is_report_order = prod_type == "PDF_REPORT" or bool(order.get("report_id")) or str(order.get("plan_tier") or "").startswith("report:")
+        if is_report_order:
+            from app.domains.reports.service import grant_report_entitlement_tx
+            grant_report_entitlement_tx(c, order, now_ts)
+            new_sub_exp = now_ts + 3650 * 86400
+            accounts_to_deploy = []
+        else:
+            new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, order, now_ts)
 
         user_row = c.execute("SELECT email, preferred_language FROM users WHERE id = ?", (order["user_id"],)).fetchone()
         user_email = None
@@ -836,6 +844,13 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
 async def retry_order_cloud_deployment(order_id: str) -> Dict[str, Any]:
     """Retry MetaApi Cloud deployment for an order whose subscription entitlements were ALREADY granted,
     without re-adding subscription duration."""
+    from app.core.config import is_customer_auto_trading_enabled
+    if not is_customer_auto_trading_enabled():
+        return {
+            "ok": False,
+            "status": "CUSTOMER_EXECUTION_DISABLED",
+            "message": "Nền tảng đã chuyển sang chế độ Nghiên cứu định lượng & Báo cáo PDF. Tính năng triển khai trạm Cloud MT5 cho khách hàng đã ngừng hoạt động.",
+        }
     now_ts = time.time()
     accounts_to_deploy: List[Tuple[str, str]] = []
     has_any_account = False
@@ -925,7 +940,15 @@ async def fulfill_order_entitlements(order_id: str) -> bool:
         ent_st = str(order.get("entitlement_status") or "").upper()
         already_granted = ent_st in ("GRANTED", "APPLIED") or bool(c.execute("SELECT value FROM kv WHERE key = ?", (f"order_entitlement_granted:{order['id']}",)).fetchone())
         if not already_granted:
-            new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, order, now_ts)
+            prod_type = str(order.get("product_type") or "").upper()
+            is_report_order = prod_type == "PDF_REPORT" or bool(order.get("report_id")) or str(order.get("plan_tier") or "").startswith("report:")
+            if is_report_order:
+                from app.domains.reports.service import grant_report_entitlement_tx
+                grant_report_entitlement_tx(c, order, now_ts)
+                new_sub_exp = now_ts + 3650 * 86400
+                accounts_to_deploy = []
+            else:
+                new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, order, now_ts)
             c.execute("UPDATE orders SET entitlement_status = 'GRANTED' WHERE id = ?", (order["id"],))
             c.execute(
                 "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -933,6 +956,13 @@ async def fulfill_order_entitlements(order_id: str) -> bool:
             )
 
     if already_granted:
+        prod_type = str(order.get("product_type") or "").upper()
+        is_report_order = prod_type == "PDF_REPORT" or bool(order.get("report_id")) or str(order.get("plan_tier") or "").startswith("report:")
+        if is_report_order:
+            with tx() as c:
+                from app.domains.reports.service import grant_report_entitlement_tx
+                grant_report_entitlement_tx(c, order, now_ts)
+            return True
         retry_res = await retry_order_cloud_deployment(order["id"])
         return bool(retry_res.get("ok"))
 
@@ -961,6 +991,9 @@ async def fulfill_order_entitlements(order_id: str) -> bool:
 
 async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = None, max_retries: int = 3, delay: int = 2, client: Optional[Any] = None):
     """Attempt deployment with backoff and only mark DEPLOYED when MetaApi confirms True."""
+    from app.core.config import is_customer_auto_trading_enabled
+    if not is_customer_auto_trading_enabled() and client is None:
+        return
     client = client or MetaApiClient()
     all_ok = True
     for item in account_pairs:

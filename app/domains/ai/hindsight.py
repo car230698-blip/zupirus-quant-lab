@@ -512,6 +512,7 @@ Khi có tín hiệu {side} cho cặp {sym_u} được gửi đến trong phiên 
 Khi có tín hiệu {side} phát sinh trong phiên {sess}, bộ điều phối tự động kích hoạt lá chắn này để CHẶN lệnh, bảo vệ tài khoản khỏi rủi ro sụt giảm vốn lặp lại.
 """
                 try:
+                    from app.core.config import is_customer_auto_trading_enabled
                     from app.skills.registry import register_learned_skill
                     register_learned_skill(
                         skill_id=learned_skill_id,
@@ -520,7 +521,7 @@ Khi có tín hiệu {side} phát sinh trong phiên {sess}, bộ điều phối t
                         trigger_condition=learned_trigger,
                         skill_md=learned_md,
                         db_cursor=c,
-                        auto_approve=True,
+                        auto_approve=bool(is_customer_auto_trading_enabled(c)),
                     )
                 except Exception as e:
                     logger.debug(f"Could not register learned hazard guard {learned_skill_id}: {e}")

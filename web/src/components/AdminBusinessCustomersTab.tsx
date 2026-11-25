@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { api } from '../api/client';
 import { AdminBillingSettingsTab } from './AdminBillingSettingsTab.tsx';
+import { AdminReportsPublisherSection } from './AdminReportsPublisherSection.tsx';
 import { ToastNotification } from './ToastNotification.tsx';
 import { AdminErrorBanner, AdminErrorInfo } from './AdminErrorBanner';
 
@@ -18,7 +19,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
   const [orders, setOrders] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const { lang } = useLanguage();
-  const [activeSubTab, setActiveSubTab] = useState<'orders' | 'customers' | 'settings'>('orders');
+  const [activeSubTab, setActiveSubTab] = useState<'reports' | 'orders' | 'customers' | 'settings'>('reports');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'EXCEPTIONS' | 'PAID'>('ALL');
   const [searchUserQuery, setSearchUserQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -209,7 +210,22 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
       </div>
 
       {/* UNDERLINE SUB-TABS NAVIGATION */}
-      <div className="border-b border-slate-800 flex items-center gap-8">
+      <div className="border-b border-slate-800 flex flex-wrap items-center gap-8">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('reports')}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
+            activeSubTab === 'reports'
+              ? 'text-white'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>{lang === 'en' ? 'PDF Reports Publisher' : 'Xuất Bản Báo Cáo PDF'}</span>
+          {activeSubTab === 'reports' && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#12B5A6]" />
+          )}
+        </button>
+
         <button
           type="button"
           onClick={() => setActiveSubTab('orders')}
@@ -239,7 +255,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <span>{lang === 'en' ? 'Customers & MT5 Accounts' : 'Khách Hàng & Tài Khoản MT5'}</span>
+          <span>{lang === 'en' ? 'Customers & Archive' : 'Khách Hàng & Lưu Trữ'}</span>
           <span className="ml-2 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-400">
             {accounts.length}
           </span>
@@ -263,6 +279,9 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
           )}
         </button>
       </div>
+
+      {/* SUBTAB 0: PDF REPORTS PUBLISHER */}
+      {activeSubTab === 'reports' && <AdminReportsPublisherSection />}
 
       {/* SUBTAB 1: ORDERS */}
       {activeSubTab === 'orders' && (

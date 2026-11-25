@@ -185,6 +185,12 @@ async def create_account(
     u: dict = Depends(get_current_user)
 ):
     """Connect and provision an MT5 terminal on MetaApi Cloud (serialized per user)."""
+    from app.core.config import is_customer_auto_trading_enabled
+    if not is_customer_auto_trading_enabled():
+        fail(
+            403,
+            "ZUPIRUS Quant Lab đã chuyển sang nền tảng Nghiên cứu định lượng XAU/USD và xuất bản báo cáo PDF. Hệ thống đã ngừng kết nối tài khoản MT5/MetaApi và giao dịch tự động cho khách hàng."
+        )
     async with _get_user_account_lock(u["id"]):
         return await _create_account_locked(p, request, u)
 
@@ -737,6 +743,12 @@ def update_account_risk(
             rc["allowed_strategy_ids"] = clean_strats
 
         if p.auto_trade is not None:
+            from app.core.config import is_customer_auto_trading_enabled
+            if p.auto_trade and not is_customer_auto_trading_enabled():
+                fail(
+                    403,
+                    "Hệ thống đã ngừng luồng giao dịch tự động cho khách hàng. Bạn chỉ có thể tắt giao dịch hoặc xem lịch sử đối soát."
+                )
             new_at_state = 1 if p.auto_trade else 0
             updates.append("auto_trade=?")
             params.append(new_at_state)
@@ -820,6 +832,13 @@ async def toggle_account(account_id: str, request: Request, u: dict = Depends(ge
         else:
             new_state = 1 if int(acc_d.get("auto_trade") or 0) == 0 else 0
 
+        from app.core.config import is_customer_auto_trading_enabled
+        if new_state == 1 and not is_customer_auto_trading_enabled():
+            fail(
+                403,
+                "Hệ thống đã ngừng kích hoạt giao dịch tự động (auto_trade) cho khách hàng trên nền tảng báo cáo nghiên cứu PDF."
+            )
+
         if acc_d.get("_is_ea_bridge"):
             c.execute("UPDATE accounts SET enabled=? WHERE id=? AND user_id=?", (new_state, real_id, owner_id))
             if not new_state:
@@ -856,6 +875,13 @@ async def cloud_deploy_action(account_id: str, action: str, u: dict = Depends(ge
     act = action.lower().strip()
     if act not in ("deploy", "undeploy"):
         fail(400, "Hành động không hợp lệ (chỉ chấp nhận 'deploy' hoặc 'undeploy').")
+
+    from app.core.config import is_customer_auto_trading_enabled
+    if not is_customer_auto_trading_enabled():
+        fail(
+            403,
+            "Thao tác thay đổi trạng thái trạm Cloud MT5 (deploy/undeploy) đã bị vô hiệu hóa để bảo toàn nguyên trạng tài khoản môi giới."
+        )
 
     with tx() as c:
         acc = _resolve_target_account(c, account_id, u)
@@ -1030,6 +1056,12 @@ async def update_account_credentials_endpoint(
     u: dict = Depends(get_current_user),
 ):
     """Update master trading password / server for an existing MetaApi Cloud terminal and re-verify connection."""
+    from app.core.config import is_customer_auto_trading_enabled
+    if not is_customer_auto_trading_enabled():
+        fail(
+            403,
+            "Hệ thống đã ngừng cập nhật thông tin kết nối MetaApi Cloud cho khách hàng."
+        )
     if not p.password or len(p.password.strip()) < 3:
         raise HTTPException(status_code=400, detail="Mật khẩu giao dịch không hợp lệ")
 

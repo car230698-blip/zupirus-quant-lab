@@ -744,6 +744,153 @@ def apply_migration_026(c, is_pg: bool):
             logger.warning(f"apply_migration_026 SQLite signals rebuild warning: {e}")
 
 
+def apply_migration_027(c, is_pg: bool):
+    """027_quant_research_reports_and_entitlements:
+    Creates research_reports, report_versions, and report_entitlements tables for the XAU/USD Quantitative
+    Research & PDF Report Platform, and adds product_type, report_id, report_version to orders.
+    Seeds a flagship sample published report with public sample PDF and private full PDF.
+    """
+    import time
+    import json
+    from pathlib import Path
+
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS research_reports (
+            id TEXT PRIMARY KEY,
+            slug TEXT UNIQUE NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            market TEXT NOT NULL DEFAULT 'XAU/USD',
+            timeframe TEXT NOT NULL DEFAULT 'M15 / H1',
+            version TEXT NOT NULL DEFAULT 'v1.0',
+            status TEXT NOT NULL DEFAULT 'DRAFT',
+            price_usd DOUBLE PRECISION NOT NULL DEFAULT 29.0,
+            price_vnd BIGINT NOT NULL DEFAULT 750000,
+            currency TEXT NOT NULL DEFAULT 'VND',
+            sample_pdf_path TEXT,
+            full_pdf_path TEXT,
+            preview_highlights_json TEXT,
+            research_candidate_id TEXT,
+            wfo_metrics_json TEXT,
+            published_at DOUBLE PRECISION,
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_reports_status ON research_reports(status, published_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_research_reports_slug ON research_reports(slug);
+
+        CREATE TABLE IF NOT EXISTS report_versions (
+            id TEXT PRIMARY KEY,
+            report_id TEXT NOT NULL REFERENCES research_reports(id),
+            version TEXT NOT NULL,
+            full_pdf_path TEXT NOT NULL,
+            sample_pdf_path TEXT,
+            changelog TEXT,
+            wfo_metrics_json TEXT,
+            published_at DOUBLE PRECISION NOT NULL,
+            created_at DOUBLE PRECISION NOT NULL,
+            UNIQUE(report_id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_versions_rep ON report_versions(report_id);
+
+        CREATE TABLE IF NOT EXISTS report_entitlements (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            report_id TEXT NOT NULL REFERENCES research_reports(id),
+            purchased_version TEXT NOT NULL,
+            full_pdf_path TEXT NOT NULL,
+            order_id TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            granted_at DOUBLE PRECISION NOT NULL,
+            revoked_at DOUBLE PRECISION,
+            UNIQUE(user_id, report_id, purchased_version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_entitlements_user ON report_entitlements(user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_report_entitlements_report ON report_entitlements(report_id);
+
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_type TEXT NOT NULL DEFAULT 'SUBSCRIPTION';
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS report_id TEXT;
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS report_version TEXT;
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS research_reports (
+            id TEXT PRIMARY KEY,
+            slug TEXT UNIQUE NOT NULL,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            market TEXT NOT NULL DEFAULT 'XAU/USD',
+            timeframe TEXT NOT NULL DEFAULT 'M15 / H1',
+            version TEXT NOT NULL DEFAULT 'v1.0',
+            status TEXT NOT NULL DEFAULT 'DRAFT',
+            price_usd REAL NOT NULL DEFAULT 29.0,
+            price_vnd INTEGER NOT NULL DEFAULT 750000,
+            currency TEXT NOT NULL DEFAULT 'VND',
+            sample_pdf_path TEXT,
+            full_pdf_path TEXT,
+            preview_highlights_json TEXT,
+            research_candidate_id TEXT,
+            wfo_metrics_json TEXT,
+            published_at REAL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_research_reports_status ON research_reports(status, published_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_research_reports_slug ON research_reports(slug);
+
+        CREATE TABLE IF NOT EXISTS report_versions (
+            id TEXT PRIMARY KEY,
+            report_id TEXT NOT NULL REFERENCES research_reports(id),
+            version TEXT NOT NULL,
+            full_pdf_path TEXT NOT NULL,
+            sample_pdf_path TEXT,
+            changelog TEXT,
+            wfo_metrics_json TEXT,
+            published_at REAL NOT NULL,
+            created_at REAL NOT NULL,
+            UNIQUE(report_id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_versions_rep ON report_versions(report_id);
+
+        CREATE TABLE IF NOT EXISTS report_entitlements (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            report_id TEXT NOT NULL REFERENCES research_reports(id),
+            purchased_version TEXT NOT NULL,
+            full_pdf_path TEXT NOT NULL,
+            order_id TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            granted_at REAL NOT NULL,
+            revoked_at REAL,
+            UNIQUE(user_id, report_id, purchased_version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_entitlements_user ON report_entitlements(user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_report_entitlements_report ON report_entitlements(report_id);
+        """)
+        o_cols = [r[1] for r in c.execute("PRAGMA table_info(orders)").fetchall()]
+        for col_name, col_def in [
+            ("product_type", "TEXT NOT NULL DEFAULT 'SUBSCRIPTION'"),
+            ("report_id", "TEXT"),
+            ("report_version", "TEXT"),
+        ]:
+            if col_name not in o_cols:
+                try:
+                    c.execute(f"ALTER TABLE orders ADD COLUMN {col_name} {col_def}")
+                except Exception:
+                    pass
+
+    # Ensure sample PDF files and flagship published report exist
+    try:
+        from app.domains.reports.pdf_builder import ensure_flagship_sample_report_seeded
+        ensure_flagship_sample_report_seeded(c)
+    except Exception as seed_err:
+        logger.debug(f"Seed flagship report note in migration 027: {seed_err}")
+
+
+
 
 
 

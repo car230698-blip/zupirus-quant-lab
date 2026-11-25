@@ -32,6 +32,8 @@ async def run_subscription_lifecycle_cycle(
 ) -> Dict[str, Any]:
     """Run one hourly subscription & Cloud lifecycle maintenance pass."""
     now = float(now_ts if now_ts is not None else time.time())
+    from app.core.config import is_customer_auto_trading_enabled
+    can_mutate_cloud = is_customer_auto_trading_enabled()
     meta_client = client or meta_client or MetaApiClient()
     stats = {
         "reminded_3d": 0,
@@ -41,6 +43,13 @@ async def run_subscription_lifecycle_cycle(
         "protecting_open": 0,
         "pending_redeployed": 0,
     }
+
+    if not can_mutate_cloud:
+        # Research & PDF Report Platform Safe-Mode:
+        # Never retry DEPLOY_PENDING, deploy, or undeploy broker accounts automatically.
+        with tx() as c:
+            c.execute("UPDATE trading_accounts SET auto_trade = 0 WHERE auto_trade != 0")
+        return stats
 
     with tx() as c:
         # 0. Apply any matured queued downgrades before inspecting subscriptions

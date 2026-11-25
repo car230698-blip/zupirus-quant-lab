@@ -775,7 +775,15 @@ async def verify_and_fulfill_crypto_order(
         if getattr(upd_cur, "rowcount", 1) <= 0 and re_order.get("entitlement_status") == "GRANTED":
             return {"ok": True, "already_paid": True, "message": "Đơn hàng đã được xác nhận bởi tiến trình khác."}
 
-        new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, re_order, now_ts)
+        prod_type = str(re_order.get("product_type") or "").upper()
+        is_report_order = prod_type == "PDF_REPORT" or bool(re_order.get("report_id")) or str(re_order.get("plan_tier") or "").startswith("report:")
+        if is_report_order:
+            from app.domains.reports.service import grant_report_entitlement_tx
+            grant_report_entitlement_tx(c, re_order, now_ts)
+            new_sub_exp = now_ts + 3650 * 86400
+            accounts_to_deploy = []
+        else:
+            new_sub_exp, accounts_to_deploy = apply_subscription_entitlements_tx(c, re_order, now_ts)
 
         usr_row = c.execute("SELECT email, preferred_language FROM users WHERE id = ?", (order["user_id"],)).fetchone()
         if usr_row:

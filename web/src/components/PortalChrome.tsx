@@ -46,55 +46,55 @@ export type Portal = 'user' | 'admin';
 
 export const getNavigation = (lang: 'vi' | 'en' = 'vi') => ({
   user: [
-    ['overview', lang === 'en' ? 'Portfolio Cockpit' : 'Tổng quan danh mục', '01'],
-    ['accounts', lang === 'en' ? 'Cloud MT5 Accounts' : 'Tài khoản Cloud MT5', '02'],
-    ['orders', lang === 'en' ? 'Execution Ledger' : 'Nhật ký khớp lệnh', '03'],
+    ['overview', lang === 'en' ? 'Research Catalog' : 'Danh mục báo cáo', '01'],
+    ['accounts', lang === 'en' ? 'My PDF Library' : 'Thư viện của tôi', '02'],
+    ['orders', lang === 'en' ? 'Orders & Audit Archive' : 'Đơn hàng & Lịch sử', '03'],
   ],
   admin: [
-    ['radar', lang === 'en' ? 'AI Radar & Alerts' : 'Giám Sát AI & Cảnh Báo', '01'],
-    ['ai', lang === 'en' ? 'AI Engine & Signals' : 'Trí Tuệ AI & Nguồn Tín Hiệu', '02'],
-    ['business', lang === 'en' ? 'Billing & Customers' : 'Kinh Doanh & Khách Hàng', '03'],
+    ['radar', lang === 'en' ? 'System Monitor & Alerts' : 'Giám Sát & Cảnh Báo', '01'],
+    ['ai', lang === 'en' ? 'Internal Quant Research' : 'Nghiên Cứu Định Lượng Nội Bộ', '02'],
+    ['business', lang === 'en' ? 'PDF Reports & Billing' : 'Xuất Bản PDF & Kinh Doanh', '03'],
   ],
 });
 
 export const getPageTitles = (lang: 'vi' | 'en' = 'vi'): Record<Portal, Record<string, string>> => ({
   user: {
-    overview: lang === 'en' ? 'Portfolio Cockpit & XAU/USD Execution Hub' : 'Tổng Quan Danh Mục & Buồng Lái Thực Thi XAU/USD',
-    accounts: lang === 'en' ? 'Cloud MT5 Terminal Station & Risk Shield Config' : 'Quản Trị Trạm Cloud MT5 & Cấu Hình Giáp Rủi Ro',
-    orders: lang === 'en' ? 'Quantitative Order Ledger & Cloud Settlement' : 'Sổ Cái Khớp Lệnh Định Lượng & Đối Soát Đám Mây',
+    overview: lang === 'en' ? 'ZUPIRUS Quant Lab · XAU/USD Research Catalog & Market Telemetry' : 'ZUPIRUS Quant Lab · Danh Mục Báo Cáo Nghiên Cứu XAU/USD',
+    accounts: lang === 'en' ? 'My Quantitative PDF Report Library' : 'Thư Viện Báo Cáo PDF Của Tôi',
+    orders: lang === 'en' ? 'Historical Reconciliation Archive' : 'Sổ Cái Đối Soát & Lưu Trữ Lịch Sử',
   },
   admin: {
-    radar: lang === 'en' ? 'AI Health Monitor & Error Alerts' : 'Giám Sát Hoạt Động AI & Cảnh Báo Lỗi',
-    ai: lang === 'en' ? 'Autonomous AI Intelligence & Evolving Signals' : 'Trí Tuệ AI & Nguồn Tín Hiệu Tự Tiến Hóa',
-    business: lang === 'en' ? 'Business Operations, Billing & Customers' : 'Cài Đặt Kinh Doanh, SePay & Khách Hàng',
+    radar: lang === 'en' ? 'System Health Monitor & Error Alerts' : 'Giám Sát Hoạt Động Hệ Thống & Cảnh Báo Lỗi',
+    ai: lang === 'en' ? 'Internal Walk-Forward Research & Hypothesis Queue' : 'Phòng Nghiên Cứu Định Lượng Nội Bộ & Hàng Chờ Kiểm Định WFO',
+    business: lang === 'en' ? 'PDF Report Publisher, Billing & Customers' : 'Xuất Bản Báo Cáo PDF, Đối Soát Thanh Toán & Khách Hàng',
   },
 });
 
 export const getPageSubtitles = (lang: 'vi' | 'en' = 'vi'): Record<Portal, Record<string, string>> => ({
   user: {
     overview: lang === 'en'
-      ? 'Real-time floating equity monitoring, 24/5 TimescaleDB candle feed, liquidity order book, and 4-layer fail-closed capital defense.'
-      : 'Giám sát vốn thả nổi thời gian thực, luồng nến TimescaleDB 24/5, sổ lệnh thanh khoản và trạng thái 4 lớp giáp bảo vệ vốn.',
+      ? 'Browse published XAU/USD quantitative research reports, preview sample PDFs, and inspect real-time TimescaleDB market telemetry.'
+      : 'Xem danh mục báo cáo nghiên cứu định lượng XAU/USD, đọc bản mẫu PDF miễn phí và theo dõi dữ liệu thị trường TimescaleDB 24/5.',
     accounts: lang === 'en'
-      ? 'Direct cloud integration with London G2 MT5 brokers with 0 VPS setup and 0 manual EA installations.'
-      : 'Đấu nối trực tiếp tới máy chủ MT5 qua hạ tầng đám mây London G2 mà không cần treo VPS hay cài đặt phần mềm EA.',
+      ? 'Access and download your purchased XAU/USD quantitative PDF reports directly on the web — no MT5, VPS, or broker account needed.'
+      : 'Quản lý và tải xuống các báo cáo nghiên cứu định lượng XAU/USD bạn đã mua trực tiếp trên website — không cần MT5, VPS hay kết nối sàn.',
     orders: lang === 'en'
-      ? 'Transparent execution audit trail with exact fill price, Ticket/Deal IDs, Profit Factor, and risk sanitization logs.'
-      : 'Truy vết minh bạch từng tín hiệu, giá khớp thực tế, mã Ticket/Deal, Profit Factor và nhật ký kiểm toán rủi ro.',
+      ? 'Read-only historical execution and reconciliation archive preserved for accounting transparency.'
+      : 'Lưu trữ lịch sử đối soát chỉ đọc (Read-only Archive) phục vụ tra cứu và minh bạch dữ liệu.',
     assistant: lang === 'en'
-      ? 'Query real-time portfolio metrics and inspect XAU/USD M15 decision rationale.'
-      : 'Truy vấn trực tiếp dữ liệu danh mục và giải thích lý do vào lệnh XAU/USD M15 theo thời gian thực.',
+      ? 'Query XAU/USD quantitative research methodology and session microstructure insights.'
+      : 'Truy vấn phương pháp nghiên cứu định lượng XAU/USD và cấu trúc thanh khoản theo phiên.',
   },
   admin: {
     radar: lang === 'en'
-      ? '4-subsystem cluster health, real-time AI decision timeline, and error resolution box.'
-      : 'Nhịp tim hệ thống 4 phân hệ, dòng thời gian quyết định của AI theo thời gian thực và hộp xử lý cảnh báo lỗi.',
+      ? '4-subsystem cluster health, research pipeline timeline, and error resolution box.'
+      : 'Nhịp tim hệ thống 4 phân hệ, dòng thời gian nghiên cứu và hộp xử lý cảnh báo lỗi.',
     ai: lang === 'en'
-      ? '3-stage self-evolution roadmap, seed signals, self-learning skills, and Gemini API pool.'
-      : 'Lộ trình tự tiến hóa 3 giai đoạn, nguồn hạt giống, kỹ năng AI tự học và cấu hình Gemini API Pool.',
+      ? 'Internal hypothesis formation, out-of-sample Walk-Forward testing, Hazard Guards, and Edge Filters.'
+      : 'Hình thành giả thuyết nội bộ, kiểm định ngoài mẫu Walk-Forward, Hazard Guard và Edge Filter chờ duyệt.',
     business: lang === 'en'
-      ? 'Payment gateway settings, USD/VND conversion rates, exception settlement, and user management.'
-      : 'Cấu hình nhận tiền SePay, tỷ giá USD/VND, đối soát ngoại lệ đơn hàng và quản trị tài khoản khách hàng.',
+      ? 'Create, edit, approve, and publish PDF research reports; manage SePay/USDT orders and customer entitlements.'
+      : 'Soạn thảo, đính kèm kết quả WFO, duyệt và xuất bản báo cáo PDF; quản lý đơn hàng SePay/USDT và quyền tải của khách hàng.',
   },
 });
 

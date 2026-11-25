@@ -9,6 +9,7 @@ os.environ['COOKIE_SECURE']='false'
 os.environ['ALLOWED_ORIGINS']='http://testserver,http://localhost:8080'
 os.environ['FEED_TOKEN']='f'*40
 os.environ['ENABLE_LEGACY_EA_BRIDGE']='true'
+os.environ.setdefault('ENABLE_LEGACY_CUSTOMER_EXECUTION','true')
 import pytest
 try:
     from fastapi.testclient import TestClient

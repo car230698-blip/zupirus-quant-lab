@@ -628,10 +628,12 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
     now = time.time()
     sym_u = str(symbol or "XAUUSD").upper()
     last_ts_key = "agent_last_candle_ts" if sym_u == "XAUUSD" else f"agent_last_candle_ts:{sym_u}"
+    from app.core.config import is_customer_auto_trading_enabled
     with tx() as c:
         halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
         if halt_row and str(halt_row[0]).strip() in ("1", "true", "True"):
             return {"status": "SKIPPED", "reason": "KILL_SWITCH_ACTIVE"}
+        customer_exec_on = is_customer_auto_trading_enabled(db_cursor=c)
 
         from app.domains.signals.sources.curator import get_active_signal_mode
         active_mode = get_active_signal_mode(c)
@@ -840,6 +842,25 @@ async def autonomous_agent_step_async(force_side: Optional[str] = None, symbol: 
             if not approved:
                 logger.info(f"Autonomous Agent signal {sig_id} blocked by 4-Layer Shield: {reason}")
                 stand_aside_reasons.append(f"{sig_id} REJECTED_BY_SHIELD: {reason}")
+                continue
+
+            if not customer_exec_on:
+                # Research-Only Mode: Record candidate signal observation in Shadow Ledger for internal WFO evaluation; never dispatch to customer accounts
+                try:
+                    from app.services.sources.curator import record_shadow_signal
+                    with tx() as c_sh:
+                        record_shadow_signal(
+                            source_id="src_zupirus_agent",
+                            symbol=sanitized.symbol,
+                            side=sanitized.action,
+                            entry_price=sanitized.entry_price,
+                            sl=sanitized.stop_loss,
+                            tp=sanitized.take_profit,
+                            db_cursor=c_sh,
+                        )
+                except Exception as sh_e:
+                    logger.debug(f"Shadow signal record note in research mode: {sh_e}")
+                stand_aside_reasons.append(f"{sig_id}: RESEARCH_SHADOW_ONLY")
                 continue
 
             with tx() as c:

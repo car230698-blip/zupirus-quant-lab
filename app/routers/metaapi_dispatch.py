@@ -31,6 +31,12 @@ async def dispatch_direct_signal(p: DispatchSignalPayload, u=Depends(get_current
     signal_id = f"sig_{hashlib.sha256(fp_raw.encode()).hexdigest()[:12]}"
 
     with tx() as c:
+        from app.core.config import is_customer_auto_trading_enabled
+        if not is_customer_auto_trading_enabled(db_cursor=c):
+            raise HTTPException(
+                status_code=403,
+                detail="Luồng phát lệnh giao dịch trực tiếp tới tài khoản khách hàng đã bị vô hiệu hóa (Nền tảng Nghiên cứu định lượng & Báo cáo PDF)."
+            )
         # 1. Enforce System Kill-Switch
         halted_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
         is_halted = (halted_row and str(halted_row[0]).lower() in ('1', 'true'))

@@ -1,0 +1,46 @@
+"""ZUPIRUS Quantitative Research Reports & PDF Publishing Domain."""
+from .pdf_builder import (
+    build_pdf_bytes,
+    ensure_flagship_sample_report_seeded,
+    get_private_reports_dir,
+    get_public_samples_dir,
+)
+from .service import (
+    list_public_reports,
+    get_public_report_detail,
+    list_admin_reports,
+    create_admin_report_draft,
+    update_admin_report,
+    publish_admin_report,
+    discontinue_admin_report,
+    attach_report_pdf_files,
+    create_report_checkout_order,
+    grant_report_entitlement_tx,
+    revoke_report_entitlement_for_refund_tx,
+    list_user_report_library,
+    verify_user_report_download_access,
+    issue_signed_report_download_token,
+    verify_signed_report_download_token,
+)
+
+__all__ = [
+    "build_pdf_bytes",
+    "ensure_flagship_sample_report_seeded",
+    "get_private_reports_dir",
+    "get_public_samples_dir",
+    "list_public_reports",
+    "get_public_report_detail",
+    "list_admin_reports",
+    "create_admin_report_draft",
+    "update_admin_report",
+    "publish_admin_report",
+    "discontinue_admin_report",
+    "attach_report_pdf_files",
+    "create_report_checkout_order",
+    "grant_report_entitlement_tx",
+    "revoke_report_entitlement_for_refund_tx",
+    "list_user_report_library",
+    "verify_user_report_download_access",
+    "issue_signed_report_download_token",
+    "verify_signed_report_download_token",
+]

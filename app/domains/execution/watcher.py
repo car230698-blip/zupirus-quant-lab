@@ -1046,9 +1046,14 @@ class PositionWatcher:
                     except Exception as rec_err:
                         logger.debug(f"PositionWatcher reconcile executions note for {acc_id}: {rec_err}")
 
+                # Research Platform Safe-Mode: Separate read-only monitoring/reconciliation from position-mutating actions.
+                # Do NOT auto-close positions, modify SL/TP, or alter broker accounts when customer execution is disabled.
+                from app.core.config import is_customer_auto_trading_enabled
+                can_mutate_positions = is_customer_auto_trading_enabled()
+
                 with tx() as c:
                     already_locked = bool(getkv(c, f"drawdown_locked:{acc_id}") or getkv(c, get_drawdown_halt_key(acc_id, date_str)))
-                if already_locked:
+                if already_locked and can_mutate_positions:
                     if not int(acc.get("auto_trade") or 0):
                         continue
 
@@ -1075,7 +1080,7 @@ class PositionWatcher:
                     pending_close_reason = getkv(c, f"emergency_close_pending:{acc_id}")
                 is_pending_close = bool(pending_close_reason)
 
-                if (day_start_balance > 0 and prop_dd_limit > 0 and drawdown_pct >= prop_dd_limit) or is_pending_close:
+                if can_mutate_positions and ((day_start_balance > 0 and prop_dd_limit > 0 and drawdown_pct >= prop_dd_limit) or is_pending_close):
                     logger.warning(
                         f"PROP FIRM BREACH: Account {acc_id} daily DD reached {drawdown_pct:.2f}% (limit: {prop_dd_limit:.2f}%, pending: {is_pending_close}). "
                         f"Emergency closing bot positions only."
@@ -1171,7 +1176,7 @@ class PositionWatcher:
                                 logger.debug(f"Failed to emit drawdown warning: {ne}")
 
                 # 2B. Prop Firm Exclusive Protections (only when is_prop_firm_mode is explicitly enabled; personal accounts unaffected)
-                if bool(acc.get("is_prop_firm_mode")):
+                if can_mutate_positions and bool(acc.get("is_prop_firm_mode")):
                     prop_stage_u = str(acc.get("prop_stage") or "CHALLENGE").upper()
                     init_bal = current_balance
                     with tx() as c:
@@ -1267,7 +1272,7 @@ class PositionWatcher:
                             continue
 
                 # 3. Friday 20:30 UTC Weekend Risk Close (closes bot positions only)
-                if is_prop and is_friday_weekend:
+                if can_mutate_positions and is_prop and is_friday_weekend:
                     if is_read_ok and cur_open:
                         logger.info(f"WEEKEND CLOSE: Account {acc_id} closing bot positions before Friday close.")
                         close_res = await self.close_bot_positions_only(meta_id, acc_id) or {}
@@ -1293,7 +1298,7 @@ class PositionWatcher:
                         continue
 
                 # 4. Auto Break-Even & Partial TP (50% TP1) at 1R for Growth, Alpha, or explicit auto_be_partial_tp
-                allow_auto_be = bool(acc.get("auto_be_partial_tp")) or plan_tier in ("growth", "alpha", "pro")
+                allow_auto_be = can_mutate_positions and (bool(acc.get("auto_be_partial_tp")) or plan_tier in ("growth", "alpha", "pro"))
                 if allow_auto_be and is_read_ok:
                     positions = cur_open
                     for pos in positions:

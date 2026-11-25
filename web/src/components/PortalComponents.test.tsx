@@ -6,6 +6,7 @@ import { UserOrdersTab } from './UserOrdersTab';
 import { ConnectedAccountsListSection } from './ConnectedAccountsListSection';
 import { CandlestickTelemetryChart } from './CandlestickTelemetryChart';
 import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
+import { QuantReportCatalogAndLibrary } from './QuantReportCatalogAndLibrary';
 import { PRICING_TIERS } from '../data/landingData';
 
 test('UserOrdersTab renders Prop Firm ledger KPIs, win rate, and net PnL accurately', () => {
@@ -176,4 +177,16 @@ test('LandingPricingAndFaqSection renders all pricing tiers and FAQ items', () =
   assert.match(html, /Biểu Phí Hạ Tầng Đám Mây Cloud MT5/);
   assert.match(html, /Câu Hỏi Thường Gặp/);
   assert.match(html, /ZUPIRUS có giữ tiền nạp của tôi không/);
+});
+
+test('QuantReportCatalogAndLibrary renders published XAU/USD PDF research catalog and sample preview link', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(QuantReportCatalogAndLibrary, {
+      mode: 'public',
+    }),
+  );
+  assert.match(html, /Danh Mục Báo Cáo Nghiên Cứu Định Lượng XAU\/USD/);
+  assert.match(html, /XAUUSD/);
+  assert.match(html, /v1\.0/);
+  assert.match(html, /Xem Bản Đọc Thử PDF/);
 });

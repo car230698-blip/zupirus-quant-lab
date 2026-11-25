@@ -27,6 +27,7 @@ from app.routers import (
     metaapi_dispatch_router,
     notifications_router,
     realtime_router,
+    reports_router,
     signals_router,
     skills_router,
     sources_router,
@@ -101,6 +102,7 @@ async def perimeter(request: Request, call_next):
     if host in ('app.zupirus.com', 'zupirus.com', 'www.zupirus.com'):
         admin_blocked_prefixes = (
             '/api/admin',
+            '/api/v1/admin',
             '/api/billing/admin',
             '/api/v1/billing/admin',
             '/api/v1/telemetry/admin-radar',
@@ -112,7 +114,14 @@ async def perimeter(request: Request, call_next):
             return JSONResponse({'detail': 'Use adm.zupirus.com'}, 403)
 
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
-        max_body_size = 35_000_000 if request.url.path == '/api/admin/skills/ingest-pdf' else 3_000_000
+        is_large_pdf_upload = (
+            request.url.path == '/api/admin/skills/ingest-pdf'
+            or (
+                (request.url.path.startswith('/api/v1/admin/reports/') or request.url.path.startswith('/api/admin/reports/'))
+                and request.url.path.endswith('/upload-pdf')
+            )
+        )
+        max_body_size = 35_000_000 if is_large_pdf_upload else 3_000_000
         raw_len = request.headers.get('content-length')
         if raw_len is not None:
             if not raw_len.isdigit() or int(raw_len) > max_body_size:
@@ -245,13 +254,12 @@ for _router in (
     admin_ops_router,
     admin_users_router,
     ai_chat_router,
-    metaapi_dispatch_router,
     notifications_router,
     realtime_router,
+    reports_router,
     billing_router,
     webhooks_router,
     signals_router,
-    accounts_router,
     sources_router,
     admin_billing_router,
     telemetry_router,
@@ -263,8 +271,6 @@ for _router in (
 ):
     app.include_router(_router)
 
-if os.getenv("ENABLE_LEGACY_EA_BRIDGE", "false").lower() in ("true", "1", "yes"):
-    app.include_router(ea_router)
 
 
 DIST_DIR = ROOT / 'dist'

@@ -1,0 +1,83 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Length 1434 >>
+stream
+BT
+/F2 14 Tf
+50 780 Td
+(ZUPIRUS QUANT LAB - XAU/USD RESEARCH PREVIEW \(SAMPLE\)) Tj
+/F1 10 Tf
+0 -18 Td
+(Report: London-NY Liquidity Sweep & ATR Regime Filter \(v1.0\) | Page 1/1) Tj
+0 -24 Td
+/F2 11 Tf
+0 -18 Td
+(1. Executive Summary \(Ban Doc Thu Mien Phi\)) Tj
+/F1 10 Tf
+0 -14 Td
+(Bao cao nghien cuu dinh luong XAU/USD khung M15 & H1 tren du lieu lich su va kiem dinh) Tj
+0 -14 Td
+(Walk-Forward Out-of-Sample \(Rolling 120 train / 60 OOS\). Tai lieu nay chi phuc vu) Tj
+0 -14 Td
+(muc dich nghien cuu dinh luong doc lap, khong phai tin hieu giao dich tu dong.) Tj
+0 -14 Td
+( ) Tj
+/F2 11 Tf
+0 -18 Td
+(2. Gia Thuyet Nghien Cuu & Phan Phien \(Session Hypothesis\)) Tj
+/F1 10 Tf
+0 -14 Td
+(- Thi truong muc tieu: XAU/USD \(Spot Gold\)) Tj
+0 -14 Td
+(- Khung thoi gian: M15 ket hop xu huong H1 \(SMA4 vs SMA16\)) Tj
+0 -14 Td
+(- Phien uu tien: London \(08:00-13:00 UTC\) & London/NY Overlap \(13:00-17:00 UTC\)) Tj
+0 -14 Td
+(- Gia dinh chi phi giao dich \(Assumed Round-trip Cost\): 3.5 pips \($0.35/oz\) bao gom) Tj
+0 -14 Td
+(spread va truot gia uoc tinh.) Tj
+0 -14 Td
+( ) Tj
+/F2 11 Tf
+0 -18 Td
+(3. Noi Dung Trong Ban PDF Day Du) Tj
+/F1 10 Tf
+0 -14 Td
+(- Bo quy tac Hazard Guard & Edge Filter chi tiet theo tung phien A - Au - My.) Tj
+0 -14 Td
+(- Thong ke Walk-Forward Out-of-Sample sau chi phi, Expectancy, Profit Factor, Drawdown.) Tj
+0 -14 Td
+(- Bang phan ranh gioi thanh khoan 20-bar Swing High/Low va ty le rau nen \(Wick Ratio\).) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 5 0 R >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000000266 00000 n 
+0000001752 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+1888
+%%EOF

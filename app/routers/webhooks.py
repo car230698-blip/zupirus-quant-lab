@@ -47,10 +47,12 @@ async def handle_tradingview_webhook(
         raise HTTPException(status_code=422, detail=f"Signal normalization error: {e}")
 
     # 2b. Global Kill Switch Check (Fail-Closed) & Autonomous Signal Mode Lock
+    from app.core.config import is_customer_auto_trading_enabled
     with tx() as c:
         halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
         is_halted = bool(halt_row and str(halt_row[0]).strip() in ("1", "true", "True"))
         active_mode = get_active_signal_mode(c)
+        customer_exec_on = is_customer_auto_trading_enabled(db_cursor=c)
     if is_halted:
         logger.warning(f"TradingView signal {norm_signal.id} rejected: Kill switch is ACTIVE (halted=1)")
         return {"status": "REJECTED", "signal_id": norm_signal.id, "reason": "KILL_SWITCH_ACTIVE", "executed": 0}
@@ -68,9 +70,9 @@ async def handle_tradingview_webhook(
             "executed": 0,
         }
 
-    # If system is in autonomous ZUPIRUS_AGENT mode, strictly block external real order fan-out
-    # and automatically route signal to Shadow Ledger to continue tracking comparative performance.
-    if active_mode == "ZUPIRUS_AGENT":
+    # In Research & PDF Report mode (customer_exec_on == False) or ZUPIRUS_AGENT mode,
+    # strictly block external real order fan-out and route signal to Shadow Ledger for research only.
+    if not customer_exec_on or active_mode == "ZUPIRUS_AGENT":
         logger.info(f"Signal {norm_signal.id} routed to Shadow Ledger: Autonomous ZUPIRUS_AGENT mode is active.")
         from app.services.sources.curator import record_shadow_signal
         from app.services.symbol_precision import digits_for_symbol, pip_size_for_symbol

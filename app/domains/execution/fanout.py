@@ -26,11 +26,24 @@ async def execute_fan_out_for_signal(
     symbol = signal.get("symbol", "XAUUSD")
     action = signal.get("action", "BUY").upper()
 
-    # Global Kill Switch Check (Fail-Closed)
+    # Global Kill Switch & Research Platform Pivot Check (Fail-Closed)
     from app.db import tx, getkv, setkv
+    from app.core.config import is_customer_auto_trading_enabled
     with tx() as c:
         halt_row = c.execute("SELECT value FROM kv WHERE key = 'halted'").fetchone()
         is_halted = bool(halt_row and str(halt_row[0]).strip() in ("1", "true", "True"))
+        customer_exec_on = is_customer_auto_trading_enabled(db_cursor=c)
+    if not customer_exec_on:
+        logger.warning(f"execute_fan_out_for_signal blocked: Customer auto-trading is disabled (Research & PDF Report mode). Signal: {signal_id}")
+        return {
+            "signal_id": signal_id,
+            "total_accounts": len(accounts),
+            "executed": 0,
+            "failed": 0,
+            "skipped": len(accounts),
+            "executions": [],
+            "error": "CUSTOMER_EXECUTION_DISABLED_RESEARCH_ONLY",
+        }
     if is_halted:
         logger.warning(f"execute_fan_out_for_signal aborted: Global Kill Switch is ACTIVE (halted=1). Signal: {signal_id}")
         return {

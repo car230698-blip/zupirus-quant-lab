@@ -197,21 +197,111 @@ def discover_candidate_from_observations(
     }
 
 
-def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, Any]) -> Tuple[float, List[float]]:
-    """Evaluates inductive candidate rules on a window of price series."""
+def _normalize_session_label(val: Optional[str]) -> str:
+    if not val:
+        return ""
+    s = str(val).strip().lower()
+    if s in ("london", "ldn", "eu"):
+        return "london"
+    if s in ("new york", "ny", "new_york", "us"):
+        return "new york"
+    if s in ("asia", "asian", "tokyo"):
+        return "asia"
+    if "overlap" in s or ("london" in s and "new york" in s):
+        return "london/new york overlap"
+    return s
+
+
+def _compute_causal_h1_trend(prices: List[Any], idx: int) -> str:
+    """Compute causal H1 trend from 16 M15 bars ending at idx (inclusive).
+    Never returns NEUTRAL when fewer than 16 bars are available; returns UNKNOWN."""
+    if idx < 15 or len(prices) < 16 or idx >= len(prices):
+        return "UNKNOWN"
+    window = prices[idx - 15 : idx + 1]
+    if len(window) < 16:
+        return "UNKNOWN"
+    closes: List[float] = []
+    for b in window:
+        if isinstance(b, dict):
+            if b.get("close") is None:
+                return "UNKNOWN"
+            closes.append(float(b["close"]))
+        elif isinstance(b, (int, float)):
+            closes.append(float(b))
+        else:
+            return "UNKNOWN"
+    sma_short = sum(closes[-4:]) / 4.0
+    sma_long = sum(closes) / 16.0
+    if sma_short > sma_long * 1.0006:
+        return "BULLISH"
+    if sma_short < sma_long * 0.9994:
+        return "BEARISH"
+    return "NEUTRAL"
+
+
+def _compute_causal_liquidity_sweep(prices: List[Any], idx: int, lookback: int = 15) -> Optional[bool]:
+    """Verify if bar at idx swept prior swing high/low and closed back inside.
+    Returns None if insufficient OHLC bars are available."""
+    if idx < lookback or idx >= len(prices):
+        return None
+    cur = prices[idx]
+    if not isinstance(cur, dict):
+        return None
+    if " swept_liquidity" in cur or "swept_liquidity" in cur:
+        if cur.get("swept_liquidity") is not None:
+            return bool(cur.get("swept_liquidity"))
+    if "high" not in cur or "low" not in cur or "close" not in cur:
+        return None
+    prev_slice = prices[max(0, idx - 20) : idx]
+    if len(prev_slice) < lookback:
+        return None
+    highs: List[float] = []
+    lows: List[float] = []
+    for b in prev_slice:
+        if not isinstance(b, dict) or "high" not in b or "low" not in b:
+            return None
+        highs.append(float(b["high"]))
+        lows.append(float(b["low"]))
+    swing_high = max(highs)
+    swing_low = min(lows)
+    cur_h = float(cur["high"])
+    cur_l = float(cur["low"])
+    cur_c = float(cur["close"])
+    return bool((cur_h > swing_high and cur_c < swing_high) or (cur_l < swing_low and cur_c > swing_low))
+
+
+def evaluate_candidate_window_detailed(prices: List[Any], candidate_rules: Dict[str, Any]) -> Dict[str, Any]:
+    """Detailed causal OOS window evaluator enforcing preferred_session, h1_trend, and swept_liquidity.
+    Never defaults missing H1 trend to NEUTRAL; returns insufficient_evidence if declared conditions lack verifiable bars."""
     raw_sl = float(candidate_rules.get("sl_points", DEFAULT_SL_POINTS))
     raw_tp = float(candidate_rules.get("tp_points", DEFAULT_TP_POINTS))
-    target_action = candidate_rules.get("action", "BUY")
+    target_action = str(candidate_rules.get("action", "BUY") or "BUY").upper()
     min_slope = float(candidate_rules.get("min_slope", 0.20))
 
-    # Dynamic asset scaling to support Gold, FX, Indices, and Crypto
+    pref_sess_raw = candidate_rules.get("preferred_session") or candidate_rules.get("session")
+    pref_sess = _normalize_session_label(pref_sess_raw) if pref_sess_raw else ""
+    require_session = bool(pref_sess and pref_sess.upper() not in ("ALL", "ANY"))
+
+    req_h1_raw = candidate_rules.get("h1_trend")
+    req_h1 = str(req_h1_raw).strip().upper() if req_h1_raw is not None else ""
+    require_h1 = bool(req_h1 and req_h1 not in ("ALL", "ANY"))
+
+    req_swept = (
+        candidate_rules.get("swept_liquidity")
+        if "swept_liquidity" in candidate_rules
+        else (
+            candidate_rules.get("liquidity_sweep")
+            if "liquidity_sweep" in candidate_rules
+            else candidate_rules.get("require_swept_liquidity")
+        )
+    )
+    require_swept = req_swept is not None
+
     ref_price = 2650.0
     if prices:
         first_bar = prices[0]
-        ref_price = float(first_bar["close"]) if isinstance(first_bar, dict) else float(first_bar)
+        ref_price = float(first_bar["close"]) if isinstance(first_bar, dict) and "close" in first_bar else (float(first_bar) if isinstance(first_bar, (int, float)) else 2650.0)
 
-    # Configurable realistic transaction cost model (B3: Spread + Commission + Slippage)
-    # Default 3.5 pips for XAUUSD (ref_price >= 300.0) and 1.5 pips for major FX (ref_price < 300.0)
     if ref_price < 10.0:
         asset_scale = 0.001
         cost_pips = float(os.getenv("WFO_ROUNDTRIP_COST_PIPS_FX", os.getenv("WFO_ROUNDTRIP_COST_PIPS", "1.5")).strip())
@@ -228,8 +318,41 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
     sl = (raw_sl * asset_scale) if raw_sl >= 1.0 and asset_scale < 1.0 else raw_sl
     tp = (raw_tp * asset_scale) if raw_tp >= 1.0 and asset_scale < 1.0 else raw_tp
 
-    returns = []
-    position = None
+    if len(prices) < 16:
+        return {
+            "net_pnl": 0.0,
+            "returns": [],
+            "session_breakdown": {},
+            "insufficient_evidence": True,
+            "insufficient_reason": "insufficient_bars_for_h1_trend",
+            "h1_trend_state": "UNKNOWN",
+            "cost_model_pips": cost_pips,
+            "spread_cost_units": spread_cost,
+        }
+
+    if require_h1 and req_h1 == "UNKNOWN":
+        return {
+            "net_pnl": 0.0,
+            "returns": [],
+            "session_breakdown": {},
+            "insufficient_evidence": True,
+            "insufficient_reason": "declared_h1_trend_is_unknown",
+            "h1_trend_state": "UNKNOWN",
+            "cost_model_pips": cost_pips,
+            "spread_cost_units": spread_cost,
+        }
+
+    returns: List[float] = []
+    session_returns: Dict[str, List[float]] = {}
+    position: Optional[Tuple[float, int, str]] = None
+
+    verifiable_session_bars = 0
+    verifiable_h1_bars = 0
+    verifiable_swept_bars = 0
+    last_h1_state = "UNKNOWN"
+
+    from app.db import to_epoch_ts
+    from app.services.signal_ingestion.context import get_trading_session
 
     for t in range(15, len(prices)):
         bar = prices[t]
@@ -239,24 +362,31 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
         low_p = float(bar.get("low", close_p)) if is_ohlc else close_p
 
         if position:
-            entry, direction = position
-            # Conservative dual-hit rule: check Stop Loss before Take Profit using high/low wicks (including last bar)
+            entry, direction, entry_sess = position
             if direction == 1:
                 if low_p - entry <= -sl:
-                    returns.append(-sl - spread_cost)
+                    ret_val = -sl - spread_cost
+                    returns.append(ret_val)
+                    session_returns.setdefault(entry_sess, []).append(ret_val)
                     position = None
                     continue
                 if high_p - entry >= tp:
-                    returns.append(tp - spread_cost)
+                    ret_val = tp - spread_cost
+                    returns.append(ret_val)
+                    session_returns.setdefault(entry_sess, []).append(ret_val)
                     position = None
                     continue
             else:
                 if entry - high_p <= -sl:
-                    returns.append(-sl - spread_cost)
+                    ret_val = -sl - spread_cost
+                    returns.append(ret_val)
+                    session_returns.setdefault(entry_sess, []).append(ret_val)
                     position = None
                     continue
                 if entry - low_p >= tp:
-                    returns.append(tp - spread_cost)
+                    ret_val = tp - spread_cost
+                    returns.append(ret_val)
+                    session_returns.setdefault(entry_sess, []).append(ret_val)
                     position = None
                     continue
             continue
@@ -264,38 +394,108 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
         if t >= len(prices) - 1:
             continue
 
-        # Evaluate session constraint if candidate rule specifies preferred_session
-        pref_sess = candidate_rules.get("preferred_session")
-        if pref_sess and str(pref_sess).upper() not in ("ALL", "ANY"):
-            bar_time = bar.get("time") if is_ohlc else None
-            bar_sess = bar.get("session") if is_ohlc else None
-            if not bar_sess and bar_time is not None:
-                try:
-                    from app.db import to_epoch_ts
-                    from app.services.signal_ingestion.context import get_trading_session
-                    bar_sess = get_trading_session(to_epoch_ts(bar_time))
-                except Exception:
-                    bar_sess = None
-            if bar_sess and str(bar_sess).lower() != str(pref_sess).lower():
+        # 1. Resolve and enforce session condition
+        bar_time = bar.get("time") if is_ohlc else None
+        bar_sess_raw = bar.get("session") if is_ohlc else None
+        if not bar_sess_raw and bar_time is not None:
+            try:
+                ep = to_epoch_ts(bar_time)
+                if ep and ep > 0:
+                    bar_sess_raw = get_trading_session(float(ep))
+            except Exception:
+                bar_sess_raw = None
+        bar_sess_norm = _normalize_session_label(bar_sess_raw) if bar_sess_raw else ""
+        if bar_sess_norm:
+            verifiable_session_bars += 1
+
+        if require_session:
+            if not bar_sess_norm or bar_sess_norm != pref_sess:
                 continue
 
-        # Evaluate candidate rule condition (momentum slope over 10 intervals matching engine scaling)
+        # 2. Resolve and enforce H1 trend condition (never defaulting <16 bars or missing to NEUTRAL)
+        if is_ohlc and bar.get("h1_trend") is not None:
+            bar_h1 = str(bar.get("h1_trend")).strip().upper()
+        else:
+            bar_h1 = _compute_causal_h1_trend(prices, t)
+        if bar_h1 != "UNKNOWN":
+            verifiable_h1_bars += 1
+            last_h1_state = bar_h1
+        if require_h1:
+            if bar_h1 == "UNKNOWN" or bar_h1 != req_h1:
+                continue
+
+        # 3. Resolve and enforce liquidity sweep condition
+        if require_swept:
+            bar_swept = _compute_causal_liquidity_sweep(prices, t)
+            if bar_swept is not None:
+                verifiable_swept_bars += 1
+            if bar_swept is None or bool(bar_swept) != bool(req_swept):
+                continue
+
+        # 4. Evaluate momentum slope over 10 intervals
         p_t10 = float(prices[t - 10]["close"]) if isinstance(prices[t - 10], dict) else float(prices[t - 10])
-        p_next = float(prices[t + 1]["open"]) if isinstance(prices[t + 1], dict) and "open" in prices[t + 1] else (float(prices[t + 1]["close"]) if isinstance(prices[t + 1], dict) else float(prices[t + 1]))
+        p_next = (
+            float(prices[t + 1]["open"])
+            if isinstance(prices[t + 1], dict) and "open" in prices[t + 1]
+            else (float(prices[t + 1]["close"]) if isinstance(prices[t + 1], dict) else float(prices[t + 1]))
+        )
         slope = (close_p - p_t10) / 10.0
         price_scale = 0.001 if close_p < 10.0 else (0.1 if close_p < 300.0 else 1.0)
         slope_threshold = min_slope * price_scale
+        sess_label = str(bar_sess_raw or (pref_sess_raw if require_session else "Unspecified"))
         if target_action in ("BUY", "BOTH") and slope >= slope_threshold:
-            position = (p_next, 1)
+            position = (p_next, 1, sess_label)
         elif target_action in ("SELL", "BOTH") and slope <= -slope_threshold:
-            position = (p_next, -1)
+            position = (p_next, -1, sess_label)
 
     if position:
-        entry, direction = position
+        entry, direction, entry_sess = position
         last_c = float(prices[-1]["close"]) if isinstance(prices[-1], dict) else float(prices[-1])
-        returns.append((last_c - entry) * direction - spread_cost)
+        ret_val = (last_c - entry) * direction - spread_cost
+        returns.append(ret_val)
+        session_returns.setdefault(entry_sess, []).append(ret_val)
 
-    return sum(returns), returns
+    insufficient_evidence = False
+    insufficient_reason = None
+    if require_session and verifiable_session_bars == 0:
+        insufficient_evidence = True
+        insufficient_reason = "missing_session_timestamps"
+    elif require_h1 and verifiable_h1_bars == 0:
+        insufficient_evidence = True
+        insufficient_reason = "insufficient_bars_for_h1_trend"
+    elif require_swept and verifiable_swept_bars == 0:
+        insufficient_evidence = True
+        insufficient_reason = "insufficient_ohlc_bars_for_liquidity_sweep"
+
+    session_breakdown: Dict[str, Dict[str, Any]] = {}
+    for s_name, s_rets in session_returns.items():
+        s_cnt = len(s_rets)
+        s_wins = sum(1 for r in s_rets if r > 0)
+        s_net = round(sum(s_rets), 4)
+        session_breakdown[s_name] = {
+            "trades": s_cnt,
+            "wins": s_wins,
+            "win_rate": round(s_wins / max(s_cnt, 1), 2),
+            "net_return": s_net,
+            "expectancy": round(s_net / max(s_cnt, 1), 4),
+        }
+
+    return {
+        "net_pnl": sum(returns),
+        "returns": returns,
+        "session_breakdown": session_breakdown,
+        "insufficient_evidence": insufficient_evidence,
+        "insufficient_reason": insufficient_reason,
+        "h1_trend_state": last_h1_state,
+        "cost_model_pips": cost_pips,
+        "spread_cost_units": spread_cost,
+    }
+
+
+def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, Any]) -> Tuple[float, List[float]]:
+    """Evaluates inductive candidate rules on a window of price series."""
+    res = evaluate_candidate_window_detailed(prices, candidate_rules)
+    return res["net_pnl"], res["returns"]
 
 
 def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -359,6 +559,19 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
 
     folds = []
     all_returns = []
+    agg_session_returns: Dict[str, List[float]] = {}
+    any_fold_insufficient = False
+    insufficient_reason: Optional[str] = None
+    last_h1_state = _compute_causal_h1_trend(prices, len(prices) - 1) if len(prices) >= 16 else "UNKNOWN"
+
+    # Pre-check window conditions when < 180 bars are passed
+    if len(prices) < 180:
+        pre_eval = evaluate_candidate_window_detailed(prices, base_rules)
+        any_fold_insufficient = True
+        insufficient_reason = pre_eval.get("insufficient_reason") or (
+            "insufficient_bars_for_h1_trend" if len(prices) < 16 else "insufficient_bars_for_wfo_180"
+        )
+        last_h1_state = pre_eval.get("h1_trend_state", last_h1_state)
 
     for start in range(0, len(prices) - 180 + 1, 60):
         train = prices[start:start + 120]
@@ -391,7 +604,29 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         )
 
         tuned_rules = {**fold_rules, "min_slope": best_slope, "tp_points": round(base_sl * best_rr, 2)}
-        pnl, rets = score_candidate_on_window(test, tuned_rules)
+        oos_detail = evaluate_candidate_window_detailed(test, tuned_rules)
+        pnl = oos_detail["net_pnl"]
+        rets = oos_detail["returns"]
+        if oos_detail.get("insufficient_evidence"):
+            any_fold_insufficient = True
+            insufficient_reason = oos_detail.get("insufficient_reason")
+        if oos_detail.get("h1_trend_state") and oos_detail.get("h1_trend_state") != "UNKNOWN":
+            last_h1_state = oos_detail["h1_trend_state"]
+        for s_name, s_info in (oos_detail.get("session_breakdown") or {}).items():
+            # Rebuild session returns aggregation
+            agg_session_returns.setdefault(s_name, [])
+        # Also collect raw returns by session from oos_detail
+        for s_name, s_info in (oos_detail.get("session_breakdown") or {}).items():
+            s_cnt = int(s_info.get("trades") or 0)
+            s_wins = int(s_info.get("wins") or 0)
+            s_net = float(s_info.get("net_return") or 0.0)
+            prev_info = agg_session_returns.get(s_name)
+            if not isinstance(prev_info, dict):
+                agg_session_returns[s_name] = {"trades": 0, "wins": 0, "net_return": 0.0}  # type: ignore[assignment]
+            agg_session_returns[s_name]["trades"] += s_cnt  # type: ignore[index]
+            agg_session_returns[s_name]["wins"] += s_wins  # type: ignore[index]
+            agg_session_returns[s_name]["net_return"] = round(agg_session_returns[s_name]["net_return"] + s_net, 4)  # type: ignore[index]
+
         all_returns.extend(rets)
         folds.append({
             'train': [start, start + 119],
@@ -400,6 +635,7 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
             'tuned_rr': best_rr,
             'oos_net_price_units': round(pnl, 4),
             'trades': len(rets),
+            'insufficient_evidence': bool(oos_detail.get("insufficient_evidence")),
         })
 
     equity = peak = dd = 0.0
@@ -415,16 +651,18 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
     if folds:
         # Select deployed slope and RR strictly from the latest in-sample training window (zero OOS peeking)
         latest_fold = folds[-1]
+        base_sl_latest = float(rules.get("sl_points", DEFAULT_SL_POINTS))
         rules = {
             **rules,
             "min_slope": latest_fold.get("tuned_slope", rules.get("min_slope", 0.20)),
-            "tp_points": round(base_sl * latest_fold.get("tuned_rr", 2.0), 2),
+            "tp_points": round(base_sl_latest * latest_fold.get("tuned_rr", 2.0), 2),
         }
         # Keep all_returns as the true walk-forward concatenated OOS returns to avoid look-ahead leakage
 
     trades_count = len(all_returns)
     wins = sum(1 for r in all_returns if r > 0)
     win_rate = round(wins / max(trades_count, 1), 2)
+    expectancy_units = round(net_oos / max(trades_count, 1), 4) if trades_count > 0 else 0.0
     gross_win = abs(sum(r for r in all_returns if r > 0))
     gross_loss = abs(sum(r for r in all_returns if r < 0))
     profit_factor = round(
@@ -441,8 +679,17 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
     else:
         sharpe_ratio = 0.0
 
+    cand_is_insufficient = bool(
+        candidate.get("status") in ("insufficient_data", "insufficient_evidence")
+        or str(rules.get("action") or "").upper() == "STAND_ASIDE"
+    )
+    is_insufficient_evidence = bool(any_fold_insufficient or cand_is_insufficient or not folds)
+    if is_insufficient_evidence and not insufficient_reason:
+        insufficient_reason = "candidate_or_window_insufficient_evidence"
+
     is_qualified = bool(
-        has_verified_timestamps
+        not is_insufficient_evidence
+        and has_verified_timestamps
         and trades_count >= 10
         and net_oos > 0
         and max_dd_pct <= 8.0
@@ -465,23 +712,69 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
     gross_return = round(net_oos + (trades_count * spread_unit), 4)
     net_return_after_costs = round(net_oos, 4)
 
+    session_breakdown_out: Dict[str, Dict[str, Any]] = {}
+    for s_name, s_agg in agg_session_returns.items():
+        if isinstance(s_agg, dict):
+            s_t = int(s_agg.get("trades") or 0)
+            s_w = int(s_agg.get("wins") or 0)
+            s_n = round(float(s_agg.get("net_return") or 0.0), 4)
+            session_breakdown_out[s_name] = {
+                "trades": s_t,
+                "wins": s_w,
+                "win_rate": round(s_w / max(s_t, 1), 2),
+                "net_return": s_n,
+                "expectancy": round(s_n / max(s_t, 1), 4),
+            }
+
+    obs_sample_size = int(candidate.get("sample_size") or trades_count)
+
     return {
+        'status': 'insufficient_evidence' if is_insufficient_evidence else 'completed',
+        'insufficient_evidence': is_insufficient_evidence,
+        'insufficient_reason': insufficient_reason,
+        'h1_trend_state': last_h1_state,
         'candidate_id': candidate.get("id"),
         'candidate_name': candidate.get("name"),
         'method': 'Tabula Rasa Rolling 120 train / 60 OOS',
         'strategy': f"Tabula Rasa Inductive Model: {candidate.get('name')}",
         'rules': rules,
         'folds': folds,
+        'sample_size': obs_sample_size,
         'gross_return': gross_return,
         'net_return_after_costs': net_return_after_costs,
         'cost_model_pips': cost_model_pips,
+        'cost_model_is_assumed': True,
+        'cost_model_note': f"Giả định chi phí giao dịch khứ hồi (spread + trượt giá): {cost_model_pips} pips/lệnh",
         'oos_net_price_units': net_oos,
+        'expectancy_price_units': expectancy_units,
+        'expectancy': expectancy_units,
         'max_drawdown_price_units': max_dd,
         'max_drawdown_pct': max_dd_pct,
         'win_rate': win_rate,
         'profit_factor': profit_factor,
         'sharpe_ratio': sharpe_ratio,
         'trades': trades_count,
+        'session_breakdown': session_breakdown_out,
+        'evidence_breakdown': {
+            'backtest_oos': {
+                'trades': trades_count,
+                'win_rate': win_rate,
+                'expectancy': expectancy_units,
+                'profit_factor': profit_factor,
+                'net_return_after_costs': net_return_after_costs,
+                'max_drawdown_pct': max_dd_pct,
+                'cost_model_pips': cost_model_pips,
+                'cost_model_is_assumed': True,
+            },
+            'shadow_paper': {
+                'sample_size': int(candidate.get("sample_size") or 0),
+                'empirical_win_rate': candidate.get("empirical_win_rate"),
+            },
+            'demo_canary': {
+                'trades': 0,
+                'status': 'NOT_STARTED',
+            },
+        },
         'has_verified_timestamps': has_verified_timestamps,
         'production_qualified': is_qualified,
     }
@@ -882,8 +1175,13 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                     obs_sz = int(cand.get("sample_size") or 0)
                     max_dd = float(rep.get("max_drawdown_pct") or 0.0)
 
+                    from app.core.config import is_customer_auto_trading_enabled
                     auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
-                    auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
+                    auto_promote = bool(
+                        is_customer_auto_trading_enabled(c)
+                        and auto_row
+                        and str(auto_row[0]).strip().lower() in ("1", "true", "yes")
+                    )
                     qualifies = bool(
                         rep.get("production_qualified")
                         and is_new_evidence
