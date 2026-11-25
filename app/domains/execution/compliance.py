@@ -171,27 +171,8 @@ def calculate_compliant_sl_tp(
 
 
 def tag_manual_closed_by_user(c, exec_id: str, now_ts: Optional[float] = None) -> None:
-    """Tag an execution as MANUAL_CLOSED_BY_USER so Hindsight induction excludes it from strategy learning."""
-    now = float(now_ts if now_ts is not None else time.time())
-    ev_row = c.execute("SELECT evidence_json FROM metaapi_trade_executions WHERE id = ?", (exec_id,)).fetchone()
-    prev_ev = {}
-    if ev_row and ev_row[0]:
-        try:
-            prev_ev = json.loads(ev_row[0])
-        except Exception:
-            pass
-    prev_ev["manual_closed_by_user"] = True
-    prev_ev["manual_closed_at"] = now
-
-    c.execute(
-        """
-        UPDATE metaapi_trade_executions
-        SET origin = 'BOT', evidence_json = ?, last_verified_at = ?
-        WHERE id = ?
-        """,
-        (json.dumps(prev_ev), now, exec_id)
-    )
-    logger.info(f"Execution {exec_id} tagged MANUAL_CLOSED_BY_USER and excluded from Hindsight induction.")
+    """Legacy helper: in Quant Lab, client broker terminals and executions are deprecated."""
+    return
 
 
 # ---------------------------------------------------------------------------

@@ -218,10 +218,16 @@ def cmd_kill_switch(on: bool = False, off: bool = False, reason: str = "", as_js
         setkv(c, "halted", 1 if on else 0)
         cancelled_dispatches = 0
         if on:
-            c.execute("UPDATE accounts SET enabled=0")
-            cancelled_dispatches = c.execute(
-                "UPDATE dispatches SET state='cancelled', updated=? WHERE state='queued'", (now,)
-            ).rowcount
+            try:
+                c.execute("UPDATE accounts SET enabled=0")
+            except Exception:
+                pass
+            try:
+                cancelled_dispatches = c.execute(
+                    "UPDATE dispatches SET state='cancelled', updated=? WHERE state='queued'", (now,)
+                ).rowcount
+            except Exception:
+                cancelled_dispatches = 0
             c.execute(
                 "INSERT INTO audit(ts, actor, event, detail) VALUES(?,?,?,?)",
                 (now, "zupirus-cli", "system_halt", json.dumps({"reason": reason_text, "cancelled_dispatches": cancelled_dispatches}))

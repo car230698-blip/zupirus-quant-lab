@@ -163,13 +163,16 @@ def cmd_signal_trace(signal_id: str, as_json: bool = False):
             (f'%{clean_sid}%',)
         ).fetchall()
 
-        dispatch_rows = c.execute("""
-            SELECT d.*, a.login, a.server, a.mode
-            FROM dispatches d
-            JOIN accounts a ON a.id = d.account_id
-            WHERE d.signal_id = ?
-            ORDER BY d.id ASC
-        """, (clean_sid,)).fetchall()
+        try:
+            dispatch_rows = c.execute("""
+                SELECT d.*, a.login, a.server, a.mode
+                FROM dispatches d
+                JOIN accounts a ON a.id = d.account_id
+                WHERE d.signal_id = ?
+                ORDER BY d.id ASC
+            """, (clean_sid,)).fetchall()
+        except Exception:
+            dispatch_rows = []
 
     is_expired = (now > float(sig["expires"]))
 

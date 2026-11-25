@@ -290,11 +290,6 @@ def synthesize_inductive_rules(c, min_samples: Optional[int] = None) -> List[Dic
             SELECT symbol, side, entry_price, pnl, context_snapshot
             FROM signal_audit_logs
             WHERE pnl IS NOT NULL AND context_snapshot IS NOT NULL
-              AND signal_id NOT IN (
-                  SELECT signal_id FROM metaapi_trade_executions 
-                  WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
-                     OR evidence_json LIKE '%"manual_closed_by_user":true%'
-              )
             ORDER BY created_at DESC LIMIT 200
             """
         ).fetchall()

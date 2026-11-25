@@ -53,15 +53,9 @@ def discover_candidate_from_observations(
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
                   AND created_at <= ?
                   AND COALESCE(processed_at, created_at) <= ?
-                  AND signal_id NOT IN (
-                      SELECT signal_id FROM metaapi_trade_executions 
-                      WHERE (evidence_json LIKE '%"manual_closed_by_user": true%' 
-                         OR evidence_json LIKE '%"manual_closed_by_user":true%')
-                         OR (closed_at IS NOT NULL AND closed_at > ?)
-                  )
                 ORDER BY created_at DESC LIMIT 200
                 """,
-                (sym_u, cutoff_val, cutoff_val, cutoff_val),
+                (sym_u, cutoff_val, cutoff_val),
             ).fetchall()
         else:
             rows = c.execute(
@@ -70,11 +64,6 @@ def discover_candidate_from_observations(
                 FROM signal_audit_logs
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
-                  AND signal_id NOT IN (
-                      SELECT signal_id FROM metaapi_trade_executions 
-                      WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
-                         OR evidence_json LIKE '%"manual_closed_by_user":true%'
-                  )
                 ORDER BY created_at DESC LIMIT 200
                 """,
                 (sym_u,),
@@ -1096,11 +1085,6 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                 FROM signal_audit_logs
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = 'XAUUSD'
-                  AND signal_id NOT IN (
-                      SELECT signal_id FROM metaapi_trade_executions 
-                      WHERE evidence_json LIKE '%"manual_closed_by_user": true%' 
-                         OR evidence_json LIKE '%"manual_closed_by_user":true%'
-                  )
                 """
             ).fetchone()
             obs_fp = f"{obs_meta[0]}:{obs_meta[1]}:{obs_meta[2]}" if obs_meta else "0:0:0"
@@ -1264,64 +1248,19 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                 canary_age = now - c_started_at
                 # Only evaluate after 7 days trial
                 if canary_age >= 7 * 86400:
-                    exec_pnl_rows = c.execute(
+                    log_rows = c.execute(
                         """
-                        SELECT e.profit
-                        FROM metaapi_trade_executions e
-                        WHERE EXISTS (
-                            SELECT 1 FROM signal_audit_logs l
-                            WHERE l.signal_id = e.signal_id
-                              AND (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
-                              AND l.created_at >= ?
-                        )
-                          AND e.profit IS NOT NULL
-                          AND e.closed_at IS NOT NULL
-                          AND UPPER(COALESCE(e.status, '')) IN ('CLOSED', 'COMPLETED')
-                          AND (
-                              e.evidence_json IS NULL
-                              OR (
-                                  e.evidence_json NOT LIKE '%"manual_closed_by_user": true%'
-                                  AND e.evidence_json NOT LIKE '%"manual_closed_by_user":true%'
-                              )
-                          )
-                        ORDER BY COALESCE(e.closed_at, e.executed_at) ASC, e.id ASC
+                        SELECT l.pnl
+                        FROM signal_audit_logs l
+                        WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
+                          AND l.created_at >= ?
+                          AND l.pnl IS NOT NULL
+                          AND UPPER(COALESCE(l.status, '')) != 'REJECTED'
+                          AND UPPER(COALESCE(l.reject_reason, '')) != 'BROKER_PARTIAL_CLOSED'
+                        ORDER BY l.created_at ASC
                         """,
                         (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
                     ).fetchall()
-                    any_exec_rows = c.execute(
-                        """
-                        SELECT 1
-                        FROM metaapi_trade_executions e
-                        WHERE EXISTS (
-                            SELECT 1 FROM signal_audit_logs l
-                            WHERE l.signal_id = e.signal_id
-                              AND (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
-                              AND l.created_at >= ?
-                        )
-                        LIMIT 1
-                        """,
-                        (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
-                    ).fetchone()
-                    if any_exec_rows is not None:
-                        log_rows = exec_pnl_rows
-                    else:
-                        log_rows = c.execute(
-                            """
-                            SELECT l.pnl
-                            FROM signal_audit_logs l
-                            WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
-                              AND l.created_at >= ?
-                              AND l.pnl IS NOT NULL
-                              AND UPPER(COALESCE(l.status, '')) != 'REJECTED'
-                              AND UPPER(COALESCE(l.reject_reason, '')) != 'BROKER_PARTIAL_CLOSED'
-                              AND NOT EXISTS (
-                                  SELECT 1 FROM metaapi_trade_executions e2
-                                  WHERE e2.signal_id = l.signal_id
-                              )
-                            ORDER BY l.created_at ASC
-                            """,
-                            (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
-                        ).fetchall()
                     pnls = [float(r[0]) for r in log_rows]
                     closed_cnt = len(pnls)
                     expectancy = (sum(pnls) / max(closed_cnt, 1)) if closed_cnt > 0 else 0.0

@@ -500,34 +500,8 @@ async def process_successful_payment(
 
 
 def _enforce_slot_limit_on_user_accounts(c, user_id: str, max_slots: int) -> None:
-    """When a user's active slot count is reduced (e.g. via downgrade), disable auto_trade=0 immediately
-    and transition excess deployed terminals to EXPIRED_PROTECTING so PositionWatcher continues monitoring
-    and lifecycle worker verifies broker positions/orders before undeploying."""
-    max_slots = max(0, int(max_slots or 0))
-    rows = c.execute(
-        """
-        SELECT id, metaapi_account_id, auto_trade, deployment_state
-        FROM trading_accounts
-        WHERE user_id = ?
-        ORDER BY created_at ASC, id ASC
-        """,
-        (user_id,),
-    ).fetchall()
-    if len(rows) <= max_slots:
-        return
-    for excess_row in rows[max_slots:]:
-        ex_d = dict(excess_row)
-        ex_id = ex_d["id"]
-        cur_dep = str(ex_d.get("deployment_state") or "DEPLOYED").upper()
-        has_meta = bool(ex_d.get("metaapi_account_id"))
-        if cur_dep == "UNDEPLOYED" or not has_meta:
-            next_dep_state = "UNDEPLOYED"
-        else:
-            next_dep_state = "EXPIRED_PROTECTING"
-        c.execute(
-            "UPDATE trading_accounts SET auto_trade = 0, deployment_state = ? WHERE id = ? AND user_id = ?",
-            (next_dep_state, ex_id, user_id),
-        )
+    """Legacy helper: in Quant Lab, client trading accounts are deprecated."""
+    return
 
 
 def _normalize_queued_segments(raw_val: Any) -> List[Dict[str, Any]]:
@@ -1044,7 +1018,7 @@ def get_user_subscription(user_id: str) -> Dict[str, Any]:
         apply_queued_downgrade_if_due(c, user_id, now_ts)
 
         sub = c.execute("SELECT * FROM subscriptions WHERE user_id = ?", (user_id,)).fetchone()
-        connected_count = c.execute("SELECT count(*) FROM trading_accounts WHERE user_id = ?", (user_id,)).fetchone()[0]
+        connected_count = 0
 
         if not sub:
             default_slots = 1 if in_pytest else 0

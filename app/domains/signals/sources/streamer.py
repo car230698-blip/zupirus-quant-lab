@@ -149,30 +149,8 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
     m15_bars = []
     source_name = "MARKET_LIVE"
 
-    # 1. Try MetaApi live symbol price if token is configured
+    # 1. Fetch live market quotes from Yahoo Finance / Stooq
     meta_token = os.getenv("METAAPI_TOKEN", "").strip()
-    if meta_token and meta_token.lower() not in ("mock", "test", "demo", "none"):
-        try:
-            with tx() as c:
-                acc_row = c.execute(
-                    "SELECT metaapi_account_id FROM trading_accounts WHERE deployment_state = 'DEPLOYED' AND metaapi_account_id IS NOT NULL LIMIT 1"
-                ).fetchone()
-            if acc_row and acc_row[0]:
-                meta_acc_id = acc_row[0]
-                region = os.getenv("METAAPI_REGION", "london").strip().lower()
-                url_m = f"https://mt-client-api-v1.{region}.agiliumtrade.ai/users/current/accounts/{meta_acc_id}/symbols/{symbol}/current-price"
-                with httpx.Client(timeout=4.0) as client:
-                    rm = client.get(url_m, headers={"auth-token": meta_token})
-                    if rm.status_code == 200:
-                        dm = rm.json()
-                        if dm.get("bid") and dm.get("ask"):
-                            from app.services.symbol_precision import digits_for_symbol
-                            s_dec = digits_for_symbol(symbol)
-                            bid = round(float(dm["bid"]), s_dec)
-                            ask = round(float(dm["ask"]), s_dec)
-                            source_name = "METAAPI_STREAM"
-        except Exception as e:
-            logger.debug(f"MetaApi live price fallback to market feed: {e}")
 
     # 2. Fallback / supplement M15 history from Yahoo Finance for Gold & FX pairs
     sym_u = str(symbol or "XAUUSD").upper()

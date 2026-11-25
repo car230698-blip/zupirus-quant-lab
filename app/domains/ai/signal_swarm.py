@@ -176,19 +176,7 @@ def run_alpha_cycle(c) -> Dict[str, Any]:
 
 def run_risk_guardian_cycle(c) -> Dict[str, Any]:
     """Risk Guardian Agent calculates Portfolio Value-at-Risk (VaR 99%) and validates leverage."""
-    is_pg = bool(getattr(c, "_is_pg", False))
-    if is_pg:
-        c.execute("SAVEPOINT sp_swarm_risk_acc")
-    try:
-        accounts = c.execute(
-            "SELECT id, balance, equity, 0 AS positions FROM trading_accounts WHERE auto_trade = 1 OR deployment_state = 'DEPLOYED'"
-        ).fetchall()
-        if is_pg:
-            c.execute("RELEASE SAVEPOINT sp_swarm_risk_acc")
-    except Exception:
-        if is_pg:
-            c.execute("ROLLBACK TO SAVEPOINT sp_swarm_risk_acc")
-        accounts = c.execute("SELECT id, balance, equity, positions FROM accounts WHERE enabled=1").fetchall()
+    accounts = c.execute("SELECT id, balance, equity, positions FROM accounts WHERE enabled=1").fetchall()
     total_equity = sum(float(a["equity"] or 0.0) for a in accounts)
     total_positions = sum(int(a["positions"] or 0) for a in accounts)
 

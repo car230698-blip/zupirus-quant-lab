@@ -128,12 +128,12 @@ def coordinate_strategies(prices, timeframe: str = "M15", db_cursor=None, symbol
                 cand_sym_prefix = f"{cand_symbol}%"
                 recent_signals = active_cur.execute(
                     """
-                    SELECT signal_id, AVG(profit) AS avg_profit, MAX(executed_at) AS last_ts
-                    FROM metaapi_trade_executions
-                    WHERE profit IS NOT NULL AND signal_id IS NOT NULL
+                    SELECT signal_id, AVG(pnl) AS avg_profit, MAX(created_at) AS last_ts
+                    FROM signal_audit_logs
+                    WHERE pnl IS NOT NULL AND signal_id IS NOT NULL
                       AND signal_id LIKE ?
                       AND (symbol = ? OR symbol LIKE ?)
-                      AND executed_at >= ?
+                      AND created_at >= ?
                     GROUP BY signal_id
                     ORDER BY last_ts DESC LIMIT 6
                     """,
@@ -1138,10 +1138,19 @@ def tick():
     with tx() as c:
         now = time.time()
         flush_outbox(c)
-        c.execute("UPDATE dispatches SET state='expired',updated=? WHERE state='queued' AND signal_id IN (SELECT id FROM signals WHERE expires<?)", (now, now))
+        try:
+            c.execute("UPDATE dispatches SET state='expired',updated=? WHERE state='queued' AND signal_id IN (SELECT id FROM signals WHERE expires<?)", (now, now))
+        except Exception:
+            pass
         row = c.execute("SELECT value FROM kv WHERE key='replay_index'").fetchone()
-        replay_step(c, int(row[0]) if row else 0)
-        demo_step(c)
+        try:
+            replay_step(c, int(row[0]) if row else 0)
+        except Exception as e:
+            logger.debug(f"replay_step note: {e}")
+        try:
+            demo_step(c)
+        except Exception as e:
+            logger.debug(f"demo_step note: {e}")
         setkv(c, 'execution_heartbeat', now)
         if now - _last_sub_lifecycle_ts >= 3600.0:
             c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 90,))
