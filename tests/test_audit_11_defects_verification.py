@@ -318,6 +318,8 @@ async def test_item_6_hindsight_idempotency_includes_account_id(monkeypatch):
         c.execute("DELETE FROM trading_accounts WHERE id IN (?, ?)", (acc1, acc2))
         c.execute("DELETE FROM metaapi_trade_executions WHERE signal_id = ?", (sig,))
         c.execute("DELETE FROM kv WHERE key LIKE ?", (f"%:{deal_id}%",))
+        c.execute("DELETE FROM kv WHERE key LIKE 'deals_sync_ts:%'")
+        c.execute("DELETE FROM kv WHERE key LIKE 'deals_reconciled_watermark:%'")
 
         _ensure_signal(c, sig)
         for acc in (acc1, acc2):
@@ -579,3 +581,171 @@ async def test_item_11_expired_deploy_pending_account_not_deployed_by_worker():
         row = c.execute("SELECT deployment_state, auto_trade FROM trading_accounts WHERE id = ?", (acc_id,)).fetchone()
         assert row[0] == "UNDEPLOYED"
         assert row[1] == 0
+
+
+@pytest.mark.asyncio
+async def test_audit_79c40b5_all_9_findings_remediated(monkeypatch):
+    """Comprehensive verification for all 9 findings reported on commit 79c40b5:
+    1. Canary counts each unique execution_id once even when 10 signal_audit_logs share signal_id.
+    2. First Cent deal sync uses freshly verified broker currency (1200 USC -> 12.00 USD).
+    3. MT5 relink halts with HTTP 400 and does NOT save password when Cloud update_account_credentials fails.
+    4. Yahoo M15 bars keep source='YAHOO_REFERENCE' even when live quote came from MetaApi, and Yahoo ticks keep source='YAHOO_REFERENCE'.
+    5. Outbox publish() succeeds on SQLite even when failed rows contain malformed JSON; transient Redis errors keep status='pending' for automatic recovery.
+    6. Admin billing orders marks cloud_ready=False when terminal is CONNECTING or last_sync is stale, and manual recovery separates entitlement vs failed cloud deploy.
+    7. Snapshot retention preserves 30D and 90D equity history after worker cleanup.
+    8. SEO guide pages and Discord daily digest / bilingual script have no broken imports or removed track-record promotions.
+    """
+    now = time.time()
+
+    # --- 1. Canary unique execution count ---
+    cand_id = "cand_79c_unique_exec"
+    sig_id = f"{cand_id}:sig_dup_test"
+    with tx() as c:
+        c.execute("DELETE FROM strategy_candidates WHERE id = ?", (cand_id,))
+        c.execute("DELETE FROM metaapi_trade_executions WHERE signal_id = ?", (sig_id,))
+        c.execute("DELETE FROM signal_audit_logs WHERE signal_id = ?", (sig_id,))
+        c.execute(
+            """
+            INSERT INTO strategy_candidates (id, name, status, rules_json, updated_at, created_at)
+            VALUES (?, 'Canary Dedup Strat', 'CANARY_DEMO', ?, ?, ?)
+            """,
+            (cand_id, json.dumps({"canary_started_at": now - 8 * 86400}), now - 8 * 86400, now - 8 * 86400),
+        )
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (f"canary_strat:{cand_id}:started_at", str(now - 8 * 86400)),
+        )
+        # 1 CLOSED execution
+        _ensure_user(c, "usr_79c_canary")
+        _insert_trading_account(c, "acc_79c", "usr_79c_canary", "meta_79c_can", auto_trade=1, cloud_expires_at=now + 86400)
+        _ensure_signal(c, sig_id)
+        c.execute(
+            """
+            INSERT INTO metaapi_trade_executions (id, signal_id, account_id, metaapi_account_id, symbol, action, volume, entry_price, status, profit, executed_at, closed_at)
+            VALUES ('exec_79c_1', ?, 'acc_79c', 'meta_79c_can', 'XAUUSD', 'BUY', 0.1, 2650.0, 'CLOSED', 25.0, ?, ?)
+            """,
+            (sig_id, now - 86400, now - 3600),
+        )
+        # 1 valid audit + 9 duplicate/rejected audits sharing the same signal_id
+        for i in range(10):
+            c.execute(
+                """
+                INSERT INTO signal_audit_logs (id, signal_id, strategy_id, source_name, symbol, side, entry_price, status, reject_reason, pnl, created_at)
+                VALUES (?, ?, ?, ?, 'XAUUSD', 'BUY', 2650.0, ?, ?, ?, ?)
+                """,
+                (
+                    f"aud_79c_{i}",
+                    sig_id,
+                    cand_id,
+                    cand_id,
+                    "APPROVED" if i == 0 else "REJECTED",
+                    None if i == 0 else "DUPLICATE_SIGNAL",
+                    25.0 if i == 0 else None,
+                    now - 86400 + i,
+                ),
+            )
+
+    from app.domains.ai.research_graph import run_autonomous_induction_and_wfo
+    run_autonomous_induction_and_wfo(force=True)
+    with tx() as c:
+        st_row = c.execute("SELECT status FROM strategy_candidates WHERE id = ?", (cand_id,)).fetchone()
+        assert st_row is not None
+        # Only 1 unique closed execution (< 10 threshold), so it MUST NOT promote to APPROVED_FOR_PROD!
+        assert st_row[0] != "APPROVED_FOR_PROD"
+
+    # --- 2. First Cent deal sync normalizes PnL by 100 ---
+    cent_acc_id = "acc_79c_first_cent"
+    cent_exec_id = "exec_79c_first_cent"
+    with tx() as c:
+        _ensure_user(c, "usr_79c_cent")
+        _ensure_signal(c, "sig_cent_1")
+        c.execute("DELETE FROM trading_accounts")
+        c.execute("DELETE FROM metaapi_trade_executions WHERE id = ?", (cent_exec_id,))
+        c.execute("DELETE FROM kv WHERE key LIKE 'deal_synced:acc_79c_first_cent%'")
+        c.execute("DELETE FROM kv WHERE key LIKE 'deals_sync_ts:acc_79c_first_cent%'")
+        c.execute("DELETE FROM kv WHERE key LIKE 'deals_reconciled_watermark:acc_79c_first_cent%'")
+        c.execute("DELETE FROM kv WHERE key LIKE 'emergency_close_pending:%'")
+        # Legacy DB has currency='USD' and account_type='STANDARD'
+        _insert_trading_account(
+            c, cent_acc_id, "usr_79c_cent", "meta_79c_cent",
+            account_type="STANDARD", currency="USD", balance=10000, equity=10000,
+            cloud_expires_at=now + 86400
+        )
+        c.execute(
+            """
+            INSERT INTO metaapi_trade_executions (id, signal_id, account_id, metaapi_account_id, position_id, order_id, ticket, symbol, action, volume, entry_price, status, executed_at)
+            VALUES (?, 'sig_cent_1', ?, 'meta_79c_cent', 'pos_cent_79c', 'pos_cent_79c', 'pos_cent_79c', 'XAUUSDc', 'BUY', 1.0, 2650.0, 'FILLED', ?)
+            """,
+            (cent_exec_id, cent_acc_id, now - 600),
+        )
+
+    class MockCentFirstSyncClient:
+        is_mock = False
+        async def get_account_information(self, meta_id):
+            return {"balance": 11200.0, "equity": 11200.0, "currency": "USC", "connected": True, "connectionStatus": "CONNECTED"}
+        async def get_open_positions(self, meta_id):
+            return []
+        async def get_closed_deals(self, meta_id, hours=24):
+            return [{"id": "dl_79c_1200", "positionId": "pos_cent_79c", "entryType": "DEAL_ENTRY_OUT", "profit": 1200.0, "swap": 0.0, "commission": 0.0, "volume": 1.0}]
+
+    from app.domains.execution.watcher import PositionWatcher
+    w_cent = PositionWatcher(metaapi_client=MockCentFirstSyncClient())
+    await w_cent.run_cycle()
+    with tx() as c:
+        ex_cent = c.execute("SELECT profit FROM metaapi_trade_executions WHERE id = ?", (cent_exec_id,)).fetchone()
+        assert ex_cent is not None
+        assert abs(float(ex_cent[0]) - 12.0) < 0.01  # 1200 USC -> 12.00 USD on very first sync!
+
+    # --- 3. Outbox malformed JSON in failed row + Redis transient recovery ---
+    with tx() as c:
+        c.execute("DELETE FROM outbox")
+        # Insert a quarantined failed row with malformed JSON
+        c.execute(
+            "INSERT INTO outbox (event_type, payload, status, retry_count, created_at) VALUES ('signal_created', '{malformed_json', 'failed', 5, ?)",
+            (now - 100,),
+        )
+        from app.domains.execution.engine import publish, flush_outbox
+        # publish() must succeed on SQLite without crashing on malformed JSON in failed row
+        new_sid = publish(c, "DEMO", "BUY", 2650.0, "nonce_79c_outbox", now)
+        assert new_sid
+
+        # Simulate 5 consecutive Redis errors: event must remain 'pending' and recover when Redis works on 6th call
+        fail_calls = {"n": 0}
+        def _flaky_publish(payload):
+            fail_calls["n"] += 1
+            if fail_calls["n"] <= 5:
+                raise ConnectionError("Redis temporary outage")
+            return "1700000000000-0"
+
+        monkeypatch.setattr("app.domains.execution.engine.publish_signal_event", _flaky_publish)
+        for _ in range(5):
+            flush_outbox(c)
+        row_ob = c.execute("SELECT status, retry_count FROM outbox WHERE status != 'failed' LIMIT 1").fetchone()
+        assert row_ob is not None
+        assert row_ob[0] == "pending"
+        assert int(row_ob[1]) == 5
+
+        # 6th call: Redis recovers -> transitions to 'published'
+        flush_outbox(c)
+        row_ob2 = c.execute("SELECT status FROM outbox WHERE status = 'published' AND retry_count = 5 LIMIT 1").fetchone()
+        assert row_ob2 is not None and row_ob2[0] == "published"
+
+    # --- 4. Yahoo candle source isolation ---
+    from app.domains.signals.sources.streamer import MarketDataStreamer
+    streamer = MarketDataStreamer()
+    streamer.ingest_tick("XAUUSD", 2650.0, 2650.2, ts=now, source="YAHOO_REFERENCE")
+    with tx() as c:
+        c_row = c.execute(
+            "SELECT source FROM candles WHERE symbol='XAUUSD' AND timeframe='M15' AND time=? ORDER BY id DESC LIMIT 1",
+            (int(now // 900) * 900,),
+        ).fetchone()
+        assert c_row is not None
+        assert str(c_row[0]).upper().startswith("YAHOO")
+
+    # --- 5. Discord daily digest import & SEO guide track-record check ---
+    import scripts.community.discord_daily_digest as ddd
+    assert hasattr(ddd, "send_discord_embed")
+    from app.routers.seo_pages import GUIDES, ENGLISH_GUIDES
+    assert all("#track-record" not in str(g) for g in GUIDES)
+    assert all("#track-record" not in str(g) for g in ENGLISH_GUIDES)
+

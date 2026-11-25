@@ -857,6 +857,9 @@ class PositionWatcher:
                 raw_eq = acc_info.get("equity")
                 raw_bal = acc_info.get("balance")
                 broker_curr = str(acc_info.get("currency") or acc.get("currency") or "USD").strip().upper()
+                acc["currency"] = broker_curr
+                if broker_curr in ("USC", "EUC") and str(acc.get("account_type") or "").upper() in ("", "STANDARD"):
+                    acc["account_type"] = "CENT"
                 current_equity = _safe_float(raw_eq, _safe_float(acc.get("equity"), 0.0))
                 current_balance = _safe_float(raw_bal, _safe_float(acc.get("balance"), 0.0))
                 from unittest.mock import AsyncMock, MagicMock
@@ -1489,7 +1492,7 @@ class PositionWatcher:
                                 profit_raw = _safe_float(dl.get("profit")) + _safe_float(dl.get("swap")) + _safe_float(dl.get("commission"))
                                 is_cent_deal = (
                                     str(acc.get("account_type") or "").upper() == "CENT"
-                                    or str(acc.get("currency") or "").upper() in ("USC", "EUC")
+                                    or str(broker_curr or acc.get("currency") or "").upper() in ("USC", "EUC")
                                 )
                                 profit = (profit_raw / 100.0) if is_cent_deal else profit_raw
                                 pos_ref = str(dl.get("positionId") or dl.get("orderId") or "")

@@ -970,9 +970,12 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                         """
                         SELECT e.profit
                         FROM metaapi_trade_executions e
-                        JOIN signal_audit_logs l ON l.signal_id = e.signal_id
-                        WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
-                          AND l.created_at >= ?
+                        WHERE EXISTS (
+                            SELECT 1 FROM signal_audit_logs l
+                            WHERE l.signal_id = e.signal_id
+                              AND (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
+                              AND l.created_at >= ?
+                        )
                           AND e.profit IS NOT NULL
                           AND e.closed_at IS NOT NULL
                           AND UPPER(COALESCE(e.status, '')) IN ('CLOSED', 'COMPLETED')
@@ -983,7 +986,7 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                                   AND e.evidence_json NOT LIKE '%"manual_closed_by_user":true%'
                               )
                           )
-                        ORDER BY COALESCE(e.closed_at, e.executed_at, l.created_at) ASC
+                        ORDER BY COALESCE(e.closed_at, e.executed_at) ASC, e.id ASC
                         """,
                         (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
                     ).fetchall()
@@ -991,9 +994,12 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                         """
                         SELECT 1
                         FROM metaapi_trade_executions e
-                        JOIN signal_audit_logs l ON l.signal_id = e.signal_id
-                        WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
-                          AND l.created_at >= ?
+                        WHERE EXISTS (
+                            SELECT 1 FROM signal_audit_logs l
+                            WHERE l.signal_id = e.signal_id
+                              AND (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
+                              AND l.created_at >= ?
+                        )
                         LIMIT 1
                         """,
                         (c_id, c_id, c_id, f"{c_id}:%", f"%{c_id}%", c_started_at),
@@ -1008,6 +1014,7 @@ def run_autonomous_induction_and_wfo(force: bool = False):
                             WHERE (l.strategy_id = ? OR l.source_name = ? OR l.signal_id = ? OR l.signal_id LIKE ? OR l.signal_id LIKE ?)
                               AND l.created_at >= ?
                               AND l.pnl IS NOT NULL
+                              AND UPPER(COALESCE(l.status, '')) != 'REJECTED'
                               AND UPPER(COALESCE(l.reject_reason, '')) != 'BROKER_PARTIAL_CLOSED'
                               AND NOT EXISTS (
                                   SELECT 1 FROM metaapi_trade_executions e2

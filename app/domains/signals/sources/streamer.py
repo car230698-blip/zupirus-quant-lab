@@ -61,7 +61,8 @@ class MarketDataStreamer:
                 "high": mid,
                 "low": mid,
                 "close": mid,
-                "volume": 1
+                "volume": 1,
+                "source": source,
             }
             self.current_m1_bars[sym] = cur_m1
         else:
@@ -69,6 +70,8 @@ class MarketDataStreamer:
             cur_m1["low"] = min(cur_m1["low"], mid)
             cur_m1["close"] = mid
             cur_m1["volume"] += 1
+            if str(source or "").upper().startswith("YAHOO"):
+                cur_m1["source"] = source
         self._save_candle(cur_m1)
 
         # 2. Update M15 candle for this symbol
@@ -85,7 +88,8 @@ class MarketDataStreamer:
                 "high": mid,
                 "low": mid,
                 "close": mid,
-                "volume": 1
+                "volume": 1,
+                "source": source,
             }
             self.current_m15_bars[sym] = cur_m15
         else:
@@ -93,10 +97,13 @@ class MarketDataStreamer:
             cur_m15["low"] = min(cur_m15["low"], mid)
             cur_m15["close"] = mid
             cur_m15["volume"] += 1
+            if str(source or "").upper().startswith("YAHOO"):
+                cur_m15["source"] = source
         self._save_candle(cur_m15)
 
     def _save_candle(self, bar: Dict[str, Any]):
         """Persist candle into candles table (TimescaleDB or SQLite)."""
+        bar_source = str(bar.get("source") or "MARKET_LIVE").strip() or "MARKET_LIVE"
         try:
             from app.db import insert_timescale_candle
             with tx() as c:
@@ -110,7 +117,7 @@ class MarketDataStreamer:
                     low_p=bar["low"],
                     close_p=bar["close"],
                     volume=bar["volume"],
-                    source="MARKET_LIVE",
+                    source=bar_source,
                 )
         except Exception as e:
             logger.debug(f"Failed saving candle {bar.get('timeframe')}: {e}")
@@ -225,6 +232,7 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                             "low": round(float(lows[i]), dec),
                             "close": round(float(closes[i]), dec),
                             "volume": int(vols[i] or 1) if i < len(vols) and vols[i] else 1,
+                            "source": "YAHOO_REFERENCE",
                         })
                 if bid is not None:
                     break
@@ -273,7 +281,7 @@ def fetch_and_ingest_live_market_data(symbol: str = "XAUUSD") -> Optional[Dict[s
                         low_p=bar["low"],
                         close_p=bar["close"],
                         volume=bar["volume"],
-                        source=source_name,
+                        source=str(bar.get("source") or "YAHOO_REFERENCE"),
                     )
                 except Exception:
                     pass

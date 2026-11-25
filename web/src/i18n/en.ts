@@ -31,7 +31,7 @@ export const en: TranslationType = {
     title: 'Institutional XAU/USD Quantitative Trading & Prop Firm Copier',
     subtitle: 'Stream automated algorithmic execution via our ultra-low latency London G2 cloud. Connect directly to your MT5 account with 0 VPS setup and 4 Fail-Closed risk guard layers.',
     ctaPrimary: 'Deploy Cloud Account →',
-    ctaSecondary: 'View Track Record',
+    ctaSecondary: 'Explore 4-Layer Guard',
     statAum: 'Managed AUM',
     statLatency: 'Execution Latency',
     statUptime: 'Platform Uptime',

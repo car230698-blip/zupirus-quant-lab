@@ -471,7 +471,6 @@ def setup_bilingual_discord(client: DiscordClient) -> None:
                             "description": (
                                 "ZUPIRUS is an enterprise-grade quantitative trading platform and algorithmic execution system designed for **Gold (XAU/USD) & Major FX** on Cloud MT5 without needing a VPS.\n\n"
                                 "• 🌐 **Client Portal:** https://app.zupirus.com\n"
-                                "• 📊 **Public Verified Performance:** https://zupirus.com/#track-record\n"
                                 "• 🛡️ **4 Fail-Closed Protective Shields:**\n"
                                 "  1. **Idempotency Lock:** Hardware-level lock eliminating duplicate executions and phantom fills.\n"
                                 "  2. **Dynamic ATR Auto-SL:** Hard Stop-Loss injected directly on broker engine at order inception.\n"

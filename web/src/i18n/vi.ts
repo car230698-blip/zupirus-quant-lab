@@ -29,7 +29,7 @@ export const vi = {
     title: 'Hệ Thống Giao Dịch Định Lượng Vàng XAU/USD Chuẩn Quỹ Prop Firm',
     subtitle: 'Vận hành tự động qua máy chủ đám mây London G2, kết nối trực tiếp tài khoản MT5 không cần cài EA hay thuê VPS. 4 tầng màng lọc rủi ro bảo vệ vốn 24/5.',
     ctaPrimary: 'Kích Hoạt Tài Khoản Ngay →',
-    ctaSecondary: 'Xem Hiệu Suất Thực Chiến',
+    ctaSecondary: 'Khám Phá 4 Lớp Giáp',
     statAum: 'AUM Vận Hành',
     statLatency: 'Độ Trễ Khớp Lệnh',
     statUptime: 'Thời Gian Sẵn Sàng',

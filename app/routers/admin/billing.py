@@ -354,11 +354,12 @@ def get_admin_billing_orders(
             else:
                 d["entitlement_applied"] = (ent_st in ("APPLIED", "GRANTED")) or (is_paid and not ent_st)
             acc_rows_u = c.execute(
-                "SELECT deployment_state, risk_config FROM trading_accounts WHERE user_id = ?",
+                "SELECT deployment_state, risk_config, last_sync FROM trading_accounts WHERE user_id = ?",
                 (d.get("user_id"),),
             ).fetchall()
             user_acc_cnt = len(acc_rows_u)
             ready_acc_cnt = 0
+            now_chk_ts = time.time()
             for ar_u in acc_rows_u:
                 ar_d = dict(ar_u)
                 if str(ar_d.get("deployment_state") or "").upper() != "DEPLOYED":
@@ -368,7 +369,16 @@ def get_admin_billing_orders(
                 except Exception:
                     ar_rc = {}
                 conn_u = str(ar_rc.get("connection_status") or "").upper()
-                if conn_u not in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER", "UNAVAILABLE"):
+                if conn_u in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER", "UNAVAILABLE", "CONNECTING", "DEPLOYING", "FAILED", "ERROR"):
+                    continue
+                raw_ls = ar_d.get("last_sync")
+                try:
+                    ls_ts = float(raw_ls) if raw_ls is not None else 0.0
+                except Exception:
+                    ls_ts = 0.0
+                if ls_ts > 0 and (now_chk_ts - ls_ts) > 1800.0:
+                    continue
+                if conn_u == "CONNECTED" or (not conn_u and ls_ts == 0.0):
                     ready_acc_cnt += 1
             req_slots = max(1, int(d.get("cloud_slots_count") or 1))
             if cld_st == "DEPLOYED" and (user_acc_cnt == 0 or ready_acc_cnt < req_slots):
@@ -503,9 +513,32 @@ async def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_a
             recovered = await fulfill_order_entitlements(order_id)
             if not recovered:
                 fail(400, f"Không thể cấp bù quyền cho đơn hàng {order_id}.")
+            with tx() as c:
+                ref_row = c.execute("SELECT entitlement_status, cloud_deploy_status FROM orders WHERE id=?", (order_id,)).fetchone()
+                new_ent_st = str(ref_row["entitlement_status"] or "GRANTED").upper() if ref_row else "GRANTED"
+                new_dep_st = str(ref_row["cloud_deploy_status"] or "PENDING").upper() if ref_row else "PENDING"
+            if new_dep_st == "DEPLOYED":
+                return {
+                    "status": "ENTITLEMENTS_RECOVERED",
+                    "ok": True,
+                    "entitlement_status": new_ent_st,
+                    "cloud_deploy_status": new_dep_st,
+                    "message": f"Đã cấp bù quyền gói cước và kích hoạt Cloud cho đơn hàng {order_id}.",
+                }
+            if new_dep_st == "PENDING_LINK":
+                return {
+                    "status": "ENTITLEMENTS_RECOVERED_PENDING_LINK",
+                    "ok": True,
+                    "entitlement_status": new_ent_st,
+                    "cloud_deploy_status": new_dep_st,
+                    "message": f"Đã cấp bù quyền gói cước cho đơn hàng {order_id} (đang chờ liên kết tài khoản MT5).",
+                }
             return {
-                "status": "ENTITLEMENTS_RECOVERED",
-                "message": f"Đã cấp bù quyền gói cước và kích hoạt Cloud cho đơn hàng {order_id}.",
+                "status": "ENTITLEMENTS_RECOVERED_CLOUD_FAILED",
+                "ok": False,
+                "entitlement_status": new_ent_st,
+                "cloud_deploy_status": new_dep_st,
+                "message": f"Đã cấp bù quyền gói cước cho đơn hàng {order_id}, nhưng triển khai trạm Cloud chưa thành công ({new_dep_st}).",
             }
         if dep_st in ("FAILED", "PENDING", "DEPLOY_PENDING", ""):
             retry_res = await retry_order_cloud_deployment(order_id)

@@ -7,14 +7,63 @@ Scheduled via VPS crontab (22:00 UTC daily):
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
+import urllib.request
 from pathlib import Path
+from typing import Any, Dict, List
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.db import tx
-from app.services.discord_notifier import send_discord_embed
+
+
+def send_discord_embed(
+    env_key: str,
+    *,
+    title: str,
+    description: str,
+    color: int = 0x38BDF8,
+    fields: List[Dict[str, Any]] | None = None,
+    sync: bool = True,
+) -> bool:
+    """Send a rich embed to a Discord webhook configured in environment or .env."""
+    url = os.environ.get(env_key, "").strip()
+    if not url:
+        env_file = Path(__file__).resolve().parents[2] / ".env"
+        if env_file.is_file():
+            for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    if k.strip() == env_key:
+                        url = v.strip().strip('"').strip("'")
+                        break
+    if not url:
+        return False
+    payload = {
+        "username": "ZUPIRUS Quant Ops",
+        "embeds": [
+            {
+                "title": title,
+                "description": description,
+                "color": color,
+                "fields": fields or [],
+            }
+        ],
+    }
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "ZupirusDailyDigest/1.0"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return 200 <= int(resp.status) < 300
+    except Exception:
+        return False
 
 
 def main() -> int:

@@ -199,7 +199,7 @@ GUIDES: List[Dict[str, object]] = [
             ),
             (
                 "3. Kiểm chứng minh bạch sổ lệnh thực tế trên ZUPIRUS",
-                "ZUPIRUS công khai trực tiếp bảng Hiệu Suất Thực Tế (Public Verified Track Record) ngay trên trang chủ https://zupirus.com/#track-record với đầy đủ Winrate, Profit Factor, Max Drawdown, lợi nhuận ròng và lịch sử giao dịch đã ẩn danh từ cơ sở dữ liệu thực, giúp trader kiểm chứng bằng con số thay vì lời hứa hẹn."
+                "ZUPIRUS cung cấp nhật ký kiểm toán tín hiệu (Signal Audit Logs) và sổ lệnh thực thi (Execution Ledger) trực tiếp trong cổng khách hàng https://app.zupirus.com với đầy đủ Winrate, Profit Factor, Max Drawdown, lợi nhuận ròng và lý do đóng/mở lệnh từ cơ sở dữ liệu thực, giúp trader kiểm chứng bằng con số thay vì lời hứa hẹn."
             ),
         ],
     },
@@ -993,7 +993,7 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
         else "Hệ thống tài liệu kỹ thuật giúp trader triển khai hạ tầng tự động hóa XAU/USD không cần VPS và bảo vệ tài khoản quỹ FTMO, The5ers, FundedNext bằng 4 lớp giáp Fail-Closed."
     )
     cta_title = "Ready to connect your MT5 account to London G2 Cloud?" if effective_lang == "en" else "Sẵn sàng kết nối tài khoản MT5 lên Cloud London G2?"
-    cta_sub = "Review verified performance or activate instantly 24/7." if effective_lang == "en" else "Xem hiệu suất thực tế đã xác thực hoặc kích hoạt ngay qua SePay VietQR 24/7."
+    cta_sub = "4-Layer Fail-Closed Capital Shield · Instant activation 24/7." if effective_lang == "en" else " Bảo vệ vốn 4 lớp giáp Fail-Closed · Kích hoạt ngay qua SePay VietQR 24/7."
     cta_btn = "Get Started Now →" if effective_lang == "en" else "Bắt Đầu Ngay →"
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">{crumb_home}</a> / {crumb_guides}</div>
@@ -1338,7 +1338,7 @@ def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
       <div class="cta-box">
         <div>
           <strong style="color:#fff;font-size:17px">Experience Zero-VPS Cloud MT5 &amp; Prop Firm Guard</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Transparent verified track record · Instant USDT activation.</p>
+          <p style="margin:4px 0 0;font-size:13.5px">4-Layer Fail-Closed Risk Shield · Instant USDT activation.</p>
         </div>
         <a class="cta" href="https://app.zupirus.com/">Launch Terminal →</a>
       </div>

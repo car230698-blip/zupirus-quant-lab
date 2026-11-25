@@ -383,8 +383,8 @@ def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[
         ).fetchone()
     else:
         existing_outbox = c.execute(
-            "SELECT id FROM outbox WHERE event_type='signal_created' AND (json_extract(payload, '$.id') = ? OR payload LIKE ?) LIMIT 1",
-            (sid, f'%"{sid}"%'),
+            "SELECT id FROM outbox WHERE event_type='signal_created' AND (payload LIKE ? OR payload LIKE ?) LIMIT 1",
+            (f'%"id": "{sid}"%', f'%"id":"{sid}"%'),
         ).fetchone()
     if not existing_outbox:
         c.execute(
@@ -588,21 +588,29 @@ def flush_outbox(c):
         prev_retries = int(row['retry_count'] if hasattr(row, "keys") and "retry_count" in row.keys() else (row[3] if len(row) > 3 else 0))
         try:
             payload = json.loads(payload_raw) if isinstance(payload_raw, str) else dict(payload_raw)
-            if isinstance(payload, dict):
-                sig_id = str(payload.get("id") or payload.get("signal_id") or "")
-                payload["outbox_id"] = oid
-                payload.setdefault("event_id", f"sig_evt_{sig_id}" if sig_id else f"outbox_{oid}")
+            if not isinstance(payload, dict):
+                raise ValueError(f"Outbox payload must be a JSON object, got {type(payload).__name__}")
+        except (ValueError, TypeError, json.JSONDecodeError) as parse_err:
+            next_retries = prev_retries + 1
+            if next_retries >= 5:
+                c.execute("UPDATE outbox SET status='failed', retry_count=?, error=? WHERE id=?", (next_retries, str(parse_err), oid))
+            else:
+                c.execute("UPDATE outbox SET retry_count=?, error=? WHERE id=?", (next_retries, str(parse_err), oid))
+            continue
+
+        try:
+            sig_id = str(payload.get("id") or payload.get("signal_id") or "")
+            payload["outbox_id"] = oid
+            payload.setdefault("event_id", f"sig_evt_{sig_id}" if sig_id else f"outbox_{oid}")
             if etype == "signal_created":
                 sid_res = publish_signal_event(payload)
                 if not sid_res or str(sid_res).strip() in ("0", "None", ""):
                     raise RuntimeError(f"Invalid Redis stream ID returned: {sid_res!r}")
-            c.execute("UPDATE outbox SET status='published', published_at=? WHERE id=?", (time.time(), oid))
+            c.execute("UPDATE outbox SET status='published', published_at=?, error=NULL WHERE id=?", (time.time(), oid))
         except Exception as e:
             next_retries = prev_retries + 1
-            if next_retries >= 5:
-                c.execute("UPDATE outbox SET status='failed', retry_count=?, error=? WHERE id=?", (next_retries, str(e), oid))
-            else:
-                c.execute("UPDATE outbox SET retry_count=?, error=? WHERE id=?", (next_retries, str(e), oid))
+            # Keep status='pending' on transient Redis/network failures so events auto-recover when Redis returns
+            c.execute("UPDATE outbox SET retry_count=?, error=? WHERE id=?", (next_retries, str(e), oid))
 
 
 _last_watcher_ts = 0.0
@@ -1115,7 +1123,7 @@ def tick():
         demo_step(c)
         setkv(c, 'execution_heartbeat', now)
         if now - _last_sub_lifecycle_ts >= 3600.0:
-            c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 7,))
+            c.execute('DELETE FROM snapshots WHERE ts<?', (now - 86400 * 90,))
             c.execute('DELETE FROM quotes WHERE ts<?', (now - 86400 * 2,))
             for tbl, col, cutoff in (
                 ('sessions', 'expires', now),

@@ -312,6 +312,8 @@ async def _create_account_locked(
                 logger.info(f"Reusing & deployed existing MetaApi terminal {meta_id} for login {p.login} (dep_ok={dep_ok})")
             else:
                 logger.info(f"Existing terminal {existing_meta_id} not found on MetaApi ({err_code}), provisioning replacement.")
+        except HTTPException:
+            raise
         except Exception as ex:
             logger.warning(f"Existing terminal {existing_meta_id} probe note: {ex}")
             # Guard against duplicate terminal creation on temporary network issues
