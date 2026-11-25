@@ -336,8 +336,7 @@ def permitted(c, a, now):
     if a['mode'] not in ('DEMO', 'REPLAY') or not a['enabled']: return False
     if a['equity'] <= 0 or (a['peak'] - a['equity']) / max(a['peak'], 1) * 100 >= a['max_dd']: return False
     if a['mode'] == 'DEMO' and (now - a['seen'] > 30 or news_blocked(c, now)): return False
-    active = c.execute("SELECT count(*) FROM dispatches WHERE account_id=? AND state IN ('queued','intent','unknown')", (a['id'],)).fetchone()[0]
-    return active + a['positions'] < a['max_positions']
+    return a['positions'] < a['max_positions']
 
 def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[str, Any]] = None):
     now = now or time.time()
@@ -395,24 +394,6 @@ def publish(c, source, side, price, key, now=None, strategy_meta: Optional[Dict[
     # Outbox event remains in 'pending' status inside the uncommitted transaction.
     # It will be safely published by flush_outbox(c) after transaction commits.
 
-    # 2. Iterate accounts and apply Distributed Lock to prevent duplicate dispatches
-    for a in c.execute('SELECT * FROM accounts WHERE mode=?', (source,)).fetchall():
-        if permitted(c, a, now):
-            # Distributed Lock pattern: lock:dispatch:{account_id}:{signal_id}
-            lock_token = acquire_dispatch_lock(a['id'], sid, ttl_seconds=30)
-            if lock_token is not None:
-                try:
-                    c.execute(
-                        'INSERT OR IGNORE INTO dispatches(account_id,signal_id,created,updated) VALUES(?,?,?,?)',
-                        (a['id'], sid, now, now)
-                    )
-                finally:
-                    # Release lock after insertion so subsequent duplicate attempts in same window are bounded
-                    release_dispatch_lock(a['id'], sid, lock_token)
-            else:
-                # Concurrent worker already holding lock for this signal + account
-                logger.debug("Concurrent worker already holding dispatch lock for account %s, signal %s", a['id'], sid)
-
     return sid
 
 def replay_step(c, index):
@@ -443,20 +424,6 @@ def replay_step(c, index):
         decision = {"side": side, "strategy": "replay_simulation", "timeframe": "M15", "parameters": {}}
     if side:
         publish(c, 'REPLAY', side, price, f'{index}', now, strategy_meta=decision)
-    for d in c.execute("SELECT d.*,s.side,s.sl,s.tp FROM dispatches d JOIN signals s ON s.id=d.signal_id WHERE d.state='queued' AND s.source='REPLAY'").fetchall():
-        a = c.execute('SELECT * FROM accounts WHERE id=?', (d['account_id'],)).fetchone()
-        if not a['enabled']: continue
-        lots = math.floor((a['equity'] * a['risk'] / 100) / (6 * 100) / .01) * .01
-        if lots < .01:
-            c.execute("UPDATE dispatches SET state='rejected',reason='below_min_lot' WHERE id=?", (d['id'],))
-            continue
-        entry = price + (.15 if d['side'] == 'BUY' else -.15)
-        c.execute('INSERT OR IGNORE INTO sim_positions VALUES(?,?,?,?,?,?,?)', (d['id'], a['id'], d['side'], entry, d['sl'], d['tp'], lots))
-        try:
-            c.execute("UPDATE dispatches SET state='filled',ticket=?,deal=?,updated=?,fill_price=? WHERE id=?", (f'SIM-{d["id"]}', f'SIM-{d["id"]}', now, round(entry, 2), d['id']))
-        except Exception:
-            c.execute("UPDATE dispatches SET state='filled',ticket=?,deal=?,updated=? WHERE id=?", (f'SIM-{d["id"]}', f'SIM-{d["id"]}', now, d['id']))
-        c.execute('UPDATE accounts SET positions=positions+1 WHERE id=?', (a['id'],))
     setkv(c, 'replay_index', index + 1)
     setkv(c, 'replay_price', price)
 
@@ -1138,10 +1105,6 @@ def tick():
     with tx() as c:
         now = time.time()
         flush_outbox(c)
-        try:
-            c.execute("UPDATE dispatches SET state='expired',updated=? WHERE state='queued' AND signal_id IN (SELECT id FROM signals WHERE expires<?)", (now, now))
-        except Exception:
-            pass
         row = c.execute("SELECT value FROM kv WHERE key='replay_index'").fetchone()
         try:
             replay_step(c, int(row[0]) if row else 0)
@@ -1159,7 +1122,6 @@ def tick():
                 ('sessions', 'expires', now),
                 ('otp_codes', 'expires_at', now),
                 ('login_limits', 'until', now),
-                ('signal_dispatch_locks', 'created_at', now - 86400.0),
             ):
                 try:
                     c.execute(f'DELETE FROM {tbl} WHERE {col} IS NOT NULL AND {col} > 0 AND {col} < ?', (cutoff,))
