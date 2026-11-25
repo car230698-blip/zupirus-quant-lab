@@ -47,7 +47,7 @@ def discover_candidate_from_observations(
             cutoff_val = float(max_created_at)
             rows = c.execute(
                 """
-                SELECT side, entry_price, pnl, context_snapshot
+                SELECT side, entry_price, pnl, context_snapshot, created_at, processed_at
                 FROM signal_audit_logs
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
@@ -66,7 +66,7 @@ def discover_candidate_from_observations(
         else:
             rows = c.execute(
                 """
-                SELECT side, entry_price, pnl, context_snapshot
+                SELECT side, entry_price, pnl, context_snapshot, created_at, processed_at
                 FROM signal_audit_logs
                 WHERE context_snapshot IS NOT NULL AND pnl IS NOT NULL
                   AND UPPER(COALESCE(symbol, 'XAUUSD')) = ?
@@ -180,12 +180,20 @@ def discover_candidate_from_observations(
     except Exception as e:
         logger.warning(f"Could not persist strategy candidate: {e}")
 
+    max_obs_ts = 0.0
+    for r in rows:
+        c_ts = float((r["created_at"] if hasattr(r, "keys") and "created_at" in r else (r[4] if len(r) > 4 else 0.0)) or 0.0)
+        p_ts = float((r["processed_at"] if hasattr(r, "keys") and "processed_at" in r else (r[5] if len(r) > 5 else 0.0)) or c_ts)
+        max_obs_ts = max(max_obs_ts, c_ts, p_ts)
+
     return {
         "id": candidate_id,
         "name": candidate_name,
         "rules": rules,
         "sample_size": sample_size,
         "empirical_win_rate": win_rate,
+        "max_observation_ts": max_obs_ts,
+        "discovery_cutoff_ts": float(max_created_at) if max_created_at is not None else None,
     }
 
 
@@ -292,16 +300,31 @@ def score_candidate_on_window(prices: List[float], candidate_rules: Dict[str, An
 
 def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Walk-Forward Optimization (WFO): Rolling 120 train / 60 Out-of-Sample verification
-    for discovered inductive candidate rules."""
-    if candidate is None:
-        candidate = discover_candidate_from_observations()
+    for discovered inductive candidate rules. Prevents cross-fold lookahead leakage."""
+    from app.db import to_epoch_ts
 
-    rules = candidate.get("rules", {
+    def _bar_ts(bar: Any) -> Optional[float]:
+        if isinstance(bar, dict) and bar.get("time") is not None:
+            try:
+                ts_val = to_epoch_ts(bar.get("time"))
+                return float(ts_val) if ts_val and ts_val > 0 else None
+            except Exception:
+                return None
+        return None
+
+    first_fold_cutoff_ts = _bar_ts(prices[119]) if len(prices) >= 120 else None
+    if candidate is None:
+        candidate = discover_candidate_from_observations(max_created_at=first_fold_cutoff_ts)
+
+    default_rules = {
         "action": "BUY",
         "min_slope": 0.20,
         "sl_points": DEFAULT_SL_POINTS,
         "tp_points": DEFAULT_TP_POINTS,
-    })
+    }
+    base_rules = candidate.get("rules", default_rules)
+    rules = dict(base_rules)
+    cand_max_obs_ts = float(candidate.get("max_observation_ts") or 0.0)
 
     folds = []
     all_returns = []
@@ -310,8 +333,18 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
         train = prices[start:start + 120]
         test = prices[start + 120:start + 180]
 
+        fold_cutoff_ts = _bar_ts(train[-1]) if train else None
+        fold_rules = base_rules
+        if fold_cutoff_ts is not None and cand_max_obs_ts > fold_cutoff_ts:
+            # Candidate includes observations newer than this fold's training window:
+            # Re-discover candidate strictly using observations available up to fold_cutoff_ts
+            fold_cand = discover_candidate_from_observations(max_created_at=fold_cutoff_ts)
+            if not fold_cand or fold_cand.get("status") == "insufficient_data" or not fold_cand.get("id"):
+                continue
+            fold_rules = fold_cand.get("rules", default_rules)
+
         # Tune slope and risk-reward ratio parameters on in-sample train
-        base_sl = float(rules.get("sl_points", DEFAULT_SL_POINTS))
+        base_sl = float(fold_rules.get("sl_points", DEFAULT_SL_POINTS))
         param_grid = [
             (0.15, 1.5),
             (0.20, 2.0),
@@ -322,11 +355,11 @@ def walk_forward(prices: List[float], candidate: Optional[Dict[str, Any]] = None
             param_grid,
             key=lambda p: score_candidate_on_window(
                 train,
-                {**rules, "min_slope": p[0], "tp_points": base_sl * p[1]}
+                {**fold_rules, "min_slope": p[0], "tp_points": base_sl * p[1]}
             )[0]
         )
 
-        tuned_rules = {**rules, "min_slope": best_slope, "tp_points": round(base_sl * best_rr, 2)}
+        tuned_rules = {**fold_rules, "min_slope": best_slope, "tp_points": round(base_sl * best_rr, 2)}
         pnl, rets = score_candidate_on_window(test, tuned_rules)
         all_returns.extend(rets)
         folds.append({
@@ -439,17 +472,25 @@ def graph(saver):
     def evaluate(s):
         t0 = time.perf_counter()
         prices = []
+        cand = None
         try:
+            from app.db import to_epoch_ts
             with tx() as c:
                 candle_rows = c.execute(
-                    "SELECT close FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
+                    "SELECT open, high, low, close, time FROM candles WHERE symbol = 'XAUUSD' AND timeframe = 'M15' ORDER BY time DESC LIMIT 1000"
                 ).fetchall()
                 if not candle_rows:
                     candle_rows = c.execute(
-                        "SELECT close FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1000"
+                        "SELECT open, high, low, close, time FROM candles WHERE symbol = 'XAUUSD' ORDER BY time DESC LIMIT 1000"
                     ).fetchall()
                 if candle_rows and len(candle_rows) >= 180:
-                    prices = [float(row[0]) for row in reversed(candle_rows)]
+                    prices = [
+                        {"open": float(row[0]), "high": float(row[1]), "low": float(row[2]), "close": float(row[3]), "time": row[4]}
+                        for row in reversed(candle_rows)
+                    ]
+                    first_train_end_ts = to_epoch_ts(prices[119].get("time"))
+                    if first_train_end_ts and first_train_end_ts > 0:
+                        cand = discover_candidate_from_observations(c, symbol="XAUUSD", max_created_at=first_train_end_ts)
         except Exception as e:
             logger.warning(f"Error loading candles from DB for WFO: {e}")
 
@@ -458,11 +499,15 @@ def graph(saver):
             replay_file = ROOT / 'data/replay.json'
             if replay_file.exists():
                 try:
-                    prices = [x['close'] for x in json.loads(replay_file.read_text())]
+                    raw_rep = json.loads(replay_file.read_text())
+                    prices = [
+                        x if isinstance(x, dict) and "close" in x else {"close": float(x)}
+                        for x in raw_rep
+                    ]
                 except Exception as e:
                     logger.warning(f"Replay file read error: {e}")
 
-        report = walk_forward(prices)
+        report = walk_forward(prices, candidate=cand)
         trace_langgraph_step("walk_forward", {"data_len": len(prices)}, report, (time.perf_counter() - t0) * 1000)
         return {'report': report}
 
@@ -715,7 +760,19 @@ def run_autonomous_induction_and_wfo(force: bool = False):
 
             cutoff_ts = None
             from app.db import to_epoch_ts
-            if candle_rows and len(candle_rows) >= 60:
+            if prices and len(prices) >= 180:
+                try:
+                    # First fold train is prices[0:120], first fold OOS test starts at prices[120]
+                    # Shared candidate discovery must strictly cut off at the end of the first train window (prices[119])
+                    first_train_end_ts = to_epoch_ts(prices[119].get("time"))
+                    last_oos_start_ts = to_epoch_ts(prices[-60].get("time"))
+                    if first_train_end_ts and first_train_end_ts > 0 and last_oos_start_ts and last_oos_start_ts > 0:
+                        cutoff_ts = min(first_train_end_ts, last_oos_start_ts)
+                    else:
+                        cutoff_ts = first_train_end_ts or last_oos_start_ts
+                except Exception:
+                    cutoff_ts = None
+            elif candle_rows and len(candle_rows) >= 60:
                 try:
                     oos_cand = candle_rows[59]  # 60th candle from most recent
                     t_val = oos_cand[4]

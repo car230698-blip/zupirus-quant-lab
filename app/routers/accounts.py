@@ -969,30 +969,51 @@ async def update_account_credentials_endpoint(
     real_id = acc["id"]
     owner_id = acc["user_id"]
     meta_id = acc.get("metaapi_account_id") or real_id
+    new_login = str(p.login or acc.get("mt5_login") or acc.get("login") or "").strip()
+    new_server = str(p.server or acc.get("broker_server") or acc.get("server") or "").strip()
+
+    # 1. Pre-check DB uniqueness before calling Cloud to prevent partial Cloud update on duplicate login/server
+    if not acc.get("_is_ea_bridge"):
+        with tx() as c:
+            dup_ta = c.execute(
+                "SELECT id FROM trading_accounts WHERE mt5_login = ? AND broker_server = ? AND id != ?",
+                (new_login, new_server, real_id),
+            ).fetchone()
+            dup_mc = c.execute(
+                "SELECT id FROM metaapi_cloud_accounts WHERE login = ? AND server = ? AND id != ?",
+                (new_login, new_server, real_id),
+            ).fetchone()
+            if dup_ta or dup_mc:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Tài khoản MT5 và máy chủ này đã được liên kết với một tài khoản khác trên hệ thống.",
+                )
+
     client = MetaApiClient()
 
-    if not acc.get("_is_ea_bridge") and meta_id and not client.is_mock:
+    if not acc.get("_is_ea_bridge") and meta_id:
         try:
-            await client.update_account_credentials(
+            upd_ok = await client.update_account_credentials(
                 meta_id,
                 password=p.password.strip(),
-                login=p.login or str(acc.get("mt5_login") or acc.get("login")),
-                server=p.server or str(acc.get("broker_server") or acc.get("server")),
+                login=new_login,
+                server=new_server,
             )
         except Exception as err:
             logger.warning(f"Error updating credentials on MetaApi for {meta_id}: {err}")
             raise HTTPException(status_code=502, detail=f"Không thể cập nhật thông tin trên Cloud: {err}")
+
+        if not upd_ok:
+            raise HTTPException(status_code=502, detail="Không thể cập nhật thông tin đăng nhập trên trạm Cloud MetaApi.")
 
         try:
             await client.deploy_account(meta_id)
         except Exception as dep_err:
             logger.warning(f"Error redeploying after credential update {meta_id}: {dep_err}")
 
-    # Update credentials and encrypted password in DB
+    # 2. Update credentials and encrypted password in DB atomically
     from app.security import encrypt_secret
     enc_pw = encrypt_secret(p.password.strip())
-    new_login = str(p.login or acc.get("mt5_login") or acc.get("login") or "").strip()
-    new_server = str(p.server or acc.get("broker_server") or acc.get("server") or "").strip()
 
     with tx() as c:
         if not acc.get("_is_ea_bridge"):
@@ -1001,15 +1022,13 @@ async def update_account_credentials_endpoint(
                     "UPDATE metaapi_cloud_accounts SET login=?, server=?, encrypted_password=? WHERE id=? AND user_id=?",
                     (new_login, new_server, enc_pw, real_id, owner_id)
                 )
-            except Exception as e:
-                logger.warning(f"Error updating metaapi_cloud_accounts for {real_id}: {e}")
-            try:
                 c.execute(
                     "UPDATE trading_accounts SET mt5_login=?, broker_server=?, encrypted_master_password=? WHERE id=? AND user_id=?",
                     (new_login, new_server, enc_pw, real_id, owner_id)
                 )
             except Exception as e:
-                logger.warning(f"Error updating trading_accounts for {real_id}: {e}")
+                logger.warning(f"Error updating account credentials in DB for {real_id}: {e}")
+                raise HTTPException(status_code=409, detail=f"Xung đột dữ liệu tài khoản MT5 trong cơ sở dữ liệu: {e}")
 
     # Probe live connection status
     info = await client.get_account_information(meta_id)

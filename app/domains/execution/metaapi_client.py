@@ -517,9 +517,11 @@ class MetaApiClient:
             logger.debug(f"get_closed_deals_verified error for {metaapi_account_id}: {e}")
             return False, [], {"error": str(e)}
 
-    async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24) -> List[Dict[str, Any]]:
+    async def get_closed_deals(self, metaapi_account_id: str, hours: int = 24, raise_on_error: bool = False) -> List[Dict[str, Any]]:
         """Retrieve closed execution deals from MetaApi history for real PnL reflection."""
-        ok, deals, _meta = await self.get_closed_deals_verified(metaapi_account_id, hours=hours)
+        ok, deals, meta = await self.get_closed_deals_verified(metaapi_account_id, hours=hours)
+        if not ok and raise_on_error:
+            raise RuntimeError(f"MetaApi get_closed_deals unverified: {meta}")
         return deals if ok else []
 
     async def modify_position_sl(

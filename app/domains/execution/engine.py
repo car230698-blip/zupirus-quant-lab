@@ -565,12 +565,16 @@ def demo_step(c, symbol: str = 'XAUUSD'):
             audit(c, 'engine', 'strategy_stand_aside', decision)
 
 def flush_outbox(c):
-    """Process pending outbox events and publish to Redis Streams with retry."""
+    """Process pending outbox events and publish to Redis Streams with retry and deterministic event_id."""
     rows = c.execute("SELECT id, event_type, payload, retry_count FROM outbox WHERE status='pending' ORDER BY id LIMIT 20").fetchall()
     for row in rows:
         oid, etype, payload_raw = row['id'], row['event_type'], row['payload']
         try:
-            payload = json.loads(payload_raw) if isinstance(payload_raw, str) else payload_raw
+            payload = json.loads(payload_raw) if isinstance(payload_raw, str) else dict(payload_raw)
+            if isinstance(payload, dict):
+                sig_id = str(payload.get("id") or payload.get("signal_id") or "")
+                payload["outbox_id"] = oid
+                payload.setdefault("event_id", f"outbox_{oid}_{sig_id}" if sig_id else f"outbox_{oid}")
             if etype == "signal_created":
                 publish_signal_event(payload)
             c.execute("UPDATE outbox SET status='published', published_at=? WHERE id=?", (time.time(), oid))

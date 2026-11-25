@@ -19,7 +19,7 @@ import secrets
 import logging
 import urllib.request
 import urllib.error
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 from app.db import tx, audit, is_postgres
 
 logger = logging.getLogger("zupirus.billing.crypto_direct")
@@ -426,6 +426,8 @@ def verify_trc20_transaction(
             norm_actual = normalize_tron_address(to_addr)
             norm_expected = normalize_tron_address(expected_to)
             if norm_actual == norm_expected or to_addr == expected_to:
+                ev_ts_raw = float(ev.get("block_timestamp") or ev.get("timestamp") or 0.0)
+                ev_ts_sec = (ev_ts_raw / 1000.0) if ev_ts_raw > 1e11 else ev_ts_raw
                 diff = abs(actual_usdt - expected_amount)
                 if diff <= 0.001:
                     return True, "Xác minh giao dịch USDT TRC20 thành công.", {
@@ -434,12 +436,14 @@ def verify_trc20_transaction(
                         "network": "TRC20",
                         "contract": contract,
                         "to": to_addr,
+                        "timestamp": ev_ts_sec,
                     }
                 elif actual_usdt < expected_amount:
                     return False, f"Số tiền chuyển thiếu: nhận được {actual_usdt:.4f} USDT, yêu cầu {expected_amount:.4f} USDT.", {
                         "underpaid": True,
                         "received": actual_usdt,
                         "expected": expected_amount,
+                        "timestamp": ev_ts_sec,
                     }
                 else:
                     # Overpaid: accepted with warning
@@ -449,6 +453,7 @@ def verify_trc20_transaction(
                         "network": "TRC20",
                         "contract": contract,
                         "to": to_addr,
+                        "timestamp": ev_ts_sec,
                     }
 
     return False, "Giao dịch không chuyển đúng hợp đồng USDT TRC20 chính thức hoặc sai địa chỉ ví nhận.", {}
@@ -675,6 +680,18 @@ async def verify_and_fulfill_crypto_order(
     if not valid:
         return {"ok": False, "message": msg}
 
+    # Check transaction timestamp against the order's active validity window if timestamp is available
+    raw_tx_ts = float(details.get("timestamp") or details.get("block_timestamp") or 0.0)
+    tx_ts_sec = (raw_tx_ts / 1000.0) if raw_tx_ts > 1e11 else raw_tx_ts
+    ord_created = float(order.get("created_at") or 0.0)
+    ord_expires = float(order.get("expires_at") or 0.0)
+    if tx_ts_sec > 0:
+        if (ord_created > 0 and tx_ts_sec < ord_created - 60.0) or (ord_expires > 0 and tx_ts_sec > ord_expires + 300.0):
+            return {
+                "ok": False,
+                "message": "Giao dịch nằm ngoài khung thời gian hiệu lực của đơn hàng này.",
+            }
+
     # 4. Fulfill order atomically with re-verification under row lock
     from app.domains.billing.service import apply_subscription_entitlements_tx, _deploy_with_retries
     tx_id = f"tx_crypto_{secrets.token_hex(8)}"
@@ -802,12 +819,13 @@ async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
     with tx() as c:
         rows = c.execute(
             """
-            SELECT id, user_id, expected_amount_usdt, payment_gateway, expires_at
+            SELECT id, user_id, expected_amount_usdt, payment_gateway, expires_at, created_at
             FROM orders
             WHERE payment_gateway LIKE ?
               AND status = 'PENDING'
               AND expires_at > ?
               AND expected_amount_usdt IS NOT NULL
+            ORDER BY created_at DESC
             """,
             ("USDT%", now_ts)
         ).fetchall()
@@ -826,28 +844,51 @@ async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
     trc20_admin = (cfg.get("trc20_address") or cfg.get("usdt_trc20_address") or "").strip()
     bep20_admin = (cfg.get("bep20_address") or cfg.get("usdt_bep20_address") or "").strip()
 
-    trc20_wallets_targets: Dict[str, Dict[float, str]] = {}
-    bep20_wallets_targets: Dict[str, Dict[float, str]] = {}
+    trc20_wallets_targets: Dict[str, Dict[float, List[Dict[str, Any]]]] = {}
+    bep20_wallets_targets: Dict[str, Dict[float, List[Dict[str, Any]]]] = {}
 
     for r in rows:
-        d = dict(r) if hasattr(r, "keys") else {"id": r[0], "user_id": r[1], "expected_amount_usdt": r[2], "payment_gateway": r[3], "expires_at": r[4]}
+        d = dict(r) if hasattr(r, "keys") else {
+            "id": r[0],
+            "user_id": r[1],
+            "expected_amount_usdt": r[2],
+            "payment_gateway": r[3],
+            "expires_at": r[4],
+            "created_at": r[5] if len(r) > 5 else 0.0,
+        }
         amt = round(float(d["expected_amount_usdt"]), 2)
         gw = str(d["payment_gateway"]).upper()
         ord_id = str(d["id"])
+        ord_meta = {
+            "id": ord_id,
+            "created_at": float(d.get("created_at") or 0.0),
+            "expires_at": float(d.get("expires_at") or 0.0),
+        }
         saved_wallet = order_wallets.get(ord_id)
 
         if "TRC20" in gw:
             target_wallet = saved_wallet or trc20_admin
             if target_wallet:
-                if target_wallet not in trc20_wallets_targets:
-                    trc20_wallets_targets[target_wallet] = {}
-                trc20_wallets_targets[target_wallet][amt] = ord_id
+                trc20_wallets_targets.setdefault(target_wallet, {}).setdefault(amt, []).append(ord_meta)
         elif "BEP20" in gw:
             target_wallet = saved_wallet or bep20_admin
             if target_wallet:
-                if target_wallet not in bep20_wallets_targets:
-                    bep20_wallets_targets[target_wallet] = {}
-                bep20_wallets_targets[target_wallet][amt] = ord_id
+                bep20_wallets_targets.setdefault(target_wallet, {}).setdefault(amt, []).append(ord_meta)
+
+    def _match_order_in_window(candidates: List[Dict[str, Any]], raw_ts: Any) -> Optional[str]:
+        try:
+            ts_val = float(raw_ts or 0.0)
+        except Exception:
+            ts_val = 0.0
+        tx_ts = (ts_val / 1000.0) if ts_val > 1e11 else ts_val
+        for cand in candidates:
+            c_start = float(cand.get("created_at") or 0.0)
+            c_end = float(cand.get("expires_at") or 0.0)
+            if tx_ts > 0:
+                if (c_start > 0 and tx_ts < c_start - 60.0) or (c_end > 0 and tx_ts > c_end + 300.0):
+                    continue
+            return str(cand["id"])
+        return None
 
     # 1. Scan TRC20 incoming transfers via TronGrid per destination wallet
     for trc_wallet, trc20_targets in trc20_wallets_targets.items():
@@ -864,7 +905,12 @@ async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
                     amt = round(val_raw / 1_000_000.0, 2)
                     tx_id = tr.get("transaction_id")
                     if amt in trc20_targets and tx_id:
-                        ord_id = trc20_targets[amt]
+                        ord_id = _match_order_in_window(
+                            trc20_targets[amt],
+                            tr.get("block_timestamp") or tr.get("timestamp"),
+                        )
+                        if not ord_id:
+                            continue
                         fulfill_res = await verify_and_fulfill_crypto_order(ord_id, tx_id)
                         if fulfill_res.get("ok"):
                             stats["fulfilled"] += 1
@@ -896,7 +942,15 @@ async def scan_and_reconcile_pending_crypto_orders() -> Dict[str, Any]:
                     amt = round(raw_val / 10**18, 2)
                     tx_hash = lg.get("transactionHash")
                     if amt in bep20_targets and tx_hash:
-                        ord_id = bep20_targets[amt]
+                        raw_lg_ts = lg.get("timeStamp") or lg.get("blockTimestamp") or lg.get("timestamp")
+                        if isinstance(raw_lg_ts, str) and raw_lg_ts.startswith("0x"):
+                            try:
+                                raw_lg_ts = int(raw_lg_ts, 16)
+                            except Exception:
+                                raw_lg_ts = 0
+                        ord_id = _match_order_in_window(bep20_targets[amt], raw_lg_ts)
+                        if not ord_id:
+                            continue
                         fulfill_res = await verify_and_fulfill_crypto_order(ord_id, tx_hash)
                         if fulfill_res.get("ok"):
                             stats["fulfilled"] += 1

@@ -471,22 +471,30 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
         if not pending:
             return {"evaluated": 0, "status": "no_pending_signals"}
 
-        # Fetch recent M1 candles bounded by oldest pending signal_time (never load full table unbounded)
+        # Fetch recent M1 candles per pending symbol bounded by that symbol's oldest pending signal_time
+        # (prevents high-volume candles of one symbol from crowding out another symbol)
         from app.db import is_postgres, to_epoch_ts
-        min_sig_ts = min(
-            (float(dict(pr).get("signal_time") or now_ts) for pr in pending),
-            default=now_ts - 86400 * 7,
-        )
         time_cond = "time >= to_timestamp(?)" if is_postgres() else "time >= ?"
-        candles = c.execute(
-            f"SELECT symbol, time, open, high, low, close FROM candles WHERE timeframe = 'M1' AND {time_cond} ORDER BY time ASC LIMIT 10000",
-            (min_sig_ts,),
-        ).fetchall()
-        candle_list = []
-        for cd in candles:
-            item = dict(cd)
-            item["time"] = to_epoch_ts(item.get("time"))
-            candle_list.append(item)
+        min_ts_by_symbol: Dict[str, float] = {}
+        for pr in pending:
+            pr_d = dict(pr)
+            p_sym = str(pr_d.get("symbol") or "XAUUSD").upper()
+            p_ts = float(pr_d.get("signal_time") or now_ts)
+            if p_sym not in min_ts_by_symbol or p_ts < min_ts_by_symbol[p_sym]:
+                min_ts_by_symbol[p_sym] = p_ts
+
+        candles_by_symbol: Dict[str, List[Dict[str, Any]]] = {}
+        for sym_key, sym_min_ts in min_ts_by_symbol.items():
+            sym_rows = c.execute(
+                f"SELECT symbol, time, open, high, low, close FROM candles WHERE timeframe = 'M1' AND UPPER(symbol) = ? AND {time_cond} ORDER BY time ASC LIMIT 50000",
+                (sym_key, sym_min_ts),
+            ).fetchall()
+            sym_list = []
+            for cd in sym_rows:
+                item = dict(cd)
+                item["time"] = to_epoch_ts(item.get("time"))
+                sym_list.append(item)
+            candles_by_symbol[sym_key] = sym_list
 
         for p_row in pending:
             p = dict(p_row)
@@ -499,11 +507,23 @@ def evaluate_shadow_signals_eod(source_id: Optional[str] = None) -> Dict[str, An
             sig_t = float(p["signal_time"])
             symbol = str(p["symbol"] or "XAUUSD").upper()
 
-            # Filter candles for matching symbol that occurred after signal_time
+            # Filter candles for matching symbol that occurred at or after signal_time
+            sym_candles = candles_by_symbol.get(symbol) or []
             future_candles = [
-                c_item for c_item in candle_list
-                if str(c_item.get("symbol") or "XAUUSD").upper() == symbol and float(c_item["time"]) >= sig_t
+                c_item for c_item in sym_candles
+                if float(c_item["time"]) >= sig_t
             ]
+            if not future_candles:
+                # Direct targeted query for this signal's exact symbol and signal_time window before concluding missing data
+                direct_rows = c.execute(
+                    f"SELECT symbol, time, open, high, low, close FROM candles WHERE timeframe = 'M1' AND UPPER(symbol) = ? AND {time_cond} ORDER BY time ASC LIMIT 5000",
+                    (symbol, sig_t),
+                ).fetchall()
+                for cd in direct_rows:
+                    item = dict(cd)
+                    item["time"] = to_epoch_ts(item.get("time"))
+                    if float(item["time"]) >= sig_t:
+                        future_candles.append(item)
             
             # If no stored M1 candles yet:
             if not future_candles:
@@ -741,16 +761,18 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
             candle_count_row = c.execute("SELECT count(*) FROM candles WHERE timeframe = 'M1'").fetchone()
             candle_count = candle_count_row[0] if candle_count_row else 0
 
-            pf = float(source.get("profit_factor", 0.0))
-            wr = float(source.get("win_rate", 0.0))
-            mdd = float(source.get("max_drawdown_pips", 0.0))
-            trust_score = float(source.get("trust_score", 70.0))
-            is_qualified = bool(pf >= 1.5 and mdd <= 80.0) if pf > 0 else False
+            window_metrics = _recompute_source_metrics(c, source_id, min_signal_time=cutoff_ts)
+            trades_sim = len(signals)
+            pf = float(window_metrics.get("profit_factor", 0.0)) if trades_sim > 0 else 0.0
+            wr = float(window_metrics.get("win_rate", 0.0)) if trades_sim > 0 else 0.0
+            mdd = float(window_metrics.get("max_drawdown_pips", 0.0)) if trades_sim > 0 else 0.0
+            trust_score = float(window_metrics.get("trust_score", 0.0)) if trades_sim > 0 else float(source.get("trust_score", 0.0))
 
-            new_status = "ACTIVE_LIVE" if is_qualified and active_count < MAX_ACTIVE_LIVE_SOURCES else source["status"]
+            # Strictly require >= 5 evaluated samples in the replay window to qualify
+            is_qualified = False
+            new_status = source["status"]
             c.execute("UPDATE signal_sources SET updated_at = ? WHERE id = ?", (now_ts, source_id))
 
-            trades_sim = len(signals)
             return {
                 "ok": True,
                 "source_id": source_id,
@@ -758,15 +780,16 @@ def run_instant_historical_replay(source_id: str, days: int = 90) -> Dict[str, A
                 "new_status": new_status,
                 "qualified": is_qualified,
                 "qualified_seed_active": is_qualified,
+                "insufficient_data": True,
                 "trust_score": trust_score,
                 "profit_factor": pf,
                 "win_rate": wr,
                 "max_drawdown_pips": mdd,
-                "sample_size": len(signals),
+                "sample_size": trades_sim,
                 "simulated_trades": trades_sim,
                 "days_replayed": days,
                 "candles_available": candle_count,
-                "note": "Kiểm định dựa trên dữ liệu thực tế đã ghi nhận trong hệ thống." if len(signals) >= 5 else "Chưa đủ >= 5 tín hiệu thực tế để đánh giá thăng hạng.",
+                "note": "Không đủ dữ liệu mẫu trong kỳ kiểm định (cần tối thiểu 5 tín hiệu đã đóng).",
             }
 
 

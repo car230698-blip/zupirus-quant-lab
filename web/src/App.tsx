@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient.ts';
 import { apiGet, apiPost } from './api/client.ts';
@@ -116,9 +116,18 @@ const AppContent: React.FC = () => {
     }
   }, []);
 
+  const candleReqIdRef = useRef<number>(0);
+  const activeTimeframeRef = useRef<string>(timeframe);
+  activeTimeframeRef.current = timeframe;
+
   const loadCandles = useCallback(async (tf: string) => {
+    const reqId = ++candleReqIdRef.current;
+    activeTimeframeRef.current = tf;
     try {
       const d = await apiGet<any>(`/api/timescale/candles?symbol=XAUUSD&timeframe=${tf}&source=ALL&limit=48`);
+      if (reqId !== candleReqIdRef.current || activeTimeframeRef.current !== tf) {
+        return;
+      }
       setCandles((d.candles || []).slice().reverse());
     } catch {
       // ignore

@@ -293,7 +293,8 @@ def reconcile_account_positions(
                     d_id = str(dl.get("id") or "")
                     if d_id and d_id not in seen_in_batch:
                         seen_in_batch.add(d_id)
-                        new_deals.append(dl)
+                        if not bool(getkv(c, f"deal_synced:{acc_id}:{d_id}")):
+                            new_deals.append(dl)
                 new_deal_vol = sum(float(dl.get("volume") or 0.0) for dl in new_deals)
                 total_closed = round(min(total_vol, cur_closed_vol + new_deal_vol), 4)
                 all_dl_ids = list(seen_in_batch)
@@ -749,6 +750,24 @@ class PositionWatcher:
         acc_id = account_id or metaapi_account_id
         return await self.close_bot_positions_only(metaapi_account_id, acc_id)
 
+    async def _fetch_closed_deals_safe(self, meta_id: str, hours: int) -> Tuple[bool, List[Dict[str, Any]]]:
+        """Fetch closed deals with verification status, supporting both real MetaApiClient and test mocks."""
+        client_dict = getattr(self.client, "__dict__", {}) or {}
+        if "get_closed_deals" in client_dict and "get_closed_deals_verified" not in client_dict:
+            res = await self.client.get_closed_deals(meta_id, hours=hours)
+            if isinstance(res, list):
+                return True, res
+            return False, []
+        if hasattr(self.client, "get_closed_deals_verified"):
+            ver = await self.client.get_closed_deals_verified(meta_id, hours=hours)
+            if isinstance(ver, tuple) and len(ver) >= 2:
+                return bool(ver[0]), (ver[1] if isinstance(ver[1], list) else [])
+        if hasattr(self.client, "get_closed_deals"):
+            res = await self.client.get_closed_deals(meta_id, hours=hours)
+            if isinstance(res, list):
+                return True, res
+        return False, []
+
     async def run_cycle(self, now_dt: Optional[datetime.datetime] = None) -> Dict[str, Any]:
         """Execute one complete monitoring and protection pass across all deployed accounts (single-flight)."""
         async with _WATCHER_CYCLE_LOCK:
@@ -955,7 +974,9 @@ class PositionWatcher:
                     logger.debug(f"PositionWatcher cache_heartbeat note for {acc_id}: {hb_err}")
 
                 deals = []
-                if is_read_ok and hasattr(self.client, "get_closed_deals"):
+                deals_ok = False
+                deals_fetched_in_cycle = False
+                if is_read_ok and (hasattr(self.client, "get_closed_deals_verified") or hasattr(self.client, "get_closed_deals")):
                     try:
                         with tx() as c:
                             last_rec = getkv(c, f"deals_reconciled_watermark:{acc_id}")
@@ -964,10 +985,11 @@ class PositionWatcher:
                             hours_to_fetch = int(min(hours_back, 168.0))
                         else:
                             hours_to_fetch = 48
-                        deals = await self.client.get_closed_deals(meta_id, hours=hours_to_fetch) or []
-                        with tx() as c:
-                            setkv(c, f"deals_reconciled_watermark:{acc_id}", str(time.time()))
+                        deals_ok, deals = await self._fetch_closed_deals_safe(meta_id, hours=hours_to_fetch)
+                        deals_fetched_in_cycle = True
                     except Exception as de:
+                        deals_ok = False
+                        deals = []
                         logger.debug(f"PositionWatcher get_closed_deals note for {acc_id}: {de}")
 
                 # Sync any manual/untracked MT5 orders into metaapi_trade_executions (origin = 'MANUAL')
@@ -1411,37 +1433,43 @@ class PositionWatcher:
                                     "modify_ok": modify_ok
                                 })
 
-                # 5. Periodic Closed Deal History Sync (every 60s per account) for real PnL reflection
+                # 5. Periodic Closed Deal History Sync (every 60s per account, or immediately if deals were fetched) for real PnL reflection
                 try:
                     with tx() as c:
                         last_ds = getkv(c, f"deals_sync_ts:{acc_id}")
-                        should_sync_deals = not last_ds or (time.time() - float(last_ds)) >= 60.0
+                        should_sync_deals = deals_fetched_in_cycle or (not last_ds) or ((time.time() - float(last_ds)) >= 60.0)
                         last_rec = getkv(c, f"deals_reconciled_watermark:{acc_id}")
-                    if should_sync_deals and hasattr(self.client, "get_closed_deals_verified"):
-                        if last_rec:
-                            hours_back = max(24.0, (time.time() - float(last_rec)) / 3600.0 + 2.0)
-                            hours_to_fetch = int(min(hours_back, 168.0))
-                        else:
-                            hours_to_fetch = 48
-                        deals_ok, deals, _deals_meta = await self.client.get_closed_deals_verified(meta_id, hours=hours_to_fetch)
+                    if should_sync_deals and (hasattr(self.client, "get_closed_deals_verified") or hasattr(self.client, "get_closed_deals")):
+                        if not deals_fetched_in_cycle:
+                            if last_rec:
+                                hours_back = max(24.0, (time.time() - float(last_rec)) / 3600.0 + 2.0)
+                                hours_to_fetch = int(min(hours_back, 168.0))
+                            else:
+                                hours_to_fetch = 48
+                            deals_ok, deals = await self._fetch_closed_deals_safe(meta_id, hours=hours_to_fetch)
+
                         open_pos_ids = set()
                         open_pos_api_ok = False
-                        try:
-                            if hasattr(self.client, "get_positions_verified"):
-                                open_pos_api_ok, cur_open, _pos_meta = await self.client.get_positions_verified(meta_id)
-                            else:
-                                cur_open = await self.client.get_open_positions(meta_id)
-                                open_pos_api_ok = cur_open is not None
-                            if open_pos_api_ok and cur_open:
-                                open_pos_ids = {str(p.get("id") or "") for p in cur_open if p.get("id")}
-                        except Exception:
-                            open_pos_ids = set()
-                            open_pos_api_ok = False
+                        if is_read_ok:
+                            open_pos_api_ok = True
+                            open_pos_ids = {str(p.get("id") or "") for p in (cur_open or []) if p.get("id")}
+                        else:
+                            try:
+                                if hasattr(self.client, "get_positions_verified"):
+                                    open_pos_api_ok, cur_open_chk, _pos_meta = await self.client.get_positions_verified(meta_id)
+                                else:
+                                    cur_open_chk = await self.client.get_open_positions(meta_id)
+                                    open_pos_api_ok = cur_open_chk is not None
+                                if open_pos_api_ok and cur_open_chk:
+                                    open_pos_ids = {str(p.get("id") or "") for p in cur_open_chk if p.get("id")}
+                            except Exception:
+                                open_pos_ids = set()
+                                open_pos_api_ok = False
 
                         with tx() as c:
-                            setkv(c, f"deals_sync_ts:{acc_id}", str(time.time()))
-                            # Watermark advances strictly when deal history API call succeeded
                             if deals_ok:
+                                setkv(c, f"deals_sync_ts:{acc_id}", str(time.time()))
+                                # Watermark advances strictly when deal history API call succeeded
                                 setkv(c, f"deals_reconciled_watermark:{acc_id}", str(time.time()))
 
                             for dl in deals or []:
@@ -1450,11 +1478,9 @@ class PositionWatcher:
                                 dl_id = str(dl.get("id") or "")
                                 if not dl_id:
                                     continue
-                                is_synced = bool(getkv(c, f"deal_synced:{acc_id}:{dl_id}")) or bool(getkv(c, f"deal_synced:{dl_id}"))
-                                if is_synced:
-                                    setkv(c, f"deal_synced:{acc_id}:{dl_id}", "1")
-                                    setkv(c, f"deal_synced:{dl_id}", "1")
+                                if bool(getkv(c, f"deal_synced:{acc_id}:{dl_id}")):
                                     continue
+
                                 profit_raw = _safe_float(dl.get("profit")) + _safe_float(dl.get("swap")) + _safe_float(dl.get("commission"))
                                 is_cent_deal = (
                                     str(acc.get("account_type") or "").upper() == "CENT"
@@ -1464,16 +1490,49 @@ class PositionWatcher:
                                 pos_ref = str(dl.get("positionId") or dl.get("orderId") or "")
                                 if pos_ref:
                                     ex_row = c.execute(
-                                        "SELECT id, signal_id, volume, closed_volume FROM metaapi_trade_executions WHERE account_id = ? AND (position_id = ? OR order_id = ?) ORDER BY executed_at DESC LIMIT 1",
-                                        (acc_id, pos_ref, pos_ref),
+                                        """
+                                        SELECT id, signal_id, volume, closed_volume, profit, evidence_json, status
+                                        FROM metaapi_trade_executions
+                                        WHERE account_id = ? AND (position_id = ? OR order_id = ? OR ticket = ?)
+                                        ORDER BY executed_at DESC LIMIT 1
+                                        """,
+                                        (acc_id, pos_ref, pos_ref, pos_ref),
                                     ).fetchone()
                                     if ex_row:
                                         ex_id = ex_row["id"] if hasattr(ex_row, "keys") else ex_row[0]
                                         sig_ref = ex_row["signal_id"] if hasattr(ex_row, "keys") else ex_row[1]
                                         orig_vol = _safe_float(ex_row["volume"] if hasattr(ex_row, "keys") and "volume" in ex_row else (ex_row[2] if len(ex_row) > 2 else 0.0))
                                         prev_closed_vol = _safe_float(ex_row["closed_volume"] if hasattr(ex_row, "keys") and "closed_volume" in ex_row else (ex_row[3] if len(ex_row) > 3 else 0.0))
+                                        prev_profit = ex_row["profit"] if hasattr(ex_row, "keys") and "profit" in ex_row else (ex_row[4] if len(ex_row) > 4 else None)
+                                        ev_raw = ex_row["evidence_json"] if hasattr(ex_row, "keys") and "evidence_json" in ex_row else (ex_row[5] if len(ex_row) > 5 else None)
+
+                                        # Backward compatibility for legacy global deal_synced:{dl_id} key:
+                                        # Only honor legacy key if this execution already had realized profit recorded
+                                        if bool(getkv(c, f"deal_synced:{dl_id}")) and prev_profit is not None and abs(_safe_float(prev_profit)) > 0:
+                                            setkv(c, f"deal_synced:{acc_id}:{dl_id}", "1")
+                                            continue
+
+                                        ev_dict = {}
+                                        if ev_raw:
+                                            try:
+                                                ev_dict = json.loads(ev_raw) if isinstance(ev_raw, str) else dict(ev_raw)
+                                            except Exception:
+                                                ev_dict = {}
+                                        already_counted_vol_ids = set(
+                                            str(x) for x in (ev_dict.get("deal_ids", []) + ev_dict.get("partial_deals", []))
+                                        )
+
                                         dl_vol = _safe_float(dl.get("volume"))
-                                        new_closed_vol = round(prev_closed_vol + dl_vol, 4)
+                                        if dl_id in already_counted_vol_ids:
+                                            # Volume was already added by reconcile_account_positions in this cycle
+                                            new_closed_vol = prev_closed_vol
+                                        else:
+                                            raw_sum_vol = round(prev_closed_vol + dl_vol, 4)
+                                            new_closed_vol = round(min(orig_vol, raw_sum_vol), 4) if orig_vol > 0 else raw_sum_vol
+                                            deal_ids_list = list(ev_dict.get("deal_ids", []))
+                                            if dl_id not in deal_ids_list:
+                                                deal_ids_list.append(dl_id)
+                                            ev_dict["deal_ids"] = deal_ids_list
 
                                         if open_pos_api_ok:
                                             is_still_open_partial = bool(pos_ref in open_pos_ids)
@@ -1486,13 +1545,13 @@ class PositionWatcher:
 
                                         if is_still_open_partial:
                                             c.execute(
-                                                "UPDATE metaapi_trade_executions SET profit = COALESCE(profit, 0) + ?, closed_volume = ? WHERE id = ?",
-                                                (round(profit, 2), new_closed_vol, ex_id),
+                                                "UPDATE metaapi_trade_executions SET profit = COALESCE(profit, 0) + ?, closed_volume = ?, evidence_json = ? WHERE id = ?",
+                                                (round(profit, 2), new_closed_vol, json.dumps(ev_dict), ex_id),
                                             )
                                         else:
                                             c.execute(
-                                                "UPDATE metaapi_trade_executions SET status = 'CLOSED', profit = COALESCE(profit, 0) + ?, closed_volume = ?, closed_at = ? WHERE id = ?",
-                                                (round(profit, 2), new_closed_vol, time.time(), ex_id),
+                                                "UPDATE metaapi_trade_executions SET status = 'CLOSED', profit = COALESCE(profit, 0) + ?, closed_volume = ?, closed_at = COALESCE(closed_at, ?), evidence_json = ? WHERE id = ?",
+                                                (round(profit, 2), new_closed_vol, time.time(), json.dumps(ev_dict), ex_id),
                                             )
                                         hindsight_key = f"hindsight_reflected:{acc_id}:{dl_id}"
                                         legacy_hindsight_key = f"hindsight_reflected:{sig_ref}:{dl_id}"
@@ -1509,7 +1568,6 @@ class PositionWatcher:
                                                 accumulate_pnl=True,
                                             )
                                         setkv(c, f"deal_synced:{acc_id}:{dl_id}", "1")
-                                        setkv(c, f"deal_synced:{dl_id}", "1")
                 except Exception as ds_err:
                     logger.debug(f"Deal history sync note for {acc_id}: {ds_err}")
 

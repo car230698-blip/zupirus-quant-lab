@@ -243,10 +243,16 @@ def get_redis_client():
 # ---------------------------------------------------------------------------
 
 def publish_signal_event(signal_data: Dict[str, Any]) -> str:
-    """Publish a newly generated trading signal to Redis Stream and Pub/Sub."""
+    """Publish a newly generated trading signal to Redis Stream and Pub/Sub with stable event_id deduplication."""
     r = get_redis_client()
+    sig_id = str(signal_data.get("id") or signal_data.get("signal_id") or "")
+    event_id = str(
+        signal_data.get("event_id")
+        or (f"outbox_{signal_data['outbox_id']}_{sig_id}" if signal_data.get("outbox_id") is not None else f"sig_evt_{sig_id}")
+    )
     payload = {
-        "signal_id": str(signal_data.get("id", "")),
+        "event_id": event_id,
+        "signal_id": sig_id,
         "source": str(signal_data.get("source", "")),
         "side": str(signal_data.get("side", "")),
         "price": str(signal_data.get("price", 0.0)),
@@ -255,8 +261,20 @@ def publish_signal_event(signal_data: Dict[str, Any]) -> str:
         "created": str(signal_data.get("created", time.time())),
         "expires": str(signal_data.get("expires", time.time() + 45)),
     }
+    dedup_key = f"outbox:published_stream_id:{event_id}"
+    try:
+        existing_stream_id = r.get(dedup_key)
+        if existing_stream_id:
+            return str(existing_stream_id)
+    except Exception:
+        pass
+
     # Add to stream
     stream_id = r.xadd(STREAM_SIGNALS, payload, maxlen=1000)
+    try:
+        r.set(dedup_key, str(stream_id), ex=3600)
+    except Exception:
+        pass
     # Broadcast to Pub/Sub subscribers
     try:
         r.publish(CHANNEL_SIGNALS, json.dumps(payload))
@@ -266,16 +284,21 @@ def publish_signal_event(signal_data: Dict[str, Any]) -> str:
 
 
 def read_recent_signals(count: int = 20) -> List[Dict[str, Any]]:
-    """Read recent signal entries from the Redis stream."""
+    """Read recent signal entries from the Redis stream, deduplicating by stable event_id / signal_id."""
     r = get_redis_client()
     try:
         entries = r.xread({STREAM_SIGNALS: "0-0"}, count=count)
         if not entries:
             return []
         items = []
+        seen_ids = set()
         for stream_name, stream_entries in entries:
             for entry_id, data in stream_entries:
                 item = dict(data)
+                dedup_token = item.get("event_id") or item.get("signal_id") or entry_id
+                if dedup_token in seen_ids:
+                    continue
+                seen_ids.add(dedup_token)
                 item["stream_id"] = entry_id
                 items.append(item)
         return items
@@ -285,7 +308,7 @@ def read_recent_signals(count: int = 20) -> List[Dict[str, Any]]:
 
 
 def consume_signals_stream(group_name: str = "cg_dispatches", consumer_name: str = "worker-1", count: int = 10) -> List[Dict[str, Any]]:
-    """Consume signals using Redis Consumer Group for guaranteed durable delivery."""
+    """Consume signals using Redis Consumer Group for guaranteed durable delivery with event_id deduplication."""
     r = get_redis_client()
     try:
         try:
@@ -296,9 +319,18 @@ def consume_signals_stream(group_name: str = "cg_dispatches", consumer_name: str
         if not entries:
             return []
         items = []
+        seen_ids = set()
         for stream_name, stream_entries in entries:
             for entry_id, data in stream_entries:
                 item = dict(data)
+                dedup_token = item.get("event_id") or item.get("signal_id") or entry_id
+                if dedup_token in seen_ids:
+                    try:
+                        r.xack(STREAM_SIGNALS, group_name, entry_id)
+                    except Exception:
+                        pass
+                    continue
+                seen_ids.add(dedup_token)
                 item["stream_id"] = entry_id
                 items.append(item)
         return items

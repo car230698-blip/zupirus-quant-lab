@@ -324,7 +324,23 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                 ) : (
                   filteredOrders.slice(0, 50).map((o: any) => {
                     const st = String(o.status || '').toUpperCase();
-                    const isException = st === 'UNDERPAID' || st === 'PENDING' || st === 'FAILED';
+                    const entSt = String(o.entitlement_status || '').toUpperCase();
+                    const cldSt = String(o.cloud_deploy_status || '').toUpperCase();
+                    const hasPay = Boolean(o.payment_confirmed || st === 'PAID');
+                    const hasEnt = Boolean(
+                      o.entitlement_applied !== undefined
+                        ? o.entitlement_applied
+                        : entSt === 'APPLIED' || entSt === 'GRANTED'
+                    );
+                    const hasCld = Boolean(o.cloud_ready || cldSt === 'DEPLOYED');
+                    const isAllDone = hasPay && hasEnt && hasCld;
+                    const isException =
+                      st === 'UNDERPAID' ||
+                      st === 'PENDING' ||
+                      st === 'FAILED' ||
+                      !hasPay ||
+                      !hasEnt ||
+                      cldSt === 'FAILED';
                     return (
                       <tr key={o.id} className="hover:bg-slate-800/20">
                         <td className="py-2.5 pr-4 text-[#12B5A6] font-bold">{o.id}</td>
@@ -419,8 +435,12 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                             >
                               {busyId === o.id ? 'Đang duyệt...' : 'Duyệt bù thủ công'}
                             </button>
+                          ) : isAllDone ? (
+                            <span className="text-xs text-emerald-400">Tự động xong ✓</span>
                           ) : (
-                            <span className="text-xs text-slate-500">Tự động xong ✓</span>
+                            <span className="text-xs text-amber-400">
+                              {cldSt === 'DEPLOYING' ? 'Đang khởi tạo Cloud...' : 'Chờ liên kết / Cloud'}
+                            </span>
                           )}
                         </td>
                       </tr>

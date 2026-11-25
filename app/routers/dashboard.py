@@ -135,15 +135,15 @@ def dashboard(
             if state:
                 st_lower = str(state).strip().lower()
                 if st_lower == "filled":
-                    state_filter_clause = " AND UPPER(e.status) IN ('FILLED', 'OPEN')"
+                    state_filter_clause = " AND UPPER(e.status) IN ('FILLED', 'OPEN', 'PARTIAL_CLOSED', 'CLOSE_PENDING')"
                 elif st_lower == "closed":
                     state_filter_clause = " AND UPPER(e.status) IN ('CLOSED', 'COMPLETED')"
                 elif st_lower == "queued":
-                    state_filter_clause = " AND UPPER(e.status) IN ('PENDING', 'QUEUED', 'DISPATCHING', 'INTENT', 'PENDING_SUBMIT')"
+                    state_filter_clause = " AND UPPER(e.status) IN ('PENDING', 'QUEUED', 'DISPATCHING', 'INTENT', 'PENDING_SUBMIT', 'SUBMITTED', 'PLACED')"
                 elif st_lower == "skipped":
                     state_filter_clause = " AND UPPER(e.status) = 'SKIPPED'"
                 elif st_lower == "rejected":
-                    state_filter_clause = " AND UPPER(e.status) NOT IN ('FILLED', 'OPEN', 'CLOSED', 'COMPLETED', 'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT', 'PENDING_SUBMIT', 'SKIPPED')"
+                    state_filter_clause = " AND UPPER(e.status) NOT IN ('FILLED', 'OPEN', 'PARTIAL_CLOSED', 'CLOSE_PENDING', 'CLOSED', 'COMPLETED', 'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT', 'PENDING_SUBMIT', 'SUBMITTED', 'PLACED', 'SKIPPED')"
 
             cloud_exec_rows = c.execute(
                 f"""
@@ -160,11 +160,11 @@ def dashboard(
             for r in cloud_exec_rows:
                 rd = dict(r)
                 raw_st = str(rd.get('status', '')).upper()
-                if raw_st in {'FILLED', 'OPEN'}:
+                if raw_st in {'FILLED', 'OPEN', 'PARTIAL_CLOSED', 'CLOSE_PENDING'}:
                     mapped_state = 'filled'
                 elif raw_st in {'CLOSED', 'COMPLETED'}:
                     mapped_state = 'closed'
-                elif raw_st in {'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT'}:
+                elif raw_st in {'PENDING', 'QUEUED', 'DISPATCHING', 'INTENT', 'PENDING_SUBMIT', 'SUBMITTED', 'PLACED'}:
                     mapped_state = 'queued'
                 elif raw_st in {'SKIPPED'}:
                     mapped_state = 'skipped'

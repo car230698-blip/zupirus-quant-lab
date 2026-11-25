@@ -125,7 +125,8 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
         impact = ev.get("impact", "high")
         event_id = ev.get("id") or ev.get("event_id")
 
-        # Match existing event: strictly by provider ID if present; fallback to title & currency only when no provider ID
+        # Match existing event: strictly by provider ID if present.
+        # When provider ID is absent, only deduplicate exact same timestamp (<= 60s) so distinct events 20m apart are not merged.
         row = None
         if event_id:
             row = c.execute(
@@ -134,7 +135,7 @@ def sync_economic_calendar(c) -> Tuple[int, int]:
             ).fetchone()
         else:
             row = c.execute(
-                "SELECT id, ts, title, currency FROM news WHERE title = ? AND upper(currency) = upper(?) AND abs(ts - ?) < 1800",
+                "SELECT id, ts, title, currency FROM news WHERE title = ? AND upper(currency) = upper(?) AND abs(ts - ?) <= 60",
                 (title, currency, ts),
             ).fetchone()
 

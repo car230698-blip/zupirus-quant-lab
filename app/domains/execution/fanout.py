@@ -217,7 +217,11 @@ async def execute_fan_out_for_signal(
                     """
                     SELECT id FROM metaapi_trade_executions
                     WHERE account_id = ? AND (signal_id = ? OR order_id = ? OR position_id = ?)
-                      AND status IN ('FILLED', 'OPEN', 'PENDING_SUBMIT', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED')
+                      AND UPPER(status) IN (
+                          'PENDING_SUBMIT', 'SUBMITTED', 'PLACED', 'OPEN', 'FILLED', 'SUCCESS',
+                          'PARTIAL_CLOSED', 'CLOSE_PENDING', 'CLOSED', 'COMPLETED',
+                          'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED'
+                      )
                     """,
                     (acc_id, signal_id, signal_id, signal_id)
                 ).fetchone()
@@ -645,6 +649,23 @@ async def execute_fan_out_for_signal(
                 # Row lock if Postgres
                 is_pg_conn = bool(getattr(c, "_is_pg", False))
 
+                # 0. Immediate duplicate/terminal status guard BEFORE any skip recording or risk checks
+                existing_top = c.execute(
+                    "SELECT id, status, client_order_id FROM metaapi_trade_executions WHERE signal_id = ? AND account_id = ?",
+                    (signal_id, acc_id)
+                ).fetchone()
+                if existing_top:
+                    ex_top_st = str(existing_top["status"] if hasattr(existing_top, "keys") else existing_top[1] or "").upper()
+                    if ex_top_st in (
+                        'PENDING_SUBMIT', 'SUBMITTED', 'PLACED', 'OPEN', 'FILLED', 'SUCCESS',
+                        'PARTIAL_CLOSED', 'CLOSE_PENDING', 'CLOSED', 'COMPLETED',
+                        'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED'
+                    ):
+                        logger.warning(
+                            f"Idempotency guard inside tx: account {acc_id} signal {signal_id} already has protected status {ex_top_st}. Skipping without overwriting."
+                        )
+                        continue
+
                 def _record_skip(reason: str):
                     try:
                         if is_pg_conn:
@@ -681,6 +702,7 @@ async def execute_fan_out_for_signal(
                                 status='SKIPPED',
                                 error_message=excluded.error_message,
                                 evidence_json=excluded.evidence_json
+                            WHERE UPPER(metaapi_trade_executions.status) IN ('SKIPPED', 'FAILED', 'REJECTED')
                             """,
                             (
                                 f"skip_{uuid.uuid4().hex[:12]}", signal_id, acc_id, meta_id or acc_id, symbol, action,
@@ -898,20 +920,25 @@ async def execute_fan_out_for_signal(
                 except Exception as fk_err:
                     logger.debug(f"metaapi_cloud_accounts insert failed: {fk_err}")
 
-                # Fast check within transaction to prevent race conditions
+                # Fast check within transaction to prevent race conditions and protect closed/terminal states
                 existing_exec = c.execute(
                     "SELECT id, status, client_order_id FROM metaapi_trade_executions WHERE signal_id = ? AND account_id = ?",
                     (signal_id, acc_id)
                 ).fetchone()
                 if existing_exec:
-                    ex_st = existing_exec["status"] if hasattr(existing_exec, "keys") else existing_exec[1]
-                    if str(ex_st).upper() in ('PENDING_SUBMIT', 'SUBMITTED', 'OPEN', 'FILLED', 'SUCCESS', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED'):
+                    ex_st = str(existing_exec["status"] if hasattr(existing_exec, "keys") else existing_exec[1] or "").upper()
+                    if ex_st in (
+                        'PENDING_SUBMIT', 'SUBMITTED', 'PLACED', 'OPEN', 'FILLED', 'SUCCESS',
+                        'PARTIAL_CLOSED', 'CLOSE_PENDING', 'CLOSED', 'COMPLETED',
+                        'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED'
+                    ):
                         logger.warning(
-                            f"Concurrent execution race avoided: account {acc_id} signal {signal_id} already has active status {ex_st}."
+                            f"Concurrent/duplicate execution avoided: account {acc_id} signal {signal_id} already has protected status {ex_st}."
                         )
                         continue
 
                 # Insert durable PENDING_SUBMIT record BEFORE network call with conditional conflict update
+                # Only allow retry from explicit non-executed states ('SKIPPED', 'FAILED', 'REJECTED')
                 c.execute(
                     """
                     INSERT INTO metaapi_trade_executions(
@@ -936,7 +963,7 @@ async def execute_fan_out_for_signal(
                         executed_at=excluded.executed_at,
                         error_message=NULL,
                         evidence_json=excluded.evidence_json
-                    WHERE metaapi_trade_executions.status NOT IN ('PENDING_SUBMIT', 'SUBMITTED', 'OPEN', 'FILLED', 'SUCCESS', 'UNKNOWN_EXECUTION', 'AMBIGUOUS_LOCKED')
+                    WHERE UPPER(metaapi_trade_executions.status) IN ('SKIPPED', 'FAILED', 'REJECTED')
                     """,
                     (
                         exec_id, signal_id, acc_id, meta_id, broker_sym, action, volume,

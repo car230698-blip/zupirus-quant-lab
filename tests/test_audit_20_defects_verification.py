@@ -612,6 +612,7 @@ def test_defect_17_dashboard_account_filtering_in_sql():
         _ensure_user(c, user_id)
         _insert_trading_account(c, acc_a, user_id, "meta_a")
         _insert_trading_account(c, acc_b, user_id, "meta_b")
+        c.execute("DELETE FROM metaapi_trade_executions WHERE account_id IN (?, ?)", (acc_a, acc_b))
         _ensure_signal(c, "sig_dash_a")
         _ensure_signal(c, "sig_dash_b1")
         _ensure_signal(c, "sig_dash_b2")

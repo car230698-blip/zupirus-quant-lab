@@ -349,8 +349,11 @@ def get_admin_billing_orders(
             cld_st = str(d.get("cloud_deploy_status") or "").upper()
 
             d["payment_confirmed"] = is_paid or (pay_st in ("PAID", "CONFIRMED"))
-            d["entitlement_applied"] = is_paid or (ent_st == "APPLIED")
-            d["cloud_ready"] = (cld_st == "DEPLOYED") or (is_paid and cld_st not in ("FAILED", "PENDING"))
+            if ent_st in ("PENDING", "FAILED", "WAITING"):
+                d["entitlement_applied"] = False
+            else:
+                d["entitlement_applied"] = (ent_st in ("APPLIED", "GRANTED")) or (is_paid and not ent_st)
+            d["cloud_ready"] = (cld_st == "DEPLOYED")
             d["payment_status"] = "CONFIRMED" if d["payment_confirmed"] else (pay_st or st or "PENDING")
             d["entitlement_status"] = "APPLIED" if d["entitlement_applied"] else (ent_st or "PENDING")
             d["cloud_deploy_status"] = "DEPLOYED" if d["cloud_ready"] else (cld_st or "PENDING")

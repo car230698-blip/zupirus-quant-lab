@@ -317,11 +317,13 @@ def retrieve_relevant_knowledge(
         WHERE (skill_id IS NULL OR skill_id = '' OR skill_id IN (SELECT skill_id FROM agent_skills WHERE enabled = 1))
           AND embedding_json IS NOT NULL
     """
+    if is_pg and pg_results:
+        # On PostgreSQL when pgvector succeeded, only scan legacy chunks without pgvector column populated
+        sql += " AND embedding IS NULL"
     params_fb: List[Any] = []
     if school:
         sql += " AND school = ?"
         params_fb.append(school)
-    sql += " LIMIT 500"
 
     try:
         rows = c.execute(sql, tuple(params_fb)).fetchall()

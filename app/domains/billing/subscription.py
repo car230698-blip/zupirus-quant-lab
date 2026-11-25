@@ -43,6 +43,18 @@ async def run_subscription_lifecycle_cycle(
     }
 
     with tx() as c:
+        # 0. Apply any matured queued downgrades before inspecting subscriptions
+        try:
+            from app.domains.billing.service import apply_queued_downgrade_if_due
+            qd_rows = c.execute("SELECT key FROM kv WHERE key LIKE 'queued_downgrade:%'").fetchall()
+            for qr in qd_rows:
+                k_str = str(qr["key"] if hasattr(qr, "keys") else qr[0])
+                uid_qd = k_str.split("queued_downgrade:", 1)[1] if "queued_downgrade:" in k_str else ""
+                if uid_qd:
+                    apply_queued_downgrade_if_due(c, uid_qd, now)
+        except Exception as qd_w_err:
+            logger.debug(f"Worker queued downgrade check note: {qd_w_err}")
+
         subs = c.execute(
             """
             SELECT s.id, s.user_id, s.plan_tier, s.service_expires_at, u.email
@@ -73,30 +85,47 @@ async def run_subscription_lifecycle_cycle(
         is_expired = not is_admin and (sub_exp <= now or (cloud_exp > 0 and cloud_exp <= now))
         if is_expired:
             open_positions = []
+            open_orders = []
             pos_ok = False
+            ord_ok = False
             try:
                 if hasattr(meta_client, "get_positions_verified"):
                     pos_ok, open_positions, _pos_meta = await meta_client.get_positions_verified(acc["metaapi_account_id"])
                 else:
                     open_positions = await meta_client.get_open_positions(acc["metaapi_account_id"]) or []
                     pos_ok = True
+
+                if hasattr(meta_client, "get_open_orders_verified"):
+                    ord_ok, open_orders, _ord_meta = await meta_client.get_open_orders_verified(acc["metaapi_account_id"])
+                elif hasattr(meta_client, "get_open_orders"):
+                    open_orders = await meta_client.get_open_orders(acc["metaapi_account_id"], raise_on_error=True) or []
+                    ord_ok = True
+                else:
+                    ord_ok = True
             except Exception:
                 open_positions = []
+                open_orders = []
                 pos_ok = False
+                ord_ok = False
+
+            can_undeploy = bool(pos_ok and ord_ok and not open_positions and not open_orders)
+            undep_ok = False
+            if can_undeploy:
+                try:
+                    undep_ok = bool(await meta_client.undeploy_account(acc["metaapi_account_id"]))
+                except Exception as undep_err:
+                    logger.debug(f"Undeploy note for expired account {acc['id']}: {undep_err}")
+                    undep_ok = False
 
             with tx() as c:
-                if not pos_ok or open_positions:
-                    # Fail-closed: keep protecting under EXPIRED_PROTECTING if positions open or API unverifiable
+                if not can_undeploy or not undep_ok:
+                    # Fail-closed: keep protecting under EXPIRED_PROTECTING if positions/orders open, API unverifiable, or undeploy rejected
                     c.execute(
                         "UPDATE trading_accounts SET deployment_state = 'EXPIRED_PROTECTING', auto_trade = 0 WHERE id = ?",
                         (acc["id"],),
                     )
                     stats["protecting_open"] += 1
                 else:
-                    try:
-                        await meta_client.undeploy_account(acc["metaapi_account_id"])
-                    except Exception as undep_err:
-                        logger.debug(f"Undeploy note for expired account {acc['id']}: {undep_err}")
                     c.execute(
                         "UPDATE trading_accounts SET deployment_state = 'UNDEPLOYED', auto_trade = 0 WHERE id = ?",
                         (acc["id"],),

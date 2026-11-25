@@ -8,8 +8,19 @@ export interface EquityHistoryProps {
 }
 
 export const EquityHistory: React.FC<EquityHistoryProps> = ({ days = 30, series }) => {
-  const { data: fetchedData = [], isLoading } = useEquityHistory(days);
-  const data = (days !== 30 && fetchedData.length > 0) ? fetchedData : (series && series.length > 0 ? series : fetchedData);
+  const { data: fetchedData, isLoading } = useEquityHistory(days);
+  const hasFetchedArray = Array.isArray(fetchedData);
+  const data = useMemo(() => {
+    if (days !== 30) {
+      // For non-30D views (e.g., 7D or 90D), strictly use the timeframe's own fetchedData
+      // so an empty 90D response never mislabels the default 30D dashboard series as 90D
+      return hasFetchedArray ? fetchedData : [];
+    }
+    if (hasFetchedArray && fetchedData.length > 0) {
+      return fetchedData;
+    }
+    return series && series.length > 0 ? series : [];
+  }, [days, fetchedData, hasFetchedArray, series]);
 
   const chartStats = useMemo(() => {
     const valid = data.filter(
@@ -69,7 +80,7 @@ export const EquityHistory: React.FC<EquityHistoryProps> = ({ days = 30, series 
     };
   }, [data]);
 
-  if (isLoading && (!series || series.length === 0)) {
+  if (isLoading && data.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center rounded-xl border border-white/[0.06] bg-[#040710]/80 text-xs font-mono uppercase tracking-[0.2em] text-slate-400">
         <span className="inline-block h-2 w-2 rounded-full bg-cyan-400 animate-ping mr-2.5" />
