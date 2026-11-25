@@ -16,14 +16,31 @@ logger = logging.getLogger("zupirus.domains.reports.pdf_builder")
 
 def get_private_reports_dir() -> Path:
     d = DATA / "reports_private"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    except OSError:
+        tmp = Path("/tmp/reports_private")
+        tmp.mkdir(parents=True, exist_ok=True)
+        return tmp
 
 
 def get_public_samples_dir() -> Path:
-    d = ROOT / "web" / "public" / "reports_samples"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    d = DATA / "reports_samples"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+    except OSError:
+        pass
+    fallback = ROOT / "public" / "reports_samples"
+    try:
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+    except OSError:
+        pass
+    tmp = Path("/tmp/reports_samples")
+    tmp.mkdir(parents=True, exist_ok=True)
+    return tmp
 
 
 def _escape_pdf_text(text: str) -> str:
