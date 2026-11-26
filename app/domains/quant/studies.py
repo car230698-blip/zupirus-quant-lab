@@ -432,11 +432,15 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
                 continue
             # Gap fill at open only when the bar never trades back to the boundary.
             # If it trades through the boundary, fill at the boundary price.
+            pure_gap = (
+                (side == "long" and bar.open > asia_high and bar.low > asia_high)
+                or (side == "short" and bar.open < asia_low and bar.high < asia_low)
+            )
             if side == "long":
-                entry = bar.open if (bar.open > asia_high and bar.low > asia_high) else asia_high
+                entry = bar.open if pure_gap else asia_high
                 stop = asia_low
             else:
-                entry = bar.open if (bar.open < asia_low and bar.high < asia_low) else asia_low
+                entry = bar.open if pure_gap else asia_low
                 stop = asia_high
             risk = abs(entry - stop)
             if risk <= 0:
@@ -444,7 +448,20 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
                 chosen = "invalid_risk"
                 break
             target = entry + risk if side == "long" else entry - risk
-            result = _walk_exit(later[index:], side, entry, stop, target)
+            retracing_fill = (
+                (side == "long" and bar.open > asia_high and not pure_gap)
+                or (side == "short" and bar.open < asia_low and not pure_gap)
+            )
+            if retracing_fill:
+                # OHLC cannot prove a target print happened after the boundary fill.
+                # On the fill bar: only allow a stop-out; never credit +1R. Then walk later bars.
+                stopped_on_fill = (
+                    (side == "long" and bar.low <= stop)
+                    or (side == "short" and bar.high >= stop)
+                )
+                result = -1.0 if stopped_on_fill else _walk_exit(later[index + 1 :], side, entry, stop, target)
+            else:
+                result = _walk_exit(later[index:], side, entry, stop, target)
             if result is None:
                 skipped_incomplete += 1
             else:

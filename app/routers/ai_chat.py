@@ -102,7 +102,12 @@ def chat_assistant(payload: ChatPayload, u=Depends(get_current_user)):
     elif any(word in question.lower() for word in ('lệnh', 'giao dịch', 'order', 'deal', 'lịch sử')):
         card_type, tool = 'orders', 'renderRecentOrdersCard'
         card = {'orders': [
-            {k: o.get(k, '') for k in ('id', 'source', 'side', 'price', 'state', 'ticket', 'deal', 'created', 'created_at')}
+            {
+                **{k: o.get(k, '') for k in ('id', 'source', 'side', 'price', 'ticket', 'deal', 'created', 'created_at')},
+                # Dashboard PDF orders expose `status`; the card historically expected `state`.
+                'state': o.get('status') or o.get('state') or '',
+                'status': o.get('status') or o.get('state') or '',
+            }
             for o in orders[:10]
         ]}
 
@@ -118,7 +123,7 @@ def chat_assistant(payload: ChatPayload, u=Depends(get_current_user)):
         'balance': sum(float(a.get('balance') or 0.0) for a in accounts),
         'equity': sum(float(a.get('equity') or 0.0) for a in accounts),
         'positions': sum(int(a.get('positions') or a.get('open_positions') or 0) for a in accounts),
-        'recent_order_statuses': [o.get('state', '') for o in orders[:10]],
+        'recent_order_statuses': [o.get('status') or o.get('state') or '' for o in orders[:10]],
     }
     answer = ai_text('Giải thích dữ liệu danh mục cho người dùng. Dữ liệu: ' +
                      json.dumps(summary, ensure_ascii=False) + mem_ctx + '\nCâu hỏi: ' + question)

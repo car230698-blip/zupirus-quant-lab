@@ -187,8 +187,31 @@ Or:
 
 Until you publish, the public catalog at `/api/v1/reports` does **not** list it.
 
-Preview PDF (committed for review): `artifacts/launch-guide/eurusd-h1-asia-london-preview.pdf`  
-Full PDF: `artifacts/launch-guide/eurusd-h1-asia-london-full.pdf`
+**Preview PDF** (committed for review): `artifacts/launch-guide/eurusd-h1-asia-london-preview.pdf`
+
+**Full PDF** is **not** in the public git tree. After migrate/boot, copy it from the API container’s private reports volume for review:
+
+```bash
+# Path inside the container / volume (created by the launch seeder):
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T api \
+  ls -la /data/reports_private/rep_eurusd_h1_asia_london_v1-v1.0-full.pdf
+
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml cp \
+  api:/data/reports_private/rep_eurusd_h1_asia_london_v1-v1.0-full.pdf \
+  "$HOME/zupirus-backups/eurusd-h1-asia-london-full-review.pdf"
+```
+
+If that file is missing, recreate once (seed renders it from the committed Yahoo candle sample):
+
+```bash
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml run --rm --no-deps api \
+  python - <<'PY'
+from app.db import tx
+from app.domains.quant.launch_guide import ensure_launch_guide_seeded
+with tx() as c:
+    print(ensure_launch_guide_seeded(c))
+PY
+```
 
 ---
 

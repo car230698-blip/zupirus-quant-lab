@@ -133,15 +133,18 @@ def test_gap_open_then_trade_through_boundary_fills_at_boundary():
     from app.domains.quant.studies import rule_backtest
 
     # Opens at 112 but trades down through 110 → boundary fill at 110.
+    # Entry-bar high 121 is before the fill path is knowable → do not credit +1R
+    # on that bar; next bar hits target at 120.
     bars = [
         _bar(2, 1, 100, 110, 100, 105),
         _bar(2, 3, 105, 108, 100, 102),
-        _bar(2, 8, 112, 121, 108, 119),
-        _bar(2, 9, 119, 120, 118, 119),
+        _bar(2, 8, 112, 121, 108, 109),
+        _bar(2, 9, 109, 121, 108, 119),
     ]
     out = rule_backtest(normalize_candles(bars), round_trip_cost_r=0.0)
     assert out["trades"]
     assert out["trades"][0]["entry"] == 110.0
+    assert out["trades"][0]["r_multiple"] == 1.0
 
 
 def test_rejects_non_finite_and_overflow_prices():
