@@ -343,6 +343,9 @@ async def api_unmatched_fallback(request: Request, full_path: str):
 async def spa_fallback(request: Request, full_path: str):
     if full_path.startswith('api/') or full_path in ('healthz', 'readyz', 'api'):
         return JSONResponse({'detail': f'Not Found: {full_path}'}, status_code=404)
+    if full_path == 'sitemap.xml':
+        from app.routers.seo_pages import get_dynamic_sitemap
+        return get_dynamic_sitemap()
     host = (request.headers.get('host') or '').lower()
     is_admin_host = host.startswith('adm.')
     if full_path == 'robots.txt' and is_admin_host:
