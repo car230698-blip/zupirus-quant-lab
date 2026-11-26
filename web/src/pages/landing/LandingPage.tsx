@@ -157,9 +157,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                 <img
                   src="/images/quant-lab-hero.jpg"
                   alt="ZUPIRUS Quant Lab XAU/USD Microstructure Research"
-                  referrerPolicy="no-referrer"
-                  onError={() => setHeroImgFailed(true)}
-                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (!target.src.endsWith('/og-zupirus.jpg')) {
+                      target.src = '/og-zupirus.jpg';
+                    } else {
+                      setHeroImgFailed(true);
+                    }
+                  }}
+                  className="h-full w-full object-cover transition-transform duration-700 hover:scale-[1.02]"
                 />
               ) : (
                 <div className="h-full w-full flex flex-col items-center justify-center p-8 text-center bg-[#0B1220]">
