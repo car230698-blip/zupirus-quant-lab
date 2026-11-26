@@ -68,7 +68,7 @@ def get_available_gateways():
     has_bep20 = is_enabled and bool(cfg.get("bep20_address"))
     return {
         "sepay": False,
-        "usdt": bool(has_trc20 or has_bep20),
+        "usdt": bool(is_enabled and (has_trc20 or has_bep20)),
         "usdt_trc20": has_trc20,
         "usdt_bep20": has_bep20,
         "supported_currencies": ["USDT", "USD"],
@@ -127,40 +127,7 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
             d["amount_usdt"] = d.get("expected_amount_usdt") or d.get("amount_usd")
             d["payment_content"] = f"USDT {d['id']}"
         else:
-            # Issue 6 Fix: Check cached order bank info from checkout, ensure SEVQR prefix for VietinBank,
-            # and calculate QR amount based on remaining underpaid balance.
-            saved_bank_info = None
-            try:
-                bi_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_bank_info:{d['id']}",)).fetchone()
-                if bi_row and bi_row[0]:
-                    saved_bank_info = json.loads(bi_row[0])
-            except Exception:
-                saved_bank_info = None
-
-            if saved_bank_info:
-                bank_name = saved_bank_info.get("bank_name")
-                bank_acc = saved_bank_info.get("account_number")
-                bank_holder = saved_bank_info.get("account_holder")
-                content_memo = saved_bank_info.get("content_memo")
-            else:
-                from app.domains.billing.service import get_effective_sepay_config
-                bank_name, bank_acc, bank_holder = get_effective_sepay_config(db_cursor=c)
-                content_memo = f"ZP {d['id'][-6:].upper()}"
-                is_vietin = str(bank_name or "").lower() in ("vietinbank", "icb")
-                if is_vietin and not content_memo.upper().startswith("SEVQR"):
-                    content_memo = f"SEVQR {content_memo}"
-
-            total_vnd = int(d.get("amount_vnd") or 0)
-            paid_vnd = float(d.get("paid_amount_vnd") or 0.0)
-            charge_vnd = max(0, int(total_vnd - paid_vnd)) if (d.get("status") == "UNDERPAID" or paid_vnd > 0) else total_vnd
-
-            encoded_memo = quote(content_memo)
-            qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={charge_vnd}&des={encoded_memo}"
-            d["qr_code_url"] = qr_url
-            d["account_number"] = bank_acc
-            d["bank_name"] = bank_name
-            d["account_holder"] = bank_holder
-            d["payment_content"] = content_memo
+            d["payment_content"] = f"ORDER {d['id']}"
         return OrderResponse(**d)
 
 

@@ -548,8 +548,8 @@ export const UserOrdersTab: React.FC<UserOrdersTabProps> = ({
                 <strong className="text-emerald-400">PASSED (Redis Lock + Hard SL)</strong>
               </div>
               <div className="flex justify-between">
-                <span>{lang === 'en' ? 'Execution Bridge' : 'Cầu nối thực thi'}</span>
-                <strong className="text-cyan-300">MetaApi London G2</strong>
+                <span>{lang === 'en' ? 'Execution Engine' : 'Động cơ kiểm định'}</span>
+                <strong className="text-cyan-300">ZUPIRUS Quant Lab (WFO)</strong>
               </div>
             </div>
 

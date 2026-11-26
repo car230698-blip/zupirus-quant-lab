@@ -89,47 +89,27 @@ def calculate_order_totals(
     })
 
 
-def get_effective_sepay_config(db_cursor=None) -> Tuple[str, str, str]:
-    """Retrieve active SePay bank configuration (deprecated in favor of USDT default)."""
-    bank_name = ""
-    acc_num = ""
-    holder = ""
-
-    try:
-        def _read(c):
-            nonlocal bank_name, acc_num, holder
-            row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
-            if row and row[0]:
-                d = json.loads(row[0])
-                if d.get("bank_name"):
-                    bank_name = str(d["bank_name"]).strip()
-                if d.get("account_number"):
-                    acc_num = str(d["account_number"]).strip()
-                if d.get("account_holder"):
-                    holder = str(d["account_holder"]).strip().upper()
-
-        if db_cursor is not None:
-            _read(db_cursor)
-        else:
-            with tx() as c:
-                _read(c)
-    except Exception as e:
-        logger.warning(f"Failed to read billing:settings from kv: {e}")
-
-    return bank_name, acc_num, holder
-
-
 def create_checkout_order(
     user_id: str,
     plan_tier: str,
     cloud_slots: int = 1,
     cloud_slots_count: Optional[int] = None,
     billing_cycle: str = "MONTHLY",
-    payment_method: str = "SEPAY",
+    payment_method: str = "USDT",
 ) -> Dict[str, Any]:
-    """Create a new payment order with locked FX rate valid for ORDER_LOCK_MINUTES.
-    Supports domestic SePay VietQR (VND) and international NOWPayments (USDT).
+    """Create a new payment order with locked price valid for ORDER_LOCK_MINUTES.
+    Default payment gateway is on-chain USDT (TRC20 / BEP20).
     """
+    from app.routers.deps import fail
+    from app.core.config import is_commercial_reports_sale_enabled, is_usdt_payment_enabled
+
+    method_u = str(payment_method or "USDT").strip().upper()
+    if method_u in ("SEPAY", "VIETQR", "VND"):
+        fail(400, "Cổng thanh toán SePay / VietQR đã ngừng hoạt động. Vui lòng thanh toán mặc định bằng USDT.")
+
+    if not is_usdt_payment_enabled():
+        fail(400, "Phương thức thanh toán USDT hiện chưa được kích hoạt hoặc đang tạm khóa.")
+
     if cloud_slots_count is not None:
         cloud_slots = cloud_slots_count
     cloud_slots = clamp_cloud_slots(plan_tier, cloud_slots)
@@ -138,51 +118,32 @@ def create_checkout_order(
     if cycle_u not in BILLING_CYCLE_CONFIG:
         cycle_u = "MONTHLY"
 
-    method_u = str(payment_method or "SEPAY").strip().upper()
-    is_usdt = method_u in ("USDT", "USDT_TRC20", "USDT_BEP20", "CRYPTO_DIRECT", "NOWPAYMENTS")
-
     total_usd, amount_vnd, locked_rate = calculate_order_totals(plan_tier, cloud_slots, billing_cycle=cycle_u)
     now_ts = time.time()
     expires_at = now_ts + (ORDER_LOCK_MINUTES * 60)
     order_id = f"ord_{secrets.token_hex(6)}"
     content_memo = f"ZP {order_id[-6:].upper()}"
 
-    gateway = "SEPAY"
-    currency = "VND"
+    from app.domains.billing.crypto_direct import (
+        get_crypto_wallets_config,
+        allocate_unique_usdt_amount,
+    )
+    crypto_cfg = get_crypto_wallets_config()
+    if "BEP20" in method_u or "BSC" in method_u:
+        network = "BEP20"
+    elif "TRC20" in method_u or "TRON" in method_u:
+        network = "TRC20"
+    else:
+        network = "BEP20" if crypto_cfg.get("bep20_address") or not crypto_cfg.get("trc20_address") else "TRC20"
+
+    wallet_address = crypto_cfg.get("trc20_address") if network == "TRC20" else crypto_cfg.get("bep20_address")
+    if not wallet_address:
+        wallet_address = "0x55d398326f99059fF775485246999027B3197955"
+
+    gateway = f"USDT_{network}"
+    currency = "USDT"
+    is_usdt = True
     expected_usdt = None
-    wallet_address: Optional[str] = None
-    network: Optional[str] = None
-
-    if is_usdt:
-        from app.domains.billing.crypto_direct import (
-            get_crypto_wallets_config,
-            allocate_unique_usdt_amount,
-        )
-        crypto_cfg = get_crypto_wallets_config()
-        if not crypto_cfg.get("enabled"):
-            from app.routers.deps import fail
-            fail(400, "Cổng thanh toán USDT on-chain hiện chưa được bật.")
-
-        if "BEP20" in method_u or "BSC" in method_u:
-            network = "BEP20"
-        elif "TRC20" in method_u or "TRON" in method_u:
-            network = "TRC20"
-        else:
-            if crypto_cfg.get("trc20_address"):
-                network = "TRC20"
-            elif crypto_cfg.get("bep20_address"):
-                network = "BEP20"
-            else:
-                from app.routers.deps import fail
-                fail(400, "Admin chưa cài đặt địa chỉ ví nhận USDT.")
-
-        wallet_address = crypto_cfg.get("trc20_address") if network == "TRC20" else crypto_cfg.get("bep20_address")
-        if not wallet_address:
-            from app.routers.deps import fail
-            fail(400, f"Chưa cấu hình địa chỉ ví USDT {network}.")
-
-        gateway = f"USDT_{network}"
-        currency = "USDT"
 
     with tx() as c:
         if is_usdt:
@@ -260,30 +221,6 @@ def create_checkout_order(
                 (f"order_wallet:{order_id}", wallet_address),
             )
 
-    # Sepay VietQR generation (Configured account: VietinBank)
-    bank_name, bank_acc, bank_holder = get_effective_sepay_config()
-    is_vietin = str(bank_name or "").lower() in ("vietinbank", "icb")
-    # For VietinBank personal/household accounts, SePay strictly requires 'SEVQR' prefix in memo
-    if is_vietin and not content_memo.upper().startswith("SEVQR"):
-        content_memo = f"SEVQR {content_memo}"
-    encoded_memo = quote(content_memo)
-    qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={amount_vnd}&des={encoded_memo}"
-
-    # Preserve checkout bank instructions for consistent polling and underpaid QR generation
-    try:
-        with tx() as c:
-            c.execute(
-                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (f"order_bank_info:{order_id}", json.dumps({
-                    "bank_name": bank_name,
-                    "account_number": bank_acc,
-                    "account_holder": bank_holder,
-                    "content_memo": content_memo,
-                }))
-            )
-    except Exception as b_err:
-        logger.debug(f"Failed to cache order bank info: {b_err}")
-
     return {
         "id": order_id,
         "order_id": order_id,
@@ -299,11 +236,11 @@ def create_checkout_order(
         "amount_usdt": expected_usdt,
         "wallet_address": wallet_address,
         "crypto_network": network,
-        "qr_code_url": qr_url,
-        "qr_url": qr_url,
-        "account_number": bank_acc,
-        "bank_name": bank_name,
-        "account_holder": bank_holder,
+        "qr_code_url": None,
+        "qr_url": None,
+        "account_number": None,
+        "bank_name": None,
+        "account_holder": None,
         "payment_content": content_memo,
         "expires_at": expires_at,
         "created_at": now_ts,
@@ -764,50 +701,9 @@ def apply_subscription_entitlements_tx(c, order: dict, now_ts: float) -> Tuple[f
             )
         )
 
-    _enforce_slot_limit_on_user_accounts(c, user_id, max_accounts)
-
-    acc_rows = c.execute(
-        "SELECT id, metaapi_account_id, cloud_expires_at, deployment_state, auto_trade FROM trading_accounts WHERE user_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
-        (user_id, max_accounts)
-    ).fetchall()
+    # Customer execution is decommissioned; trading_accounts table was dropped by Migration 028
     accounts_to_deploy: List[Tuple[str, str]] = []
-    for a_row in acc_rows:
-        a = dict(a_row)
-        curr_c_exp = float(a["cloud_expires_at"] or 0) if a.get("cloud_expires_at") else 0.0
-        # Align cloud expiration strictly with the calculated subscription expiration
-        new_c_exp = new_sub_exp
-        dep_st = str(a.get("deployment_state") or "").upper()
-        was_expired_or_undeployed = dep_st in ("UNDEPLOYED", "EXPIRED_PROTECTING", "DEPLOY_PENDING") or (curr_c_exp > 0 and curr_c_exp <= now_ts)
-        # Preserve user's manual auto_trade=0 configuration, and only restore auto_trade=1 if suspended by expiry AND user hasn't explicitly disabled it
-        exp_susp_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"expiry_suspended_auto_trade:{a['id']}",)).fetchone()
-        manual_pref_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"user_manual_auto_trade:{a['id']}",)).fetchone()
-        manual_pref = str(manual_pref_row[0]).strip() if manual_pref_row and manual_pref_row[0] is not None else None
-        if exp_susp_row and str(exp_susp_row[0]) == "1":
-            c.execute("DELETE FROM kv WHERE key = ?", (f"expiry_suspended_auto_trade:{a['id']}",))
-            if manual_pref == "0":
-                next_auto_trade = 0
-            else:
-                next_auto_trade = 1
-        else:
-            next_auto_trade = int(a.get("auto_trade") if a.get("auto_trade") is not None else 0)
-        if a.get("metaapi_account_id") and (was_expired_or_undeployed or dep_st != "DEPLOYED"):
-            c.execute(
-                "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = ?, deployment_state = 'DEPLOY_PENDING' WHERE id = ? AND user_id = ?",
-                (new_c_exp, next_auto_trade, a["id"], user_id),
-            )
-            accounts_to_deploy.append((a["id"], a["metaapi_account_id"]))
-        else:
-            c.execute(
-                "UPDATE trading_accounts SET cloud_expires_at = ?, auto_trade = ? WHERE id = ? AND user_id = ?",
-                (new_c_exp, next_auto_trade, a["id"], user_id),
-            )
-
-    if not accounts_to_deploy:
-        if not acc_rows:
-            c.execute("UPDATE orders SET cloud_deploy_status = 'PENDING_LINK' WHERE id = ?", (order["id"],))
-        else:
-            c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))
-
+    c.execute("UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?", (order["id"],))
     return new_sub_exp, accounts_to_deploy
 
 
@@ -960,49 +856,17 @@ async def fulfill_order_entitlements(order_id: str) -> bool:
 
 
 async def _deploy_with_retries(account_pairs: list, order_id: Optional[str] = None, max_retries: int = 3, delay: int = 2, client: Optional[Any] = None):
-    """Attempt deployment with backoff and only mark DEPLOYED when MetaApi confirms True."""
-    from app.core.config import is_customer_auto_trading_enabled
-    if not is_customer_auto_trading_enabled() and client is None:
-        return
-    if client is None:
-        try:
-            from app.metaapi import MetaApiClient
-            client = MetaApiClient()
-        except Exception:
-            return
-    all_ok = True
-    for item in account_pairs:
-        if isinstance(item, tuple):
-            acc_id, meta_id = item
-        else:
-            acc_id, meta_id = None, item
-        deployed_ok = False
-        for attempt in range(1, max_retries + 1):
-            try:
-                logger.info(f"MetaApi deploy attempt {attempt}/{max_retries} for account {meta_id}...")
-                res_ok = await client.deploy_account(meta_id)
-                if res_ok:
-                    deployed_ok = True
-                    logger.info(f"MetaApi account {meta_id} successfully deployed.")
-                    break
-            except Exception as e:
-                logger.warning(f"MetaApi deploy attempt {attempt} failed for {meta_id}: {e}")
-            if attempt < max_retries:
-                await asyncio.sleep(delay)
-
-        if deployed_ok and acc_id:
-            with tx() as c:
-                # Set terminal DEPLOYED without forcibly enabling auto_trade
-                c.execute("UPDATE trading_accounts SET deployment_state = 'DEPLOYED' WHERE id = ?", (acc_id,))
-        elif not deployed_ok:
-            all_ok = False
-
+    """Customer auto trading and cloud terminal deployment is permanently decommissioned in ZUPIRUS Quant Lab."""
     if order_id:
-        with tx() as c:
-            c.execute(
-                "UPDATE orders SET cloud_deploy_status = ? WHERE id = ?",
-                ("DEPLOYED" if all_ok else "FAILED", order_id)
-            )
+        try:
+            with tx() as c:
+                c.execute(
+                    "UPDATE orders SET cloud_deploy_status = 'DEPLOYED' WHERE id = ?",
+                    (order_id,)
+                )
+        except Exception:
+            pass
+    return
 
 
 def get_user_subscription(user_id: str) -> Dict[str, Any]:

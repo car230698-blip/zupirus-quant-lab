@@ -106,7 +106,7 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
           <tr><th>Dịch vụ</th><th>Số Slot MT5</th><th>Thành tiền (VND)</th></tr>
           <tr><td>Gói Cloud MT5 ${safeTier}</td><td>${safeSlots}</td><td><strong>${escapeHtml(amount)} ₫</strong></td></tr>
         </table>
-        <p style="margin-top:28px;font-size:12px;color:#64748b">Xác nhận tự động bởi hệ thống đối soát SePay VietQR — https://app.zupirus.com</p>
+        <p style="margin-top:28px;font-size:12px;color:#64748b">Xác nhận tự động bởi hệ thống ZUPIRUS Quant Lab — https://zupirus.com</p>
       </body></html>
     `);
     w.document.close();
@@ -185,7 +185,7 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-300">
-              {lang === 'en' ? 'PAYMENT & BILLING HISTORY' : 'LỊCH SỬ THANH TOÁN SEPAY'}
+              {lang === 'en' ? 'PAYMENT & BILLING HISTORY' : 'LỊCH SỬ ĐƠN HÀNG & BIÊN LAI'}
             </span>
             <h3 className="mt-0.5 text-base font-bold text-white">
               {lang === 'en' ? 'Orders & Digital Invoices (PDF)' : 'Đơn Hàng & Hóa Đơn Điện Tử (PDF)'}
@@ -197,8 +197,8 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
         {orders.length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/10 bg-[#040710]/50 p-6 text-center text-xs text-slate-400">
             {lang === 'en'
-              ? 'No billing transactions found. Once you subscribe or renew, digital invoices will appear here.'
-              : 'Chưa có giao dịch SePay nào. Sau khi tạo đơn hoặc gia hạn gói, biên lai điện tử sẽ xuất hiện tại đây.'}
+              ? 'No billing transactions found. Once you purchase a report, digital receipts will appear here.'
+              : 'Chưa có giao dịch nào. Sau khi mua báo cáo, biên lai điện tử sẽ xuất hiện tại đây.'}
           </div>
         ) : (
           <div className="space-y-2 max-h-56 overflow-y-auto pr-1 font-mono text-xs tabular-nums">

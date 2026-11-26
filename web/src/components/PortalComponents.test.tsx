@@ -112,9 +112,9 @@ test('LandingPricingAndFaqSection renders all pricing tiers and FAQ items', () =
       onEnterPortal: noop,
     }),
   );
-  assert.match(html, /Ấn phẩm PDF, tính giá từng cuốn/);
+  assert.match(html, /Ấn Phẩm Nghiên Cứu Định Lượng/);
   assert.match(html, /Câu Hỏi Thường Gặp/);
-  assert.match(html, /ZUPIRUS có vào lệnh giúp tôi không/);
+  assert.match(html, /ZUPIRUS Quant Lab là gì/);
 });
 
 test('QuantReportCatalogAndLibrary renders published XAU/USD PDF research catalog and sample preview link', () => {

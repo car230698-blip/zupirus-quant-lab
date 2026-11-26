@@ -463,34 +463,34 @@ LEGAL_TERMS_VERSION = "2026.1"
 
 LEGAL_DISCLAIMER_TEXT = {
     "version": LEGAL_TERMS_VERSION,
-    "title": "ĐIỀU KHOẢN DỊCH VỤ & MIỄN TRỪ TRÁCH NHIỆM RỦI RO GIAO DỊCH VỐN THỰC (HIGH-RISK REAL TRADING DISCLAIMER)",
-    "effective_date": "2026-11-15",
-    "summary": "Quy định bắt buộc về nhận thức rủi ro thị trường tài chính, rủi ro đòn bẩy Vàng (XAU/USD) và miễn trừ trách nhiệm pháp lý khi liên kết tài khoản MT5 Real.",
+    "title": "ĐIỀU KHOẢN DỊCH VỤ & MIỄN TRỪ TRÁCH NHIỆM BÁO CÁO NGHIÊN CỨU ĐỊNH LƯỢNG",
+    "effective_date": "2026-11-26",
+    "summary": "Quy định bắt buộc về bản chất thông tin nghiên cứu định lượng độc lập, không cấu thành lời khuyên đầu tư tài chính và miễn trừ trách nhiệm pháp lý.",
     "clauses": [
         {
             "id": "risk_warning",
-            "title": "1. Cảnh báo rủi ro đòn bẩy và biến động thị trường",
-            "content": "Giao dịch ký quỹ đối với Vàng (XAU/USD) và các hợp đồng chênh lệch (CFD) có mức độ rủi ro vốn rất cao do tác động của đòn bẩy tài chính. Biến động giá có thể diễn ra với tốc độ cực nhanh trong các khung giờ tin tức vĩ mô (NFP, CPI, Lãi suất FED), có thể dẫn đến việc sụt giảm tài sản hoặc mất toàn bộ số dư ký quỹ trong tài khoản của bạn."
+            "title": "1. Cảnh báo rủi ro biến động thị trường Vàng (XAU/USD)",
+            "content": "Thị trường Vàng (XAU/USD) và các công cụ phái sinh tài chính có tính biến động và độ rủi ro vốn rất cao. Mọi số liệu mô hình hóa quá khứ, kiểm định ngoài mẫu (Out-of-Sample) và kiểm định cuộn (Walk-Forward Optimization) được trình bày trong các ấn phẩm mang tính chất nghiên cứu khoa học, không bảo đảm kết quả tương tự trong tương lai."
         },
         {
             "id": "technology_scope",
-            "title": "2. Bản chất công cụ công nghệ & Không nhận ủy thác",
-            "content": "ZUPIRUS Quant Lab là nền tảng công nghệ định lượng tự hành cung cấp bộ công cụ phân tích thị trường, mô hình hóa dữ liệu và sao chép tín hiệu kỹ thuật. Chúng tôi TUYỆT ĐỐI KHÔNG phải là quỹ đầu tư, không cung cấp dịch vụ ủy thác tài chính, không bảo hiểm rủi ro và không cam kết tỷ lệ lợi nhuận danh nghĩa."
+            "title": "2. Bản chất nghiên cứu định lượng & Không nhận ủy thác",
+            "content": "ZUPIRUS Quant Lab là phòng nghiên cứu định lượng độc lập, chỉ phát hành các ấn phẩm báo cáo dữ liệu định lượng. Chúng tôi TUYỆT ĐỐI KHÔNG phải là quỹ đầu tư, không cung cấp dịch vụ ủy thác tài chính, không bảo hiểm rủi ro, không tự động đặt lệnh hay quản lý tài khoản giao dịch cho khách hàng."
         },
         {
-            "id": "broker_execution",
-            "title": "3. Rủi ro trượt giá (Slippage) & Giãn Spread của sàn môi giới",
-            "content": "Giá khớp lệnh thực tế trên tài khoản MT5 của bạn phụ thuộc hoàn toàn vào thanh khoản, độ trễ mạng và chính sách khớp lệnh của Nhà môi giới (Broker) mà bạn tự chọn. ZUPIRUS không chịu trách nhiệm đối với sự chênh lệch giá (slippage), trượt điểm dừng lỗ (Stop Loss) hoặc từ chối lệnh từ phía máy chủ của sàn."
+            "id": "cost_modeling",
+            "title": "3. Giả định mô hình chi phí & Độ trượt giá thực tế",
+            "content": "Các chỉ số Expectancy (R), Profit Factor và Drawdown trong báo cáo được tính toán dựa trên các mô hình chi phí giả định (Friction Cost: Spread, Commission, Slippage). Trong điều kiện thực tế, các yếu tố thanh khoản của sàn, trượt giá và giãn spread có thể làm sai lệch kết quả giao dịch so với mô hình lý thuyết."
         },
         {
-            "id": "default_sandbox",
-            "title": "4. Chế độ Sandbox an toàn & Khuyến nghị thử nghiệm Demo",
-            "content": "Mặc định toàn bộ hệ thống ZUPIRUS Quant Lab luôn vận hành ở chế độ Demo & Replay để bảo vệ nguồn vốn của nhà đầu tư. Chúng tôi khuyến nghị người dùng phải kiểm nghiệm chiến lược tối thiểu 30 ngày trên tài khoản Demo trước khi cân nhắc bất kỳ quyết định kết nối vốn thực nào."
+            "id": "ip_rights",
+            "title": "4. Bản quyền ấn phẩm nghiên cứu PDF & Quyền truy cập",
+            "content": "Các bản đọc thử (Sample PDF) được cung cấp công khai cho mục đích tham khảo. Các báo cáo đầy đủ (Full PDF) được cấp quyền sử dụng cá nhân cho người mua chính thức. Nghiêm cấm mọi hành vi sao chép, phát tán trái phép các ấn phẩm độc quyền của ZUPIRUS Quant Lab."
         },
         {
             "id": "user_responsibility",
             "title": "5. Cam kết tự nguyện và tự chịu trách nhiệm dân sự",
-            "content": "Bằng việc bấm ký điện tử và bật công tắc 'Cho phép mở rộng kết nối Real MT5', bạn xác nhận bạn đã đủ 18 tuổi, có đầy đủ năng lực hành vi dân sự, hoàn toàn tự nguyện quyết định mức rủi ro trên tài khoản cá nhân và đồng ý miễn trừ toàn bộ trách nhiệm pháp lý cho ZUPIRUS Quant Lab đối với bất kỳ thiệt hại tài chính nào phát sinh."
+            "content": "Bằng việc sử dụng nền tảng và tải các báo cáo định lượng, bạn xác nhận bạn đã đủ 18 tuổi, có đầy đủ năng lực hành vi dân sự, tự chịu trách nhiệm đối với mọi quyết định tài chính của cá nhân và đồng ý miễn trừ toàn bộ trách nhiệm pháp lý cho ZUPIRUS Quant Lab đối với bất kỳ thiệt hại nào phát sinh."
         }
     ]
 }

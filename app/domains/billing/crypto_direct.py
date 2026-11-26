@@ -116,8 +116,11 @@ def get_crypto_wallets_config(db_cursor: Optional[Any] = None) -> Dict[str, Any]
                     trc20 = str(data.get("usdt_trc20_address") or data.get("trc20_address") or "").strip()
                     bep20 = str(data.get("usdt_bep20_address") or data.get("bep20_address") or "").strip()
                     has_wallets = bool(trc20 or bep20)
+                    env_on = os.getenv("PAYMENT_USDT_ENABLED", "").strip().lower() in ("1", "true", "yes")
+                    saved_on = bool(data.get("enabled", False))
+                    is_enabled = (env_on or saved_on) and has_wallets
                     return {
-                        "enabled": bool(data.get("enabled", True)) and has_wallets,
+                        "enabled": is_enabled,
                         "trc20_address": trc20,
                         "bep20_address": bep20,
                         "usdt_trc20_address": trc20,
@@ -128,8 +131,9 @@ def get_crypto_wallets_config(db_cursor: Optional[Any] = None) -> Dict[str, Any]
             except Exception as e:
                 logger.warning(f"Failed parsing crypto_wallets config: {e}")
         has_default_wallets = bool(DEFAULT_TRC20_WALLET or DEFAULT_BEP20_WALLET)
+        env_on = os.getenv("PAYMENT_USDT_ENABLED", "").strip().lower() in ("1", "true", "yes")
         return {
-            "enabled": has_default_wallets,
+            "enabled": env_on and has_default_wallets,
             "trc20_address": DEFAULT_TRC20_WALLET,
             "bep20_address": DEFAULT_BEP20_WALLET,
             "usdt_trc20_address": DEFAULT_TRC20_WALLET,

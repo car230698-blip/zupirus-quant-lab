@@ -33,32 +33,8 @@ ORDER_LOCK_MINUTES = 20
 
 def is_customer_auto_trading_enabled(db_cursor=None) -> bool:
     """Determine whether customer auto-trading, MetaApi client dispatch, and copy trade are enabled.
-    In production, this is HARD-LOCKED TO FALSE with zero configuration bypass to strictly enforce the pivot
-    to ZUPIRUS Quant Lab (research reports & PDF sales only).
-    Only legacy test harnesses running in non-production environments may temporarily simulate legacy execution."""
-    app_env = os.getenv("APP_ENV", "dev").strip().lower()
-    in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST"))
-    if app_env in ("production", "prod") and not in_pytest:
-        return False
-
-    env_val = os.getenv("ENABLE_LEGACY_CUSTOMER_EXECUTION", "").strip().lower()
-    if env_val in ("1", "true", "yes"):
-        return True
-    if env_val in ("0", "false", "no"):
-        return False
-    try:
-        if db_cursor is not None:
-            row = db_cursor.execute("SELECT value FROM kv WHERE key = 'ENABLE_LEGACY_CUSTOMER_EXECUTION'").fetchone()
-            if row and str(row[0]).strip().lower() in ("1", "true", "yes"):
-                return True
-        else:
-            from app.db import tx
-            with tx() as c:
-                row = c.execute("SELECT value FROM kv WHERE key = 'ENABLE_LEGACY_CUSTOMER_EXECUTION'").fetchone()
-                if row and str(row[0]).strip().lower() in ("1", "true", "yes"):
-                    return True
-    except Exception:
-        pass
+    In ZUPIRUS Quant Lab, customer auto-trading and MT5 broker execution are permanently decommissioned.
+    Returns False unconditionally with zero configuration bypass."""
     return False
 
 
@@ -67,5 +43,31 @@ def is_commercial_reports_sale_enabled() -> bool:
     Defaults to False to prevent selling unvetted seed/sample reports until admin publishes real commercial PDFs."""
     val = os.getenv("COMMERCIAL_REPORTS_SALE_ENABLED", "").strip().lower()
     return val in ("1", "true", "yes")
+
+
+def is_usdt_payment_enabled(db_cursor=None) -> bool:
+    """Determine whether on-chain USDT direct payment is enabled.
+    Strictly isolated from commercial report sales flag: commercial sales may be enabled
+    while USDT remains locked, and vice versa. Defaults to False."""
+    env_val = os.getenv("PAYMENT_USDT_ENABLED", "").strip().lower()
+    if env_val in ("1", "true", "yes"):
+        return True
+    if env_val in ("0", "false", "no"):
+        return False
+    try:
+        if db_cursor is not None:
+            row = db_cursor.execute("SELECT value FROM kv WHERE key = 'billing:crypto_wallets'").fetchone()
+        else:
+            from app.db import tx
+            with tx() as c:
+                row = c.execute("SELECT value FROM kv WHERE key = 'billing:crypto_wallets'").fetchone()
+        if row and row[0]:
+            import json
+            cfg = json.loads(row[0])
+            if isinstance(cfg, dict):
+                return bool(cfg.get("enabled", False))
+    except Exception:
+        pass
+    return False
 
 

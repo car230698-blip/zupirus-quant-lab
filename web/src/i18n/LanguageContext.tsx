@@ -131,35 +131,35 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (typeof window !== 'undefined') {
       document.documentElement.lang = lang;
       if (lang === 'en') {
-        document.title = 'ZUPIRUS Quant Lab — Statistical studies of gold, forex, and indices';
+        document.title = 'ZUPIRUS Quant Lab — Institutional XAU/USD Quantitative Research & PDF Reports';
         const metaDesc = document.querySelector('meta[name="description"]');
         if (metaDesc) {
           metaDesc.setAttribute(
             'content',
-            'Educational quantitative studies of gold, forex, and indices, sold as PDF guides. Free previews. No automated execution and no profit promise.'
+            'Institutional XAU/USD & COMEX Gold quantitative research platform. Verifiable Walk-Forward out-of-sample evidence, friction cost models, and downloadable PDF publications.'
           );
         }
         const metaKw = document.querySelector('meta[name="keywords"]');
         if (metaKw) {
           metaKw.setAttribute(
             'content',
-            'ZUPIRUS, quantitative research, XAUUSD statistics, forex study PDF, trading methodology'
+            'ZUPIRUS Quant Lab, XAUUSD quantitative research, gold market microstructure, walk forward optimization, quant PDF reports, COMEX gold analysis'
           );
         }
       } else {
-        document.title = 'ZUPIRUS Quant Lab — Nghiên cứu thống kê vàng, ngoại hối và chỉ số';
+        document.title = 'ZUPIRUS Quant Lab — Phòng Nghiên Cứu Định Lượng Vàng XAU/USD & Báo Cáo PDF';
         const metaDesc = document.querySelector('meta[name="description"]');
         if (metaDesc) {
           metaDesc.setAttribute(
             'content',
-            'Nghiên cứu thống kê vàng, ngoại hối và chỉ số, xuất bản dạng PDF. Có bản đọc thử. Không thực thi lệnh tự động và không cam kết lợi nhuận.'
+            'Nền tảng nghiên cứu định lượng độc lập chuyên sâu về vi cấu trúc thị trường Vàng XAU/USD & COMEX. Kiểm định Walk-Forward ngoài mẫu, mô hình chi phí ma sát thực tế và tải ấn phẩm PDF bản quyền.'
           );
         }
         const metaKw = document.querySelector('meta[name="keywords"]');
         if (metaKw) {
           metaKw.setAttribute(
             'content',
-            'ZUPIRUS, nghiên cứu định lượng, thống kê XAUUSD, PDF phương pháp giao dịch, vàng, ngoại hối'
+            'ZUPIRUS Quant Lab, nghiên cứu định lượng vàng, báo cáo định lượng XAUUSD, kiểm định walk forward ngoài mẫu, vi cấu trúc thị trường vàng, báo cáo pdf định lượng'
           );
         }
       }

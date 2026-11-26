@@ -22,7 +22,7 @@ import math
 import random
 from typing import Dict, Any, List, Tuple, Optional
 
-from app.domains.execution.regime_strategies import (
+from app.domains.ai.regime_strategies import (
     classify_market_regime,
     strat_trend_breakout,
     strat_liquidity_sweep,

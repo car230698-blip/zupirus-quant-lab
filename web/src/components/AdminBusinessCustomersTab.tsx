@@ -168,7 +168,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
             {totalRevenueVnd.toLocaleString('vi-VN')} đ
           </div>
           <div className="mt-1 text-[11px] text-slate-500">
-            {lang === 'en' ? 'Automated SePay Recon' : 'Đối soát tự động SePay'}
+            {lang === 'en' ? 'Direct USDT On-Chain' : 'Đối soát trực tiếp USDT On-Chain'}
           </div>
         </div>
 
@@ -192,19 +192,19 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
             {pendingOrdersCount}
           </div>
           <div className="mt-1 text-[11px] text-slate-500">
-            {lang === 'en' ? 'Awaiting QR scan or review' : 'Chờ quét mã hoặc cần duyệt'}
+            {lang === 'en' ? 'Awaiting crypto transfer or review' : 'Chờ xác nhận on-chain hoặc cần duyệt'}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-5">
           <div className="text-[11px] text-slate-400 uppercase tracking-wider">
-            {lang === 'en' ? 'Active MT5 Accounts' : 'Tài Khoản MT5 Đang Chạy'}
+            {lang === 'en' ? 'Customer Records' : 'Lưu Trữ Khách Hàng'}
           </div>
           <div className="mt-1 text-2xl font-bold text-white tabular-nums">
             {accounts.length}
           </div>
           <div className="mt-1 text-[11px] text-slate-500">
-            {lang === 'en' ? 'Connected to Cloud London G2' : 'Đấu nối Cloud London G2'}
+            {lang === 'en' ? 'Historical & Active Entitlements' : 'Hồ sơ khách hàng & quyền báo cáo'}
           </div>
         </div>
       </div>
@@ -235,7 +235,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <span>{lang === 'en' ? 'Billing Orders' : 'Đơn Hàng SePay'}</span>
+          <span>{lang === 'en' ? 'Report Orders (USDT)' : 'Đơn Mua Báo Cáo (USDT)'}</span>
           {pendingOrdersCount > 0 && (
             <span className="ml-2 rounded-full bg-[#F5B700]/20 px-2 py-0.5 font-mono text-[10px] text-[#F5B700]">
               {pendingOrdersCount}
@@ -273,7 +273,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <span>{lang === 'en' ? 'VietQR Gateway & FX Rates' : 'Cấu Hình VietQR & Tỷ Giá'}</span>
+          <span>{lang === 'en' ? 'USDT Gateway & FX Rates' : 'Cấu Hình Ví USDT & Tỷ Giá'}</span>
           {activeSubTab === 'settings' && (
             <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#12B5A6]" />
           )}
@@ -289,7 +289,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
               <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6]">
-                {lang === 'en' ? 'AUTOMATED BILLING RECONCILIATION' : 'ĐỐI SOÁT TỰ ĐỘNG SEPAY'}
+                {lang === 'en' ? 'DIRECT ON-CHAIN BILLING RECONCILIATION' : 'ĐỐI SOÁT TỰ ĐỘNG USDT'}
               </div>
               <h3 className="mt-0.5 text-base font-bold text-white">
                 {lang === 'en' ? 'Service Plan Orders' : 'Danh Sách Đơn Hàng Gói Dịch Vụ'}
@@ -472,7 +472,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
         </div>
       )}
 
-      {/* SUBTAB 2: CUSTOMERS & MT5 ACCOUNTS */}
+      {/* SUBTAB 2: CUSTOMERS ARCHIVE */}
       {activeSubTab === 'customers' && (
         <div className="space-y-6">
           {/* Search bar */}
@@ -481,20 +481,20 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               type="text"
               value={searchUserQuery}
               onChange={(e) => setSearchUserQuery(e.target.value)}
-              placeholder="Tìm kiếm nhanh theo email, mã MT5 login, máy chủ..."
+              placeholder="Tìm kiếm nhanh theo email hoặc thông tin tài khoản..."
               className="w-full max-w-md rounded-xl border border-slate-800 bg-[#10192B] px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:border-[#12B5A6] focus:outline-none"
             />
           </div>
 
-          {/* Customer MT5 Accounts */}
+          {/* Customer Archive */}
           <div className="rounded-2xl border border-slate-800/80 bg-[#10192B] p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6]">
-                  TÀI KHOẢN CLOUD MT5
+                  LƯU TRỮ HỒ SƠ KHÁCH HÀNG
                 </div>
                 <h3 className="mt-0.5 text-base font-bold text-white">
-                  Danh Sách Tài Khoản Đang Đấu Nối ({searchedAccounts.length})
+                  Danh Sách Hồ Sơ Khách Hàng ({searchedAccounts.length})
                 </h3>
               </div>
             </div>
@@ -503,10 +503,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 text-[11px] uppercase text-slate-400 font-mono">
-                    <th className="py-2.5 pr-4">MT5 Login / Server</th>
+                    <th className="py-2.5 pr-4">Tài Khoản / Máy Chủ</th>
                     <th className="py-2.5 pr-4">Loại Tài Khoản</th>
                     <th className="py-2.5 pr-4">Balance / Equity</th>
-                    <th className="py-2.5 pr-4">Trạng Thái Cloud</th>
+                    <th className="py-2.5 pr-4">Trạng Thái Hồ Sơ</th>
                     <th className="py-2.5 text-right">Thao Tác</th>
                   </tr>
                 </thead>
@@ -514,7 +514,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                   {searchedAccounts.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-6 text-center text-slate-400 font-sans">
-                        Không tìm thấy tài khoản MT5 nào.
+                        Không tìm thấy hồ sơ khách hàng nào.
                       </td>
                     </tr>
                   ) : (

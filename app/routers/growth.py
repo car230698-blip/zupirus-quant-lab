@@ -37,7 +37,7 @@ def get_my_referral(u=Depends(get_current_user)) -> Dict[str, Any]:
         "referred_count": int(stats.get("referred_count", 0)),
         "bonus_days_earned": int(stats.get("bonus_days", 0)),
         "referred_by": referred_by or None,
-        "reward_rule": "Tặng +7 ngày Cloud MT5 cho người giới thiệu và +3 ngày chào mừng cho người được mời.",
+        "reward_rule": "Tặng +7 ngày quyền truy cập nghiên cứu định lượng cho người giới thiệu và +3 ngày chào mừng cho người được mời.",
     }
 
 
@@ -91,7 +91,7 @@ def apply_referral_code(p: ApplyReferralPayload, u=Depends(get_current_user)) ->
     return {
         "ok": True,
         "code": code,
-        "message": "Áp dụng mã giới thiệu thành công! Bạn được cộng +3 ngày Cloud MT5 và người giới thiệu nhận +7 ngày.",
+        "message": "Áp dụng mã giới thiệu thành công! Bạn được cộng +3 ngày quyền truy cập Quant Lab và người giới thiệu nhận +7 ngày.",
     }
 
 

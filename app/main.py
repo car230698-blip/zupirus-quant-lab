@@ -129,7 +129,7 @@ async def perimeter(request: Request, call_next):
             if len(body_bytes) > max_body_size:
                 return JSONResponse({'detail': 'Body too large'}, 413)
         # External webhooks bypass browser origin checks
-        if request.url.path.startswith('/api/v1/webhooks') or request.url.path.startswith('/api/sepay') or request.url.path.startswith('/api/webhooks'):
+        if request.url.path.startswith('/api/v1/webhooks') or request.url.path.startswith('/api/webhooks'):
             return await call_next(request)
         origin = request.headers.get('origin')
         if origin and origin not in ORIGINS:
@@ -140,7 +140,7 @@ async def perimeter(request: Request, call_next):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Content-Security-Policy'] = (
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://qr.sepay.vn https://*.sepay.vn "
+        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: "
         "https://img.vietqr.io https://api.vietqr.io https://*.vietqr.io https://vietqr.net https://api.qrserver.com; connect-src 'self'; "
         "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     )
@@ -192,12 +192,10 @@ def readyz():
             app_env_check = os.getenv("APP_ENV", "dev").strip().lower()
             in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST"))
             with tx() as c:
-                hb = c.execute("SELECT value FROM kv WHERE key='execution_heartbeat'").fetchone()
                 rhb = c.execute("SELECT value FROM kv WHERE key='research_heartbeat'").fetchone()
-                if hb is not None or rhb is not None:
+                if rhb is not None:
                     has_hb_records = True
 
-                hb_val = float(hb[0]) if hb and hb[0] else 0.0
                 rhb_val = float(rhb[0]) if rhb and rhb[0] else 0.0
 
                 if app_env_check == "production" and not in_pytest:

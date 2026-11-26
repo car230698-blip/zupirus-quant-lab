@@ -103,8 +103,9 @@ export function humanizeAuditEntry(entry: any): { title: string; subtitle?: stri
       return { title: `Khôi phục chiến lược (Rollback): ${detail}`, isWarn: true, rawJson };
     case 'QUOTA_OVERRIDE':
       return { title: `Mở rộng hạn mức Quota: ${detail}`, isWarn: false, rawJson };
+    case 'USDT_ONCHAIN_TX':
     case 'SEPAY_WEBHOOK':
-      return { title: `Tín hiệu SePay: ${detail}`, isWarn: false, rawJson };
+      return { title: `Tín hiệu thanh toán: ${detail}`, isWarn: false, rawJson };
     default:
       return {
         title: entry.title || `${action}: ${detail || 'Sự kiện hệ thống'}`,
@@ -534,9 +535,9 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className={`h-2 w-2 rounded-full ${healthMap['metaapi']?.ok !== false ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span className="text-slate-400">MetaApi:</span>
-                  <span className={`font-bold ${healthMap['metaapi']?.ok !== false ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  <span className={`h-2 w-2 rounded-full ${healthMap['timescale']?.ok !== false ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                  <span className="text-slate-400">Database:</span>
+                  <span className={`font-bold ${healthMap['timescale']?.ok !== false ? 'text-emerald-300' : 'text-amber-300'}`}>
                     ONLINE
                   </span>
                 </div>
@@ -770,14 +771,14 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                   {pendingBillingCount > 0 && (
                     <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-3.5 flex items-center justify-between gap-3">
                       <div className="text-xs font-sans text-cyan-200">
-                        Có <strong className="text-white font-mono">{pendingBillingCount}</strong> đơn SePay đang chờ duyệt.
+                        Có <strong className="text-white font-mono">{pendingBillingCount}</strong> đơn USDT đang chờ duyệt.
                       </div>
                       <button
                         type="button"
                         onClick={() => onNavigateTab('business')}
                         className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs font-sans transition cursor-pointer shrink-0"
                       >
-                        Duyệt SePay →
+                        Duyệt Đơn USDT →
                       </button>
                     </div>
                   )}
@@ -921,12 +922,12 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
                 </span>
               </div>
 
-              {/* Node 4: MetaApi Cloud G2 */}
+              {/* Node 4: Quant Research Engine */}
               <div className="flex items-center gap-1.5">
-                <span className={`h-1.5 w-1.5 rounded-full ${healthMap['metaapi']?.ok !== false ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                <span className="text-slate-400">MetaApi G2:</span>
-                <span className={`font-bold ${healthMap['metaapi']?.ok !== false ? 'text-emerald-300' : 'text-amber-300'}`}>
-                  {healthMap['metaapi']?.status_text || 'ONLINE'}
+                <span className={`h-1.5 w-1.5 rounded-full ${healthMap['research']?.ok !== false ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                <span className="text-slate-400">Research WFO:</span>
+                <span className={`font-bold ${healthMap['research']?.ok !== false ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {healthMap['research']?.status_text || 'READY'}
                 </span>
               </div>
             </div>
@@ -1010,7 +1011,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
               {totalNeedsMeCount}
             </div>
             <div className="text-[10px] text-slate-400 font-sans">
-              {pendingStrategiesCount} chiến lược · {pendingBillingCount} đơn SePay
+              {pendingStrategiesCount} chiến lược · {pendingBillingCount} đơn USDT
             </div>
           </SpotlightBento>
 
@@ -1066,7 +1067,7 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
             <div className="flex items-center gap-3">
               <span className="h-2 w-2 rounded-full bg-emerald-400" />
               <span className="text-xs text-emerald-300 font-sans">
-                Hệ thống vận hành ổn định — Toàn bộ chiến lược, hạn mức và đơn hàng SePay đều không có việc tồn đọng.
+                Hệ thống vận hành ổn định — Toàn bộ chiến lược, báo cáo và đơn hàng USDT đều không có việc tồn đọng.
               </span>
             </div>
             <span className="text-[10px] font-mono text-emerald-400/80">STANDBY</span>
@@ -1092,13 +1093,13 @@ export const AdminCommandRadarTab: React.FC<AdminCommandRadarTabProps> = ({
               </div>
             )}
 
-            {/* Warning: Pending SePay Orders */}
+            {/* Warning: Pending USDT Orders */}
             {pendingBillingCount > 0 && (
               <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-3.5 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <span className="h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
                   <div className="text-xs font-sans text-cyan-200">
-                    Có <strong className="text-white font-mono">{pendingBillingCount}</strong> đơn nạp SePay đang chờ xác nhận hạn mức.
+                    Có <strong className="text-white font-mono">{pendingBillingCount}</strong> đơn mua báo cáo USDT đang chờ xác nhận.
                   </div>
                 </div>
                 <button

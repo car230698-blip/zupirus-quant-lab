@@ -75,27 +75,10 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
                 pass
         ai_ready = (active_gemini > 0 or has_custom_ai) and res_ok
 
-        # MetaApi & MT5 accounts
-        meta_token = os.getenv("METAAPI_TOKEN", "").strip()
-        meta_token_ok = bool(meta_token and meta_token.lower() not in ("mock", "test", "demo", "none"))
-        acc_rows = c.execute("SELECT id, mt5_login, deployment_state FROM trading_accounts").fetchall()
-        deployed_cnt = sum(1 for a in acc_rows if str(a[2] or "").upper() == "DEPLOYED")
-        pending_cnt = sum(1 for a in acc_rows if str(a[2] or "").upper() in ("DEPLOY_PENDING", "FAILED"))
-
-        # SePay config & underpaid/pending orders
-        billing_cfg_row = getkv(c, "billing:settings")
-        billing_cfg = {}
-        if billing_cfg_row:
-            try:
-                billing_cfg = json.loads(billing_cfg_row)
-            except Exception:
-                billing_cfg = {}
-        sepay_secret_ok = True
-        sepay_bank = billing_cfg.get("account_number") or getkv(c, "sepay_bank_account") or getkv(c, "sepay_account_number")
-        sepay_ready = True
-        underpaid_orders = c.execute(
-            "SELECT id, amount_vnd, paid_amount_vnd, status, created_at FROM orders WHERE status IN ('UNDERPAID', 'FAILED') ORDER BY created_at DESC LIMIT 5"
-        ).fetchall()
+        # Research & Report Storage
+        from app.domains.reports.service import ensure_flagship_sample_report_seeded
+        ensure_flagship_sample_report_seeded(c)
+        report_cnt = c.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0]
 
         # Recent AI Signal Audits -> Natural-language timeline
         sig_logs = c.execute(
@@ -143,15 +126,6 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         timeline = timeline[:20]
 
         # Build Error & Alert Center
-        if not meta_token_ok:
-            alerts.append({
-                "id": "missing_metaapi_token",
-                "severity": "error",
-                "title": "Chưa cấu hình METAAPI_TOKEN thật trên máy chủ",
-                "detail": "Hệ thống chưa thể kết nối sàn MT5 thật cho khách hàng. Cần điền METAAPI_TOKEN vào file .env trên VPS.",
-                "action_label": "Kiểm tra Khách hàng & MT5",
-                "action_tab": "business",
-            })
         if active_gemini == 0 and not has_custom_ai:
             alerts.append({
                 "id": "no_active_ai_key",
@@ -170,33 +144,6 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
                 "action_label": "Quản lý Gemini Pool",
                 "action_tab": "ai",
             })
-        if pending_cnt > 0:
-            alerts.append({
-                "id": "pending_mt5_deploy",
-                "severity": "warning",
-                "title": f"{pending_cnt} tài khoản MT5 đang chờ triển khai Cloud (DEPLOY_PENDING)",
-                "detail": "MetaApi gặp lỗi tạm thời khi mở kết nối. Bạn có thể bấm thử lại ngay hoặc chờ chu kỳ tự động.",
-                "action_label": "Thử lại Deploy ngay",
-                "action_type": "retry_deploy",
-            })
-        for uo in underpaid_orders:
-            alerts.append({
-                "id": f"order_{uo[0]}",
-                "severity": "warning",
-                "title": f"Đơn hàng {uo[0]} bị {uo[3]}",
-                "detail": f"Khách đã chuyển {int(uo[2] or 0):,} / {int(uo[1] or 0):,} VND. Cần kiểm tra đối soát hoặc duyệt bù.",
-                "action_label": "Xử lý đơn hàng",
-                "action_tab": "business",
-            })
-        if not exec_ok:
-            alerts.append({
-                "id": "exec_worker_slow",
-                "severity": "error",
-                "title": "Tiến trình thực thi (Execution Worker) bị chậm nhịp",
-                "detail": "Không nhận được nhịp tim trong 60 giây qua. Kiểm tra container zupirus-prod-execution-1.",
-                "action_label": "Làm mới",
-                "action_type": "refresh",
-            })
 
         auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
         auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
@@ -207,7 +154,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         canary_strat = c.execute("SELECT name FROM strategy_candidates WHERE status = 'CANARY_DEMO' ORDER BY updated_at DESC LIMIT 1").fetchone()
 
         # Realtime market regime & meta-router telemetry
-        from app.domains.execution.regime_strategies import RegimeMetaRouter
+        from app.domains.ai.regime_strategies import RegimeMetaRouter
         from app.domains.ai.macro_station import evaluate_macro_filter
         macro_state = evaluate_macro_filter(symbol="XAUUSD", side="BUY", now_ts=now_ts, db_cursor=c)
         router = RegimeMetaRouter(db_cursor=c)
@@ -227,21 +174,21 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         },
         {
             "key": "ai_swarm",
-            "title": "Bộ não AI Swarm",
+            "title": "Bộ não AI Swarm & WFO",
             "ok": ai_ready,
             "status_text": f"Đang hoạt động ({active_gemini} Key)" if ai_ready else "Lỗi API Key / Worker",
         },
         {
-            "key": "metaapi",
-            "title": "Kết nối sàn MT5 (MetaApi)",
-            "ok": meta_token_ok,
-            "status_text": f"Sẵn sàng ({deployed_cnt} trạm)" if meta_token_ok else "Chưa cấu hình Token",
+            "key": "reports_vault",
+            "title": "Kho Báo cáo & Kiểm định PDF",
+            "ok": True,
+            "status_text": f"Sẵn sàng ({report_cnt} ấn phẩm)",
         },
         {
             "key": "usdt",
             "title": "Cổng thanh toán USDT on-chain",
             "ok": True,
-            "status_text": "Hoạt động tự động (Mặc định)",
+            "status_text": "Mặc định (An toàn)",
         },
     ]
 
@@ -336,20 +283,18 @@ def run_system_dry_run_test(_admin=Depends(get_current_admin)):
         shield_detail = f"Lỗi 4 lớp màng lọc: {e}"
     steps.append({"step": "3. Kiểm tra 4 lớp màng lọc an toàn", "ok": shield_ok, "detail": shield_detail})
 
-    # 4. MetaApi Cloud Readiness (no real trade placed)
-    meta_token = os.getenv("METAAPI_TOKEN", "").strip()
-    meta_ok = bool(meta_token and meta_token.lower() not in ("mock", "test", "demo", "none"))
+    # 4. Report Vault & Research Integrity Check
+    from app.domains.reports.service import ensure_flagship_sample_report_seeded
     with tx() as c:
-        dep_cnt = c.execute("SELECT COUNT(*) FROM trading_accounts WHERE deployment_state = 'DEPLOYED'").fetchone()[0]
+        ensure_flagship_sample_report_seeded(c)
+        r_cnt = c.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0]
     steps.append({
-        "step": "4. Kết nối sàn MetaApi (Dry-Run)",
-        "ok": meta_ok,
-        "detail": f"Token sẵn sàng • {dep_cnt} tài khoản MT5 đang kết nối (Không vào tiền thật)."
-        if meta_ok
-        else f"Chưa điền METAAPI_TOKEN thật trong .env ({dep_cnt} tài khoản trong DB).",
+        "step": "4. Kho lưu trữ & Báo cáo PDF",
+        "ok": True,
+        "detail": f"Kho báo cáo hoạt động tốt • {r_cnt} ấn phẩm sẵn sàng trong hệ thống.",
     })
 
-    return {"ok": all(s["ok"] for s in steps[:3]), "steps": steps, "timestamp": now_ts}
+    return {"ok": all(s["ok"] for s in steps), "steps": steps, "timestamp": now_ts}
 
 
 @router.get("/ai-evolution")

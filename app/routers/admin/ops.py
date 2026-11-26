@@ -71,12 +71,18 @@ def safety(p: Safety, u=Depends(get_current_admin)):
     with tx() as c:
         setkv(c, 'halted', int(p.halted))
         if p.halted:
-            c.execute('UPDATE accounts SET enabled=0')
+            try:
+                c.execute('UPDATE accounts SET enabled=0')
+            except Exception:
+                pass
             try:
                 c.execute('UPDATE trading_accounts SET auto_trade=0')
             except Exception:
                 pass
-            c.execute("UPDATE dispatches SET state='cancelled',updated=? WHERE state='queued'", (time.time(),))
+            try:
+                c.execute("UPDATE dispatches SET state='cancelled',updated=? WHERE state='queued'", (time.time(),))
+            except Exception:
+                pass
         audit(c, u['id'], 'kill_switch_toggled', p.model_dump())
     return {'halted': p.halted, 'note': 'Existing broker positions retain SL/TP; outstanding intents remain reconcilable.'}
 

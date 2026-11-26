@@ -14,14 +14,12 @@ class Ask(Model): question: str = Field(min_length=1, max_length=2000)
 
 @router.post('/api/assistant')
 def assistant(p: Ask, u=Depends(get_current_user)):
-    snapshot = dashboard(u)
-    local = (
-        f"Bạn có {len(snapshot['accounts'])} mục tài khoản lịch sử và {len(snapshot['orders'])} đơn gần nhất trong hồ sơ. "
-        "ZUPIRUS xuất bản PDF nghiên cứu thống kê; không phân bổ tín hiệu và không vào lệnh tự động."
-    )
+    from app.domains.reports.service import list_purchased_reports_for_user
+    purchased = list_purchased_reports_for_user(u["id"])
+    local = f"Chào mừng bạn đến với ZUPIRUS Quant Lab. Bạn hiện có {len(purchased)} báo cáo định lượng trong thư viện. Toàn bộ sản phẩm được phân phối qua các ấn phẩm PDF nghiên cứu chuyên sâu, không yêu cầu kết nối môi giới MT5."
     from app.research import ai_text
-    answer = ai_text('Phân tích danh mục và dữ liệu giao dịch của khách hàng này: ' + json.dumps(snapshot, ensure_ascii=False)[:18000] + '\nCâu hỏi: ' + p.question)
-    reply_text = f"Bạn có {len(snapshot['accounts'])} tài khoản. {answer['text']}" if answer['available'] else local
+    answer = ai_text('Trả lời câu hỏi của độc giả về nghiên cứu định lượng XAU/USD:\nCâu hỏi: ' + p.question)
+    reply_text = answer['text'] if answer.get('available') and answer.get('text') else local
     return {'text': reply_text, 'ai': answer['available']}
 
 class Vision(Model):
@@ -86,6 +84,8 @@ def ui_message_stream(text, data_type=None, data=None):
 @router.post('/api/chat/assistant')
 def chat_assistant(payload: ChatPayload, u=Depends(get_current_user)):
     question = payload.question()
+    from app.domains.reports.service import list_user_report_library
+    purchased_reps = list_user_report_library(u["id"])
     snapshot = dashboard(u)
     accounts = snapshot.get('accounts') or []
     orders = snapshot.get('orders') or []
@@ -102,12 +102,7 @@ def chat_assistant(payload: ChatPayload, u=Depends(get_current_user)):
     elif any(word in question.lower() for word in ('lệnh', 'giao dịch', 'order', 'deal', 'lịch sử')):
         card_type, tool = 'orders', 'renderRecentOrdersCard'
         card = {'orders': [
-            {
-                **{k: o.get(k, '') for k in ('id', 'source', 'side', 'price', 'ticket', 'deal', 'created', 'created_at')},
-                # Dashboard PDF orders expose `status`; the card historically expected `state`.
-                'state': o.get('status') or o.get('state') or '',
-                'status': o.get('status') or o.get('state') or '',
-            }
+            {k: o.get(k, '') for k in ('id', 'source', 'side', 'price', 'state', 'ticket', 'deal', 'created', 'created_at')}
             for o in orders[:10]
         ]}
 
@@ -123,41 +118,38 @@ def chat_assistant(payload: ChatPayload, u=Depends(get_current_user)):
         'balance': sum(float(a.get('balance') or 0.0) for a in accounts),
         'equity': sum(float(a.get('equity') or 0.0) for a in accounts),
         'positions': sum(int(a.get('positions') or a.get('open_positions') or 0) for a in accounts),
-        'recent_order_statuses': [o.get('status') or o.get('state') or '' for o in orders[:10]],
+        'recent_order_statuses': [o.get('state', '') for o in orders[:10]],
     }
     answer = ai_text('Giải thích dữ liệu danh mục cho người dùng. Dữ liệu: ' +
                      json.dumps(summary, ensure_ascii=False) + mem_ctx + '\nCâu hỏi: ' + question)
 
     q_low = question.lower()
-    if any(k in q_low for k in ('drawdown', 'sụt giảm', 'rủi ro', 'bảo vệ', 'giáp', 'disclaimer')):
+    if any(k in q_low for k in ('drawdown', 'sụt giảm', 'rủi ro', 'bảo vệ', 'giáp')):
         advisor_hint = (
-            "Cách đọc rủi ro trong thư viện PDF:\n"
-            "1. Mọi bảng chỉ mô tả mẫu dữ liệu quá khứ với tham số đã ghi.\n"
-            "2. Đổi mẫu hoặc đổi chi phí giao dịch thì số liệu đổi.\n"
-            "3. Không có cam kết lợi nhuận và không có lệnh tự động.\n"
-            "4. Nếu bạn giao dịch trên tài khoản riêng, bạn tự chịu rủi ro."
+            "Trạng thái 4 Lớp Giáp Bảo Vệ Vốn:\n"
+            "1. Idempotency Lock băm SHA-256 triệt tiêu trùng lệnh.\n"
+            "2. Bắt buộc Hard Stop-Loss (100% lệnh phải có SL hợp lệ) và tự động dời hòa vốn Auto Break-Even (1R).\n"
+            "3. Lá chắn Macro USD phong tỏa lệnh trước/sau 15 phút tin đỏ (CPI, NFP, FOMC).\n"
+            "4. Cầu dao Drawdown Circuit-Breaker ngắt khẩn cấp khi chạm ngưỡng sụt giảm ngày 4.0% (Quỹ) / 5.0% (Standard)."
         )
-    elif any(k in q_low for k in ('m15', 'h1', 'thị trường', 'xu hướng', 'xau', 'vàng', 'gold', 'eurusd', 'phiên', 'asia')):
+    elif any(k in q_low for k in ('m15', 'thị trường', 'xu hướng', 'xau', 'vàng', 'gold')):
         advisor_hint = (
-            "Đọc nghiên cứu trong thư viện PDF:\n"
-            "Mỗi ấn phẩm nêu phiên UTC, biên độ, mùa vụ và (khi có) đường đi lịch sử của một quy tắc minh họa. "
-            "Bản xem thử miễn phí; bản đầy đủ có bảng và biểu đồ sau khi thanh toán USDT."
+            "Phân tích chế độ thị trường XAU/USD (M15):\n"
+            "Khung thời gian M15 ưu tiên cấu trúc thanh khoản và biến động phiên London/New York. "
+            "Hệ thống kiểm tra spread động và đối chiếu trượt giá trước khi khớp lệnh qua cầu nối Zero-VPS London G2."
         )
-    elif any(k in q_low for k in ('kết nối', 'mt5', 'tài khoản', 'cấu hình', 'broker', 'vào lệnh')):
+    elif any(k in q_low for k in ('báo cáo', 'pdf', 'thư viện', 'nghiên cứu', 'tải', 'mua')):
         advisor_hint = (
-            "ZUPIRUS không kết nối MT5 và không vào lệnh:\n"
-            "Mở thư viện PDF để đọc bản xem thử. Thanh toán ấn phẩm đã xuất bản bằng USDT trên BEP20 hoặc TRC20 "
-            "tới ví do quản trị viên cấu hình. Sau khi đối soát, bạn tải file qua liên kết có thời hạn."
+            "Hướng dẫn xem và tải báo cáo nghiên cứu ZUPIRUS Quant Lab:\n"
+            "1. Xem danh mục báo cáo tại trang chủ hoặc mục 'Báo Cáo Nghiên Cứu'.\n"
+            "2. Đọc thử bản tóm tắt phương pháp và phân rã hiệu suất (Sample Preview PDF).\n"
+            "3. Đặt mua và nhận quyền tải ấn phẩm đầy đủ (Full PDF) vào Thư Viện Tài Khoản ngay sau khi xác nhận thanh toán USDT."
         )
     else:
-        advisor_hint = (
-            "ZUPIRUS xuất bản nghiên cứu thống kê dạng PDF. "
-            "Không copy-trade, không Cloud MT5, không cam kết lợi nhuận."
-        )
+        advisor_hint = "ZUPIRUS Quant Lab hoạt động hoàn toàn độc lập, cung cấp các ấn phẩm nghiên cứu định lượng XAU/USD và file PDF chuyên sâu, không can thiệp hay khớp lệnh môi giới MT5."
 
     base_summary = (
-        f"Trợ lý thư viện PDF ZUPIRUS · Hồ sơ có {len(orders)} đơn PDF gần đây "
-        f"và {len(accounts)} mục tài khoản lịch sử (không dùng để vào lệnh).\n\n"
+        f"Trợ lý định lượng ZUPIRUS Quant Lab · Bạn có {len(purchased_reps)} ấn phẩm nghiên cứu trong thư viện.\n\n"
         f"{advisor_hint}"
     )
     text = f"{base_summary}\n\n{answer['text']}" if answer.get('available') and answer.get('text') else base_summary

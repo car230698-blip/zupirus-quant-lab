@@ -107,5 +107,5 @@ def test_export_orders_csv_format():
     assert content.startswith(b"\xef\xbb\xbf")
     text = content.decode("utf-8-sig")
     assert "Thời Gian" in text
-    assert "Tài Khoản MT5" in text
-    assert "Khối Lượng (Lot)" in text
+    assert "Mã Báo Cáo" in text
+    assert "Số Tiền" in text

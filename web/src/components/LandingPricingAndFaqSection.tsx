@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { BillingCycle } from '../utils/quantMath';
+import { calculateSubscriptionPricing, type BillingCycle } from '../utils/quantMath';
 import { SpotlightBento } from './ui/SpotlightBento';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -27,65 +27,62 @@ export interface LandingPricingAndFaqSectionProps {
 
 const FAQ_ITEMS_VI = [
   {
-    q: 'ZUPIRUS có vào lệnh giúp tôi không?',
-    a: 'Không. ZUPIRUS xuất bản nghiên cứu thống kê dưới dạng PDF. Bạn tự đọc, tự quyết định và tự chịu rủi ro trên tài khoản của mình nếu bạn giao dịch.',
+    q: 'ZUPIRUS Quant Lab là gì?',
+    a: 'ZUPIRUS Quant Lab là phòng nghiên cứu định lượng độc lập chuyên sâu về vi cấu trúc thị trường Vàng XAU/USD và COMEX Gold. Chúng tôi cung cấp các báo cáo nghiên cứu kiểm định Walk-Forward ngoài mẫu và dữ liệu định lượng chuyên sâu dưới định dạng PDF.',
   },
   {
-    q: 'Số liệu trong PDF có phải lợi nhuận tôi sẽ nhận không?',
-    a: 'Không. Mọi bảng là mô tả một mẫu dữ liệu quá khứ với tham số được ghi lại. Đổi mẫu hoặc đổi chi phí là số sẽ đổi. Không có cam kết lợi nhuận.',
+    q: 'Báo cáo nghiên cứu định lượng có những nội dung gì?',
+    a: 'Mỗi ấn phẩm bao gồm giả thuyết thị trường, mô hình chi phí ma sát thực tế (Spread, Commission, Slippage), phân phối lợi nhuận theo phiên Âu/Mỹ, kiểm định Walk-Forward ngoài mẫu đa chu kỳ và đối soát số liệu minh bạch.',
   },
   {
-    q: 'Bản đọc thử và bản đầy đủ khác nhau thế nào?',
-    a: 'Bản đọc thử nêu dữ liệu, phạm vi và tuyên bố rủi ro. Bản đầy đủ có bảng, biểu đồ và đường đi lịch sử của quy tắc minh họa.',
+    q: 'Tôi có cần kết nối MT5, thuê VPS hay chia sẻ mật khẩu môi giới không?',
+    a: 'Tuyệt đối không. ZUPIRUS Quant Lab hoạt động hoàn toàn trên nền tảng web. Khách hàng xem danh mục, đọc thử bản Sample miễn phí, đặt mua báo cáo và tải file PDF về thư viện cá nhân mà không cần MT5 hay broker.',
   },
   {
-    q: 'Thanh toán bằng gì?',
-    a: 'Ấn phẩm đã xuất bản thanh toán bằng USDT trên BEP20 hoặc TRC20 tới ví do quản trị viên cấu hình. Sau khi giao dịch được đối soát, thư viện mở liên kết tải có thời hạn.',
+    q: 'Phương thức thanh toán được hỗ trợ là gì?',
+    a: 'Hệ thống hỗ trợ thanh toán trực tiếp qua USDT On-Chain (TRC20 & BEP20) về thẳng địa chỉ ví của hệ thống. Giao dịch được xác minh tự động trên smart contract và cấp quyền tải PDF ngay lập tức.',
   },
   {
-    q: 'File tải về có gắn tên người mua không?',
-    a: 'Với ấn phẩm bật watermark, bản tải thêm một trang ghi email người mua và phiên bản đã mua. Trang đó dành cho người mua, không dùng để phát tán lại.',
+    q: 'Tôi có thể đọc thử trước khi mua không?',
+    a: 'Có. Mỗi ấn phẩm nghiên cứu đều phát hành bản tóm tắt điều hành và bản đọc thử (Sample Preview PDF) miễn phí để bạn kiểm tra phương pháp luận và số liệu trước khi quyết định mua.',
   },
 ];
 
 const FAQ_ITEMS_EN = [
   {
-    q: 'Does ZUPIRUS place trades for me?',
-    a: 'No. ZUPIRUS publishes statistical studies as PDFs. You read them, you decide, and you carry the risk if you trade on your own account.',
+    q: 'What is ZUPIRUS Quant Lab?',
+    a: 'ZUPIRUS Quant Lab is an independent quantitative research lab specializing in XAU/USD and COMEX Gold market microstructure, Walk-Forward statistical optimization, and institutional PDF research publications.',
   },
   {
-    q: 'Are the figures in a PDF the profit I will make?',
-    a: 'No. Every table describes one historical sample under the parameters that are written down. Change the sample or the cost and the figures change. There is no profit promise.',
+    q: 'What is included in each quantitative research report?',
+    a: 'Each publication contains actionable hypotheses, realistic friction cost models (spread, commission, slippage), session-by-session PnL breakdown (London vs NY), multi-fold Walk-Forward out-of-sample evidence, and complete audit tables.',
   },
   {
-    q: 'What is the difference between the preview and the full note?',
-    a: 'The preview states the data, the scope, and the risk disclaimer. The full note adds the tables, the charts, and the historical path of the illustrative rule.',
+    q: 'Do I need MT5, a VPS, or broker credentials?',
+    a: 'Never. ZUPIRUS Quant Lab operates entirely via our web platform. You browse research publications, read free sample previews, purchase individual reports, and download versioned PDFs to your personal library.',
   },
   {
-    q: 'How do I pay?',
-    a: 'A published guide is paid in USDT on BEP20 or TRC20 to the wallet the administrator configured. After the transfer is matched, the library opens a time-limited download.',
+    q: 'What payment methods are supported?',
+    a: 'Direct on-chain USDT (TRC20 & BEP20) payments are supported. Transactions are automatically verified on official smart contracts with instant digital entitlement unlocking.',
   },
   {
-    q: 'Is the download marked with my name?',
-    a: 'When watermarking is on, the file you download adds a page with your email and the version you bought. That copy is for you, not for redistribution.',
+    q: 'Can I preview a report before purchasing?',
+    a: 'Yes. Every research publication includes an executive summary and a free downloadable Sample Preview PDF so you can inspect methodologies and evidence before purchasing.',
   },
 ];
 
 export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionProps> = ({
   tiers,
-  billingCycle: _billingCycle,
-  setBillingCycle: _setBillingCycle,
+  billingCycle,
+  setBillingCycle,
   currencyMode,
   setCurrencyMode,
   usdVndRate,
-  setQrPreviewTier: _setQrPreviewTier,
+  setQrPreviewTier,
   onEnterPortal,
 }) => {
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
   const { lang } = useLanguage();
-  void _billingCycle;
-  void _setBillingCycle;
-  void _setQrPreviewTier;
 
   return (
     <div className="space-y-24">
@@ -96,16 +93,39 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
             {lang === 'en' ? 'TRANSPARENT PRICING · NO HIDDEN FEES' : 'BẢNG PHÍ MINH BẠCH · KHÔNG ẨN PHÍ'}
           </span>
           <h2 className="text-3xl lg:text-4xl font-bold text-white tracking-tight">
-            {lang === 'en' ? 'PDF guides, priced one at a time' : 'Ấn phẩm PDF, tính giá từng cuốn'}
+            {lang === 'en' ? 'Institutional Quant Publications & Pricing' : 'Ấn Phẩm Nghiên Cứu Định Lượng & Biểu Phí'}
           </h2>
           <p className="text-xs sm:text-sm text-[#94A3B8] max-w-xl">
             {lang === 'en'
-              ? 'Prices below are examples until the owner publishes a guide. Payment is USDT on BEP20 or TRC20. Nothing here is a profit promise.'
-              : 'Mức giá bên dưới là ví dụ cho đến khi chủ sở hữu xuất bản một ấn phẩm. Thanh toán bằng USDT trên BEP20 hoặc TRC20. Không có cam kết lợi nhuận.'}
+              ? 'Purchase individual quantitative research publications with lifetime access and instant versioned PDF downloads.'
+              : 'Mua từng ấn phẩm nghiên cứu định lượng với quyền tải vĩnh viễn PDF và dữ liệu kiểm định ngoài mẫu.'}
           </p>
 
-          {/* Currency switcher only — guides are one-time purchases, not subscriptions. */}
+          {/* Billing Cycle & Currency Switcher */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <div className="flex items-center gap-1 rounded-xl border border-slate-800 bg-[#080E1A] p-1 font-mono text-xs">
+              {(
+                [
+                  ['MONTHLY', lang === 'en' ? 'Monthly' : 'Tháng'],
+                  ['QUARTERLY', lang === 'en' ? 'Quarterly (-10%)' : 'Quý (-10%)'],
+                  ['ANNUAL', lang === 'en' ? 'Annual (-20%)' : 'Năm (-20%)'],
+                ] as [BillingCycle, string][]
+              ).map(([cycle, label]) => (
+                <button
+                  key={cycle}
+                  type="button"
+                  onClick={() => setBillingCycle(cycle)}
+                  className={`rounded-lg px-3.5 py-1.5 font-medium transition cursor-pointer ${
+                    billingCycle === cycle
+                      ? 'bg-[#12B5A6] text-[#042F2E] font-bold'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <div className="flex items-center gap-1 rounded-xl border border-slate-800 bg-[#080E1A] p-1 font-mono text-xs">
               {(['VND', 'USD'] as const).map((cur) => (
                 <button
@@ -128,6 +148,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
         {/* 3 Tier Cards */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 items-stretch">
           {tiers.map((tier) => {
+            const pricing = calculateSubscriptionPricing(tier.baseUsd, tier.slots, billingCycle, usdVndRate);
             const isPopular = tier.popular;
             return (
               <SpotlightBento
@@ -157,10 +178,10 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                     <h3 className="text-xl font-bold text-white">{tier.name}</h3>
                     <div className="mt-3 font-mono text-3xl font-extrabold text-white tabular-nums">
                       {currencyMode === 'VND'
-                        ? `${Math.round(tier.baseUsd * usdVndRate).toLocaleString('vi-VN')} ₫`
-                        : `$${tier.baseUsd.toFixed(2)}`}
+                        ? `${pricing.totalVnd.toLocaleString('vi-VN')} ₫`
+                        : `$${pricing.totalUsd.toFixed(2)}`}
                       <span className="ml-2 text-xs font-normal text-slate-400">
-                        / {lang === 'en' ? 'guide' : 'ấn phẩm'}
+                        / {pricing.months} {lang === 'en' ? (pricing.months > 1 ? 'months' : 'month') : 'tháng'}
                       </span>
                     </div>
                   </div>
@@ -175,7 +196,14 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                   </ul>
                 </div>
 
-                <div className="mt-8 grid grid-cols-1 gap-3 pt-5 border-t border-slate-800/80">
+                <div className="mt-8 grid grid-cols-2 gap-3 pt-5 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setQrPreviewTier(tier)}
+                    className="rounded-xl border border-slate-700 hover:border-slate-500 bg-[#080E1A] py-2.5 text-xs font-medium text-slate-300 hover:text-white transition cursor-pointer"
+                  >
+                    {lang === 'en' ? 'Payment Preview' : 'Xem Cổng Thanh Toán'}
+                  </button>
                   <button
                     type="button"
                     onClick={onEnterPortal}
@@ -185,7 +213,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                         : 'border border-[#12B5A6]/50 bg-[#12B5A6]/10 text-[#12B5A6] hover:bg-[#12B5A6]/20'
                     }`}
                   >
-                    {lang === 'en' ? 'Open library →' : 'Mở thư viện →'}
+                    {lang === 'en' ? 'Activate Now →' : 'Kích Hoạt →'}
                   </button>
                 </div>
               </SpotlightBento>
@@ -205,8 +233,8 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
           </h2>
           <p className="text-xs text-slate-400">
             {lang === 'en'
-              ? 'Studies describe the past. They do not promise a future result.'
-              : 'Nghiên cứu mô tả quá khứ. Không hứa một kết quả trong tương lai.'}
+              ? 'Institutional research methodology with verifiable out-of-sample data.'
+              : 'Phương pháp luận nghiên cứu định lượng độc lập với dữ liệu kiểm chứng minh bạch.'}
           </p>
         </div>
 

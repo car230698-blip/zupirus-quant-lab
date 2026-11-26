@@ -1,14 +1,14 @@
 import React from 'react';
 
 const TRUST_LOGOS = [
-  'METATRADER 5',
-  'FTMO',
-  'THE5ERS',
-  'FUNDEDNEXT',
-  'EXNESS',
-  'IC MARKETS',
-  'SEPAY VIETQR',
-  'TRADINGVIEW',
+  'COMEX GOLD',
+  'CME GROUP',
+  'TIMESCALEDB',
+  'WALK-FORWARD OPTIMIZATION',
+  'MONTE CARLO SIMULATION',
+  'DIRECT USDT ON-CHAIN',
+  'TRADINGVIEW DATA',
+  'QUANTCONNECT ARCHITECTURE',
 ];
 
 export const LandingTrustMarquee: React.FC = () => {

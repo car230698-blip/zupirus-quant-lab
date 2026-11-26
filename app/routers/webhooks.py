@@ -218,15 +218,3 @@ async def handle_tradingview_webhook(
         "message": "Signal recorded in quantitative research shadow ledger for WFO evaluation. Customer execution disabled.",
         "executed": 0,
     }
-
-
-@router.post("/api/sepay/webhook")
-@router.post("/api/webhooks/sepay")
-@router.post("/api/v1/webhooks/sepay")
-@router.post("/api/v1/sepay/webhook")
-async def handle_sepay_webhook(
-    request: Request,
-    authorization: str = Header(default=""),
-):
-    """Decommissioned SePay banking webhook: ZUPIRUS Quant Lab defaults strictly to on-chain USDT payments."""
-    return {"success": False, "message": "SePay webhook gateway has been decommissioned. System defaults to USDT payment gateway."}

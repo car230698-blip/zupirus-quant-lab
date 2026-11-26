@@ -1,6 +1,6 @@
-"""Server-Side Rendered (SSR) SEO Knowledge Hub & Guide Pages for Google Top-1 Ranking.
+"""Server-Side Rendered (SSR) SEO Knowledge Hub & Research Guide Pages for ZUPIRUS Quant Lab.
 
-Serves lightning-fast (<10ms TTFB), mobile-first, Sovereign-styled HTML pages with:
+Serves lightning-fast (<10ms TTFB), mobile-first HTML pages with:
 - Unique <title>, <meta name="description">, <link rel="canonical">, Open Graph & Twitter Cards
 - Valid JSON-LD (Article, BreadcrumbList, CollectionPage)
 - Strong semantic H1/H2/H3 hierarchy and internal links back to https://zupirus.com/ & https://app.zupirus.com/
@@ -16,9 +16,102 @@ from fastapi.responses import HTMLResponse
 
 router = APIRouter(tags=["SEO Pages"])
 
-PUBLISHED_DATE = "2026-11-19"
+PUBLISHED_DATE = "2026-11-26"
 
-from app.domains.quant.public_copy import ENGLISH_GUIDES, GUIDES
+GUIDES: List[Dict[str, object]] = [
+    {
+        "slug": "nghien-cuu-dinh-luong-vang-xauusd-m15",
+        "title": "Nghiên Cứu Định Lượng XAU/USD M15: Breakout & Retest Ngoài Mẫu | ZUPIRUS Quant Lab",
+        "meta_description": "Báo cáo phân tích định lượng chiến lược Breakout & Retest khung M15 vàng COMEX. Kiểm định Walk-Forward ngoài mẫu và ma trận phân phiên London - New York.",
+        "keywords": "nghiên cứu định lượng XAUUSD, breakout retest vàng m15, báo cáo định lượng vàng, walk-forward optimization gold",
+        "h1": "Nghiên Cứu Định Lượng Breakout & Retest XAU/USD M15: Kỳ Vọng Sau Chi Phí & Ma Trận Phân Phiên",
+        "read_time": "6 phút đọc",
+        "badge": "QUANT RESEARCH · XAU/USD M15",
+        "sections": [
+            (
+                "1. Bản chất vi cấu trúc thị trường vàng COMEX và hiện tượng Breakout & Retest khung M15",
+                "Vàng (XAU/USD) là một trong những tài sản có tính thanh khoản và biến động phân khúc thời gian cao nhất thế giới. Mô hình Breakout & Retest kinh điển thường được giả định là mang lại lợi nhuận cao. Tuy nhiên, việc kiểm định toán học trên dữ liệu tick và nến M15 chuẩn sàn tương lai COMEX cho thấy nhiều đợt bứt phá biên độ là bẫy thanh khoản (liquidity sweeps) nếu không kết hợp bộ lọc động lượng và khối lượng tham chiếu."
+            ),
+            (
+                "2. Phương pháp kiểm định ngoài mẫu Walk-Forward Optimization (WFO) và mô hình chi phí ma sát",
+                "Tại ZUPIRUS Quant Lab, mọi giả thuyết nghiên cứu đều phải trải qua quy trình kiểm định Walk-Forward ngoài mẫu (Out-of-Sample - OOS) nghiêm ngặt với các cửa sổ cuốn độc lập. Chúng tôi đưa trực tiếp mô hình chi phí ma sát ba thành phần (Friction Cost: Half-spread thực tế, trượt giá thực thi và phí môi giới) vào hàm mục tiêu thay vì chỉ nhìn vào đường cong lợi nhuận thô."
+            ),
+            (
+                "3. Phân hóa kỳ vọng lợi nhuận (Expectancy) và Profit Factor theo từng phiên giao dịch",
+                "Kết quả kiểm định trên tập mẫu mở rộng và tập holdout cho thấy sự phân hóa rõ rệt: các khung giờ giao dịch phiên Âu và giao thoa London - New York duy trì kỳ vọng dương ổn định hơn đáng kể so với phiên Á. Báo cáo nghiên cứu định lượng độc lập của ZUPIRUS cung cấp toàn bộ bảng phân tích chi tiết từng khung giờ UTC để nhà đầu tư có cơ sở dữ liệu khách quan."
+            ),
+        ],
+    },
+    {
+        "slug": "mo-hinh-chi-phi-giao-dich-vang-friction-cost",
+        "title": "Mô Hình Chi Phí Ma Sát Giao Dịch Vàng COMEX (Spread, Slippage, Commission) | ZUPIRUS Quant Lab",
+        "meta_description": "Nghiên cứu định lượng về tác động của spread, trượt giá (slippage) và commission lên kỳ vọng toán học của các chiến lược giao dịch vàng tần suất trung bình M15.",
+        "keywords": "chi phí giao dịch vàng xauusd, spread vàng, slippage comex gold, mô hình chi phí ma sát định lượng",
+        "h1": "Mô Hình Chi Phí Ma Sát Giao Dịch Vàng: Khi Nào Phí Triệt Tiêu Edge Lợi Nhuận?",
+        "read_time": "7 phút đọc",
+        "badge": "MICROSTRUCTURE · FRICTION COST",
+        "sections": [
+            (
+                "1. Ba thành phần cốt lõi của chi phí ma sát trong giao dịch vàng",
+                "Nhiều backtest thông thường thất bại trên thực tế vì giả định chi phí bằng 0 hoặc chỉ tính spread cố định. Chi phí ma sát thực tế gồm 3 thành phần biến thiên: (1) Half-Spread theo thanh khoản phiên, (2) Execution Slippage trong các thời điểm biến động nhanh hoặc tin tức kinh tế, và (3) Phí hoa hồng sàn (Commission) quy đổi trên mỗi ounce."
+            ),
+            (
+                "2. Độ nhạy của Profit Factor trước các mức chi phí ma sát thực tế ($1.5/oz, $2.5/oz, $4.0/oz)",
+                "Bằng cách lập bảng phân tích độ nhạy (Stress Testing Matrix) tại 3 kịch bản chi phí ma sát khác nhau, nghiên cứu chỉ ra rằng ở mức chi phí $4.0/oz, một số khung giờ giao dịch có tỷ lệ thắng danh nghĩa cao vẫn bị kéo về mức kỳ vọng âm. Điều này nhấn mạnh tầm quan trọng của việc chỉ chọn các thiết lập có biên an toàn (Safety Margin) vượt trội."
+            ),
+            (
+                "3. Khuyến nghị định lượng cho việc kiểm thử mô hình trước khi ứng dụng thực tế",
+                "Một chiến lược định lượng chỉ được xem là đạt chuẩn nếu Profit Factor ngoài mẫu (OOS) duy trì trên 1.25 sau khi đã trừ toàn bộ chi phí ma sát ở kịch bản thận trọng ($2.50/oz). Các báo cáo chuyên khảo của ZUPIRUS Quant Lab luôn cung cấp dữ liệu minh bạch ở cả 3 cấp độ chi phí này."
+            ),
+        ],
+    },
+    {
+        "slug": "kiem-dinh-walk-forward-ngoai-mau-comex-gold",
+        "title": "Phương Pháp Kiểm Định Walk-Forward Ngoài Mẫu (OOS) Cho Dữ Liệu Vàng | ZUPIRUS Quant Lab",
+        "meta_description": "Cách loại bỏ hiện tượng quá khớp (overfitting) và sai lệch chọn mẫu (selection bias) khi nghiên cứu chiến lược định lượng XAU/USD bằng Walk-Forward Analysis.",
+        "keywords": "walk forward analysis xauusd, kiểm định ngoài mẫu oos, chống quá khớp định lượng, backtest vàng chuẩn mực",
+        "h1": "Phương Pháp Kiểm Định Walk-Forward Ngoài Mẫu: Chuẩn Mực Nghiên Cứu Định Lượng Vàng",
+        "read_time": "8 phút đọc",
+        "badge": "METHODOLOGY · WALK-FORWARD OOS",
+        "sections": [
+            (
+                "1. Cạm bẫy overfitting trong backtest truyền thống và ảo tưởng đường cong vốn dốc đứng",
+                "Quá khớp tham số (Overfitting) là lý do lớn nhất khiến 95% mô hình hoạt động xuất sắc trên lịch sử quá khứ nhưng lập tức thua lỗ khi triển khai ngoài đời thực. Khi tinh chỉnh hàng chục tham số trên cùng một bộ dữ liệu, nhà phân tích thực chất chỉ đang học thuộc lòng độ nhiễu ngẫu nhiên (noise)."
+            ),
+            (
+                "2. Cấu trúc cửa sổ cuốn (Rolling Windows) và tỷ lệ Train / Validation / Holdout trong phân tích định lượng",
+                "Quy trình Walk-Forward Optimization (WFO) chia dòng thời gian thành nhiều cửa sổ cuốn liên tiếp: huấn luyện tham số trên tập In-Sample (IS), kiểm thử tức thời trên tập Out-of-Sample (OOS), và khóa kín tập Holdout hoàn toàn độc lập cho đến vòng nghiệm thu cuối cùng. Điều này tái lập chính xác điều kiện thị trường tương lai mà mô hình phải đối mặt."
+            ),
+            (
+                "3. Thẩm định báo cáo định lượng độc lập trước khi đưa ra quyết định phân bổ vốn",
+                "Nhà đầu tư định lượng cần tiếp cận dữ liệu có tính phản biện cao. Việc đọc các báo cáo nghiên cứu có đầy đủ thông số OOS Degradation Ratio (tỷ lệ suy giảm ngoài mẫu) và kiểm định Monte Carlo giúp xác định độ vững (Robustness) của chiến lược một cách khoa học."
+            ),
+        ],
+    },
+    {
+        "slug": "phan-tich-ky-vong-loi-nhuan-theo-phien-gold",
+        "title": "Phân Tích Kỳ Vọng Lợi Nhuận XAU/USD Theo Từng Phiên Giao Dịch | ZUPIRUS Quant Lab",
+        "meta_description": "So sánh biến động, thanh khoản và kỳ vọng toán học của vàng COMEX qua các phiên Á (Tokyo), Âu (London) và Mỹ (New York).",
+        "keywords": "phiên giao dịch vàng, thanh khoản xauusd phiên âu mỹ, london ny overlap gold, kỳ vọng lợi nhuận theo phiên",
+        "h1": "Phân Tích Kỳ Vọng Lợi Nhuận Vàng XAU/USD: Sự Khác Biệt Giữa Các Phiên Giao Dịch",
+        "read_time": "6 phút đọc",
+        "badge": "SESSION ANALYSIS · MARKET REGIME",
+        "sections": [
+            (
+                "1. Đặc tính thanh khoản và biến động phân khúc theo thời gian UTC của vàng",
+                "Biến động giá vàng không phân bổ đồng đều trong 24 giờ. Phiên Á (Tokyo/Singapore) thường có biên độ hẹp và khối lượng mỏng, trong khi phiên Âu (London Open lúc 07:00–08:00 UTC) và phiên Mỹ (New York Open lúc 12:00–13:30 UTC) chứng kiến khối lượng hợp đồng tương lai và quyền chọn tăng vọt."
+            ),
+            (
+                "2. Hiệu ứng phiên Âu (London Open) và phiên Mỹ (New York Open) lên cấu trúc nến M15",
+                "Các mô hình phá vỡ biên độ (Breakout) trong phiên Á thường có tỷ lệ thất bại cao do thiếu dòng tiền tổ chức. Ngược lại, vào thời điểm giao thoa London - New York, các đợt breakout có xác suất tiếp diễn động lượng (Momentum Continuation) cao hơn nhiều, tạo ra Profit Factor khả quan khi có Stop Loss và Take Profit hợp lý."
+            ),
+            (
+                "3. Lựa chọn khung giờ tối ưu cho các nghiên cứu định lượng chuyên sâu",
+                "Thông qua các bảng số liệu trích xuất từ dữ liệu tick thực tế, ZUPIRUS Quant Lab làm rõ từng khung giờ nào có kỳ vọng dương thực sự sau chi phí và khung giờ nào mang lại rủi ro cao, giúp các nhà nghiên cứu định lượng tiết kiệm hàng trăm giờ kiểm nghiệm."
+            ),
+        ],
+    },
+]
 
 GUIDE_BY_SLUG = {str(g["slug"]): g for g in GUIDES}
 
@@ -42,28 +135,18 @@ def _render_shell(
     esc_canon = html.escape(canonical)
     ld_str = json.dumps(json_ld, ensure_ascii=False)
 
-    nav_perf = "Real Performance" if is_en else "Hiệu Suất Thực Tế"
-    nav_lot = "XAU/USD Lot Calculator" if is_en else "Tính Lot XAU/USD"
-    nav_dd = "Prop Firm Drawdown" if is_en else "Tính Drawdown Quỹ"
-    nav_guide = "Guides & Documentation" if is_en else "Kiến Thức & Hướng Dẫn"
-    nav_cta = "Open the library →" if is_en else "Mở thư viện PDF →"
+    nav_reports = "PDF Reports" if is_en else "Báo Cáo PDF"
+    nav_guide = "Research Guides" if is_en else "Tài Liệu Nghiên Cứu"
+    nav_cta = "Client Portal →" if is_en else "Cổng Nghiên Cứu →"
 
     footer_home = "Home" if is_en else "Trang Chủ"
-    footer_guides = "Guides" if is_en else "Hướng Dẫn"
+    footer_guides = "Research Guides" if is_en else "Tài Liệu Nghiên Cứu"
     footer_login = "Login" if is_en else "Đăng Nhập"
     footer_tagline = (
-        "Educational statistical studies as PDF guides. No automated execution."
+        "XAU/USD Quantitative Research & Walk-Forward Verification Lab"
         if is_en
-        else "Nghiên cứu thống kê dạng PDF. Không thực thi lệnh tự động."
+        else "Phòng Nghiên Cứu Định Lượng Vàng XAU/USD & Kiểm Định Walk-Forward"
     )
-    banner = (
-        "<p class=\"card\"><strong>ZUPIRUS Quant Lab</strong> publishes educational market studies as PDF guides. "
-        "It does not place orders, copy trades, host cloud MT5, or rent a VPS. Past statistics are not a promise of profit.</p>"
-        if is_en
-        else "<p class=\"card\"><strong>ZUPIRUS Quant Lab</strong> xuất bản nghiên cứu thống kê thị trường dưới dạng PDF. "
-        "Không đặt lệnh, không copy-trade, không cung cấp Cloud MT5 hay VPS. Thống kê quá khứ không phải cam kết lợi nhuận.</p>"
-    )
-    body_html = banner + body_html
 
     return f"""<!doctype html>
 <html lang="{html_lang}">
@@ -111,20 +194,6 @@ def _render_shell(
     .card {{ background: #071022; border: 1px solid rgba(255,255,255,0.09); border-radius: 16px; padding: 22px; margin-top: 18px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 24px; }}
     .cta-box {{ margin-top: 38px; background: linear-gradient(135deg, rgba(245,158,11,0.12), rgba(6,182,212,0.10)); border: 1px solid rgba(245,158,11,0.38); border-radius: 18px; padding: 26px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }}
-    .calc-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 18px; }}
-    .field label {{ display: block; font-size: 12px; font-weight: 700; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }}
-    .field input, .field select {{ width: 100%; background: #020617; color: #f8fafc; border: 1px solid rgba(148,163,184,0.28); border-radius: 10px; padding: 10px 12px; font-size: 15px; font-family: ui-monospace, SFMono-Regular, monospace; }}
-    .presets {{ display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }}
-    .preset-btn {{ background: rgba(245,158,11,0.10); color: #fcd34d; border: 1px solid rgba(245,158,11,0.30); border-radius: 7px; padding: 4px 9px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: ui-monospace, monospace; }}
-    .preset-btn:hover {{ background: rgba(245,158,11,0.22); }}
-    .kpi-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; }}
-    .kpi {{ background: #020617; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; }}
-    .kpi-primary {{ border-color: rgba(251,191,36,0.5); background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(2,6,23,0.95)); }}
-    .kpi-label {{ font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; }}
-    .kpi-val {{ font-size: 22px; font-weight: 800; color: #f8fafc; font-family: ui-monospace, monospace; margin-top: 4px; }}
-    .kpi-primary .kpi-val {{ color: #fbbf24; font-size: 26px; }}
-    .kpi-sub {{ font-size: 11.5px; color: #94a3b8; margin-top: 4px; }}
-    .alert-box {{ display: none; margin-top: 16px; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.45); color: #fecaca; border-radius: 12px; padding: 14px 16px; font-size: 13.5px; }}
     table {{ width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }}
     th, td {{ border: 1px solid rgba(255,255,255,0.1); padding: 10px 12px; text-align: left; }}
     th {{ background: rgba(245,158,11,0.1); color: #fde68a; }}
@@ -136,8 +205,7 @@ def _render_shell(
     <div class="nav">
       <a class="brand" href="https://zupirus.com/">⚡ ZUPIRUS QUANT LAB</a>
       <div class="nav-links">
-        <a href="/cong-cu/tinh-lot-size-xauusd">{nav_lot}</a>
-        <a href="/cong-cu/tinh-drawdown-quy-prop-firm">{nav_dd}</a>
+        <a href="/#reports">{nav_reports}</a>
         <a href="/huong-dan">{nav_guide}</a>
         <a class="cta" href="https://app.zupirus.com/">{nav_cta}</a>
       </div>
@@ -146,7 +214,7 @@ def _render_shell(
   <main>{body_html}</main>
   <footer>
     © 2026 ZUPIRUS Quant Lab · {footer_tagline} ·
-    <a href="https://zupirus.com/">{footer_home}</a> · <a href="/cong-cu/tinh-lot-size-xauusd">{nav_lot}</a> · <a href="/cong-cu/tinh-drawdown-quy-prop-firm">{nav_dd}</a> · <a href="/huong-dan">{footer_guides}</a> · <a href="https://app.zupirus.com/">{footer_login}</a>
+    <a href="https://zupirus.com/">{footer_home}</a> · <a href="/#reports">{nav_reports}</a> · <a href="/huong-dan">{footer_guides}</a> · <a href="https://app.zupirus.com/">{footer_login}</a>
   </footer>
 </body>
 </html>"""
@@ -162,513 +230,19 @@ def _resolve_lang(request: Optional[Request], lang: Optional[str]) -> str:
     return "vi"
 
 
-@router.get("/cong-cu/tinh-lot-size-xauusd", response_class=HTMLResponse)
-def seo_lot_calculator_page(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
-    effective_lang = _resolve_lang(request, lang)
-    canonical = "https://zupirus.com/cong-cu/tinh-lot-size-xauusd"
-    title = "Tính Lot Size Vàng XAU/USD & Drawdown Prop Firm | ZUPIRUS"
-    desc = "Công cụ tính Lot Size XAU/USD miễn phí cho Standard, Cent và quỹ FTMO, The5ers, FundedNext. Tự tính số lệnh thua tối đa theo Daily DD 4%-5%."
-    keywords = "tính lot size XAUUSD, công cụ tính lot vàng, tính lot MT5 chuẩn quỹ, tính drawdown FTMO, tài khoản cent XAUUSD"
-    json_ld = {
-        "@context": "https://schema.org",
-        "@graph": [
-            {
-                "@type": "WebApplication",
-                "name": "Công Cụ Tính Lot Size Vàng XAU/USD & Prop Firm Guard",
-                "url": canonical,
-                "applicationCategory": "FinanceApplication",
-                "operatingSystem": "Web",
-                "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
-                "publisher": {"@type": "Organization", "name": "ZUPIRUS Quant Lab", "url": "https://zupirus.com/"},
-            },
-            {
-                "@type": "FAQPage",
-                "mainEntity": [
-                    {
-                        "@type": "Question",
-                        "name": "1 pip vàng XAU/USD bằng bao nhiêu USD trên 1 lot chuẩn?",
-                        "acceptedAnswer": {
-                            "@type": "Answer",
-                            "text": "Trên tài khoản Standard MT5 (1.00 lot = 100 oz vàng), 1 pip tương ứng biến động giá $0.10/oz và có giá trị bằng $10 USD. Với 0.10 lot là $1/pip và 0.01 lot là $0.10/pip.",
-                        },
-                    },
-                    {
-                        "@type": "Question",
-                        "name": "Nên để rủi ro bao nhiêu % mỗi lệnh khi thi quỹ FTMO, The5ers, FundedNext?",
-                        "acceptedAnswer": {
-                            "@type": "Answer",
-                            "text": "Mức rủi ro tối ưu nhất cho tài khoản quỹ Prop Firm là 0.50% đến 0.75% mỗi lệnh (tối đa 1.0% khi đã lên LIVE), giúp chịu được 5-8 lệnh thua liên tiếp trong ngày mà không chạm giới hạn Daily Drawdown 5%.",
-                        },
-                    },
-                ],
-            },
-            {
-                "@type": "BreadcrumbList",
-                "itemListElement": [
-                    {"@type": "ListItem", "position": 1, "name": "Trang chủ", "item": "https://zupirus.com/"},
-                    {"@type": "ListItem", "position": 2, "name": "Công cụ tính Lot XAU/USD", "item": canonical},
-                ],
-            },
-        ],
-    }
-
-    guide_links = "".join(
-        f'<li><a href="/huong-dan/{g["slug"]}">{html.escape(str(g["h1"]))}</a></li>'
-        for g in GUIDES[:5]
-    )
-
-    body = f"""
-      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / Công cụ tính Lot XAU/USD</div>
-      <span class="badge">FREE QUANT TOOL · XAU/USD LOT &amp; PROP GUARD</span>
-      <h1>Công Cụ Tính Lot Size Vàng XAU/USD &amp; Giới Hạn Drawdown Quỹ Prop Firm</h1>
-      <p>Tính toán chính xác khối lượng Lot XAU/USD theo nguyên tắc <strong>Fail-Closed</strong> (làm tròn xuống để không bao giờ vượt ngân sách rủi ro), hỗ trợ đầy đủ tài khoản <strong>Standard, Cent (USC)</strong> và quỹ <strong>FTMO / The5ers / FundedNext</strong>.</p>
-
-      <section class="card" aria-label="Máy tính Lot Size XAU/USD">
-        <div class="calc-grid">
-          <div class="field">
-            <label for="calc-mode">Loại tài khoản MT5</label>
-            <select id="calc-mode">
-              <option value="PROP_CHALLENGE">Quỹ Prop Firm — Đang Thi (Challenge)</option>
-              <option value="PROP_LIVE">Quỹ Prop Firm — Đã Cấp Vốn (LIVE)</option>
-              <option value="STANDARD">Tài khoản Standard (Exness, ICMarkets...)</option>
-              <option value="CENT">Tài khoản Cent / USC (1 Lot = 1 oz)</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="calc-balance">Vốn tài khoản (USD)</label>
-            <input id="calc-balance" type="number" min="10" step="100" value="100000" />
-            <div class="presets">
-              <button type="button" class="preset-btn" data-preset-balance="1000">$1K</button>
-              <button type="button" class="preset-btn" data-preset-balance="10000">$10K</button>
-              <button type="button" class="preset-btn" data-preset-balance="50000">$50K</button>
-              <button type="button" class="preset-btn" data-preset-balance="100000">$100K</button>
-              <button type="button" class="preset-btn" data-preset-balance="200000">$200K</button>
-            </div>
-          </div>
-          <div class="field">
-            <label for="calc-risk">Rủi ro mỗi lệnh (% Equity)</label>
-            <input id="calc-risk" type="number" min="0.1" max="10" step="0.05" value="0.75" />
-            <div class="presets">
-              <button type="button" class="preset-btn" data-preset-risk="0.5">0.5%</button>
-              <button type="button" class="preset-btn" data-preset-risk="0.75">0.75%</button>
-              <button type="button" class="preset-btn" data-preset-risk="1.0">1.0%</button>
-              <button type="button" class="preset-btn" data-preset-risk="1.5">1.5%</button>
-              <button type="button" class="preset-btn" data-preset-risk="2.0">2.0%</button>
-            </div>
-          </div>
-          <div class="field">
-            <label for="calc-sl">Khoảng cách Stop Loss (Pips · 10 pips = $1/oz)</label>
-            <input id="calc-sl" type="number" min="5" max="500" step="1" value="35" />
-          </div>
-          <div class="field">
-            <label for="calc-rr">Tỷ lệ Risk : Reward (R:R)</label>
-            <input id="calc-rr" type="number" min="0.5" max="10" step="0.1" value="2.0" />
-          </div>
-          <div class="field">
-            <label for="calc-dd">Giới hạn Daily Drawdown sàn (%)</label>
-            <input id="calc-dd" type="number" min="1" max="15" step="0.5" value="5.0" />
-          </div>
-        </div>
-
-        <div class="kpi-grid">
-          <div class="kpi kpi-primary">
-            <div class="kpi-label">Khối Lượng Lot Khuyến Nghị</div>
-            <div class="kpi-val" id="out-lot">2.14 Lot</div>
-            <div class="kpi-sub" id="out-raw-lot">Chính xác: 2.1429 · Làm tròn xuống (Fail-Closed)</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-label">Rủi Ro Thực Tế (1R)</div>
-            <div class="kpi-val" id="out-risk-usd">$749.00</div>
-            <div class="kpi-sub" id="out-sl-usd">35 pips ($3.50/oz)</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-label">Lợi Nhuận Mục Tiêu (TP)</div>
-            <div class="kpi-val" style="color:#34d399" id="out-target-usd">+$1,498.00</div>
-            <div class="kpi-sub">Theo tỷ lệ R:R đã chọn</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-label">Sức Chịu Đựng Chuỗi Thua/Ngày</div>
-            <div class="kpi-val" style="font-size:16px" id="out-guard-losses">5 lệnh (khóa 4.0%)</div>
-            <div class="kpi-sub" id="out-broker-losses">6 lệnh (sàn 5.0%)</div>
-          </div>
-        </div>
-        <div class="alert-box" id="calc-alert" role="alert"></div>
-      </section>
-
-      <article class="card">
-        <h2 style="margin-top:0">Công thức tính Lot Size Vàng XAU/USD chuẩn định lượng</h2>
-        <p>Khối lượng vào lệnh an toàn được tính theo công thức: <strong>Lot = (Vốn USD × % Rủi ro) / (Số Pips SL × Giá trị 1 Pip)</strong>. Trong đó với XAU/USD trên hầu hết các sàn MT5 (Exness, ICMarkets, FTMO, The5ers, FundedNext):</p>
-        <table>
-          <thead>
-            <tr>
-              <th>Loại tài khoản</th>
-              <th>Quy ước 1.00 Lot</th>
-              <th>Biến động 1 Pip ($0.10/oz)</th>
-              <th>Biến động $1.00/oz (10 Pips)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>Standard / Prop Firm</strong></td>
-              <td>100 oz vàng</td>
-              <td>$10.00 / lot</td>
-              <td>$100.00 / lot</td>
-            </tr>
-            <tr>
-              <td><strong>Mini (0.10 Standard)</strong></td>
-              <td>10 oz vàng</td>
-              <td>$1.00 / lệnh</td>
-              <td>$10.00 / lệnh</td>
-            </tr>
-            <tr>
-              <td><strong>Micro (0.01 Standard)</strong></td>
-              <td>1 oz vàng</td>
-              <td>$0.10 / lệnh</td>
-              <td>$1.00 / lệnh</td>
-            </tr>
-            <tr>
-              <td><strong>Tài khoản Cent (USC)</strong></td>
-              <td>1 oz vàng (1.00 Cent Lot)</td>
-              <td>$0.10 / cent lot</td>
-              <td>$1.00 / cent lot</td>
-            </tr>
-          </tbody>
-        </table>
-      </article>
-
-      <div class="card">
-        <h2 style="margin-top:0;font-size:17px">Tài liệu chuyên sâu về Bot XAU/USD &amp; Quỹ Prop Firm</h2>
-        <ul style="margin:8px 0 0;padding-left:20px;line-height:2">{guide_links}</ul>
-      </div>
-
-      <div class="cta-box">
-        <div>
-          <strong style="color:#fff;font-size:17px">Công thức này chỉ để tự tính. ZUPIRUS không vào lệnh giúp bạn.</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Đọc thêm nghiên cứu thống kê dạng PDF trong thư viện. Không copy-trade, không Cloud MT5.</p>
-        </div>
-        <a class="cta" href="https://app.zupirus.com/">Mở thư viện PDF →</a>
-      </div>
-    """
-    return HTMLResponse(
-        _render_shell(
-            title,
-            desc,
-            canonical,
-            keywords,
-            json_ld,
-            body,
-            extra_head_html="",
-            lang=effective_lang,
-        )
-    )
-
-
-@router.get("/cong-cu/tinh-drawdown-quy-prop-firm", response_class=HTMLResponse)
-def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
-    effective_lang = _resolve_lang(request, lang)
-    canonical = "https://zupirus.com/cong-cu/tinh-drawdown-quy-prop-firm"
-    title = "Bảng Tính Daily Drawdown & Phân Bổ Rủi Ro Quỹ Prop Firm | ZUPIRUS"
-    desc = "Công cụ tính Daily Loss và Max Drawdown trực tuyến cho tài khoản quỹ FTMO, The5ers, FundedNext. Tự động tính ngưỡng dừng lỗ an toàn và số lệnh thua tối đa."
-    keywords = "tính drawdown quỹ prop firm, tính daily loss FTMO, tính sụt giảm tài khoản quỹ, quản lý vốn FTMO The5ers, drawdown calculator prop firm"
-    json_ld = {
-        "@context": "https://schema.org",
-        "@graph": [
-            {
-                "@type": "WebApplication",
-                "name": "Bảng Tính Daily Drawdown & Phân Bổ Rủi Ro Quỹ Prop Firm",
-                "url": canonical,
-                "applicationCategory": "FinanceApplication",
-                "operatingSystem": "Web",
-                "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
-                "publisher": {"@type": "Organization", "name": "ZUPIRUS Quant Lab", "url": "https://zupirus.com/"},
-            },
-            {
-                "@type": "FAQPage",
-                "mainEntity": [
-                    {
-                        "@type": "Question",
-                        "name": "Daily Drawdown của quỹ FTMO được tính như thế nào?",
-                        "acceptedAnswer": {
-                            "@type": "Answer",
-                            "text": "FTMO tính Daily Drawdown dựa trên Equity (hoặc Balance) tại thời điểm 00:00 CE(S)T của ngày hôm đó. Mức sụt giảm trong ngày không được vượt quá 5.0% mốc bắt đầu ngày, bao gồm cả các lệnh đang mở (floating loss).",
-                        },
-                    },
-                    {
-                        "@type": "Question",
-                        "name": "Tại sao máy tính gợi ý đệm 4.0% thay vì 5.0%?",
-                        "acceptedAnswer": {
-                            "@type": "Answer",
-                            "text": "Máy tính chỉ là công cụ giáo dục. Đệm 1.0% (ví dụ nhắm 4.0% khi quỹ cấm 5.0%) giúp bạn tự ước lượng khoảng trống cho trượt giá và phí. ZUPIRUS không khóa tài khoản và không đóng lệnh giúp bạn.",
-                        },
-                    },
-                    {
-                        "@type": "Question",
-                        "name": "Nên chia rủi ro bao nhiêu % mỗi lệnh để không bị vi phạm Daily Drawdown?",
-                        "acceptedAnswer": {
-                            "@type": "Answer",
-                            "text": "Khuyến nghị giáo dục phổ biến là khoảng 0.50% đến 0.75% mỗi lệnh trên mẫu tính toán. Với mức đó, tài khoản có thể chịu vài lệnh thua liên tiếp mà vẫn dưới ngưỡng quỹ — đây là số học, không phải tự động khóa hay bảo vệ tài khoản.",
-                        },
-                    },
-                ],
-            },
-            {
-                "@type": "BreadcrumbList",
-                "itemListElement": [
-                    {"@type": "ListItem", "position": 1, "name": "Trang chủ", "item": "https://zupirus.com/"},
-                    {"@type": "ListItem", "position": 2, "name": "Tính Drawdown Quỹ Prop Firm", "item": canonical},
-                ],
-            },
-        ],
-    }
-
-    guide_links = "".join(
-        f'<li><a href="/huong-dan/{g["slug"]}">{html.escape(str(g["h1"]))}</a></li>'
-        for g in GUIDES[:6]
-    )
-
-    body = f"""
-      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / Tính Drawdown Quỹ Prop Firm</div>
-      <span class="badge">PROP FIRM CALCULATOR · DAILY &amp; MAX DRAWDOWN</span>
-      <h1>Bảng Tính Daily Drawdown &amp; Phân Bổ Rủi Ro Quỹ FTMO, The5ers &amp; FundedNext</h1>
-      <p>Ước lượng giới hạn lỗ trong ngày (Daily Loss Limit), ngưỡng vi phạm tối đa (Max Drawdown Breach) và vùng đệm an toàn (ví dụ 4.0%) theo quy định quỹ. Đây là máy tính giáo dục — ZUPIRUS không đóng lệnh và không khóa tài khoản.</p>
-
-      <section class="card" aria-label="Máy tính Drawdown Quỹ Prop Firm">
-        <div class="calc-grid">
-          <div class="field">
-            <label for="dd-preset-firm">Chọn Quy Định Quỹ Phổ Biến</label>
-            <select id="dd-preset-firm">
-              <option value="FTMO_100K">FTMO — Tài khoản $100,000 (Daily 5% / Max 10%)</option>
-              <option value="FTMO_50K">FTMO — Tài khoản $50,000 (Daily 5% / Max 10%)</option>
-              <option value="FTMO_200K">FTMO — Tài khoản $200,000 (Daily 5% / Max 10%)</option>
-              <option value="THE5ERS_100K">The5ers High Stakes — $100,000 (Daily 5% / Max 10%)</option>
-              <option value="THE5ERS_60K">The5ers High Stakes — $60,000 (Daily 5% / Max 10%)</option>
-              <option value="FUNDEDNEXT_100K">FundedNext Stellar — $100,000 (Daily 5% / Max 10%)</option>
-              <option value="FUNDEDNEXT_50K">FundedNext Stellar — $50,000 (Daily 5% / Max 10%)</option>
-              <option value="CUSTOM">Tùy Chỉnh Thông Số Riêng</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="dd-starting-equity">Số dư / Equity đầu ngày ($ USD)</label>
-            <input id="dd-starting-equity" type="number" min="1000" step="5000" value="100000" />
-            <div class="presets">
-              <button type="button" class="preset-btn" data-preset-eq="10000">$10K</button>
-              <button type="button" class="preset-btn" data-preset-eq="25000">$25K</button>
-              <button type="button" class="preset-btn" data-preset-eq="50000">$50K</button>
-              <button type="button" class="preset-btn" data-preset-eq="100000">$100K</button>
-              <button type="button" class="preset-btn" data-preset-eq="200000">$200K</button>
-            </div>
-          </div>
-          <div class="field">
-            <label for="dd-daily-limit">Hạn mức Daily Drawdown của Quỹ (%)</label>
-            <input id="dd-daily-limit" type="number" min="1.0" max="15.0" step="0.5" value="5.0" />
-          </div>
-          <div class="field">
-            <label for="dd-safe-buffer">Khóa an toàn ZUPIRUS Guard (%)</label>
-            <input id="dd-safe-buffer" type="number" min="1.0" max="10.0" step="0.5" value="4.0" />
-          </div>
-          <div class="field">
-            <label for="dd-risk-per-trade">Rủi ro định lượng mỗi lệnh (% Vốn)</label>
-            <input id="dd-risk-per-trade" type="number" min="0.1" max="5.0" step="0.05" value="0.75" />
-            <div class="presets">
-              <button type="button" class="preset-btn" data-preset-trade-risk="0.5">0.5%</button>
-              <button type="button" class="preset-btn" data-preset-trade-risk="0.75">0.75%</button>
-              <button type="button" class="preset-btn" data-preset-trade-risk="1.0">1.0%</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="kpi-grid">
-          <div class="kpi kpi-primary">
-            <div class="kpi-label">Ngưỡng Khóa An Toàn ZUPIRUS</div>
-            <div class="kpi-val" id="res-safe-loss">-$4,000 USD</div>
-            <div class="kpi-sub" id="res-safe-equity">Dừng bot khi Equity &lt; $96,000</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-label">Ngưỡng Vi Phạm Quỹ (Cháy)</div>
-            <div class="kpi-val" style="color:#ef4444" id="res-firm-breach">-$5,000 USD</div>
-            <div class="kpi-sub" id="res-firm-equity">Tài khoản bị tịch thu tại $95,000</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-label">Vùng Đệm Trượt Giá (Slippage Shield)</div>
-            <div class="kpi-val" style="color:#38bdf8" id="res-buffer-dollars">$1,000 USD</div>
-            <div class="kpi-sub">Bảo toàn 1.0% đệm an toàn</div>
-          </div>
-          <div class="kpi">
-            <div class="kpi-label">Số Lệnh Thua Cho Phép / Ngày</div>
-            <div class="kpi-val" style="color:#a7f3d0" id="res-max-losses">5 Lệnh</div>
-            <div class="kpi-sub" id="res-loss-per-trade">Mỗi lệnh -$750 USD (0.75%)</div>
-          </div>
-        </div>
-      </section>
-
-      <script>
-        (function() {{
-          function recalcDD() {{
-            const startingEq = Math.max(100, parseFloat(document.getElementById('dd-starting-equity').value) || 100000);
-            const dailyPct = Math.max(0.5, parseFloat(document.getElementById('dd-daily-limit').value) || 5.0);
-            const safePct = Math.min(dailyPct - 0.1, Math.max(0.5, parseFloat(document.getElementById('dd-safe-buffer').value) || 4.0));
-            const riskPct = Math.max(0.05, parseFloat(document.getElementById('dd-risk-per-trade').value) || 0.75);
-
-            const firmBreachLoss = startingEq * (dailyPct / 100);
-            const firmBreachEq = startingEq - firmBreachLoss;
-
-            const safeLoss = startingEq * (safePct / 100);
-            const safeEq = startingEq - safeLoss;
-
-            const bufferDollars = firmBreachLoss - safeLoss;
-            const lossPerTrade = startingEq * (riskPct / 100);
-            const maxLosses = Math.floor(safeLoss / lossPerTrade);
-
-            document.getElementById('res-safe-loss').textContent = '-$' + Math.round(safeLoss).toLocaleString('en-US') + ' USD';
-            document.getElementById('res-safe-equity').textContent = 'Tự động dừng khi Equity < $' + Math.round(safeEq).toLocaleString('en-US');
-
-            document.getElementById('res-firm-breach').textContent = '-$' + Math.round(firmBreachLoss).toLocaleString('en-US') + ' USD';
-            document.getElementById('res-firm-equity').textContent = 'Quỹ tịch thu tại Equity $' + Math.round(firmBreachEq).toLocaleString('en-US');
-
-            document.getElementById('res-buffer-dollars').textContent = '$' + Math.round(bufferDollars).toLocaleString('en-US') + ' USD';
-            document.getElementById('res-max-losses').textContent = maxLosses + ' Lệnh Liên Tiếp';
-            document.getElementById('res-loss-per-trade').textContent = 'Mỗi lệnh -$' + Math.round(lossPerTrade).toLocaleString('en-US') + ' (' + riskPct + '%)';
-          }}
-
-          document.getElementById('dd-preset-firm').addEventListener('change', function(e) {{
-            const val = e.target.value;
-            if (val === 'FTMO_100K') {{
-              document.getElementById('dd-starting-equity').value = 100000;
-              document.getElementById('dd-daily-limit').value = 5.0;
-              document.getElementById('dd-safe-buffer').value = 4.0;
-              document.getElementById('dd-risk-per-trade').value = 0.75;
-            }} else if (val === 'FTMO_50K') {{
-              document.getElementById('dd-starting-equity').value = 50000;
-              document.getElementById('dd-daily-limit').value = 5.0;
-              document.getElementById('dd-safe-buffer').value = 4.0;
-              document.getElementById('dd-risk-per-trade').value = 0.75;
-            }} else if (val === 'FTMO_200K') {{
-              document.getElementById('dd-starting-equity').value = 200000;
-              document.getElementById('dd-daily-limit').value = 5.0;
-              document.getElementById('dd-safe-buffer').value = 4.0;
-              document.getElementById('dd-risk-per-trade').value = 0.75;
-            }} else if (val === 'THE5ERS_100K') {{
-              document.getElementById('dd-starting-equity').value = 100000;
-              document.getElementById('dd-daily-limit').value = 5.0;
-              document.getElementById('dd-safe-buffer').value = 4.0;
-              document.getElementById('dd-risk-per-trade').value = 0.60;
-            }} else if (val === 'THE5ERS_60K') {{
-              document.getElementById('dd-starting-equity').value = 60000;
-              document.getElementById('dd-daily-limit').value = 5.0;
-              document.getElementById('dd-safe-buffer').value = 4.0;
-              document.getElementById('dd-risk-per-trade').value = 0.60;
-            }} else if (val === 'FUNDEDNEXT_100K') {{
-              document.getElementById('dd-starting-equity').value = 100000;
-              document.getElementById('dd-daily-limit').value = 5.0;
-              document.getElementById('dd-safe-buffer').value = 4.0;
-              document.getElementById('dd-risk-per-trade').value = 0.70;
-            }} else if (val === 'FUNDEDNEXT_50K') {{
-              document.getElementById('dd-starting-equity').value = 50000;
-              document.getElementById('dd-daily-limit').value = 5.0;
-              document.getElementById('dd-safe-buffer').value = 4.0;
-              document.getElementById('dd-risk-per-trade').value = 0.70;
-            }}
-            recalcDD();
-          }});
-
-          ['dd-starting-equity', 'dd-daily-limit', 'dd-safe-buffer', 'dd-risk-per-trade'].forEach(function(id) {{
-            document.getElementById(id).addEventListener('input', recalcDD);
-          }});
-
-          document.querySelectorAll('[data-preset-eq]').forEach(function(btn) {{
-            btn.addEventListener('click', function() {{
-              document.getElementById('dd-starting-equity').value = this.dataset.presetEq;
-              recalcDD();
-            }});
-          }});
-
-          document.querySelectorAll('[data-preset-trade-risk]').forEach(function(btn) {{
-            btn.addEventListener('click', function() {{
-              document.getElementById('dd-risk-per-trade').value = this.dataset.presetTradeRisk;
-              recalcDD();
-            }});
-          }});
-
-          recalcDD();
-        }})();
-      </script>
-
-      <article class="card">
-        <h2>Bảng So Sánh Cơ Chế Daily Drawdown Các Quỹ Prop Firm 2026</h2>
-        <div style="overflow-x:auto">
-          <table>
-            <thead>
-              <tr>
-                <th>Quỹ Prop Firm</th>
-                <th>Daily Drawdown</th>
-                <th>Cách Tính Daily Loss</th>
-                <th>Gợi ý đệm giáo dục (tự quản lý)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>FTMO</strong></td>
-                <td>5.0%</td>
-                <td>Dựa trên Equity lúc 00:00 CE(S)T (bao gồm Floating Loss)</td>
-                <td>Tự đặt mục tiêu ~4.0% Daily Loss để chừa ~1.0% đệm trượt giá</td>
-              </tr>
-              <tr>
-                <td><strong>The5ers (High Stakes)</strong></td>
-                <td>5.0%</td>
-                <td>Dựa trên Balance hoặc Equity đầu ngày (theo mốc cao hơn)</td>
-                <td>Tự theo dõi ~4.0%; giảm kích thước lệnh khi gần mục tiêu lợi nhuận</td>
-              </tr>
-              <tr>
-                <td><strong>FundedNext (Stellar)</strong></td>
-                <td>5.0%</td>
-                <td>Dựa trên Balance khởi đầu ngày giao dịch</td>
-                <td>Tự tránh mở lệnh mới quanh tin CPI/NFP nếu quỹ hạn chế tin</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </article>
-
-      <div class="card">
-        <h2 style="margin-top:0;font-size:17px">Hướng dẫn &amp; Tài liệu liên quan</h2>
-        <ul style="margin:8px 0 0;padding-left:20px;line-height:2">{guide_links}</ul>
-      </div>
-
-      <div class="cta-box">
-        <div>
-          <strong style="color:#fff;font-size:17px">Đọc nghiên cứu trong thư viện PDF. Không có lệnh tự động.</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Máy tính này chỉ hỗ trợ ước lượng rủi ro. Không copy-trade, không Cloud MT5.</p>
-        </div>
-        <a class="cta" href="https://app.zupirus.com/">Mở thư viện PDF →</a>
-      </div>
-    """
-    return HTMLResponse(
-        _render_shell(
-            title,
-            desc,
-            canonical,
-            keywords,
-            json_ld,
-            body,
-            extra_head_html="",
-            lang=effective_lang,
-        )
-    )
-
-
 @router.get("/huong-dan", response_class=HTMLResponse)
 def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
     effective_lang = _resolve_lang(request, lang)
     canonical = "https://zupirus.com/huong-dan"
     title = (
-        "How to read a ZUPIRUS study | ZUPIRUS Quant Lab"
+        "XAU/USD Quantitative Research & Methodology Knowledge Hub | ZUPIRUS Quant Lab"
         if effective_lang == "en"
-        else "Cách đọc nghiên cứu ZUPIRUS | ZUPIRUS Quant Lab"
+        else "Trung Tâm Tài Liệu & Phương Pháp Nghiên Cứu Định Lượng Vàng XAU/USD | ZUPIRUS"
     )
     desc = (
-        "Notes on reading a statistical study of XAU/USD. Educational PDFs only, with no automated orders."
+        "Comprehensive quantitative research articles, Walk-Forward Optimization methodologies, and friction cost models for XAU/USD gold markets."
         if effective_lang == "en"
-        else "Ghi chú cách đọc một nghiên cứu thống kê XAU/USD. Chỉ là PDF giáo dục, không có lệnh tự động."
+        else "Tổng hợp các bài nghiên cứu định lượng chuyên sâu, phương pháp kiểm định Walk-Forward ngoài mẫu và mô hình chi phí ma sát cho thị trường vàng XAU/USD."
     )
     json_ld = {
         "@context": "https://schema.org",
@@ -689,23 +263,23 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
             </article>"""
         )
     crumb_home = "Home" if effective_lang == "en" else "Trang chủ"
-    crumb_guides = "Guides & Knowledge" if effective_lang == "en" else "Kiến Thức &amp; Hướng Dẫn"
+    crumb_guides = "Research Guides" if effective_lang == "en" else "Tài Liệu Nghiên Cứu"
     h1_text = (
-        "How to read a ZUPIRUS quantitative study"
+        "XAU/USD Quantitative Research & Verification Methodology Hub"
         if effective_lang == "en"
-        else "Cách đọc một nghiên cứu định lượng của ZUPIRUS"
+        else "Trung Tâm Nghiên Cứu Định Lượng &amp; Kiểm Định Vàng XAU/USD"
     )
     sub_text = (
-        "Notes on samples, session clocks, and what a historical table does not claim."
+        "In-depth research papers, Walk-Forward Optimization (WFO) analyses, and realistic transaction friction cost models for professional gold quantitative research."
         if effective_lang == "en"
-        else "Ghi chú về mẫu dữ liệu, múi giờ phiên, và những gì một bảng lịch sử không khẳng định."
+        else "Hệ thống tài liệu nghiên cứu chuyên khảo, phương pháp kiểm định ngoài mẫu Walk-Forward và mô hình chi phí ma sát thực tế phục vụ nghiên cứu định lượng vàng chuyên nghiệp."
     )
-    cta_title = "Open the PDF library" if effective_lang == "en" else "Mở thư viện PDF"
-    cta_sub = "Free preview, then USDT (BEP20/TRC20) if you want the full note." if effective_lang == "en" else "Đọc thử miễn phí, rồi thanh toán USDT (BEP20/TRC20) nếu bạn muốn bản đầy đủ."
-    cta_btn = "Get Started Now →" if effective_lang == "en" else "Bắt Đầu Ngay →"
+    cta_title = "Explore Our Published Quantitative PDF Reports" if effective_lang == "en" else "Khám Phá Các Báo Cáo Nghiên Cứu Định Lượng PDF"
+    cta_sub = "Read free sample previews and download full institutional research reports." if effective_lang == "en" else "Xem bản đọc thử miễn phí và tải báo cáo đầy đủ trực tiếp từ thư viện cá nhân."
+    cta_btn = "Explore Catalog →" if effective_lang == "en" else "Xem Danh Mục Báo Cáo →"
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">{crumb_home}</a> / {crumb_guides}</div>
-      <span class="badge">ZUPIRUS KNOWLEDGE HUB · SEO</span>
+      <span class="badge">ZUPIRUS QUANT LAB · METHODOLOGY HUB</span>
       <h1>{h1_text}</h1>
       <p>{sub_text}</p>
       <div class="grid">{''.join(cards)}</div>
@@ -714,10 +288,10 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
           <strong style="color:#fff;font-size:17px">{cta_title}</strong>
           <p style="margin:4px 0 0;font-size:13.5px">{cta_sub}</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">{cta_btn}</a>
+        <a class="cta" href="https://zupirus.com/#reports">{cta_btn}</a>
       </div>
     """
-    return HTMLResponse(_render_shell(title, desc, canonical, "nghiên cứu định lượng XAUUSD, PDF phương pháp, ZUPIRUS Quant Lab", json_ld, body, lang=effective_lang))
+    return HTMLResponse(_render_shell(title, desc, canonical, "nghiên cứu định lượng vàng xauusd, walk-forward optimization, báo cáo pdf vàng", json_ld, body, lang=effective_lang))
 
 
 @router.get("/huong-dan/{slug}", response_class=HTMLResponse)
@@ -745,7 +319,7 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
                 "@type": "BreadcrumbList",
                 "itemListElement": [
                     {"@type": "ListItem", "position": 1, "name": "Trang chủ", "item": "https://zupirus.com/"},
-                    {"@type": "ListItem", "position": 2, "name": "Hướng dẫn", "item": "https://zupirus.com/huong-dan"},
+                    {"@type": "ListItem", "position": 2, "name": "Tài liệu", "item": "https://zupirus.com/huong-dan"},
                     {"@type": "ListItem", "position": 3, "name": g["h1"], "item": canonical},
                 ],
             },
@@ -763,21 +337,21 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
     )
 
     body = f"""
-      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / <a href="/huong-dan">Hướng dẫn</a> / {html.escape(slug)}</div>
+      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / <a href="/huong-dan">Tài liệu</a> / {html.escape(slug)}</div>
       <span class="badge">{html.escape(str(g['badge']))} · {html.escape(str(g['read_time']))}</span>
       <h1>{html.escape(str(g['h1']))}</h1>
       <p style="color:#94a3b8;font-size:13px">Cập nhật: {PUBLISHED_DATE} · Tác giả: ZUPIRUS Quant Lab</p>
       <article class="card">{sections_html}</article>
       <div class="card">
-        <h2 style="margin-top:0;font-size:17px">Bài viết liên quan</h2>
+        <h2 style="margin-top:0;font-size:17px">Nghiên cứu &amp; Chuyên khảo liên quan</h2>
         <ul style="margin:8px 0 0;padding-left:20px;line-height:2">{related_html}</ul>
       </div>
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">Mở thư viện PDF và đọc bản xem thử</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Ấn phẩm đã xuất bản thanh toán bằng USDT trên BEP20 hoặc TRC20. Không cam kết lợi nhuận.</p>
+          <strong style="color:#fff;font-size:17px">Xem báo cáo nghiên cứu định lượng độc lập</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Đọc thử miễn phí · Mua và tải ấn bản PDF đầy đủ từ thư viện tài khoản.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Mở thư viện PDF →</a>
+        <a class="cta" href="https://zupirus.com/#reports">Xem Danh Mục Báo Cáo →</a>
       </div>
     """
     return HTMLResponse(
@@ -793,26 +367,94 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
     )
 
 
+ENGLISH_GUIDES: List[Dict[str, object]] = [
+    {
+        "slug": "xauusd-m15-breakout-retest-quantitative-research",
+        "title": "Breakout & Retest XAU/USD M15 Out-of-Sample Quantitative Research | ZUPIRUS Quant Lab",
+        "meta_description": "Rigorous quantitative research on Breakout & Retest on COMEX Gold M15. Walk-Forward out-of-sample testing, realistic friction costs, and session expectancy matrices.",
+        "keywords": "XAUUSD quantitative research, breakout retest gold M15, walk forward optimization gold, gold quant report",
+        "h1": "Quantitative Research: Does Breakout & Retest on XAU/USD M15 Retain Positive Edge After Friction Costs?",
+        "read_time": "6 min read",
+        "badge": "QUANT RESEARCH · XAU/USD M15",
+        "sections": [
+            (
+                "1. Microstructure of COMEX Gold & Breakout Retest Mechanics on M15",
+                "COMEX Gold (XAU/USD) displays extreme intraday liquidity concentration. While textbook Breakout & Retest patterns promise attractive risk-to-reward ratios, rigorous tick-level evaluation demonstrates that many nominal breakouts are liquidity sweeps lacking momentum continuation."
+            ),
+            (
+                "2. Walk-Forward Out-of-Sample (OOS) Testing & Realistic Friction Cost Models",
+                "At ZUPIRUS Quant Lab, all quantitative hypotheses undergo multi-window rolling Walk-Forward Optimization (WFO). We embed a three-tier transaction friction model (spread, execution slippage, and exchange fees) directly into evaluation functions."
+            ),
+            (
+                "3. Session-Specific Expectancy & Profit Factor Breakdown",
+                "Empirical holdout and full-period data reveal pronounced session differences: European morning and London/New York overlap hours sustain positive mathematical expectancy significantly better than Asian low-liquidity sessions."
+            ),
+        ],
+    },
+    {
+        "slug": "gold-trading-friction-cost-microstructure-model",
+        "title": "COMEX Gold Transaction Friction Cost Model (Spread, Slippage & Commission) | ZUPIRUS Quant Lab",
+        "meta_description": "Quantitative analysis of the impact of spreads, execution slippage, and brokerage commissions on the statistical edge of medium-frequency M15 gold strategies.",
+        "keywords": "gold transaction friction cost, XAUUSD spread model, COMEX gold slippage, quantitative friction model",
+        "h1": "Microstructure Friction Costs in Gold Trading: When Does Drag Eliminate Strategy Edge?",
+        "read_time": "7 min read",
+        "badge": "MICROSTRUCTURE · FRICTION COST",
+        "sections": [
+            (
+                "1. The Three Components of Execution Friction in Gold Markets",
+                "Most backtests fail in live markets because they assume zero transaction drag or constant fixed spreads. Real execution involves three dynamic elements: half-spread based on session liquidity, execution slippage during volatility shocks, and clearing commissions."
+            ),
+            (
+                "2. Sensitivity Analysis Across Realistic Cost Scenarios ($1.5/oz, $2.5/oz, $4.0/oz)",
+                "By stress-testing models across multiple friction regimes, research reveals that at higher drag levels ($4.0/oz), nominal edge is rapidly eroded in off-peak trading hours. This mandates an adequate statistical safety margin before deployment."
+            ),
+            (
+                "3. Standards for Robust Model Verification",
+                "Quantitative strategies must demonstrate out-of-sample profit factors above 1.25 under conservative friction assumptions ($2.50/oz). ZUPIRUS research reports publish verified results across all three friction thresholds."
+            ),
+        ],
+    },
+    {
+        "slug": "walk-forward-oos-validation-methodology-gold",
+        "title": "Walk-Forward Out-of-Sample (OOS) Validation Methodology for COMEX Gold | ZUPIRUS Quant Lab",
+        "meta_description": "Preventing overfitting and data snooping in gold algorithmic research through anchored and rolling Walk-Forward Optimization and strict holdout isolation.",
+        "keywords": "walk forward analysis gold, out of sample validation xauusd, anti overfitting quant, gold backtest methodology",
+        "h1": "Walk-Forward Out-of-Sample Validation Methodology: Institutional Standards for Gold Research",
+        "read_time": "8 min read",
+        "badge": "METHODOLOGY · WALK-FORWARD OOS",
+        "sections": [
+            (
+                "1. The Perils of Overfitting in Traditional Historical Backtests",
+                "Overfitting is the primary reason behind strategy decay in live markets. When parameters are repeatedly tuned on historical data, analysts inadvertently model market noise rather than persistent structural dynamics."
+            ),
+            (
+                "2. Rolling Windows and Train / Validation / Holdout Partitioning",
+                "Walk-Forward Optimization segments historical data into progressive train and test windows, preserving chronological sequencing and isolating a pristine holdout sample that remains unexamined until final acceptance."
+            ),
+            (
+                "3. Independent Quantitative Research Reports for Decision Making",
+                "Professional market participants require objective, un-hyped research. Independent verification, OOS degradation metrics, and stress-tested expectancy matrices provide an empirical foundation for capital allocation."
+            ),
+        ],
+    },
+]
 ENGLISH_GUIDE_BY_SLUG: Dict[str, Dict[str, object]] = {g["slug"]: g for g in ENGLISH_GUIDES}  # type: ignore[misc]
 
 
 @router.get("/en", response_class=HTMLResponse)
 def seo_english_landing(request: Request) -> HTMLResponse:
     canonical = "https://zupirus.com/en"
-    title = "ZUPIRUS — Statistical Studies of Gold (XAU/USD) and Forex"
-    desc = "Educational quantitative studies of gold, forex, and indices, published as PDF guides with a free preview. No automated execution and no profit promise."
-    keywords = "ZUPIRUS Quant Lab, XAUUSD statistical study, forex research PDF, quantitative methodology"
+    title = "ZUPIRUS — Institutional Gold (XAU/USD) Quantitative Research Lab"
+    desc = "Independent quantitative research laboratory specializing in COMEX Gold (XAU/USD) market microstructure, Walk-Forward Optimization, and published PDF reports."
+    keywords = "gold quantitative research, XAUUSD quant lab, walk forward optimization, COMEX gold research, quant PDF reports"
     json_ld = {
         "@context": "https://schema.org",
         "@graph": [
             {
-                "@type": "SoftwareApplication",
-                "name": "ZUPIRUS Quant Lab PDF guides",
-                "applicationCategory": "EducationalApplication",
-                "operatingSystem": "Web",
+                "@type": "Organization",
+                "name": "ZUPIRUS Quant Lab",
                 "url": "https://zupirus.com/en",
                 "description": desc,
-                "offers": {"@type": "AggregateOffer", "priceCurrency": "USD", "lowPrice": "19", "highPrice": "59", "offerCount": "3"}
             },
             {
                 "@type": "BreadcrumbList",
@@ -828,43 +470,43 @@ def seo_english_landing(request: Request) -> HTMLResponse:
           <span class="badge">{html.escape(str(g['badge']))} · {html.escape(str(g['read_time']))}</span>
           <h2><a href="/en/guides/{g['slug']}">{html.escape(str(g['h1']))}</a></h2>
           <p>{html.escape(str(g['meta_description']))}</p>
-          <a href="/en/guides/{g['slug']}" style="font-weight:700;font-size:13.5px">Read Full Guide →</a>
+          <a href="/en/guides/{g['slug']}" style="font-weight:700;font-size:13.5px">Read Full Research →</a>
         </div>"""
         for g in ENGLISH_GUIDES
     )
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">Home</a> / Global English Overview</div>
-      <span class="badge">QUANT LAB · PDF STUDIES</span>
-      <h1>Statistical studies of gold, forex, and indices</h1>
-      <p>Read a free preview, then buy the full methodology as a PDF. The figures describe a named historical sample. They are not a forecast and not a promise of profit.</p>
+      <span class="badge">ZUPIRUS QUANT LAB · INDEPENDENT RESEARCH</span>
+      <h1>Institutional Gold (XAU/USD) Quantitative Research &amp; Walk-Forward Laboratory</h1>
+      <p>Empirical market microstructure analysis, rolling Walk-Forward Optimization (WFO), and rigorous transaction friction cost modeling. Browse research catalog, read free sample previews, and purchase institutional PDF reports.</p>
 
       <div class="grid">
         <div class="card">
-          <span class="badge">WHAT YOU GET</span>
-          <h2>Documented methodology</h2>
-          <p>Session behaviour, volatility regimes, seasonality, and the historical path of one rule, with the parameters written down so the study can be recomputed.</p>
+          <span class="badge">METHODOLOGY</span>
+          <h2>Walk-Forward OOS Verification</h2>
+          <p>Strict chronological separation of training, validation, and holdout datasets to eliminate overfitting and selection bias.</p>
         </div>
         <div class="card">
-          <span class="badge">WHAT THIS IS NOT</span>
-          <h2>No automated execution</h2>
-          <p>ZUPIRUS does not connect an MT5 account, copy trades, or host a trading server. You keep your own broker account, if you have one.</p>
+          <span class="badge">MICROSTRUCTURE</span>
+          <h2>Realistic Friction Cost Models</h2>
+          <p>Every finding is evaluated across half-spread, execution slippage, and brokerage fees ($1.5/oz, $2.5/oz, $4.0/oz).</p>
         </div>
         <div class="card">
-          <span class="badge">PAYMENT</span>
-          <h2>USDT on BEP20 or TRC20</h2>
-          <p>A published guide can be bought with on-chain USDT. After payment clears, the library gives you a time-limited download of the version you bought.</p>
+          <span class="badge">DIGITAL DELIVERY</span>
+          <h2>Versioned PDF Reports Library</h2>
+          <p>Direct USDT (TRC20/BEP20) checkout, automatic cryptographic verification, and instant access to your account library.</p>
         </div>
       </div>
 
-      <h2 style="margin-top:48px">Institutional Knowledge Hub &amp; Guides</h2>
+      <h2 style="margin-top:48px">Quantitative Research &amp; Methodology Guides</h2>
       <div class="grid">{cards}</div>
 
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:18px">Browse the PDF library</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Preview a study, then pay with USDT (TRC20/BEP20) if you want the full note.</p>
+          <strong style="color:#fff;font-size:18px">Explore Our Published Quantitative Research</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Read free sample previews and download full reports from your account library.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Open the library →</a>
+        <a class="cta" href="https://zupirus.com/#reports">View Report Catalog →</a>
       </div>
     """
     return HTMLResponse(_render_shell(title, desc, canonical, keywords, json_ld, body, lang="en"))
@@ -873,9 +515,9 @@ def seo_english_landing(request: Request) -> HTMLResponse:
 @router.get("/en/guides", response_class=HTMLResponse)
 def seo_english_guides(request: Request) -> HTMLResponse:
     canonical = "https://zupirus.com/en/guides"
-    title = "Quantitative Trading & Prop Firm Knowledge Hub | ZUPIRUS"
-    desc = "Notes on how to read a ZUPIRUS statistical study. Educational PDFs only."
-    keywords = "prop firm education, XAUUSD statistical studies, EURUSD session research PDF, ZUPIRUS quant library"
+    title = "Quantitative Research & Methodology Knowledge Hub | ZUPIRUS Quant Lab"
+    desc = "Explore in-depth quantitative research, Walk-Forward Optimization methodologies, and realistic friction cost modeling for COMEX Gold (XAU/USD)."
+    keywords = "gold quant research, walk forward optimization, market microstructure, gold quant reports"
     json_ld = {
         "@context": "https://schema.org",
         "@graph": [
@@ -900,22 +542,22 @@ def seo_english_guides(request: Request) -> HTMLResponse:
           <span class="badge">{html.escape(str(g['badge']))} · {html.escape(str(g['read_time']))}</span>
           <h2><a href="/en/guides/{g['slug']}">{html.escape(str(g['h1']))}</a></h2>
           <p>{html.escape(str(g['meta_description']))}</p>
-          <a href="/en/guides/{g['slug']}" style="font-weight:700;font-size:13.5px">Read Guide →</a>
+          <a href="/en/guides/{g['slug']}" style="font-weight:700;font-size:13.5px">Read Research →</a>
         </div>"""
         for g in ENGLISH_GUIDES
     )
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">Home</a> / <a href="/en">Global English</a> / Guides</div>
       <span class="badge">QUANT KNOWLEDGE HUB</span>
-      <h1>How to read a quantitative study</h1>
-      <p>Notes on samples, session clocks, and what a historical table does not claim.</p>
+      <h1>Quantitative Research &amp; Methodology Guides</h1>
+      <p>Institutional analysis, algorithmic architectures, and disciplined risk guidelines for systematic gold (XAU/USD) traders.</p>
       <div class="grid">{cards}</div>
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">The library is on the website</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">No terminal to install. A purchase unlocks the PDF you bought.</p>
+          <strong style="color:#fff;font-size:17px">Ready to explore our research catalog?</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Access comprehensive PDF reports with full data tables and out-of-sample matrices.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Open the library →</a>
+        <a class="cta" href="https://zupirus.com/#reports">View Report Catalog →</a>
       </div>
     """
     return HTMLResponse(_render_shell(title, desc, canonical, keywords, json_ld, body, lang="en"))
@@ -974,10 +616,10 @@ def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
       </div>
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">Open the PDF library and read a free preview</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Published guides are paid in USDT on BEP20 or TRC20. Past statistics are not a profit promise.</p>
+          <strong style="color:#fff;font-size:17px">Access Institutional Research Reports</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Examine sample previews and purchase verified PDF publications with direct USDT checkout.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Open PDF library →</a>
+        <a class="cta" href="https://zupirus.com/#reports">View Report Catalog →</a>
       </div>
     """
     return HTMLResponse(
@@ -991,4 +633,3 @@ def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
             lang="en",
         )
     )
-

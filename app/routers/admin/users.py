@@ -27,9 +27,9 @@ def list_admin_users(u=Depends(get_current_admin)):
     with tx() as c:
         rows = c.execute("""
             SELECT u.id, u.email, u.role,
-                   ((SELECT COUNT(*) FROM accounts a WHERE a.user_id = u.id) +
-                    (SELECT COUNT(*) FROM trading_accounts ta WHERE ta.user_id = u.id)) as accounts_count,
-                   (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires > ?) as active_sessions
+                   (SELECT COUNT(*) FROM report_entitlements re WHERE re.user_id = u.id AND re.status = 'ACTIVE') as entitlements_count,
+                   (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id AND s.expires > ?) as active_sessions,
+                   (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id) as orders_count
             FROM users u
             ORDER BY u.email ASC
         """, (time.time(),)).fetchall()
@@ -39,8 +39,10 @@ def list_admin_users(u=Depends(get_current_admin)):
                 'id': r[0],
                 'email': r[1],
                 'role': r[2],
+                'entitlements_count': r[3],
                 'accounts_count': r[3],
                 'active_sessions': r[4],
+                'orders_count': r[5],
             })
     return {'users': users_list, 'total': len(users_list)}
 

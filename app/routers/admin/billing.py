@@ -33,29 +33,20 @@ SUPPORTED_BANKS = [
 
 
 class FlexibleBillingSettingsUpdate(BaseModel):
+    fallback_usd_vnd_rate: Optional[float] = None
+    fx_rate_provider_url: Optional[str] = None
+    fx_rate_cache_ttl_seconds: Optional[int] = None
+    manual_fx_rate: Optional[float] = None
+    # Compatibility optional fields (ignored)
     sepay_bank_name: Optional[str] = None
     sepay_account_number: Optional[str] = None
     sepay_account_holder: Optional[str] = None
     sepay_webhook_secret: Optional[str] = None
-    fallback_usd_vnd_rate: Optional[float] = None
-    fx_rate_provider_url: Optional[str] = None
-    fx_rate_cache_ttl_seconds: Optional[int] = None
-
-    # Alternate naming conventions
     bank_name: Optional[str] = None
     account_number: Optional[str] = None
     account_holder: Optional[str] = None
     content_prefix: Optional[str] = None
     fx_mode: Optional[str] = None
-    manual_fx_rate: Optional[float] = None
-
-
-class PreviewQRRequest(BaseModel):
-    bank_name: Optional[str] = None
-    account_number: Optional[str] = None
-    account_holder: Optional[str] = None
-    amount_vnd: int = Field(772000, gt=0)
-    content_memo: str = Field("ZP TESTQR", min_length=2)
 
 
 class GrantSubscriptionRequest(BaseModel):
@@ -69,55 +60,24 @@ class GrantSubscriptionRequest(BaseModel):
 
 @router.get("/api/admin/billing/settings")
 def get_billing_settings(_admin=Depends(get_current_admin)):
-    """Retrieve active bank configuration, memo prefix, and USD/VND conversion mode."""
+    """Retrieve USD/VND conversion rate and provider configuration."""
     with tx() as c:
         row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
         saved = json.loads(row[0]) if row else {}
 
-    bank_name = (saved.get("sepay_bank_name") or saved.get("bank_name") or "").strip()
-    account_number = (saved.get("sepay_account_number") or saved.get("account_number") or "").strip()
-    account_holder = (saved.get("sepay_account_holder") or saved.get("account_holder") or "").strip().upper()
-    content_prefix = (saved.get("content_prefix") or "ZP").strip().upper()
-    fx_mode = (saved.get("fx_mode") or "AUTO").strip().upper()
     manual_fx_rate = float(saved.get("fallback_usd_vnd_rate") or saved.get("manual_fx_rate") or 25600.0)
-
-    raw_enc_sec = saved.get("sepay_webhook_secret_encrypted")
-    secret = ""
-    if raw_enc_sec:
-        try:
-            from app.security import decrypt_secret
-            secret = decrypt_secret(raw_enc_sec)
-        except Exception:
-            secret = ""
-    if not secret:
-        secret = saved.get("sepay_webhook_secret") or os.getenv("SEPAY_WEBHOOK_SECRET") or ""
-    masked_secret = f"{secret[:4]}***{secret[-3:]}" if len(secret) >= 7 else ("***" if secret else "CHƯA_CẤU_HÌNH")
-
     rate, source, is_cached = get_usd_vnd_rate()
 
     return {
-        # Frontend AdminBillingSettingsTab format:
-        "sepay_bank_name": bank_name,
-        "sepay_account_number": account_number,
-        "sepay_account_holder": account_holder,
-        "sepay_webhook_secret_masked": masked_secret,
         "fallback_usd_vnd_rate": manual_fx_rate,
+        "manual_fx_rate": manual_fx_rate,
         "fx_rate_provider_url": saved.get("fx_rate_provider_url", "https://open.er-api.com/v6/latest/USD"),
         "fx_rate_cache_ttl_seconds": int(saved.get("fx_rate_cache_ttl_seconds", 1800)),
         "current_live_rate": rate,
-        "current_rate_source": source,
-
-        # Standard legacy format:
-        "bank_name": bank_name,
-        "account_number": account_number,
-        "account_holder": account_holder,
-        "content_prefix": content_prefix,
-        "fx_mode": fx_mode,
-        "manual_fx_rate": manual_fx_rate,
         "current_fx_rate": rate,
+        "current_rate_source": source,
         "fx_source": source,
         "fx_is_cached": is_cached,
-        "supported_banks": SUPPORTED_BANKS,
     }
 
 
@@ -125,12 +85,6 @@ def _save_settings(req: FlexibleBillingSettingsUpdate):
     with tx() as c:
         row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
         existing = json.loads(row[0]) if row else {}
-
-    bank_name = (req.sepay_bank_name or req.bank_name or existing.get("sepay_bank_name") or existing.get("bank_name") or "").strip()
-    account_number = (req.sepay_account_number or req.account_number or existing.get("sepay_account_number") or existing.get("account_number") or "").strip()
-    account_holder = (req.sepay_account_holder or req.account_holder or existing.get("sepay_account_holder") or existing.get("account_holder") or "").strip().upper()
-    content_prefix = (req.content_prefix or existing.get("content_prefix") or "ZP").strip().upper()
-    fx_mode = (req.fx_mode or existing.get("fx_mode") or "AUTO").strip().upper()
 
     rate_val = req.fallback_usd_vnd_rate if req.fallback_usd_vnd_rate is not None else req.manual_fx_rate
     if rate_val is None:
@@ -140,27 +94,11 @@ def _save_settings(req: FlexibleBillingSettingsUpdate):
     ttl = req.fx_rate_cache_ttl_seconds if req.fx_rate_cache_ttl_seconds is not None else int(existing.get("fx_rate_cache_ttl_seconds", 1800))
 
     payload = {
-        "bank_name": bank_name,
-        "sepay_bank_name": bank_name,
-        "account_number": account_number,
-        "sepay_account_number": account_number,
-        "account_holder": account_holder,
-        "sepay_account_holder": account_holder,
-        "content_prefix": content_prefix,
-        "fx_mode": fx_mode,
         "manual_fx_rate": rate_val,
         "fallback_usd_vnd_rate": rate_val,
         "fx_rate_provider_url": provider_url,
         "fx_rate_cache_ttl_seconds": ttl,
     }
-    if req.sepay_webhook_secret:
-        from app.security import encrypt_secret
-        payload["sepay_webhook_secret_encrypted"] = encrypt_secret(req.sepay_webhook_secret.strip())
-    elif "sepay_webhook_secret_encrypted" in existing:
-        payload["sepay_webhook_secret_encrypted"] = existing["sepay_webhook_secret_encrypted"]
-    elif "sepay_webhook_secret" in existing:
-        from app.security import encrypt_secret
-        payload["sepay_webhook_secret_encrypted"] = encrypt_secret(str(existing["sepay_webhook_secret"]).strip())
 
     with tx() as c:
         c.execute(
@@ -179,45 +117,19 @@ def _save_settings(req: FlexibleBillingSettingsUpdate):
     except Exception as e:
         logger.warning(f"Could not write FX rate to Redis: {e}")
 
-    return {"message": "Cấu hình thanh toán SePay và tỷ giá đã được lưu thành công.", "settings": payload}
+    return {"message": "Cấu hình tỷ giá USD/VND đã được lưu thành công.", "settings": payload}
 
 
 @router.put("/api/admin/billing/settings")
 def put_billing_settings(req: FlexibleBillingSettingsUpdate, _admin=Depends(get_current_admin)):
-    """Save bank configuration and USD/VND exchange rate settings via PUT."""
+    """Save USD/VND exchange rate settings via PUT."""
     return _save_settings(req)
 
 
 @router.post("/api/admin/billing/settings")
 def update_billing_settings(req: FlexibleBillingSettingsUpdate, _admin=Depends(get_current_admin)):
-    """Save bank configuration and USD/VND exchange rate settings via POST."""
+    """Save USD/VND exchange rate settings via POST."""
     return _save_settings(req)
-
-
-@router.post("/api/admin/billing/preview-qr")
-def generate_preview_qr(req: PreviewQRRequest, _admin=Depends(get_current_admin)):
-    """Generate live preview URLs for SePay VietQR and fallback VietQR."""
-    bank = req.bank_name or ""
-    acc = req.account_number or ""
-    holder = req.account_holder or ""
-    memo = req.content_memo
-    if str(bank or "").lower() in ("vietinbank", "icb") and not memo.upper().startswith("SEVQR"):
-        memo = f"SEVQR {memo}"
-    encoded_memo = quote(memo)
-    encoded_holder = quote(holder)
-
-    sepay_qr = f"https://qr.sepay.vn/img?acc={acc}&bank={bank}&amount={req.amount_vnd}&des={encoded_memo}"
-    vietqr_qr = f"https://img.vietqr.io/image/{bank}-{acc}-compact2.png?amount={req.amount_vnd}&addInfo={encoded_memo}&accountName={encoded_holder}"
-
-    return {
-        "sepay_qr_url": sepay_qr,
-        "vietqr_qr_url": vietqr_qr,
-        "bank_name": bank,
-        "account_number": acc,
-        "account_holder": holder,
-        "amount_vnd": req.amount_vnd,
-        "content_memo": req.content_memo,
-    }
 
 
 @router.post("/api/admin/billing/flush-fx-cache")
@@ -607,7 +519,6 @@ def list_payments(u=Depends(get_current_admin)):
 @router.post('/api/admin/payments/manual-approve')
 def admin_manual_approve_payment(p: ManualPaymentPayload, u=Depends(get_current_admin)):
     """Manually approves and records a payment transaction, crediting the customer and sending an official email receipt."""
-    from app.sepay import build_payment_success_email
     from app.mailer import send_resend_email
     from app.db import audit
     email_clean = p.user_email.strip().lower()
@@ -642,14 +553,21 @@ def admin_manual_approve_payment(p: ManualPaymentPayload, u=Depends(get_current_
         })
 
     try:
-        email_html = build_payment_success_email(
-            user_email=email_clean,
-            amount_vnd=p.amount_vnd,
-            gateway=p.gateway,
-            ref_code=p.reference_code,
-            content=f"DUYỆT THỦ CÔNG: {p.note}"
+        email_html = (
+            f"<div style='font-family: sans-serif; padding: 20px; line-height: 1.6;'>"
+            f"<h2>Xác Nhận Thanh Toán Thành Công</h2>"
+            f"<p>Chào bạn,</p>"
+            f"<p>Khoản thanh toán của bạn đã được quản trị viên duyệt thành công:</p>"
+            f"<ul>"
+            f"<li>Số tiền: {int(p.amount_vnd):,} VND</li>"
+            f"<li>Cổng thanh toán: {p.gateway}</li>"
+            f"<li>Mã tham chiếu: {p.reference_code}</li>"
+            f"<li>Ghi chú: {p.note}</li>"
+            f"</ul>"
+            f"<p>Cảm ơn bạn đã đồng hành cùng ZUPIRUS Quant Lab.</p>"
+            f"</div>"
         )
-        send_resend_email(to=email_clean, subject="🎉 Xác nhận nạp tiền thành công (Duyệt thủ công) - ZUPIRUS Quant Lab", html=email_html)
+        send_resend_email(to=email_clean, subject="🎉 Xác nhận thanh toán thành công (Duyệt thủ công) - ZUPIRUS Quant Lab", html=email_html)
     except Exception as e:
         logger.error("Failed to send manual receipt email: %s", e)
 

@@ -615,9 +615,13 @@ def create_report_checkout_order(
     Default payment gateway is on-chain USDT (BEP20 or TRC20).
     Rejects unpublished or discontinued reports, and blocks duplicate purchase if the user already owns this exact version."""
     from app.routers.deps import fail
+    from app.core.config import is_commercial_reports_sale_enabled, is_usdt_payment_enabled
 
     if not is_commercial_reports_sale_enabled():
         fail(400, "Cổng mua trực tuyến đang tạm tắt. Các báo cáo hiện tại đang trong giai đoạn tiền thẩm định và đọc thử miễn phí.")
+
+    if not is_usdt_payment_enabled():
+        fail(400, "Phương thức thanh toán USDT hiện chưa được kích hoạt hoặc đang tạm khóa.")
 
     now_ts = time.time()
     method_u = str(payment_method or "USDT").strip().upper()
@@ -875,6 +879,9 @@ def list_user_report_library(user_id: str) -> List[Dict[str, Any]]:
                 "download_url": f"/api/v1/reports/{rep_id}/download?version={quote(str(ver))}",
             })
         return items
+
+
+list_purchased_reports_for_user = list_user_report_library
 
 
 def verify_user_report_download_access(

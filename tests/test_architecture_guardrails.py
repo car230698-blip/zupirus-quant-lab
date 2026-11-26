@@ -56,16 +56,10 @@ def test_guardrail_strict_csp_no_inline_scripts():
     assert not inline_executables, f"CSP violation: Found inline scripts in web/index.html:\n" + "\n".join(inline_executables)
 
 
-def test_guardrail_lot_calculation_standardization():
-    """Customer order fan-out is retired. The module must not be importable."""
+def test_guardrail_customer_execution_decommissioned():
+    """Verify customer auto-trade fanout and execution engine are completely decommissioned."""
     fanout_py = ROOT / "app" / "domains" / "execution" / "fanout.py"
-    assert not fanout_py.exists(), "Customer order fan-out must stay removed"
-    import importlib
-    try:
-        importlib.import_module("app.domains.execution.fanout")
-    except ImportError:
-        return
-    raise AssertionError("app.domains.execution.fanout must not import")
+    assert not fanout_py.exists(), "Customer trade execution fanout.py must be decommissioned"
 
 
 def test_guardrail_no_duplicate_admin_payments_router():
@@ -202,7 +196,6 @@ def test_guardrail_production_compose_security_locks():
     assert "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}" in prod_compose
     assert 'APP_ENV: "production"' in prod_compose
     assert 'COOKIE_SECURE: "true"' in prod_compose
-    assert 'ENABLE_LEGACY_EA_BRIDGE: "false"' in prod_compose
     assert "127.0.0.1:5432" in prod_compose
     assert "127.0.0.1:6379" in prod_compose
     assert "0.0.0.0" not in prod_compose
@@ -212,9 +205,9 @@ def test_guardrail_env_example_completeness():
     """Verify .env.example contains all required quant safety and production configuration keys."""
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     required_keys = [
-        "ENABLE_LEGACY_EA_BRIDGE=false",
+        "COMMERCIAL_REPORTS_SALE_ENABLED=false",
+        "PAYMENT_USDT_ENABLED=false",
         "MIN_INDUCTIVE_SAMPLES=30",
-        "PROP_LIVE_MAX_PORTFOLIO_RISK_PCT=2.0",
         "WFO_ROUNDTRIP_COST_PIPS=3.5",
         "REDIS_PASSWORD=",
     ]

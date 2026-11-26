@@ -7,12 +7,6 @@ from typing import List, Optional
 
 from cli.formatters import emit_error
 from cli.system import cmd_status, cmd_kill_switch, cmd_healthcheck
-from cli.cloud import (
-    cmd_cloud_list,
-    cmd_cloud_sync,
-    cmd_cloud_undeploy_expired,
-    cmd_cloud_dispatch_test,
-)
 from cli.signal import (
     cmd_signal_send_test,
     cmd_signal_trace,
@@ -61,39 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sys_kill.add_argument("--json", action="store_true", help="Output pure JSON")
 
     # -------------------------------------------------------------
-    # 2. CLOUD MT5 CLIENT DOMAIN (MetaApi Direct-to-User)
-    # -------------------------------------------------------------
-    p_cloud = subparsers.add_parser("cloud", help="Manage MetaApi Cloud MT5 terminals, sync, and testing")
-    cloud_subs = p_cloud.add_subparsers(dest="subcommand")
-
-    # cloud list
-    p_cloud_list = cloud_subs.add_parser("list", help="List all Cloud MT5 accounts, equity, and deployment state")
-    p_cloud_list.add_argument("--json", action="store_true", help="Output pure JSON")
-
-    # cloud sync
-    p_cloud_sync = cloud_subs.add_parser("sync", help="Sync real-time equity & balance from MetaApi Cloud")
-    p_cloud_sync.add_argument("--account", type=str, default=None, help="Target account login (optional)")
-    p_cloud_sync.add_argument("--json", action="store_true", help="Output pure JSON")
-
-    # cloud undeploy-expired
-    p_cloud_undep = cloud_subs.add_parser("undeploy-expired", help="Undeploy expired accounts to stop cloud hosting costs")
-    p_cloud_undep.add_argument("--json", action="store_true", help="Output pure JSON")
-
-    # cloud dispatch-test
-    p_cloud_disp = cloud_subs.add_parser("dispatch-test", help="Test microsecond Fan-Out dispatch across all active Cloud MT5 accounts")
-    p_cloud_disp.add_argument("--symbol", type=str, default="XAUUSD", help="Symbol to dispatch (default: XAUUSD)")
-    p_cloud_disp.add_argument("--action", type=str, default="BUY", choices=["BUY", "SELL", "buy", "sell"], help="Order direction")
-    p_cloud_disp.add_argument("--price", type=float, default=None, help="Reference price")
-    p_cloud_disp.add_argument("--json", action="store_true", help="Output pure JSON")
-
-    # Legacy 'ea' alias mapping to cloud
-    p_ea = subparsers.add_parser("ea", help="[Deprecated alias -> cloud] Manage MT5 accounts")
-    ea_subs = p_ea.add_subparsers(dest="subcommand")
-    p_ea_list = ea_subs.add_parser("list", help="List all MT5 accounts")
-    p_ea_list.add_argument("--json", action="store_true", help="Output pure JSON")
-
-    # -------------------------------------------------------------
-    # 3. SIGNAL & DISPATCH DOMAIN
+    # 2. SIGNAL & DISPATCH DOMAIN
     # -------------------------------------------------------------
     p_sig = subparsers.add_parser("signal", help="Signal generation, testing, and lifecycle tracing")
     sig_subs = p_sig.add_subparsers(dest="subcommand")
@@ -224,29 +186,6 @@ def main(argv: Optional[List[str]] = None):
                 cmd_kill_switch(on=args.on, off=args.off, reason=args.reason, as_json=effective_json)
             else:
                 emit_error(f"Unknown system subcommand '{args.subcommand}'. Use --help.", as_json=effective_json)
-
-        elif args.command == "cloud":
-            if args.subcommand == "list":
-                cmd_cloud_list(as_json=effective_json)
-            elif args.subcommand == "sync":
-                cmd_cloud_sync(account_login=args.account, as_json=effective_json)
-            elif args.subcommand == "undeploy-expired":
-                cmd_cloud_undeploy_expired(as_json=effective_json)
-            elif args.subcommand == "dispatch-test":
-                cmd_cloud_dispatch_test(
-                    symbol=args.symbol,
-                    action=args.action,
-                    price=args.price,
-                    as_json=effective_json,
-                )
-            else:
-                emit_error(f"Unknown cloud subcommand '{args.subcommand}'. Use --help.", as_json=effective_json)
-
-        elif args.command == "ea":
-            if args.subcommand == "list":
-                cmd_cloud_list(as_json=effective_json)
-            else:
-                emit_error("Legacy 'ea' commands have been replaced by 'cloud'. Use 'zupirus-cli cloud --help'.", as_json=effective_json)
 
         elif args.command == "signal":
             if args.subcommand == "send-test":

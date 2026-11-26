@@ -300,25 +300,6 @@ def test_trace_secret_sanitization():
     assert cleaned['sub']['normal_field'] == 'normal_data'
 
 
-def test_transactional_outbox_flow(client):
-    """Verify signal publishing inserts into outbox and consumer reads from stream."""
-    with tx() as c:
-        from app.engine import publish, flush_outbox
-        from app.redis_client import consume_signals_stream, ack_signal
-        sid = publish(c, 'DEMO', 'BUY', 2700.50, f'test-outbox-{time.time()}')
-        # Check outbox has the pending entry
-        rows = c.execute("SELECT * FROM outbox WHERE payload LIKE ? AND event_type='signal_created'", (f'%{sid}%',)).fetchall()
-        assert len(rows) >= 1
-        # Flush outbox
-        flush_outbox(c)
-        # Verify status is published
-        status_row = c.execute("SELECT status FROM outbox WHERE payload LIKE ?", (f'%{sid}%',)).fetchone()
-        assert status_row[0] == 'published'
-        # Consume stream
-        stream_items = consume_signals_stream(count=5)
-        assert any(item.get('signal_id') == sid for item in stream_items)
-
-
 def test_migration_fresh_and_legacy_database_upgrade():
     """Verify migrations handle both fresh database and upgrading existing legacy schemas with preserved data."""
     import sqlite3
@@ -399,71 +380,6 @@ def test_migration_fresh_and_legacy_database_upgrade():
     if database_url.startswith("postgresql://") or database_url.startswith("postgres://"):
         from app.migrations import run_postgres_migration_test
         run_postgres_migration_test(database_url)
-
-
-def test_multi_strategy_coordinator():
-    """Verify Tabula Rasa Policy Coordinator in Phase 1 (observing) and Phase 2 (autonomous execution)."""
-    from app.db import init, tx
-    init()
-    from app.engine import (
-        coordinate_strategies,
-        STRATEGY_VERSION,
-    )
-    from app.research import (
-        discover_candidate_from_observations,
-        walk_forward,
-    )
-
-    box = [2650.0 + (i % 3) * 1.5 for i in range(25)]
-
-    # 1. Phase 1 (EXTERNAL_FEED): Must observe, never self-issue orders
-    with tx() as c:
-        c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'EXTERNAL_FEED') ON CONFLICT(key) DO UPDATE SET value = 'EXTERNAL_FEED'")
-        c.execute("INSERT INTO kv(key, value) VALUES('signal_mode', 'EXTERNAL_FEED') ON CONFLICT(key) DO UPDATE SET value = 'EXTERNAL_FEED'")
-
-    p1_decision = coordinate_strategies(box, timeframe="M15")
-    assert p1_decision["side"] is None
-    assert p1_decision["strategy"] == "tabula_rasa_observing"
-    assert "TABULA_RASA_OBSERVING" in p1_decision["reason"]
-    assert p1_decision["version"] == STRATEGY_VERSION
-
-    # 2. Tabula Rasa Inductive Learning: Discover candidates from observations
-    cand = discover_candidate_from_observations()
-    assert "rules" in cand
-    assert cand["name"].startswith("TabulaRasa-Alpha")
-
-    # 3. Walk-Forward Optimization of discovered candidate
-    wfo_report = walk_forward(box, candidate=cand)
-    assert wfo_report["candidate_name"] == cand["name"]
-    assert "folds" in wfo_report
-    assert "oos_net_price_units" in wfo_report
-
-    # 4. Phase 2 (ZUPIRUS_AGENT): Autonomous execution with approved policy
-    with tx() as c:
-        c.execute("UPDATE strategy_candidates SET status = 'ARCHIVED_PROD' WHERE status = 'APPROVED_FOR_PROD'")
-        c.execute("UPDATE agent_skills SET enabled = 0 WHERE skill_id LIKE 'learned_%'")
-        c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'ZUPIRUS_AGENT') ON CONFLICT(key) DO UPDATE SET value = 'ZUPIRUS_AGENT'")
-        c.execute("INSERT INTO kv(key, value) VALUES('signal_mode', 'ZUPIRUS_AGENT') ON CONFLICT(key) DO UPDATE SET value = 'ZUPIRUS_AGENT'")
-        now_ts = time.time()
-        c.execute(
-            """
-            INSERT INTO strategy_candidates (
-                id, name, status, rules_json, sample_size, win_rate, profit_factor, created_at, updated_at
-            ) VALUES ('cand_test_approved', 'TabulaRasa-Prod-Alpha', 'APPROVED_FOR_PROD', '{"action":"BUY","min_slope":0.10}', 50, 0.68, 1.85, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET status = 'APPROVED_FOR_PROD', updated_at = excluded.updated_at
-            """,
-            (now_ts, now_ts + 1000)
-        )
-
-    # Rising slope series triggers AUTONOMOUS_BUY
-    rising = [2650.0] * 10 + [2651.0, 2652.0, 2653.0, 2654.0, 2655.0]
-    p2_decision = coordinate_strategies(rising, timeframe="M15")
-    assert p2_decision["side"] == "BUY"
-    assert "AUTONOMOUS_BUY" in p2_decision["reason"]
-
-    # Reset back to EXTERNAL_FEED
-    with tx() as c:
-        c.execute("INSERT INTO kv(key, value) VALUES('signal_source', 'EXTERNAL_FEED') ON CONFLICT(key) DO UPDATE SET value = 'EXTERNAL_FEED'")
 
 
 def test_spa_fallback_and_api_pure_json(client):

@@ -73,10 +73,8 @@ def test_admin_delete_user_cascade(client: TestClient):
 
         # Insert some dependent records for trader
         now_ts = 1700000000.0
-        c.execute("INSERT INTO trading_accounts(id, user_id, mt5_login, encrypted_master_password, broker_server, created_at) VALUES(?,?,?,?,?,?)",
-                  (f"acc_{secrets.token_hex(4)}", trader_id, "999888", "enc", "Broker-Real", now_ts))
-        c.execute("INSERT INTO metaapi_cloud_accounts(id, user_id, login, server, created_at) VALUES(?,?,?,?,?)",
-                  (f"acc_{secrets.token_hex(4)}", trader_id, "999888", "Broker-Real", now_ts))
+        c.execute("INSERT INTO orders(id, user_id, amount_usd, locked_exchange_rate, amount_vnd, plan_tier, status, created_at, expires_at) VALUES(?,?,?,25600,742400,'starter','PENDING',?,?)",
+                  (f"ord_{secrets.token_hex(4)}", trader_id, 29.0, now_ts, now_ts + 3600))
         c.execute("INSERT INTO subscriptions(user_id, plan_tier, created_at, updated_at) VALUES(?,?,?,?)", (trader_id, "STARTER", now_ts, now_ts))
 
     # Login as admin
@@ -97,47 +95,10 @@ def test_admin_delete_user_cascade(client: TestClient):
     # Trader should no longer exist
     with tx() as c:
         assert c.execute("SELECT 1 FROM users WHERE id = ?", (trader_id,)).fetchone() is None
-        assert c.execute("SELECT 1 FROM trading_accounts WHERE user_id = ?", (trader_id,)).fetchone() is None
+        assert c.execute("SELECT 1 FROM orders WHERE user_id = ?", (trader_id,)).fetchone() is None
         assert c.execute("SELECT 1 FROM subscriptions WHERE user_id = ?", (trader_id,)).fetchone() is None
 
     # Admin cannot delete themselves
     admin_row = client.get("/api/me").json()
     r_self_del = client.delete(f"/api/admin/users/{admin_row['id']}", headers=csrf)
     assert r_self_del.status_code == 400
-
-
-def test_delete_account_across_all_tables(client):
-    """Verify delete_account works for accounts stored in accounts, real_accounts, or trading_accounts."""
-    admin_email = f"admin_acc_{secrets.token_hex(4)}@example.com"
-    pwd = "password12345678"
-    client.post("/api/register", json={"email": admin_email, "password": pwd})
-    with tx() as c:
-        c.execute("UPDATE users SET role = 'admin' WHERE email = ?", (admin_email,))
-        u = c.execute("SELECT id FROM users WHERE email = ?", (admin_email,)).fetchone()
-        uid = u[0]
-
-        # Insert accounts in accounts, real_accounts, trading_accounts
-        now_ts = 1700000000.0
-        c.execute("INSERT INTO legal_disclaimers(id, user_id, terms_version, accepted_at, ip_address, signature_text, status) VALUES(?,?,?,?,?,?,?)",
-                  ("disc_1", uid, "v1.0", now_ts, "127.0.0.1", "Admin Test", "active"))
-        c.execute("INSERT INTO accounts(id, user_id, login, server, mode, enabled, balance, equity, peak, seen, positions) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                  ("acc_legacy_1", uid, "123456", "MetaQuotes-Demo", "DEMO", 1, 0.0, 0.0, 0.0, now_ts, 0))
-        c.execute("INSERT INTO real_accounts(id, user_id, login, server, disclaimer_id, mode, enabled, risk, max_spread, max_positions, max_dd, balance, equity, peak, seen, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                  ("real_test_1", uid, "654321", "Exness-Real", "disc_1", "REAL", 1, 0.5, 2.0, 1, 4.0, 0.0, 0.0, 0.0, now_ts, now_ts))
-
-    client.post("/api/login", json={"email": admin_email, "password": pwd})
-    csrf = {"x-zupirus": "1"}
-
-    # Delete legacy account by id
-    res1 = client.delete("/api/v1/accounts/acc_legacy_1", headers=csrf)
-    assert res1.status_code == 200
-    assert res1.json()["ok"] is True
-
-    # Delete real account by id
-    res2 = client.delete("/api/v1/accounts/real_test_1", headers=csrf)
-    assert res2.status_code == 200
-    assert res2.json()["ok"] is True
-
-    with tx() as c:
-        assert c.execute("SELECT 1 FROM accounts WHERE id = 'acc_legacy_1'").fetchone() is None
-        assert c.execute("SELECT 1 FROM real_accounts WHERE id = 'real_test_1'").fetchone() is None

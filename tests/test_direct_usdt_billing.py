@@ -76,7 +76,6 @@ def test_allocate_unique_usdt_amount():
     with tx() as c:
         c.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM payment_transactions WHERE user_id = ?", (user_id,))
-        c.execute("DELETE FROM trading_accounts WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM orders WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM users WHERE id = ?", (user_id,))
         c.execute("INSERT INTO users (id, email, password, role) VALUES (?, 'alloc_user@example.com', 'pwd_hash_123', 'customer')", (user_id,))
@@ -93,6 +92,7 @@ def test_allocate_unique_usdt_amount():
 def test_active_billing_methods():
     methods = get_active_billing_methods()
     assert "sepay" in methods
+    assert methods["sepay"] is False
     assert "usdt_trc20" in methods
     assert "usdt_bep20" in methods
 
@@ -106,7 +106,6 @@ async def test_crypto_order_fulfillment_and_double_spend():
     with tx() as c:
         c.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM payment_transactions WHERE user_id = ?", (user_id,))
-        c.execute("DELETE FROM trading_accounts WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM orders WHERE user_id = ?", (user_id,))
         c.execute("DELETE FROM users WHERE id = ?", (user_id,))
         c.execute("INSERT INTO users (id, email, password, role) VALUES (?, 'crypto_user@example.com', 'pwd_hash_123', 'customer')", (user_id,))
@@ -198,21 +197,6 @@ def test_redis_quote_rejects_stale_under_require_broker_feed():
         assert lq_fresh.get("mid") == 2750.60
     finally:
         rc.delete("quote:XAUUSD:live")
-
-
-def test_is_account_drawdown_halted_emergency_pending():
-    pytest.importorskip("app.domains.execution.watcher")
-    from app.domains.execution.watcher import is_account_drawdown_halted
-    with tx() as c:
-        c.execute("INSERT INTO kv (key, value) VALUES ('emergency_close_pending:acc_test_halt', 'DRAWDOWN_LIMIT_5.00') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        assert is_account_drawdown_halted(c, "acc_test_halt") is True
-        c.execute("DELETE FROM kv WHERE key = 'emergency_close_pending:acc_test_halt'")
-        assert is_account_drawdown_halted(c, "acc_test_halt") is False
-
-        # Also verify hwm_close_pending
-        c.execute("INSERT INTO kv (key, value) VALUES ('hwm_close_pending:acc_test_halt', 'HWM_TRAILING_DD_8.00') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        assert is_account_drawdown_halted(c, "acc_test_halt") is True
-        c.execute("DELETE FROM kv WHERE key = 'hwm_close_pending:acc_test_halt'")
 
 
 def test_trc20_base58_and_hex_matching():
@@ -367,8 +351,8 @@ async def test_scan_and_reconcile_pending_crypto_orders():
         mock_fulfill.assert_called_once_with(order_id, "tx_auto_scan_1234567890abcdef")
 
 
-def test_sqlite_nested_tx_and_sepay_order_polling(client):
-    """Verify that nested tx() calls reuse thread connection via SAVEPOINT and don't deadlock."""
+def test_sqlite_nested_tx_and_usdt_order_polling(client):
+    """Verify that nested tx() calls reuse thread connection via SAVEPOINT and don't deadlock, and SePay is rejected."""
     from app.db import tx
     with tx() as c1:
         c1.execute("INSERT INTO kv (key, value) VALUES ('nested_k1', 'v1') ON CONFLICT(key) DO UPDATE SET value = 'v1'")
@@ -380,12 +364,19 @@ def test_sqlite_nested_tx_and_sepay_order_polling(client):
         row1 = c1.execute("SELECT value FROM kv WHERE key = 'nested_k1'").fetchone()
         assert row1[0] == 'v1'
 
-    # Verify GET /orders/{order_id} with SePay does not deadlock
+    # Verify SePay order creation is strictly rejected with 400
+    from fastapi import HTTPException
     from app.domains.billing.service import create_checkout_order
     user_id = "test_sepay_deadlock_user"
     with tx() as c:
         c.execute("INSERT INTO users (id, email, password, role) VALUES (?, 'deadlock_u@example.com', 'pwd_hash', 'customer') ON CONFLICT(id) DO NOTHING", (user_id,))
-    order = create_checkout_order(user_id=user_id, plan_tier="starter", payment_method="SEPAY")
+    with pytest.raises(HTTPException) as exc_info:
+        create_checkout_order(user_id=user_id, plan_tier="starter", payment_method="SEPAY")
+    assert exc_info.value.status_code == 400
+    assert "SePay / VietQR đã ngừng hoạt động" in str(exc_info.value.detail)
+
+    # Verify USDT order creation and polling
+    order = create_checkout_order(user_id=user_id, plan_tier="starter", payment_method="USDT")
     ord_id = order["order_id"]
 
     # Poll order as admin
@@ -394,6 +385,6 @@ def test_sqlite_nested_tx_and_sepay_order_polling(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == ord_id
-    assert "qr.sepay.vn" in data.get("qr_code_url", "")
+    assert data["payment_gateway"] in ("USDT", "USDT_BEP20", "USDT_TRC20")
 
 

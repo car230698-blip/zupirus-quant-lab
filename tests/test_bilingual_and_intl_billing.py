@@ -230,20 +230,20 @@ def test_english_seo_pages(client):
     assert r_en.status_code == 200
     assert 'lang="en"' in r_en.text
     assert 'hreflang="en"' in r_en.text
-    assert "ZUPIRUS — Statistical Studies" in r_en.text
-    assert "No automated execution" in r_en.text
+    assert "ZUPIRUS — Institutional Gold" in r_en.text
+    assert "Walk-Forward OOS Verification" in r_en.text
 
     # 2. English guides list
     r_guides = client.get("/en/guides")
     assert r_guides.status_code == 200
     assert 'lang="en"' in r_guides.text
-    assert "How to read a quantitative study" in r_guides.text
+    assert "Quantitative Research &amp; Methodology Guides" in r_guides.text
 
     # 3. English guide detail
-    r_detail = client.get("/en/guides/how-to-read-a-statistical-market-study")
+    r_detail = client.get("/en/guides/xauusd-m15-breakout-retest-quantitative-research")
     assert r_detail.status_code == 200
     assert 'lang="en"' in r_detail.text
-    assert "How to Read a ZUPIRUS Statistical Study" in r_detail.text
+    assert "Quantitative Research: Does Breakout &amp; Retest" in r_detail.text
     assert "Article" in r_detail.text
 
 
