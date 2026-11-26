@@ -8,8 +8,7 @@ import { PRICING_TIERS, getPricingTiers } from '../data/landingData';
 import { LandingHeader } from './LandingHeader';
 import { FintechAmbientBackdrop } from './FintechAmbientBackdrop';
 import { ScrollProgressBar } from './ui/ScrollProgressBar';
-import { LandingHeroTerminal } from './LandingHeroTerminal';
-import { LandingTrustMarquee } from './LandingTrustMarquee';
+import { LandingMethodSection } from './LandingMethodSection';
 import { QuantReportCatalogAndLibrary } from './QuantReportCatalogAndLibrary';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -130,16 +129,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <QuantReportCatalogAndLibrary mode="public" onRequireAuth={onEnterPortal} />
           </div>
 
-          {/* Hero Product Terminal Showcase (3D tilt that flattens on scroll) */}
-          <LandingHeroTerminal
-            spotPrice={spotPrice}
-            askPrice={askPrice}
-            spreadPips={spreadPips}
-            onEnterPortal={onEnterPortal}
-          />
         </section>
 
-        <LandingTrustMarquee />
+        <LandingMethodSection />
 
         {/* PDF library pricing and questions */}
         <LandingPricingAndFaqSection
