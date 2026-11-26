@@ -1,7 +1,14 @@
 User-agent: *
 Allow: /
+Allow: /huong-dan/
+Allow: /guides/
+Allow: /en/
+Allow: /bao-cao/
+Allow: /reports/
 Disallow: /api/
 Disallow: /admin/
+Disallow: /portal/
+Disallow: /login
 Disallow: /healthz
 Disallow: /readyz
 

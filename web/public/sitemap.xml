@@ -1,154 +1,124 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <!-- Core Landing Pages -->
   <url>
     <loc>https://zupirus.com/</loc>
-    <lastmod>2026-11-23</lastmod>
+    <lastmod>2026-11-26</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en"/>
   </url>
-  <url>
-    <loc>https://app.zupirus.com/</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/cong-cu/tinh-lot-size-xauusd</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.95</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/cong-cu/tinh-drawdown-quy-prop-firm</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.95</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/bot-pass-quy-ftmo-the5ers-tu-dong</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/copy-trade-vang-mt5-exness-khong-can-vps</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/kinh-nghiem-thi-quy-fundednext-stellar</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/top-5-sai-lam-chay-tai-khoan-quy-prop-firm</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/chay-bot-vang-tai-khoan-cent-exness</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/bot-trade-vang-xauusd-cloud-mt5</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/cach-pass-quy-ftmo-the5ers-fundednext</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/quan-tri-rui-ro-drawdown-prop-firm</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/ket-noi-mt5-cloud-zero-vps</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/so-sanh-ftmo-the5ers-fundednext</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/ea-bot-trade-vang-co-bi-cam-prop-firm-khong</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/so-sanh-cloud-mt5-va-vps-forex</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/huong-dan/cach-doc-profit-factor-sharpe-drawdown</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.85</priority>
-  </url>
-  <!-- ENGLISH INTERNATIONAL SEO PAGES -->
   <url>
     <loc>https://zupirus.com/en</loc>
-    <lastmod>2026-11-23</lastmod>
+    <lastmod>2026-11-26</lastmod>
     <changefreq>daily</changefreq>
-    <priority>1.0</priority>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en"/>
+  </url>
+
+  <!-- Knowledge & Methodology Hubs -->
+  <url>
+    <loc>https://zupirus.com/huong-dan</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
   </url>
   <url>
-    <loc>https://zupirus.com/en/tools/xauusd-lot-size-calculator</loc>
-    <lastmod>2026-11-23</lastmod>
+    <loc>https://zupirus.com/guides</loc>
+    <lastmod>2026-11-26</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>0.95</priority>
-  </url>
-  <url>
-    <loc>https://zupirus.com/en/tools/prop-firm-drawdown-calculator</loc>
-    <lastmod>2026-11-23</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.95</priority>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
   </url>
   <url>
     <loc>https://zupirus.com/en/guides</loc>
-    <lastmod>2026-11-23</lastmod>
+    <lastmod>2026-11-26</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
   </url>
+
+  <!-- Vietnamese Quantitative Methodology Articles -->
   <url>
-    <loc>https://zupirus.com/en/guides/ftmo-the5ers-automated-pass-guide</loc>
-    <lastmod>2026-11-23</lastmod>
+    <loc>https://zupirus.com/huong-dan/nghien-cuu-dinh-luong-vang-xauusd-m15</loc>
+    <lastmod>2026-11-26</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/nghien-cuu-dinh-luong-vang-xauusd-m15"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/quantitative-research-xauusd-m15-breakout-retest"/>
   </url>
   <url>
-    <loc>https://zupirus.com/en/guides/cloud-mt5-gold-trading-bot-zero-vps</loc>
-    <lastmod>2026-11-23</lastmod>
+    <loc>https://zupirus.com/huong-dan/mo-hinh-chi-phi-giao-dich-vang-friction-cost</loc>
+    <lastmod>2026-11-26</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/mo-hinh-chi-phi-giao-dich-vang-friction-cost"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/gold-trading-friction-cost-microstructure-model"/>
   </url>
   <url>
-    <loc>https://zupirus.com/en/guides/prop-firm-risk-management-drawdown</loc>
-    <lastmod>2026-11-23</lastmod>
+    <loc>https://zupirus.com/huong-dan/kiem-dinh-walk-forward-ngoai-mau-comex-gold</loc>
+    <lastmod>2026-11-26</lastmod>
     <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/kiem-dinh-walk-forward-ngoai-mau-comex-gold"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/walk-forward-oos-validation-methodology-gold"/>
+  </url>
+  <url>
+    <loc>https://zupirus.com/huong-dan/phan-tich-ky-vong-loi-nhuan-theo-phien-gold</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/phan-tich-ky-vong-loi-nhuan-theo-phien-gold"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/session-expectancy-analysis-comex-gold"/>
+  </url>
+
+  <!-- English Quantitative Methodology Articles -->
+  <url>
+    <loc>https://zupirus.com/en/guides/quantitative-research-xauusd-m15-breakout-retest</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/quantitative-research-xauusd-m15-breakout-retest"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/nghien-cuu-dinh-luong-vang-xauusd-m15"/>
+  </url>
+  <url>
+    <loc>https://zupirus.com/en/guides/gold-trading-friction-cost-microstructure-model</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/gold-trading-friction-cost-microstructure-model"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/mo-hinh-chi-phi-giao-dich-vang-friction-cost"/>
+  </url>
+  <url>
+    <loc>https://zupirus.com/en/guides/walk-forward-oos-validation-methodology-gold</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/walk-forward-oos-validation-methodology-gold"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/kiem-dinh-walk-forward-ngoai-mau-comex-gold"/>
+  </url>
+  <url>
+    <loc>https://zupirus.com/en/guides/session-expectancy-analysis-comex-gold</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/session-expectancy-analysis-comex-gold"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/phan-tich-ky-vong-loi-nhuan-theo-phien-gold"/>
+  </url>
+
+  <!-- Published Research Publications -->
+  <url>
+    <loc>https://zupirus.com/bao-cao/bao-cao-dinh-luong-xauusd-london-ny-microstructure-v1</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>monthly</changefreq>
     <priority>0.85</priority>
   </url>
 </urlset>

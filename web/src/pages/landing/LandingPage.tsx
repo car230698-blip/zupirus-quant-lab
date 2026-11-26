@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { LandingLayout } from '../../layouts/LandingLayout';
 import { QuantReportCatalogAndLibrary } from '../../components/reports/QuantReportCatalogAndLibrary';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { LandingKnowledgeHub } from './LandingKnowledgeHub';
+import { api } from '../../api/client';
 import { ArrowRight, ChevronDown, FileText, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
 export interface LandingPageProps {
@@ -15,12 +17,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
   const [totalSamplesCount, setTotalSamplesCount] = useState<number>(142);
 
   React.useEffect(() => {
-    fetch('/api/v1/reports')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.items && Array.isArray(data.items)) {
+    api.get<{ items?: any[] }>('/api/v1/reports')
+      .then((res) => {
+        const items = res?.data?.items;
+        if (items && Array.isArray(items)) {
           let sumSamples = 0;
-          for (const rep of data.items) {
+          for (const rep of items) {
             sumSamples += rep.wfo_metrics?.sample_size || 180;
           }
           if (sumSamples > 142) setTotalSamplesCount(sumSamples);
@@ -170,13 +172,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
 
           {/* Right Framed Hero Visual - Institutional Vector Quant Terminal */}
           <div className="lg:col-span-6 space-y-3">
-            <div className="aspect-[16/10] w-full rounded-2xl border border-slate-800 bg-[#060A13] overflow-hidden shadow-2xl relative flex flex-col justify-between p-4 sm:p-5 select-none">
+            <div className="aspect-[16/10] w-full rounded-2xl border border-slate-700/70 bg-gradient-to-br from-[#0B1528] via-[#060B16] to-[#02050A] overflow-hidden shadow-[0_0_50px_-12px_rgba(18,181,166,0.18)] relative flex flex-col justify-between p-4 sm:p-5 select-none">
               {!heroImgFailed && (
                 <img
                   src="/images/quant-lab-hero.jpg"
                   alt="ZUPIRUS Quant Lab XAU/USD Microstructure Research"
                   onError={() => setHeroImgFailed(true)}
-                  className="absolute inset-0 h-full w-full object-cover opacity-20 pointer-events-none"
+                  className="absolute inset-0 h-full w-full object-cover opacity-25 mix-blend-luminosity pointer-events-none"
                 />
               )}
 
@@ -342,6 +344,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               </div>
             ))}
           </div>
+
+          {/* Research & Methodology Articles Knowledge Hub */}
+          <LandingKnowledgeHub />
         </div>
       </section>
 

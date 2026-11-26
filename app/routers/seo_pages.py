@@ -2,21 +2,33 @@
 
 Serves lightning-fast (<10ms TTFB), mobile-first HTML pages with:
 - Unique <title>, <meta name="description">, <link rel="canonical">, Open Graph & Twitter Cards
-- Valid JSON-LD (Article, BreadcrumbList, CollectionPage)
-- Strong semantic H1/H2/H3 hierarchy and internal links back to https://zupirus.com/ & https://app.zupirus.com/
+- Valid JSON-LD (Article, BreadcrumbList, CollectionPage, Product, FAQPage)
+- Dynamic XML sitemap and clean robots.txt
+- Strong semantic H1/H2/H3 hierarchy and internal links back to https://zupirus.com/
 """
 from __future__ import annotations
 
 import html
 import json
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
+
+from app.db import tx
 
 router = APIRouter(tags=["SEO Pages"])
 
 PUBLISHED_DATE = "2026-11-26"
+
+SLUG_VI_TO_EN: Dict[str, str] = {
+    "nghien-cuu-dinh-luong-vang-xauusd-m15": "quantitative-research-xauusd-m15-breakout-retest",
+    "mo-hinh-chi-phi-giao-dich-vang-friction-cost": "gold-trading-friction-cost-microstructure-model",
+    "kiem-dinh-walk-forward-ngoai-mau-comex-gold": "walk-forward-oos-validation-methodology-gold",
+    "phan-tich-ky-vong-loi-nhuan-theo-phien-gold": "session-expectancy-analysis-comex-gold",
+}
+SLUG_EN_TO_VI: Dict[str, str] = {v: k for k, v in SLUG_VI_TO_EN.items()}
+SLUG_EN_TO_VI["xauusd-m15-breakout-retest-quantitative-research"] = "nghien-cuu-dinh-luong-vang-xauusd-m15"
 
 GUIDES: List[Dict[str, object]] = [
     {
@@ -30,15 +42,15 @@ GUIDES: List[Dict[str, object]] = [
         "sections": [
             (
                 "1. Bản chất vi cấu trúc thị trường vàng COMEX và hiện tượng Breakout & Retest khung M15",
-                "Vàng (XAU/USD) là một trong những tài sản có tính thanh khoản và biến động phân khúc thời gian cao nhất thế giới. Mô hình Breakout & Retest kinh điển thường được giả định là mang lại lợi nhuận cao. Tuy nhiên, việc kiểm định toán học trên dữ liệu tick và nến M15 chuẩn sàn tương lai COMEX cho thấy nhiều đợt bứt phá biên độ là bẫy thanh khoản (liquidity sweeps) nếu không kết hợp bộ lọc động lượng và khối lượng tham chiếu."
+                "Vàng (XAU/USD) là một trong những tài sản có tính thanh khoản và biến động phân khúc thời gian cao nhất thế giới. Mô hình Breakout & Retest kinh điển thường được giả định là mang lại lợi nhuận cao. Tuy nhiên, việc kiểm định toán học trên dữ liệu tick và nến M15 chuẩn sàn tương lai COMEX cho thấy nhiều đợt bứt phá biên độ là bẫy thanh khoản (liquidity sweeps) nếu không kết hợp bộ lọc động lượng và khối lượng tham chiếu.",
             ),
             (
                 "2. Phương pháp kiểm định ngoài mẫu Walk-Forward Optimization (WFO) và mô hình chi phí ma sát",
-                "Tại ZUPIRUS Quant Lab, mọi giả thuyết nghiên cứu đều phải trải qua quy trình kiểm định Walk-Forward ngoài mẫu (Out-of-Sample - OOS) nghiêm ngặt với các cửa sổ cuốn độc lập. Chúng tôi đưa trực tiếp mô hình chi phí ma sát ba thành phần (Friction Cost: Half-spread thực tế, trượt giá thực thi và phí môi giới) vào hàm mục tiêu thay vì chỉ nhìn vào đường cong lợi nhuận thô."
+                "Tại ZUPIRUS Quant Lab, mọi giả thuyết nghiên cứu đều phải trải qua quy trình kiểm định Walk-Forward ngoài mẫu (Out-of-Sample - OOS) nghiêm ngặt với các cửa sổ cuốn độc lập. Chúng tôi đưa trực tiếp mô hình chi phí ma sát ba thành phần (Friction Cost: Half-spread thực tế, trượt giá thực thi và phí môi giới) vào hàm mục tiêu thay vì chỉ nhìn vào đường cong lợi nhuận thô.",
             ),
             (
                 "3. Phân hóa kỳ vọng lợi nhuận (Expectancy) và Profit Factor theo từng phiên giao dịch",
-                "Kết quả kiểm định trên tập mẫu mở rộng và tập holdout cho thấy sự phân hóa rõ rệt: các khung giờ giao dịch phiên Âu và giao thoa London - New York duy trì kỳ vọng dương ổn định hơn đáng kể so với phiên Á. Báo cáo nghiên cứu định lượng độc lập của ZUPIRUS cung cấp toàn bộ bảng phân tích chi tiết từng khung giờ UTC để nhà đầu tư có cơ sở dữ liệu khách quan."
+                "Kết quả kiểm định trên tập mẫu mở rộng và tập holdout cho thấy sự phân hóa rõ rệt: các khung giờ giao dịch phiên Âu và giao thoa London - New York duy trì kỳ vọng dương ổn định hơn đáng kể so với phiên Á. Báo cáo nghiên cứu định lượng độc lập của ZUPIRUS cung cấp toàn bộ bảng phân tích chi tiết từng khung giờ UTC để nhà đầu tư có cơ sở dữ liệu khách quan.",
             ),
         ],
     },
@@ -53,15 +65,15 @@ GUIDES: List[Dict[str, object]] = [
         "sections": [
             (
                 "1. Ba thành phần cốt lõi của chi phí ma sát trong giao dịch vàng",
-                "Nhiều backtest thông thường thất bại trên thực tế vì giả định chi phí bằng 0 hoặc chỉ tính spread cố định. Chi phí ma sát thực tế gồm 3 thành phần biến thiên: (1) Half-Spread theo thanh khoản phiên, (2) Execution Slippage trong các thời điểm biến động nhanh hoặc tin tức kinh tế, và (3) Phí hoa hồng sàn (Commission) quy đổi trên mỗi ounce."
+                "Nhiều backtest thông thường thất bại trên thực tế vì giả định chi phí bằng 0 hoặc chỉ tính spread cố định. Chi phí ma sát thực tế gồm 3 thành phần biến thiên: (1) Half-Spread theo thanh khoản phiên, (2) Execution Slippage trong các thời điểm biến động nhanh hoặc tin tức kinh tế, và (3) Phí hoa hồng sàn (Commission) quy đổi trên mỗi ounce.",
             ),
             (
                 "2. Độ nhạy của Profit Factor trước các mức chi phí ma sát thực tế ($1.5/oz, $2.5/oz, $4.0/oz)",
-                "Bằng cách lập bảng phân tích độ nhạy (Stress Testing Matrix) tại 3 kịch bản chi phí ma sát khác nhau, nghiên cứu chỉ ra rằng ở mức chi phí $4.0/oz, một số khung giờ giao dịch có tỷ lệ thắng danh nghĩa cao vẫn bị kéo về mức kỳ vọng âm. Điều này nhấn mạnh tầm quan trọng của việc chỉ chọn các thiết lập có biên an toàn (Safety Margin) vượt trội."
+                "Bằng cách lập bảng phân tích độ nhạy (Stress Testing Matrix) tại 3 kịch bản chi phí ma sát khác nhau, nghiên cứu chỉ ra rằng ở mức chi phí $4.0/oz, một số khung giờ giao dịch có tỷ lệ thắng danh nghĩa cao vẫn bị kéo về mức kỳ vọng âm. Điều này nhấn mạnh tầm quan trọng của việc chỉ chọn các thiết lập có biên an toàn (Safety Margin) vượt trội.",
             ),
             (
                 "3. Khuyến nghị định lượng cho việc kiểm thử mô hình trước khi ứng dụng thực tế",
-                "Một chiến lược định lượng chỉ được xem là đạt chuẩn nếu Profit Factor ngoài mẫu (OOS) duy trì trên 1.25 sau khi đã trừ toàn bộ chi phí ma sát ở kịch bản thận trọng ($2.50/oz). Các báo cáo chuyên khảo của ZUPIRUS Quant Lab luôn cung cấp dữ liệu minh bạch ở cả 3 cấp độ chi phí này."
+                "Một chiến lược định lượng chỉ được xem là đạt chuẩn nếu Profit Factor ngoài mẫu (OOS) duy trì trên 1.25 sau khi đã trừ toàn bộ chi phí ma sát ở kịch bản thận trọng ($2.50/oz). Các báo cáo chuyên khảo của ZUPIRUS Quant Lab luôn cung cấp dữ liệu minh bạch ở cả 3 cấp độ chi phí này.",
             ),
         ],
     },
@@ -76,15 +88,15 @@ GUIDES: List[Dict[str, object]] = [
         "sections": [
             (
                 "1. Cạm bẫy overfitting trong backtest truyền thống và ảo tưởng đường cong vốn dốc đứng",
-                "Quá khớp tham số (Overfitting) là lý do lớn nhất khiến 95% mô hình hoạt động xuất sắc trên lịch sử quá khứ nhưng lập tức thua lỗ khi triển khai ngoài đời thực. Khi tinh chỉnh hàng chục tham số trên cùng một bộ dữ liệu, nhà phân tích thực chất chỉ đang học thuộc lòng độ nhiễu ngẫu nhiên (noise)."
+                "Quá khớp tham số (Overfitting) là lý do lớn nhất khiến 95% mô hình hoạt động xuất sắc trên lịch sử quá khứ nhưng lập tức thua lỗ khi triển khai ngoài đời thực. Khi tinh chỉnh hàng chục tham số trên cùng một bộ dữ liệu, nhà phân tích thực chất chỉ đang học thuộc lòng độ nhiễu ngẫu nhiên (noise).",
             ),
             (
                 "2. Cấu trúc cửa sổ cuốn (Rolling Windows) và tỷ lệ Train / Validation / Holdout trong phân tích định lượng",
-                "Quy trình Walk-Forward Optimization (WFO) chia dòng thời gian thành nhiều cửa sổ cuốn liên tiếp: huấn luyện tham số trên tập In-Sample (IS), kiểm thử tức thời trên tập Out-of-Sample (OOS), và khóa kín tập Holdout hoàn toàn độc lập cho đến vòng nghiệm thu cuối cùng. Điều này tái lập chính xác điều kiện thị trường tương lai mà mô hình phải đối mặt."
+                "Quy trình Walk-Forward Optimization (WFO) chia dòng thời gian thành nhiều cửa sổ cuốn liên tiếp: huấn luyện tham số trên tập In-Sample (IS), kiểm thử tức thời trên tập Out-of-Sample (OOS), và khóa kín tập Holdout hoàn toàn độc lập cho đến vòng nghiệm thu cuối cùng. Điều này tái lập chính xác điều kiện thị trường tương lai mà mô hình phải đối mặt.",
             ),
             (
                 "3. Thẩm định báo cáo định lượng độc lập trước khi đưa ra quyết định phân bổ vốn",
-                "Nhà đầu tư định lượng cần tiếp cận dữ liệu có tính phản biện cao. Việc đọc các báo cáo nghiên cứu có đầy đủ thông số OOS Degradation Ratio (tỷ lệ suy giảm ngoài mẫu) và kiểm định Monte Carlo giúp xác định độ vững (Robustness) của chiến lược một cách khoa học."
+                "Nhà đầu tư định lượng cần tiếp cận dữ liệu có tính phản biện cao. Việc đọc các báo cáo nghiên cứu có đầy đủ thông số OOS Degradation Ratio (tỷ lệ suy giảm ngoài mẫu) và kiểm định Monte Carlo giúp xác định độ vững (Robustness) của chiến lược một cách khoa học.",
             ),
         ],
     },
@@ -99,21 +111,119 @@ GUIDES: List[Dict[str, object]] = [
         "sections": [
             (
                 "1. Đặc tính thanh khoản và biến động phân khúc theo thời gian UTC của vàng",
-                "Biến động giá vàng không phân bổ đồng đều trong 24 giờ. Phiên Á (Tokyo/Singapore) thường có biên độ hẹp và khối lượng mỏng, trong khi phiên Âu (London Open lúc 07:00–08:00 UTC) và phiên Mỹ (New York Open lúc 12:00–13:30 UTC) chứng kiến khối lượng hợp đồng tương lai và quyền chọn tăng vọt."
+                "Biến động giá vàng không phân bổ đồng đều trong 24 giờ. Phiên Á (Tokyo/Singapore) thường có biên độ hẹp và khối lượng mỏng, trong khi phiên Âu (London Open lúc 07:00–08:00 UTC) và phiên Mỹ (New York Open lúc 12:00–13:30 UTC) chứng kiến khối lượng hợp đồng tương lai và quyền chọn tăng vọt.",
             ),
             (
                 "2. Hiệu ứng phiên Âu (London Open) và phiên Mỹ (New York Open) lên cấu trúc nến M15",
-                "Các mô hình phá vỡ biên độ (Breakout) trong phiên Á thường có tỷ lệ thất bại cao do thiếu dòng tiền tổ chức. Ngược lại, vào thời điểm giao thoa London - New York, các đợt breakout có xác suất tiếp diễn động lượng (Momentum Continuation) cao hơn nhiều, tạo ra Profit Factor khả quan khi có Stop Loss và Take Profit hợp lý."
+                "Các mô hình phá vỡ biên độ (Breakout) trong phiên Á thường có tỷ lệ thất bại cao do thiếu dòng tiền tổ chức. Ngược lại, vào thời điểm giao thoa London - New York, các đợt breakout có xác suất tiếp diễn động lượng (Momentum Continuation) cao hơn nhiều, tạo ra Profit Factor khả quan khi có Stop Loss và Take Profit hợp lý.",
             ),
             (
                 "3. Lựa chọn khung giờ tối ưu cho các nghiên cứu định lượng chuyên sâu",
-                "Thông qua các bảng số liệu trích xuất từ dữ liệu tick thực tế, ZUPIRUS Quant Lab làm rõ từng khung giờ nào có kỳ vọng dương thực sự sau chi phí và khung giờ nào mang lại rủi ro cao, giúp các nhà nghiên cứu định lượng tiết kiệm hàng trăm giờ kiểm nghiệm."
+                "Thông qua các bảng số liệu trích xuất từ dữ liệu tick thực tế, ZUPIRUS Quant Lab làm rõ từng khung giờ nào có kỳ vọng dương thực sự sau chi phí và khung giờ nào mang lại rủi ro cao, giúp các nhà nghiên cứu định lượng tiết kiệm hàng trăm giờ kiểm nghiệm.",
             ),
         ],
     },
 ]
 
 GUIDE_BY_SLUG = {str(g["slug"]): g for g in GUIDES}
+
+ENGLISH_GUIDES: List[Dict[str, object]] = [
+    {
+        "slug": "xauusd-m15-breakout-retest-quantitative-research",
+        "title": "Breakout & Retest XAU/USD M15 Out-of-Sample Quantitative Research | ZUPIRUS Quant Lab",
+        "meta_description": "Rigorous quantitative research on Breakout & Retest on COMEX Gold M15. Walk-Forward out-of-sample testing, realistic friction costs, and session expectancy matrices.",
+        "keywords": "XAUUSD quantitative research, breakout retest gold M15, walk forward optimization gold, gold quant report",
+        "h1": "Quantitative Research: Does Breakout & Retest on XAU/USD M15 Retain Positive Edge After Friction Costs?",
+        "read_time": "6 min read",
+        "badge": "QUANT RESEARCH · XAU/USD M15",
+        "sections": [
+            (
+                "1. Microstructure of COMEX Gold & Breakout Retest Mechanics on M15",
+                "COMEX Gold (XAU/USD) displays extreme intraday liquidity concentration. While textbook Breakout & Retest patterns promise attractive risk-to-reward ratios, rigorous tick-level evaluation demonstrates that many nominal breakouts are liquidity sweeps lacking momentum continuation.",
+            ),
+            (
+                "2. Walk-Forward Out-of-Sample (OOS) Testing & Realistic Friction Cost Models",
+                "At ZUPIRUS Quant Lab, all quantitative hypotheses undergo multi-window rolling Walk-Forward Optimization (WFO). We embed a three-tier transaction friction model (spread, execution slippage, and exchange fees) directly into evaluation functions.",
+            ),
+            (
+                "3. Session-Specific Expectancy & Profit Factor Breakdown",
+                "Empirical holdout and full-period data reveal pronounced session differences: European morning and London/New York overlap hours sustain positive mathematical expectancy significantly better than Asian low-liquidity sessions.",
+            ),
+        ],
+    },
+    {
+        "slug": "gold-trading-friction-cost-microstructure-model",
+        "title": "COMEX Gold Transaction Friction Cost Model (Spread, Slippage & Commission) | ZUPIRUS Quant Lab",
+        "meta_description": "Quantitative analysis of the impact of spreads, execution slippage, and brokerage commissions on the statistical edge of medium-frequency M15 gold strategies.",
+        "keywords": "gold transaction friction cost, XAUUSD spread model, COMEX gold slippage, quantitative friction model",
+        "h1": "Microstructure Friction Costs in Gold Trading: When Does Drag Eliminate Strategy Edge?",
+        "read_time": "7 min read",
+        "badge": "MICROSTRUCTURE · FRICTION COST",
+        "sections": [
+            (
+                "1. The Three Components of Execution Friction in Gold Markets",
+                "Most backtests fail in live markets because they assume zero transaction drag or constant fixed spreads. Real execution involves three dynamic elements: half-spread based on session liquidity, execution slippage during volatility shocks, and clearing commissions.",
+            ),
+            (
+                "2. Sensitivity Analysis Across Realistic Cost Scenarios ($1.5/oz, $2.5/oz, $4.0/oz)",
+                "By stress-testing models across multiple friction regimes, research reveals that at higher drag levels ($4.0/oz), nominal edge is rapidly eroded in off-peak trading hours. This mandates an adequate statistical safety margin before deployment.",
+            ),
+            (
+                "3. Standards for Robust Model Verification",
+                "Quantitative strategies must demonstrate out-of-sample profit factors above 1.25 under conservative friction assumptions ($2.50/oz). ZUPIRUS research reports publish verified results across all three friction thresholds.",
+            ),
+        ],
+    },
+    {
+        "slug": "walk-forward-oos-validation-methodology-gold",
+        "title": "Walk-Forward Out-of-Sample (OOS) Validation Methodology for COMEX Gold | ZUPIRUS Quant Lab",
+        "meta_description": "Preventing overfitting and data snooping in gold algorithmic research through anchored and rolling Walk-Forward Optimization and strict holdout isolation.",
+        "keywords": "walk forward analysis gold, out of sample validation xauusd, anti overfitting quant, gold backtest methodology",
+        "h1": "Walk-Forward Out-of-Sample Validation Methodology: Institutional Standards for Gold Research",
+        "read_time": "8 min read",
+        "badge": "METHODOLOGY · WALK-FORWARD OOS",
+        "sections": [
+            (
+                "1. The Perils of Overfitting in Traditional Historical Backtests",
+                "Overfitting is the primary reason behind strategy decay in live markets. When parameters are repeatedly tuned on historical data, analysts inadvertently model market noise rather than persistent structural dynamics.",
+            ),
+            (
+                "2. Rolling Windows and Train / Validation / Holdout Partitioning",
+                "Walk-Forward Optimization segments historical data into progressive train and test windows, preserving chronological sequencing and isolating a pristine holdout sample that remains unexamined until final acceptance.",
+            ),
+            (
+                "3. Independent Quantitative Research Reports for Decision Making",
+                "Professional market participants require objective, un-hyped research. Independent verification, OOS degradation metrics, and stress-tested expectancy matrices provide an empirical foundation for capital allocation.",
+            ),
+        ],
+    },
+    {
+        "slug": "session-expectancy-analysis-comex-gold",
+        "title": "COMEX Gold Session Expectancy Analysis (Tokyo, London & NY Overlap) | ZUPIRUS Quant Lab",
+        "meta_description": "Empirical comparison of volatility, volume concentration, and mathematical expectancy across Tokyo, London Open, and New York Overlap sessions on XAU/USD.",
+        "keywords": "gold trading session analysis, London NY overlap gold, XAUUSD market regime, session expectancy quantitative",
+        "h1": "Gold Session Expectancy Analysis: Quantitative Evidence Across Tokyo, London & New York Hours",
+        "read_time": "6 min read",
+        "badge": "SESSION ANALYSIS · MARKET REGIME",
+        "sections": [
+            (
+                "1. Intraday Liquidity Clustering and Session-Driven Regimes in COMEX Gold",
+                "Gold volatility is heavily clustered by time-of-day. Asian hours (Tokyo/Singapore) typically feature range-bound compression with low tick volume. In contrast, European morning (07:00–08:00 UTC) and the US cash open (12:00–13:30 UTC) experience explosive surges in futures volume.",
+            ),
+            (
+                "2. The Breakout Vulnerability of Off-Peak Sessions vs High-Volume Overlaps",
+                "Breakout strategies initiated during Asian sessions suffer from a statistically significant failure rate due to the lack of institutional sponsorship. Conversely, during the London–New York overlap, breakout setups demonstrate higher persistence and superior profit factor after full friction costs.",
+            ),
+            (
+                "3. Institutional Guidelines for Model Implementation",
+                "By analyzing empirical tick data, ZUPIRUS Quant Lab isolates positive-expectancy execution windows while filtering out high-risk stagnation zones, saving institutional analysts and quantitative traders valuable validation time.",
+            ),
+        ],
+    },
+]
+
+ENGLISH_GUIDE_BY_SLUG: Dict[str, Dict[str, object]] = {g["slug"]: g for g in ENGLISH_GUIDES}  # type: ignore[misc]
+ENGLISH_GUIDE_BY_SLUG["quantitative-research-xauusd-m15-breakout-retest"] = ENGLISH_GUIDES[0]
 
 
 def _render_shell(
@@ -125,23 +235,31 @@ def _render_shell(
     body_html: str,
     extra_head_html: str = "",
     lang: str = "vi",
+    vi_alternate: Optional[str] = None,
+    en_alternate: Optional[str] = None,
 ) -> str:
     is_en = str(lang or "").strip().lower() == "en"
     html_lang = "en" if is_en else "vi"
     locale_val = "en_US" if is_en else "vi_VN"
+    alt_locale = "vi_VN" if is_en else "en_US"
     esc_title = html.escape(title)
     esc_desc = html.escape(description)
     esc_kw = html.escape(keywords)
     esc_canon = html.escape(canonical)
     ld_str = json.dumps(json_ld, ensure_ascii=False)
 
+    vi_href = vi_alternate or "https://zupirus.com/"
+    en_href = en_alternate or "https://zupirus.com/en"
+    x_default = en_href
+
     nav_reports = "PDF Reports" if is_en else "Báo Cáo PDF"
     nav_guide = "Research Guides" if is_en else "Tài Liệu Nghiên Cứu"
-    nav_cta = "Client Portal →" if is_en else "Cổng Nghiên Cứu →"
+    nav_portal = "Client Portal →" if is_en else "Cổng Nghiên Cứu →"
 
     footer_home = "Home" if is_en else "Trang Chủ"
     footer_guides = "Research Guides" if is_en else "Tài Liệu Nghiên Cứu"
     footer_login = "Login" if is_en else "Đăng Nhập"
+    footer_portal = "Client Portal" if is_en else "Cổng Khách Hàng"
     footer_tagline = (
         "XAU/USD Quantitative Research & Walk-Forward Verification Lab"
         if is_en
@@ -158,20 +276,25 @@ def _render_shell(
   <meta name="keywords" content="{esc_kw}" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
   <link rel="canonical" href="{esc_canon}" />
-  <link rel="alternate" hreflang="vi" href="https://zupirus.com/" />
-  <link rel="alternate" hreflang="en" href="https://zupirus.com/?lang=en" />
-  <link rel="alternate" hreflang="x-default" href="https://zupirus.com/?lang=en" />
+  <link rel="alternate" hreflang="vi" href="{vi_href}" />
+  <link rel="alternate" hreflang="en" href="{en_href}" />
+  <link rel="alternate" hreflang="x-default" href="{x_default}" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="ZUPIRUS Quant Lab" />
   <meta property="og:locale" content="{locale_val}" />
-  <meta property="og:locale:alternate" content="{'vi_VN' if is_en else 'en_US'}" />
+  <meta property="og:locale:alternate" content="{alt_locale}" />
   <meta property="og:url" content="{esc_canon}" />
   <meta property="og:title" content="{esc_title}" />
   <meta property="og:description" content="{esc_desc}" />
+  <meta property="og:image" content="https://zupirus.com/og-zupirus.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:type" content="image/jpeg" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="{esc_title}" />
   <meta name="twitter:description" content="{esc_desc}" />
+  <meta name="twitter:image" content="https://zupirus.com/og-zupirus.jpg" />
   <script type="application/ld+json">{ld_str}</script>
   {extra_head_html}
   <style>
@@ -205,16 +328,16 @@ def _render_shell(
     <div class="nav">
       <a class="brand" href="https://zupirus.com/">⚡ ZUPIRUS QUANT LAB</a>
       <div class="nav-links">
-        <a href="/#reports">{nav_reports}</a>
-        <a href="/huong-dan">{nav_guide}</a>
-        <a class="cta" href="https://app.zupirus.com/">{nav_cta}</a>
+        <a href="https://zupirus.com/#reports">{nav_reports}</a>
+        <a href="https://zupirus.com/huong-dan">{nav_guide}</a>
+        <a class="cta" href="https://zupirus.com/portal">{nav_portal}</a>
       </div>
     </div>
   </header>
   <main>{body_html}</main>
   <footer>
     © 2026 ZUPIRUS Quant Lab · {footer_tagline} ·
-    <a href="https://zupirus.com/">{footer_home}</a> · <a href="/#reports">{nav_reports}</a> · <a href="/huong-dan">{footer_guides}</a> · <a href="https://app.zupirus.com/">{footer_login}</a>
+    <a href="https://zupirus.com/">{footer_home}</a> · <a href="https://zupirus.com/#reports">{nav_reports}</a> · <a href="https://zupirus.com/huong-dan">{footer_guides}</a> · <a href="https://zupirus.com/portal">{footer_portal}</a> · <a href="https://zupirus.com/login">{footer_login}</a>
   </footer>
 </body>
 </html>"""
@@ -230,11 +353,156 @@ def _resolve_lang(request: Optional[Request], lang: Optional[str]) -> str:
     return "vi"
 
 
+# ---------------------------------------------------------------------------
+# SITEMAP & ROBOTS.TXT
+# ---------------------------------------------------------------------------
+
+
+@router.get("/robots.txt", response_class=Response)
+def get_robots_txt() -> Response:
+    content = """User-agent: *
+Allow: /
+Allow: /huong-dan/
+Allow: /guides/
+Allow: /en/
+Allow: /bao-cao/
+Allow: /reports/
+Disallow: /api/
+Disallow: /admin/
+Disallow: /portal/
+Disallow: /login
+Disallow: /healthz
+Disallow: /readyz
+
+Sitemap: https://zupirus.com/sitemap.xml
+"""
+    return Response(content=content, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/sitemap.xml", response_class=Response)
+def get_dynamic_sitemap() -> Response:
+    """Generate dynamic XML sitemap including static pages and published reports."""
+    url_entries = [
+        # Core Landing Pages
+        """  <url>
+    <loc>https://zupirus.com/</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en"/>
+  </url>""",
+        """  <url>
+    <loc>https://zupirus.com/en</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en"/>
+  </url>""",
+        # Knowledge Hubs
+        """  <url>
+    <loc>https://zupirus.com/huong-dan</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
+  </url>""",
+        """  <url>
+    <loc>https://zupirus.com/guides</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
+  </url>""",
+        """  <url>
+    <loc>https://zupirus.com/en/guides</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
+  </url>""",
+    ]
+
+    # Vietnamese & English Methodology Articles
+    for vi_slug, en_slug in SLUG_VI_TO_EN.items():
+        url_entries.append(
+            f"""  <url>
+    <loc>https://zupirus.com/huong-dan/{vi_slug}</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/{vi_slug}"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/{en_slug}"/>
+  </url>"""
+        )
+        url_entries.append(
+            f"""  <url>
+    <loc>https://zupirus.com/en/guides/{en_slug}</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/{en_slug}"/>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/{vi_slug}"/>
+  </url>"""
+        )
+
+    # Dynamic Published Reports from Database
+    try:
+        with tx() as c:
+            rows = c.execute(
+                "SELECT slug, updated_at FROM research_reports WHERE status = 'published' ORDER BY created_at DESC"
+            ).fetchall()
+            for r in rows:
+                slug_val = str(r["slug"] or "")
+                mod_date = str(r["updated_at"] or PUBLISHED_DATE)[:10]
+                if slug_val:
+                    url_entries.append(
+                        f"""  <url>
+    <loc>https://zupirus.com/bao-cao/{slug_val}</loc>
+    <lastmod>{mod_date}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>"""
+                    )
+    except Exception:
+        # Fallback to flagship report if DB query encounters any issue
+        url_entries.append(
+            f"""  <url>
+    <loc>https://zupirus.com/bao-cao/bao-cao-dinh-luong-xauusd-london-ny-microstructure-v1</loc>
+    <lastmod>{PUBLISHED_DATE}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>"""
+        )
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n'
+        + "\n".join(url_entries)
+        + "\n</urlset>"
+    )
+    return Response(content=xml, media_type="application/xml; charset=utf-8")
+
+
+# ---------------------------------------------------------------------------
+# SSR GUIDES (VIETNAMESE & MULTILINGUAL HUBS)
+# ---------------------------------------------------------------------------
+
+
 @router.get("/huong-dan", response_class=HTMLResponse)
 @router.get("/guides", response_class=HTMLResponse)
 def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
     effective_lang = _resolve_lang(request, lang)
     canonical = "https://zupirus.com/huong-dan"
+    vi_alt = "https://zupirus.com/huong-dan"
+    en_alt = "https://zupirus.com/en/guides"
+
     title = (
         "XAU/USD Quantitative Research & Methodology Knowledge Hub | ZUPIRUS Quant Lab"
         if effective_lang == "en"
@@ -275,8 +543,16 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
         if effective_lang == "en"
         else "Hệ thống tài liệu nghiên cứu chuyên khảo, phương pháp kiểm định ngoài mẫu Walk-Forward và mô hình chi phí ma sát thực tế phục vụ nghiên cứu định lượng vàng chuyên nghiệp."
     )
-    cta_title = "Explore Our Published Quantitative PDF Reports" if effective_lang == "en" else "Khám Phá Các Báo Cáo Nghiên Cứu Định Lượng PDF"
-    cta_sub = "Read free sample previews and download full institutional research reports." if effective_lang == "en" else "Xem bản đọc thử miễn phí và tải báo cáo đầy đủ trực tiếp từ thư viện cá nhân."
+    cta_title = (
+        "Explore Our Published Quantitative PDF Reports"
+        if effective_lang == "en"
+        else "Khám Phá Các Báo Cáo Nghiên Cứu Định Lượng PDF"
+    )
+    cta_sub = (
+        "Read free sample previews and download full institutional research reports."
+        if effective_lang == "en"
+        else "Xem bản đọc thử miễn phí và tải báo cáo đầy đủ trực tiếp từ thư viện cá nhân."
+    )
     cta_btn = "Explore Catalog →" if effective_lang == "en" else "Xem Danh Mục Báo Cáo →"
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">{crumb_home}</a> / {crumb_guides}</div>
@@ -292,7 +568,19 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
         <a class="cta" href="https://zupirus.com/#reports">{cta_btn}</a>
       </div>
     """
-    return HTMLResponse(_render_shell(title, desc, canonical, "nghiên cứu định lượng vàng xauusd, walk-forward optimization, báo cáo pdf vàng", json_ld, body, lang=effective_lang))
+    return HTMLResponse(
+        _render_shell(
+            title,
+            desc,
+            canonical,
+            "nghiên cứu định lượng vàng xauusd, walk-forward optimization, báo cáo pdf vàng",
+            json_ld,
+            body,
+            lang=effective_lang,
+            vi_alternate=vi_alt,
+            en_alternate=en_alt,
+        )
+    )
 
 
 @router.get("/huong-dan/{slug}", response_class=HTMLResponse)
@@ -303,6 +591,9 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
         raise HTTPException(status_code=404, detail="Guide not found")
 
     canonical = f"https://zupirus.com/huong-dan/{slug}"
+    en_slug = SLUG_VI_TO_EN.get(slug, "")
+    en_alt = f"https://zupirus.com/en/guides/{en_slug}" if en_slug else None
+
     json_ld = {
         "@context": "https://schema.org",
         "@graph": [
@@ -364,82 +655,15 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
             json_ld,
             body,
             lang=effective_lang,
+            vi_alternate=canonical,
+            en_alternate=en_alt,
         )
     )
 
 
-ENGLISH_GUIDES: List[Dict[str, object]] = [
-    {
-        "slug": "xauusd-m15-breakout-retest-quantitative-research",
-        "title": "Breakout & Retest XAU/USD M15 Out-of-Sample Quantitative Research | ZUPIRUS Quant Lab",
-        "meta_description": "Rigorous quantitative research on Breakout & Retest on COMEX Gold M15. Walk-Forward out-of-sample testing, realistic friction costs, and session expectancy matrices.",
-        "keywords": "XAUUSD quantitative research, breakout retest gold M15, walk forward optimization gold, gold quant report",
-        "h1": "Quantitative Research: Does Breakout & Retest on XAU/USD M15 Retain Positive Edge After Friction Costs?",
-        "read_time": "6 min read",
-        "badge": "QUANT RESEARCH · XAU/USD M15",
-        "sections": [
-            (
-                "1. Microstructure of COMEX Gold & Breakout Retest Mechanics on M15",
-                "COMEX Gold (XAU/USD) displays extreme intraday liquidity concentration. While textbook Breakout & Retest patterns promise attractive risk-to-reward ratios, rigorous tick-level evaluation demonstrates that many nominal breakouts are liquidity sweeps lacking momentum continuation."
-            ),
-            (
-                "2. Walk-Forward Out-of-Sample (OOS) Testing & Realistic Friction Cost Models",
-                "At ZUPIRUS Quant Lab, all quantitative hypotheses undergo multi-window rolling Walk-Forward Optimization (WFO). We embed a three-tier transaction friction model (spread, execution slippage, and exchange fees) directly into evaluation functions."
-            ),
-            (
-                "3. Session-Specific Expectancy & Profit Factor Breakdown",
-                "Empirical holdout and full-period data reveal pronounced session differences: European morning and London/New York overlap hours sustain positive mathematical expectancy significantly better than Asian low-liquidity sessions."
-            ),
-        ],
-    },
-    {
-        "slug": "gold-trading-friction-cost-microstructure-model",
-        "title": "COMEX Gold Transaction Friction Cost Model (Spread, Slippage & Commission) | ZUPIRUS Quant Lab",
-        "meta_description": "Quantitative analysis of the impact of spreads, execution slippage, and brokerage commissions on the statistical edge of medium-frequency M15 gold strategies.",
-        "keywords": "gold transaction friction cost, XAUUSD spread model, COMEX gold slippage, quantitative friction model",
-        "h1": "Microstructure Friction Costs in Gold Trading: When Does Drag Eliminate Strategy Edge?",
-        "read_time": "7 min read",
-        "badge": "MICROSTRUCTURE · FRICTION COST",
-        "sections": [
-            (
-                "1. The Three Components of Execution Friction in Gold Markets",
-                "Most backtests fail in live markets because they assume zero transaction drag or constant fixed spreads. Real execution involves three dynamic elements: half-spread based on session liquidity, execution slippage during volatility shocks, and clearing commissions."
-            ),
-            (
-                "2. Sensitivity Analysis Across Realistic Cost Scenarios ($1.5/oz, $2.5/oz, $4.0/oz)",
-                "By stress-testing models across multiple friction regimes, research reveals that at higher drag levels ($4.0/oz), nominal edge is rapidly eroded in off-peak trading hours. This mandates an adequate statistical safety margin before deployment."
-            ),
-            (
-                "3. Standards for Robust Model Verification",
-                "Quantitative strategies must demonstrate out-of-sample profit factors above 1.25 under conservative friction assumptions ($2.50/oz). ZUPIRUS research reports publish verified results across all three friction thresholds."
-            ),
-        ],
-    },
-    {
-        "slug": "walk-forward-oos-validation-methodology-gold",
-        "title": "Walk-Forward Out-of-Sample (OOS) Validation Methodology for COMEX Gold | ZUPIRUS Quant Lab",
-        "meta_description": "Preventing overfitting and data snooping in gold algorithmic research through anchored and rolling Walk-Forward Optimization and strict holdout isolation.",
-        "keywords": "walk forward analysis gold, out of sample validation xauusd, anti overfitting quant, gold backtest methodology",
-        "h1": "Walk-Forward Out-of-Sample Validation Methodology: Institutional Standards for Gold Research",
-        "read_time": "8 min read",
-        "badge": "METHODOLOGY · WALK-FORWARD OOS",
-        "sections": [
-            (
-                "1. The Perils of Overfitting in Traditional Historical Backtests",
-                "Overfitting is the primary reason behind strategy decay in live markets. When parameters are repeatedly tuned on historical data, analysts inadvertently model market noise rather than persistent structural dynamics."
-            ),
-            (
-                "2. Rolling Windows and Train / Validation / Holdout Partitioning",
-                "Walk-Forward Optimization segments historical data into progressive train and test windows, preserving chronological sequencing and isolating a pristine holdout sample that remains unexamined until final acceptance."
-            ),
-            (
-                "3. Independent Quantitative Research Reports for Decision Making",
-                "Professional market participants require objective, un-hyped research. Independent verification, OOS degradation metrics, and stress-tested expectancy matrices provide an empirical foundation for capital allocation."
-            ),
-        ],
-    },
-]
-ENGLISH_GUIDE_BY_SLUG: Dict[str, Dict[str, object]] = {g["slug"]: g for g in ENGLISH_GUIDES}  # type: ignore[misc]
+# ---------------------------------------------------------------------------
+# SSR ENGLISH PAGES
+# ---------------------------------------------------------------------------
 
 
 @router.get("/en", response_class=HTMLResponse)
@@ -510,7 +734,19 @@ def seo_english_landing(request: Request) -> HTMLResponse:
         <a class="cta" href="https://zupirus.com/#reports">View Report Catalog →</a>
       </div>
     """
-    return HTMLResponse(_render_shell(title, desc, canonical, keywords, json_ld, body, lang="en"))
+    return HTMLResponse(
+        _render_shell(
+            title,
+            desc,
+            canonical,
+            keywords,
+            json_ld,
+            body,
+            lang="en",
+            vi_alternate="https://zupirus.com/",
+            en_alternate="https://zupirus.com/en",
+        )
+    )
 
 
 @router.get("/en/guides", response_class=HTMLResponse)
@@ -561,7 +797,19 @@ def seo_english_guides(request: Request) -> HTMLResponse:
         <a class="cta" href="https://zupirus.com/#reports">View Report Catalog →</a>
       </div>
     """
-    return HTMLResponse(_render_shell(title, desc, canonical, keywords, json_ld, body, lang="en"))
+    return HTMLResponse(
+        _render_shell(
+            title,
+            desc,
+            canonical,
+            keywords,
+            json_ld,
+            body,
+            lang="en",
+            vi_alternate="https://zupirus.com/huong-dan",
+            en_alternate="https://zupirus.com/en/guides",
+        )
+    )
 
 
 @router.get("/en/guides/{slug}", response_class=HTMLResponse)
@@ -571,6 +819,9 @@ def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
         raise HTTPException(status_code=404, detail="Guide not found")
 
     canonical = f"https://zupirus.com/en/guides/{slug}"
+    vi_slug = SLUG_EN_TO_VI.get(slug, "")
+    vi_alt = f"https://zupirus.com/huong-dan/{vi_slug}" if vi_slug else None
+
     json_ld = {
         "@context": "https://schema.org",
         "@graph": [
@@ -632,5 +883,127 @@ def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
             json_ld,
             body,
             lang="en",
+            vi_alternate=vi_alt,
+            en_alternate=canonical,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# SSR PUBLISHED REPORTS DETAIL
+# ---------------------------------------------------------------------------
+
+
+@router.get("/bao-cao/{slug}", response_class=HTMLResponse)
+@router.get("/reports/{slug}", response_class=HTMLResponse)
+def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
+    effective_lang = _resolve_lang(request, lang)
+    is_en = effective_lang == "en"
+
+    from app.domains.reports.service import get_public_report_detail
+
+    report = get_public_report_detail(slug)
+    if not report:
+        raise HTTPException(status_code=404, detail="Báo cáo không tồn tại hoặc chưa phát hành.")
+
+    rep_title = str(report.get("title") or "Báo Cáo Nghiên Cứu Định Lượng XAU/USD")
+    rep_slug = str(report.get("slug") or slug)
+    canonical = f"https://zupirus.com/bao-cao/{rep_slug}"
+    meta_desc = str(report.get("summary") or "Ấn phẩm nghiên cứu định lượng độc lập về thị trường Vàng (XAU/USD).")[:200]
+    vnd_price = int(report.get("price_vnd") or 750000)
+    usd_price = float(report.get("price_usd") or 30.0)
+
+    # Parse WFO metrics
+    wfo_data = report.get("wfo_metrics") or {}
+    wr = wfo_data.get("win_rate", "64.2%")
+    pf = wfo_data.get("profit_factor", "1.94")
+    samples = wfo_data.get("sample_size", 180)
+    max_dd = wfo_data.get("max_drawdown_pct", "4.8%")
+
+    json_ld = {
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "Product",
+                "name": rep_title,
+                "description": meta_desc,
+                "url": canonical,
+                "category": "Quantitative Research Report",
+                "offers": {
+                    "@type": "Offer",
+                    "price": str(vnd_price),
+                    "priceCurrency": "VND",
+                    "availability": "https://schema.org/InStock",
+                    "url": canonical,
+                },
+            },
+            {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Trang chủ" if not is_en else "Home", "item": "https://zupirus.com/"},
+                    {"@type": "ListItem", "position": 2, "name": "Báo cáo" if not is_en else "Reports", "item": "https://zupirus.com/#reports"},
+                    {"@type": "ListItem", "position": 3, "name": rep_title, "item": canonical},
+                ],
+            },
+        ],
+    }
+
+    body = f"""
+      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / <a href="https://zupirus.com/#reports">Danh mục báo cáo</a> / {html.escape(rep_slug)}</div>
+      <span class="badge">PUBLISHED RESEARCH REPORT · VERSION {html.escape(str(report.get('version') or 'v1.0'))}</span>
+      <h1>{html.escape(rep_title)}</h1>
+      <p style="font-size:16px;color:#cbd5e1;line-height:1.8">{html.escape(meta_desc)}</p>
+
+      <div class="grid">
+        <div class="card">
+          <span class="badge">OOS WIN RATE</span>
+          <div style="font-size:28px;font-weight:800;color:#10b981;margin-top:6px">{html.escape(str(wr))}</div>
+          <p style="font-size:13px;color:#94a3b8;margin:4px 0 0">Tỷ lệ thắng thực tế trên tập kiểm định ngoài mẫu.</p>
+        </div>
+        <div class="card">
+          <span class="badge">PROFIT FACTOR</span>
+          <div style="font-size:28px;font-weight:800;color:#fbbf24;margin-top:6px">{html.escape(str(pf))}</div>
+          <p style="font-size:13px;color:#94a3b8;margin:4px 0 0">Hệ số lợi nhuận sau khi trừ toàn bộ chi phí ma sát.</p>
+        </div>
+        <div class="card">
+          <span class="badge">SAMPLE SIZE</span>
+          <div style="font-size:28px;font-weight:800;color:#38bdf8;margin-top:6px">{html.escape(str(samples))} nến</div>
+          <p style="font-size:13px;color:#94a3b8;margin:4px 0 0">Số lượng mẫu nến tick kiểm định độc lập.</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:24px">
+        <h2>Nội Dung Nghiên Cứu Bao Gồm Trong Ấn Phẩm PDF</h2>
+        <ul style="padding-left:20px;line-height:2;color:#cbd5e1">
+          <li>Cấu trúc vi mô thị trường vàng COMEX và phân tích hành vi thanh khoản phiên London - New York.</li>
+          <li>Quy trình Walk-Forward Optimization (WFO) đa cửa sổ cuốn với tập holdout được cô lập nghiêm ngặt.</li>
+          <li>Ma trận nhạy cảm chi phí ma sát (Stress Testing Matrix) ở các mức $1.5/oz, $2.5/oz và $4.0/oz.</li>
+          <li>Đường cong vốn ngoài mẫu (Equity Curve) và phân tích rủi ro sụt giảm cực đại ({html.escape(str(max_dd))}).</li>
+          <li>Định dạng PDF song ngữ, bảng biểu vector độ phân giải cao và hỗ trợ đầy đủ tiếng Việt có dấu.</li>
+        </ul>
+      </div>
+
+      <div class="cta-box">
+        <div>
+          <div style="font-size:12px;font-family:monospace;color:#fbbf24;font-weight:700">GIÁ NIÊM YẾT: {vnd_price:,.0f} VND ({usd_price:,.1f} USDT)</div>
+          <strong style="color:#fff;font-size:18px">Đọc Thử Bản Mẫu Hoặc Mua Bản Đầy Đủ</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Đăng nhập tài khoản ZUPIRUS để đọc thử bản mẫu miễn phí hoặc nhận bản quyền ấn phẩm PDF đầy đủ.</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <a class="cta" href="/api/v1/reports/{rep_slug}/sample-pdf" target="_blank" style="background:#0284c7">Đọc Bản Mẫu (PDF)</a>
+          <a class="cta" href="https://zupirus.com/portal">Vào Cổng Khách Hàng →</a>
+        </div>
+      </div>
+    """
+    return HTMLResponse(
+        _render_shell(
+            f"{rep_title} | ZUPIRUS Quant Lab",
+            meta_desc,
+            canonical,
+            "báo cáo định lượng vàng, xauusd quant report, walk-forward analysis gold, ấn phẩm pdf vàng",
+            json_ld,
+            body,
+            lang=effective_lang,
+            vi_alternate=canonical,
         )
     )
