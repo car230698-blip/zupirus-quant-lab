@@ -456,7 +456,7 @@ def get_dynamic_sitemap() -> Response:
     try:
         with tx() as c:
             rows = c.execute(
-                "SELECT slug, updated_at FROM research_reports WHERE status = 'published' ORDER BY created_at DESC"
+                "SELECT slug, updated_at FROM research_reports WHERE UPPER(status) = 'PUBLISHED' ORDER BY created_at DESC"
             ).fetchall()
             for r in rows:
                 slug_val = str(r["slug"] or "")
@@ -471,10 +471,10 @@ def get_dynamic_sitemap() -> Response:
   </url>"""
                     )
     except Exception:
-        # Fallback to flagship report if DB query encounters any issue
+        # Fallback to active published report if DB query encounters any issue
         url_entries.append(
             f"""  <url>
-    <loc>https://zupirus.com/bao-cao/bao-cao-dinh-luong-xauusd-london-ny-microstructure-v1</loc>
+    <loc>https://zupirus.com/bao-cao/bao-cao-dinh-luong-xau-usd-cau-truc-breakout-retest-kiem-dinh-walk-forward</loc>
     <lastmod>{PUBLISHED_DATE}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>

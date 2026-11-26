@@ -116,9 +116,21 @@
 
   <!-- Published Research Publications -->
   <url>
-    <loc>https://zupirus.com/bao-cao/bao-cao-dinh-luong-xauusd-london-ny-microstructure-v1</loc>
+    <loc>https://zupirus.com/bao-cao/bao-cao-dinh-luong-xau-usd-cau-truc-breakout-retest-kiem-dinh-walk-forward</loc>
     <lastmod>2026-11-26</lastmod>
-    <changefreq>monthly</changefreq>
+    <changefreq>weekly</changefreq>
     <priority>0.85</priority>
+  </url>
+  <url>
+    <loc>https://zupirus.com/bao-cao/eurusd-h1-asia-london-breakout-stats-v1</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.80</priority>
+  </url>
+  <url>
+    <loc>https://zupirus.com/bao-cao/breakout-retest-vang-comex-m15-nghien-cuu-tham-do-v1</loc>
+    <lastmod>2026-11-26</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.80</priority>
   </url>
 </urlset>
