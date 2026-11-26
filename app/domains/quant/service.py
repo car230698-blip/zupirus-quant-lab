@@ -7,7 +7,11 @@ import time
 from io import BytesIO
 from typing import Any, Dict, List, Optional
 
-from pypdf import PdfReader, PdfWriter
+try:
+    from pypdf import PdfReader, PdfWriter
+except ImportError:
+    PdfReader = None  # type: ignore[misc,assignment]
+    PdfWriter = None  # type: ignore[misc,assignment]
 
 from app.core.db import insert_timescale_candle, to_epoch_ts
 from app.db import audit, tx

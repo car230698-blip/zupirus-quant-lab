@@ -100,6 +100,7 @@ def test_migration_does_not_drop_a_historical_trading_table(client):
 
 def test_checkout_refuses_to_invent_a_receiving_wallet(client, monkeypatch):
     monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "true")
+    monkeypatch.setenv("PAYMENT_USDT_ENABLED", "true")
     from app.db import tx
     with tx() as c:
         c.execute("DELETE FROM kv WHERE key = 'billing:crypto_wallets'")
