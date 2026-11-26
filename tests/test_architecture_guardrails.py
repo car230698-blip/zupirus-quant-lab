@@ -127,8 +127,8 @@ def test_guardrail_no_duplicate_or_double_prefix_admin_routes():
 
 def test_guardrail_admin_ui_uses_central_api_client():
     """Verify that all Admin*.tsx components use the central web/src/api/client instead of raw fetch()."""
-    components_dir = ROOT / "web" / "src" / "components"
-    admin_files = list(components_dir.glob("Admin*.tsx"))
+    web_src = ROOT / "web" / "src"
+    admin_files = list(web_src.rglob("Admin*.tsx"))
     assert len(admin_files) >= 3, "Must check at least 3 Admin components"
 
     fetch_violations = {}
@@ -157,9 +157,9 @@ def test_guardrail_defense_in_depth_domain_isolation():
 
 
 def test_guardrail_user_ui_uses_central_api_client():
-    """Verify that all User*.tsx components and PortalAuth.tsx use the central api client instead of raw fetch()."""
-    components_dir = ROOT / "web" / "src" / "components"
-    user_files = list(components_dir.glob("User*.tsx")) + [components_dir / "PortalAuth.tsx"]
+    """Verify that all User*.tsx components and AuthScreen.tsx use the central api client instead of raw fetch()."""
+    web_src = ROOT / "web" / "src"
+    user_files = list(web_src.rglob("User*.tsx")) + [web_src / "components" / "auth" / "AuthScreen.tsx"]
 
     fetch_violations = {}
     for uf in user_files:
@@ -217,7 +217,7 @@ def test_guardrail_env_example_completeness():
 
 def test_guardrail_landing_page_modularity_and_seo():
     """Verify landing page is clean, modular (< 450 lines) and SEO metadata points to proper JPG OG image."""
-    landing_tsx = (ROOT / "web" / "src" / "components" / "LandingPage.tsx").read_text(encoding="utf-8")
+    landing_tsx = (ROOT / "web" / "src" / "pages" / "landing" / "LandingPage.tsx").read_text(encoding="utf-8")
     lines = landing_tsx.splitlines()
     assert len(lines) <= 450, f"LandingPage.tsx should be under 450 lines for modularity, got {len(lines)}"
     assert "import { ThreeHolographicMatrix }" not in landing_tsx, "ThreeHolographicMatrix must not be synchronously imported in LandingPage"
