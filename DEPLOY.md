@@ -38,6 +38,17 @@ ENABLE_LEGACY_EA_BRIDGE=false
 
 **Password note:** PostgreSQL keeps the password from the first time the `timescaledb` volume was created. Changing `POSTGRES_PASSWORD` in `.env` later does **not** change the database password. Use the same password the volume already has, or you will break the API login to Postgres while the container still looks “healthy”.
 
+To change the password on purpose: update Postgres first, then `.env`, then recreate API/research:
+
+```bash
+# Replace NEW_PASSWORD with the value you will put in .env
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T timescaledb \
+  psql -U "${POSTGRES_USER:-zupirus}" -d "${POSTGRES_DB:-zupirus_quant}" \
+  -c "ALTER USER \"${POSTGRES_USER:-zupirus}\" WITH PASSWORD 'NEW_PASSWORD';"
+# Then set POSTGRES_PASSWORD=NEW_PASSWORD in .env and:
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --force-recreate api research
+```
+
 Create the PDF data volume once if it does not exist:
 
 ```bash
@@ -94,9 +105,9 @@ cd /root/zupirus-quant-lab
 set -a; source .env; set +a
 
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d timescaledb redis
-docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml build api
 
-docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml run --rm --no-deps \
+# --build ensures this release's migration code runs (not an older cached image).
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml run --rm --no-deps --build \
   -e APP_ENV=production \
   api python -c "from app.db import init; init(); print('migrations ok')"
 ```

@@ -395,10 +395,10 @@ def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(N
                     },
                     {
                         "@type": "Question",
-                        "name": "Tại sao ZUPIRUS lại khóa tài khoản ở mốc 4.0% thay vì 5.0%?",
+                        "name": "Tại sao máy tính gợi ý đệm 4.0% thay vì 5.0%?",
                         "acceptedAnswer": {
                             "@type": "Answer",
-                            "text": "ZUPIRUS áp dụng vùng đệm an toàn 1.0% (Fail-Closed Buffer). Khi tài khoản chạm mức lỗ 4.0%, hệ thống tự động đóng lệnh và ngắt kết nối để chống trượt giá (slippage) và phí swap/commission làm tài khoản vô tình chạm ngưỡng 5.0% của quỹ.",
+                            "text": "Máy tính chỉ là công cụ giáo dục. Đệm 1.0% (ví dụ nhắm 4.0% khi quỹ cấm 5.0%) giúp bạn tự ước lượng khoảng trống cho trượt giá và phí. ZUPIRUS không khóa tài khoản và không đóng lệnh giúp bạn.",
                         },
                     },
                     {
@@ -406,7 +406,7 @@ def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(N
                         "name": "Nên chia rủi ro bao nhiêu % mỗi lệnh để không bị vi phạm Daily Drawdown?",
                         "acceptedAnswer": {
                             "@type": "Answer",
-                            "text": "Khuyến nghị chuẩn định lượng là 0.50% đến 0.75% mỗi lệnh. Với mức rủi ro này, tài khoản có thể chịu được liên tiếp 5-8 lệnh thua mà vẫn nằm trong vùng an toàn dưới ngưỡng 4.0% khóa tự động.",
+                            "text": "Khuyến nghị giáo dục phổ biến là khoảng 0.50% đến 0.75% mỗi lệnh trên mẫu tính toán. Với mức đó, tài khoản có thể chịu vài lệnh thua liên tiếp mà vẫn dưới ngưỡng quỹ — đây là số học, không phải tự động khóa hay bảo vệ tài khoản.",
                         },
                     },
                 ],
@@ -430,7 +430,7 @@ def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(N
       <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / Tính Drawdown Quỹ Prop Firm</div>
       <span class="badge">PROP FIRM CALCULATOR · DAILY &amp; MAX DRAWDOWN</span>
       <h1>Bảng Tính Daily Drawdown &amp; Phân Bổ Rủi Ro Quỹ FTMO, The5ers &amp; FundedNext</h1>
-      <p>Tính toán chính xác giới hạn lỗ trong ngày (Daily Loss Limit), ngưỡng vi phạm tối đa (Max Drawdown Breach) và vùng đệm an toàn tự động đóng lệnh (4.0% Safe Buffer) theo chuẩn định lượng ZUPIRUS.</p>
+      <p>Ước lượng giới hạn lỗ trong ngày (Daily Loss Limit), ngưỡng vi phạm tối đa (Max Drawdown Breach) và vùng đệm an toàn (ví dụ 4.0%) theo quy định quỹ. Đây là máy tính giáo dục — ZUPIRUS không đóng lệnh và không khóa tài khoản.</p>
 
       <section class="card" aria-label="Máy tính Drawdown Quỹ Prop Firm">
         <div class="calc-grid">
@@ -602,7 +602,7 @@ def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(N
                 <th>Quỹ Prop Firm</th>
                 <th>Daily Drawdown</th>
                 <th>Cách Tính Daily Loss</th>
-                <th>Cơ Chế Safe Guard ZUPIRUS</th>
+                <th>Gợi ý đệm giáo dục (tự quản lý)</th>
               </tr>
             </thead>
             <tbody>
@@ -610,19 +610,19 @@ def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(N
                 <td><strong>FTMO</strong></td>
                 <td>5.0%</td>
                 <td>Dựa trên Equity lúc 00:00 CE(S)T (bao gồm Floating Loss)</td>
-                <td>Tự động ngắt tại 4.0% Daily Loss (bảo toàn 1.0% đệm trượt giá)</td>
+                <td>Tự đặt mục tiêu ~4.0% Daily Loss để chừa ~1.0% đệm trượt giá</td>
               </tr>
               <tr>
                 <td><strong>The5ers (High Stakes)</strong></td>
                 <td>5.0%</td>
                 <td>Dựa trên Balance hoặc Equity đầu ngày (theo mốc cao hơn)</td>
-                <td>Khóa rủi ro ở 4.0%, tự giảm lot khi đạt 80% lợi nhuận mục tiêu</td>
+                <td>Tự theo dõi ~4.0%; giảm kích thước lệnh khi gần mục tiêu lợi nhuận</td>
               </tr>
               <tr>
                 <td><strong>FundedNext (Stellar)</strong></td>
                 <td>5.0%</td>
                 <td>Dựa trên Balance khởi đầu ngày giao dịch</td>
-                <td>News Shield đóng băng lệnh ±15 phút quanh tin CPI/NFP</td>
+                <td>Tự tránh mở lệnh mới quanh tin CPI/NFP nếu quỹ hạn chế tin</td>
               </tr>
             </tbody>
           </table>
@@ -637,9 +637,9 @@ def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(N
       <div class="cta-box">
         <div>
           <strong style="color:#fff;font-size:17px">Đọc nghiên cứu trong thư viện PDF. Không có lệnh tự động.</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Không cần tự canh lệnh, không lo chạm Daily Drawdown · Kết nối 60 giây.</p>
+          <p style="margin:4px 0 0;font-size:13.5px">Máy tính này chỉ hỗ trợ ước lượng rủi ro. Không copy-trade, không Cloud MT5.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
+        <a class="cta" href="https://app.zupirus.com/">Mở thư viện PDF →</a>
       </div>
     """
     return HTMLResponse(
@@ -812,7 +812,7 @@ def seo_english_landing(request: Request) -> HTMLResponse:
                 "operatingSystem": "Web",
                 "url": "https://zupirus.com/en",
                 "description": desc,
-                "offers": {"@type": "AggregateOffer", "priceCurrency": "USD", "lowPrice": "25", "highPrice": "59", "offerCount": "3"}
+                "offers": {"@type": "AggregateOffer", "priceCurrency": "USD", "lowPrice": "19", "highPrice": "59", "offerCount": "3"}
             },
             {
                 "@type": "BreadcrumbList",
