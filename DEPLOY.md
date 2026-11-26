@@ -1,145 +1,254 @@
-# Deploy the quant library on the VPS
+# Deploy ZUPIRUS Quant Lab (PDF library) on the VPS
 
-These are the commands the owner runs on the single production VPS. Do not run them from a laptop against production. The app listens on `127.0.0.1:8080`. Caddy (or the existing Nginx Proxy Manager network `npm_default`) is the only public entry.
+Copy and paste these commands on the production VPS as `root`.  
+Project directory: **`/root/zupirus-quant-lab`**.  
+Compose project name: **`zupirus-prod`**.  
+Files used every time: **`compose.yaml` + `compose.prod.yaml`**.  
+The API listens on `127.0.0.1:8080`. Nginx Proxy Manager (network `npm_default`) or Caddy is the public entry.
 
-The compose project name used below is `zupirus-prod`. The production database name is `zupirus_quant`. Migration 028 does **not** drop historical trading tables. Migration 029 only adds study and methodology tables and a watermark flag.
+Migration 028 does **not** drop historical trading tables. Migration 029 adds study/methodology tables and seeds the first EURUSD guide as a **DRAFT**. You publish it with one admin click after you review the PDF.
 
-## 0. Before you pull
+---
 
-1. SSH to the VPS and `cd` to the checkout that already runs production.
-2. Confirm `.env` exists and is not committed. It must set at least:
+## 0. Go to the project and check `.env`
 
-   - `POSTGRES_PASSWORD`
-   - `REDIS_PASSWORD`
-   - `ENCRYPTION_KEY`
-   - `ADMIN_PASSWORD`
-   - `POSTGRES_DB=zupirus_quant`
-   - `REPORT_DOWNLOAD_SECRET` (or rely on `ENCRYPTION_KEY`)
-   - `USDT_BEP20_ADDRESS` and `USDT_TRC20_ADDRESS` only when you are ready to receive payment
-   - `COMMERCIAL_REPORTS_SALE_ENABLED=false` until the first real PDF is reviewed
+```bash
+cd /root/zupirus-quant-lab
+test -f .env || { echo "Missing .env — stop."; exit 1; }
+```
 
-3. Leave these off:
+`.env` must set at least:
 
-   - `ENABLE_LEGACY_CUSTOMER_EXECUTION=false`
-   - `ENABLE_LEGACY_RESEARCH_LOOP=false`
-   - `ENABLE_LEGACY_EA_BRIDGE=false`
+```bash
+POSTGRES_USER=zupirus
+POSTGRES_PASSWORD=REPLACE_ME_STRONG
+POSTGRES_DB=zupirus_quant
+REDIS_PASSWORD=REPLACE_ME_STRONG
+ENCRYPTION_KEY=REPLACE_ME_32PLUS_CHARS
+ADMIN_PASSWORD=REPLACE_ME_STRONG
+REPORT_DOWNLOAD_SECRET=REPLACE_ME_OPTIONAL_BUT_RECOMMENDED
+COMMERCIAL_REPORTS_SALE_ENABLED=false
+ENABLE_LEGACY_CUSTOMER_EXECUTION=false
+ENABLE_LEGACY_RESEARCH_LOOP=false
+ENABLE_LEGACY_EA_BRIDGE=false
+# Optional env fallbacks (admin UI wallets override these when saved):
+# USDT_BEP20_ADDRESS=
+# USDT_TRC20_ADDRESS=
+```
+
+**Password note:** PostgreSQL keeps the password from the first time the `timescaledb` volume was created. Changing `POSTGRES_PASSWORD` in `.env` later does **not** change the database password. Use the same password the volume already has, or you will break the API login to Postgres while the container still looks “healthy”.
+
+Create the PDF data volume once if it does not exist:
+
+```bash
+docker volume create zupirus_quant_lab_data
+```
+
+---
 
 ## 1. Back up the database first
 
 ```bash
+cd /root/zupirus-quant-lab
+set -a; source .env; set +a
 mkdir -p "$HOME/zupirus-backups"
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T timescaledb \
   pg_dump -U "${POSTGRES_USER:-zupirus}" -d "${POSTGRES_DB:-zupirus_quant}" -Fc \
   > "$HOME/zupirus-backups/zupirus_quant_${STAMP}.dump"
+
 ls -lh "$HOME/zupirus-backups/zupirus_quant_${STAMP}.dump"
+# If that file is empty or tiny, STOP. Do not continue.
 ```
 
-If that file is empty, stop. Do not migrate.
-
-Also copy the PDF volume if you have published files already:
+Also back up PDF files on the data volume:
 
 ```bash
-docker run --rm -v zupirus_quant_lab_data:/data:ro -v "$HOME/zupirus-backups":/backup alpine \
-  tar czf "/backup/lab_data_${STAMP}.tgz" -C /data .
+docker run --rm \
+  -v zupirus_quant_lab_data:/data:ro \
+  -v "$HOME/zupirus-backups":/backup \
+  alpine tar czf "/backup/lab_data_${STAMP}.tgz" -C /data .
 ```
+
+---
 
 ## 2. Pull this release
 
 ```bash
+cd /root/zupirus-quant-lab
 git fetch origin
 git checkout main
 git pull origin main
+# If you are shipping a PR branch instead of main, use that branch name instead.
 ```
 
-Use the branch or tag you intend to ship if it is not `main` yet. Read `docs/PIVOT_PLAN.md` once before the migrate step.
+---
 
-## 3. Migrate
+## 3. Build the new image, then migrate
 
-Migrations run when the API container starts (`init()` on boot). They are additive. To apply them once, before you recreate the rest of the stack, you can start only the database and a one-shot migrator:
+Always **build first**, then run the one-shot migrator. That way migration 028 from this release (non-destructive) is what runs — not an older image that may still contain a dropping migration.
 
 ```bash
+cd /root/zupirus-quant-lab
+set -a; source .env; set +a
+
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d timescaledb redis
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml build api
+
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml run --rm --no-deps \
   -e APP_ENV=production \
   api python -c "from app.db import init; init(); print('migrations ok')"
 ```
 
-`run` uses the image you have built. If this is the first boot of this release, build first (next section) and then run the one-shot command again. A second run is safe: applied versions are recorded in `schema_migrations`.
-
-Check the new tables:
+Check tables and version 29:
 
 ```bash
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T timescaledb \
   psql -U "${POSTGRES_USER:-zupirus}" -d "${POSTGRES_DB:-zupirus_quant}" \
   -c "\dt quant_studies" -c "\dt methodologies" \
+  -c "SELECT id, status, price_usd, title FROM research_reports WHERE id = 'rep_eurusd_h1_asia_london_v1';" \
   -c "SELECT version, name FROM schema_migrations ORDER BY version;"
 ```
 
-You should see version 29. You should still see historical tables such as `trading_accounts` if they existed before this release.
+You should see version **29** and the launch guide row with status **`DRAFT`** and price **`19`**.
 
-## 4. Rebuild and restart
+---
+
+## 4. Rebuild and restart the stack
 
 ```bash
+cd /root/zupirus-quant-lab
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --build
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml ps
 curl -fsS http://127.0.0.1:8080/healthz
+# /readyz returns 503 until the research container heartbeats (~45s). That is normal.
 curl -fsS http://127.0.0.1:8080/readyz || true
 ```
 
-`/readyz` returns 503 until the research container has written `research_heartbeat` (within about 45 seconds). That container is the quant librarian. It reconciles pending USDT transfers. It does not place trades.
+There is no execution / order-routing container. Do not run `python -m app.engine` on the host.
 
-There is no execution container in this compose file. Do not start `python -m app.engine` on the host.
-
-Reload Caddy only if you changed `Caddyfile`:
+If you use the compose Caddy profile and changed `Caddyfile`:
 
 ```bash
-docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml --profile public exec proxy caddy reload --config /etc/caddy/Caddyfile
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml --profile public exec proxy \
+  caddy reload --config /etc/caddy/Caddyfile
 ```
 
-If the VPS uses Nginx Proxy Manager instead of the compose Caddy profile, leave NPM as it is: it should already proxy `zupirus.com`, `www`, `app.zupirus.com`, and `adm.zupirus.com` to `127.0.0.1:8080`.
+If you use Nginx Proxy Manager, leave it alone: it should already proxy `zupirus.com`, `www`, `app.zupirus.com`, and `adm.zupirus.com` to `127.0.0.1:8080`.
 
-## 5. After it is up
+---
 
-1. Sign in at `https://adm.zupirus.com`.
-2. Save the USDT BEP20 and TRC20 receiving addresses under billing. Do not paste a private key.
-3. Run a study from admin (`POST /api/v1/admin/quant/studies`) or the publisher UI, read the draft PDF, set the price, then publish.
-4. Only then set `COMMERCIAL_REPORTS_SALE_ENABLED=true` in `.env` and recreate the API container:
+## 5. Configure USDT wallets (admin UI)
+
+1. Open `https://adm.zupirus.com` and sign in with the admin email / `ADMIN_PASSWORD`.
+2. Open **Billing** settings.
+3. Enter the **receiving** addresses only (public addresses):
+   - **BEP20** USDT wallet
+   - **TRC20** USDT wallet  
+   Never paste a private key.
+4. Save. The values are stored in the database (`billing:crypto_wallets`). Env vars `USDT_BEP20_ADDRESS` / `USDT_TRC20_ADDRESS` are only fallbacks if the admin UI has never saved wallets.
+
+Checkout refuses to create an order if no receiving wallet is configured.
+
+---
+
+## 6. Review and publish the first guide
+
+On first deploy the store already has this draft (not public yet):
+
+| Field | Value |
+|-------|--------|
+| Report id | `rep_eurusd_h1_asia_london_v1` |
+| Title (VI) | EURUSD H1: phiên Á và xác suất phá biên London — thống kê mẫu Yahoo 2024–2026 |
+| Price | **19 USDT** |
+| Status | **DRAFT** until you publish |
+
+**Publish toggle (one action):** Admin → Reports publisher → open the EURUSD draft → **Publish**.  
+Or:
 
 ```bash
+# After you are logged in via the browser cookie, or use your usual admin API client:
+# POST https://adm.zupirus.com/api/v1/admin/reports/rep_eurusd_h1_asia_london_v1/publish
+# body: {"version":"v1.0","changelog":"Launch guide v1.0"}
+```
+
+Until you publish, the public catalog at `/api/v1/reports` does **not** list it.
+
+Preview PDF (committed for review): `artifacts/launch-guide/eurusd-h1-asia-london-preview.pdf`  
+Full PDF: `artifacts/launch-guide/eurusd-h1-asia-london-full.pdf`
+
+---
+
+## 7. Turn on commercial sales
+
+Only after wallets are saved and the guide is published:
+
+```bash
+cd /root/zupirus-quant-lab
+# Edit .env and set:
+# COMMERCIAL_REPORTS_SALE_ENABLED=true
+
+grep COMMERCIAL_REPORTS_SALE_ENABLED .env
+set -a; source .env; set +a
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d api
 ```
 
-5. Buy a guide with a small USDT transfer on a test wallet and confirm the library download names the buyer when watermarking is on.
+`COMMERCIAL_REPORTS_SALE_ENABLED` is **env-only** (no admin toggle). Recreate the API container after changing it.
 
-## 6. Rollback
+Then buy the guide with a small USDT transfer from a test wallet and confirm the library download adds the buyer email page when watermarking is on.
+
+---
+
+## 8. Rollback (application only)
 
 If the new API fails health checks:
 
 ```bash
-# Stop the new app processes. Leave the database running.
+cd /root/zupirus-quant-lab
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml stop api research
-
-# Put the previous git revision back and rebuild.
 git checkout <previous-good-sha>
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --build
 ```
 
-Migration 029 only adds tables and nullable-or-defaulted columns. The previous application can boot with those extra objects still present. You do not need to drop them.
+Migration 029 only adds tables and defaulted columns. The previous app can boot with those objects still present. You do **not** need to drop them.
 
-If a migration in this release corrupted data (it is not supposed to), restore the dump from step 1 into a new database name first and point `DATABASE_URL` at it only after you have checked a `SELECT count(*)` on `users` and `orders`:
+---
+
+## 9. Restore a database dump (into a NEW database — never onto live first)
+
+Create a separate restore database, validate it, then switch only after checks pass.
 
 ```bash
+cd /root/zupirus-quant-lab
+set -a; source .env; set +a
+STAMP=YYYYMMDDTHHMMSSZ   # the stamp from your backup filename
+RESTORE_DB=zupirus_quant_restore_${STAMP}
+
+# 1) Create an empty restore database (production DB stays untouched)
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T timescaledb \
-  pg_restore -U "${POSTGRES_USER:-zupirus}" -d "${POSTGRES_DB:-zupirus_quant}" --clean --if-exists \
+  psql -U "${POSTGRES_USER:-zupirus}" -d postgres \
+  -c "CREATE DATABASE ${RESTORE_DB};"
+
+# 2) Restore the dump into THAT database only
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T timescaledb \
+  pg_restore -U "${POSTGRES_USER:-zupirus}" -d "${RESTORE_DB}" --clean --if-exists \
   < "$HOME/zupirus-backups/zupirus_quant_${STAMP}.dump"
+
+# 3) Validate counts on the restore DB (not production)
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T timescaledb \
+  psql -U "${POSTGRES_USER:-zupirus}" -d "${RESTORE_DB}" \
+  -c "SELECT count(*) AS users FROM users;" \
+  -c "SELECT count(*) AS orders FROM orders;"
 ```
 
-`--clean` drops objects in the target database. Use it only on a database you have already copied, or restore into an empty database you create for the purpose. Do not run it against the only copy of production.
+Do **not** run `pg_restore --clean` against `zupirus_quant` while it is the live production database. Point `DATABASE_URL` at the restore DB only after you have verified the counts and any payments that arrived after the snapshot.
 
-Restore PDF files from the tar if the volume was replaced:
+Restore PDF files if the volume was replaced:
 
 ```bash
-docker run --rm -v zupirus_quant_lab_data:/data -v "$HOME/zupirus-backups":/backup alpine \
-  tar xzf "/backup/lab_data_${STAMP}.tgz" -C /data
+docker run --rm \
+  -v zupirus_quant_lab_data:/data \
+  -v "$HOME/zupirus-backups":/backup \
+  alpine tar xzf "/backup/lab_data_${STAMP}.tgz" -C /data
 ```

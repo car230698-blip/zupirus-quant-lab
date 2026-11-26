@@ -52,6 +52,7 @@ def ingest_candles(rows: List[Dict[str, Any]], *, symbol: str, timeframe: str, s
                 close_p=candle.close,
                 volume=candle.volume,
                 source=source,
+                replace_ohlcv=True,
             )
     return len(candles)
 

@@ -344,9 +344,9 @@ def seo_lot_calculator_page(request: Request, lang: Optional[str] = Query(None))
       <div class="cta-box">
         <div>
           <strong style="color:#fff;font-size:17px">Công thức này chỉ để tự tính. ZUPIRUS không vào lệnh giúp bạn.</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Không cần tính tay, không cần thuê VPS · 4 lớp giáp Fail-Closed tự động trên cụm London G2.</p>
+          <p style="margin:4px 0 0;font-size:13.5px">Đọc thêm nghiên cứu thống kê dạng PDF trong thư viện. Không copy-trade, không Cloud MT5.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
+        <a class="cta" href="https://app.zupirus.com/">Mở thư viện PDF →</a>
       </div>
     """
     return HTMLResponse(
@@ -775,9 +775,9 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
       <div class="cta-box">
         <div>
           <strong style="color:#fff;font-size:17px">Mở thư viện PDF và đọc bản xem thử</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Hiệu suất XAU/USD xác thực minh bạch · Kích hoạt tự động SePay 24/7.</p>
+          <p style="margin:4px 0 0;font-size:13.5px">Ấn phẩm đã xuất bản thanh toán bằng USDT trên BEP20 hoặc TRC20. Không cam kết lợi nhuận.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
+        <a class="cta" href="https://app.zupirus.com/">Mở thư viện PDF →</a>
       </div>
     """
     return HTMLResponse(
@@ -875,7 +875,7 @@ def seo_english_guides(request: Request) -> HTMLResponse:
     canonical = "https://zupirus.com/en/guides"
     title = "Quantitative Trading & Prop Firm Knowledge Hub | ZUPIRUS"
     desc = "Notes on how to read a ZUPIRUS statistical study. Educational PDFs only."
-    keywords = "prop firm trading guides, pass FTMO challenge automated, gold trading bot XAUUSD, cloud MT5 guides"
+    keywords = "prop firm education, XAUUSD statistical studies, EURUSD session research PDF, ZUPIRUS quant library"
     json_ld = {
         "@context": "https://schema.org",
         "@graph": [
@@ -975,9 +975,9 @@ def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
       <div class="cta-box">
         <div>
           <strong style="color:#fff;font-size:17px">Open the PDF library and read a free preview</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">4-Layer Fail-Closed Risk Shield · Instant USDT activation.</p>
+          <p style="margin:4px 0 0;font-size:13.5px">Published guides are paid in USDT on BEP20 or TRC20. Past statistics are not a profit promise.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Launch Terminal →</a>
+        <a class="cta" href="https://app.zupirus.com/">Open PDF library →</a>
       </div>
     """
     return HTMLResponse(

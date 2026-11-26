@@ -46,7 +46,11 @@ def dashboard(
         order_rows = c.execute(
             """
             SELECT id, id AS order_code, product_type, report_id, report_version,
-                   amount_usd AS amount, currency, status, created_at, NULL AS paid_at
+                   CASE WHEN UPPER(COALESCE(currency, '')) = 'VND'
+                        THEN COALESCE(amount_vnd, amount_usd)
+                        ELSE COALESCE(amount_usd, amount_vnd)
+                   END AS amount,
+                   currency, status, created_at, NULL AS paid_at
             FROM orders
             WHERE user_id = ?
             ORDER BY created_at DESC LIMIT 50
@@ -100,7 +104,11 @@ def export_orders_csv(
         rows = c.execute(
             """
             SELECT o.id, o.id AS order_code, o.product_type, o.report_id, o.report_version,
-                   o.amount_usd AS amount, o.currency, o.status, o.created_at, NULL AS paid_at, r.title
+                   CASE WHEN UPPER(COALESCE(o.currency, '')) = 'VND'
+                        THEN COALESCE(o.amount_vnd, o.amount_usd)
+                        ELSE COALESCE(o.amount_usd, o.amount_vnd)
+                   END AS amount,
+                   o.currency, o.status, o.created_at, NULL AS paid_at, r.title
             FROM orders o
             LEFT JOIN research_reports r ON r.id = o.report_id
             WHERE o.user_id = ? AND o.created_at >= ?

@@ -97,6 +97,11 @@ def list_public_reports() -> List[Dict[str, Any]]:
     """Return strictly PUBLISHED research reports for public catalog browsing."""
     with tx() as c:
         ensure_flagship_sample_report_seeded(c)
+        try:
+            from app.domains.quant.launch_guide import ensure_launch_guide_seeded
+            ensure_launch_guide_seeded(c)
+        except Exception:
+            pass
         rows = c.execute(
             """
             SELECT * FROM research_reports
@@ -187,7 +192,11 @@ def create_admin_report_draft(
     rep_id = f"rep_{secrets.token_hex(6)}"
     base_slug = _slugify(title)
     rate, _, _ = get_usd_vnd_rate()
-    eff_usd = round(max(1.0, float(price_usd or 29.0)), 2)
+    # Preserve the caller's positive price. Methodology drafts may be below $1.
+    raw_usd = float(price_usd) if price_usd is not None else 29.0
+    if raw_usd <= 0:
+        raise ValueError("price_usd must be positive")
+    eff_usd = round(raw_usd, 2)
     eff_vnd = int(price_vnd) if (price_vnd is not None and int(price_vnd) > 0) else convert_usd_to_vnd(eff_usd, rate)
 
     with tx() as c:

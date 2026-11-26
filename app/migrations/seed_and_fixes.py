@@ -1026,6 +1026,13 @@ def apply_migration_029(c, is_pg: bool):
         if ent_cols and "download_count" not in ent_cols:
             c.execute("ALTER TABLE report_entitlements ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
 
+    # First real product: EURUSD H1 Asia/London methodology as DRAFT (admin publish toggle).
+    try:
+        from app.domains.quant.launch_guide import ensure_launch_guide_seeded
+        ensure_launch_guide_seeded(c)
+    except Exception as seed_err:
+        logger.warning("Launch guide seed note in migration 029: %s", seed_err)
+
 
 
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { calculateSubscriptionPricing, type BillingCycle } from '../utils/quantMath';
+import type { BillingCycle } from '../utils/quantMath';
 import { SpotlightBento } from './ui/SpotlightBento';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -73,16 +73,19 @@ const FAQ_ITEMS_EN = [
 
 export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionProps> = ({
   tiers,
-  billingCycle,
-  setBillingCycle,
+  billingCycle: _billingCycle,
+  setBillingCycle: _setBillingCycle,
   currencyMode,
   setCurrencyMode,
   usdVndRate,
-  setQrPreviewTier,
+  setQrPreviewTier: _setQrPreviewTier,
   onEnterPortal,
 }) => {
   const [openFaqIdx, setOpenFaqIdx] = useState<number | null>(0);
   const { lang } = useLanguage();
+  void _billingCycle;
+  void _setBillingCycle;
+  void _setQrPreviewTier;
 
   return (
     <div className="space-y-24">
@@ -101,31 +104,8 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
               : 'Mức giá bên dưới là ví dụ cho đến khi chủ sở hữu xuất bản một ấn phẩm. Thanh toán bằng USDT trên BEP20 hoặc TRC20. Không có cam kết lợi nhuận.'}
           </p>
 
-          {/* Billing Cycle & Currency Switcher */}
+          {/* Currency switcher only — guides are one-time purchases, not subscriptions. */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            <div className="flex items-center gap-1 rounded-xl border border-slate-800 bg-[#080E1A] p-1 font-mono text-xs">
-              {(
-                [
-                  ['MONTHLY', lang === 'en' ? 'Monthly' : 'Tháng'],
-                  ['QUARTERLY', lang === 'en' ? 'Quarterly (-10%)' : 'Quý (-10%)'],
-                  ['ANNUAL', lang === 'en' ? 'Annual (-20%)' : 'Năm (-20%)'],
-                ] as [BillingCycle, string][]
-              ).map(([cycle, label]) => (
-                <button
-                  key={cycle}
-                  type="button"
-                  onClick={() => setBillingCycle(cycle)}
-                  className={`rounded-lg px-3.5 py-1.5 font-medium transition cursor-pointer ${
-                    billingCycle === cycle
-                      ? 'bg-[#12B5A6] text-[#042F2E] font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
             <div className="flex items-center gap-1 rounded-xl border border-slate-800 bg-[#080E1A] p-1 font-mono text-xs">
               {(['VND', 'USD'] as const).map((cur) => (
                 <button
@@ -148,8 +128,6 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
         {/* 3 Tier Cards */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 items-stretch">
           {tiers.map((tier) => {
-            const pricing = calculateSubscriptionPricing(tier.baseUsd, tier.slots, billingCycle, usdVndRate);
-            void pricing;
             const isPopular = tier.popular;
             return (
               <SpotlightBento
@@ -197,14 +175,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                   </ul>
                 </div>
 
-                <div className="mt-8 grid grid-cols-2 gap-3 pt-5 border-t border-slate-800/80">
-                  <button
-                    type="button"
-                    onClick={() => setQrPreviewTier(tier)}
-                    className="rounded-xl border border-slate-700 hover:border-slate-500 bg-[#080E1A] py-2.5 text-xs font-medium text-slate-300 hover:text-white transition cursor-pointer"
-                  >
-                    {lang === 'en' ? 'See the library' : 'Xem thư viện'}
-                  </button>
+                <div className="mt-8 grid grid-cols-1 gap-3 pt-5 border-t border-slate-800/80">
                   <button
                     type="button"
                     onClick={onEnterPortal}

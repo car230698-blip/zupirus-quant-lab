@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, confloat
 
 from app.domains.quant.candles import CandleValidationError
 from app.domains.quant.service import (
@@ -36,7 +36,7 @@ class StudyRequest(BaseModel):
     price_usd: float = Field(gt=0, le=10000)
     price_vnd: Optional[int] = None
     version: str = "v1.0"
-    round_trip_cost_r: float = 0.0
+    round_trip_cost_r: confloat(ge=0, le=5, allow_inf_nan=False) = 0.0
     source: str = "QUANT_IMPORT"
     candles: Optional[List[CandleIn]] = None
     use_stored_candles: bool = False

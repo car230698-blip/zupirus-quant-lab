@@ -81,7 +81,7 @@ export const PRICING_TIERS_EN = [
     id: 'starter',
     code: 'TIER 01 // STARTER & CENT',
     name: 'Starter & Cent',
-    baseUsd: 25,
+    baseUsd: 0,
     slots: 1,
     badge: 'Free preview',
     popular: false,

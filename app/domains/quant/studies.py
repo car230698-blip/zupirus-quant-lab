@@ -113,6 +113,14 @@ def _chart(title: str, labels: Sequence[str], values: Sequence[float], unit: str
 def session_profile(candles: Sequence[Candle]) -> Dict[str, Any]:
     """Range and close-to-close behaviour by UTC session."""
     grouped: Dict[str, List[Candle]] = defaultdict(list)
+    # Close-to-close returns are computed on the chronological series, then
+    # attributed to the destination candle's session (never across days by
+    # stitching same-session bars from different calendar days).
+    close_rets_by_session: Dict[str, List[float]] = defaultdict(list)
+    for prev, cur in zip(candles, candles[1:]):
+        if prev.close <= 0:
+            continue
+        close_rets_by_session[cur.session].append((cur.close - prev.close) / prev.close)
     for candle in candles:
         grouped[candle.session].append(candle)
     order = ["asia", "london", "new_york", "off_hours"]
@@ -123,9 +131,7 @@ def session_profile(candles: Sequence[Candle]) -> Dict[str, Any]:
         bucket = grouped.get(name) or []
         if not bucket:
             continue
-        rets = _close_returns(bucket)
-        # Also include the return of the first bar in the session versus its open,
-        # so a single-bar session still has a directional observation.
+        rets = close_rets_by_session.get(name) or []
         open_rets = [(c.close - c.open) / c.open for c in bucket]
         avg_range = _mean([c.range for c in bucket]) or 0.0
         rows.append([
@@ -395,8 +401,10 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
             continue
         chosen = None
         for index, bar in enumerate(later):
-            up = bar.high >= asia_high
-            down = bar.low <= asia_low
+            # Match range_breakout_stats: a break requires a strict trade beyond
+            # the Asia high/low (touch alone is not a break).
+            up = bar.high > asia_high
+            down = bar.low < asia_low
             if up and down:
                 skipped_ambiguous += 1
                 chosen = "ambiguous"

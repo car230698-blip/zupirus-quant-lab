@@ -565,21 +565,43 @@ def insert_timescale_candle(
     close_p: float,
     volume: float = 1.0,
     source: str = "MARKET_LIVE",
+    *,
+    replace_ohlcv: bool = False,
 ):
-    """Insert or upsert an OHLCV candle into TimescaleDB (Postgres) or SQLite."""
+    """Insert or upsert an OHLCV candle into TimescaleDB (Postgres) or SQLite.
+
+    Live tick aggregation keeps extrema and accumulates volume. Research imports
+    (`replace_ohlcv=True`) replace the full OHLCV bar so a re-import matches the
+    study sample exactly.
+    """
     if is_postgres():
-        c.execute(
-            """
-            INSERT INTO candles (time, source, symbol, timeframe, open, high, low, close, volume)
-            VALUES (to_timestamp(?), ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
-                high = GREATEST(candles.high, excluded.high),
-                low = LEAST(candles.low, excluded.low),
-                close = excluded.close,
-                volume = candles.volume + excluded.volume
-            """,
-            (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
-        )
+        if replace_ohlcv:
+            c.execute(
+                """
+                INSERT INTO candles (time, source, symbol, timeframe, open, high, low, close, volume)
+                VALUES (to_timestamp(?), ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume
+                """,
+                (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO candles (time, source, symbol, timeframe, open, high, low, close, volume)
+                VALUES (to_timestamp(?), ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
+                    high = GREATEST(candles.high, excluded.high),
+                    low = LEAST(candles.low, excluded.low),
+                    close = excluded.close,
+                    volume = candles.volume + excluded.volume
+                """,
+                (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+            )
     else:
         try:
             c.execute(
@@ -587,7 +609,11 @@ def insert_timescale_candle(
                 INSERT INTO candles (source, symbol, timeframe, time, open, high, low, close, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
-                    high = excluded.high, low = excluded.low, close = excluded.close, volume = excluded.volume
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume
                 """,
                 (source, symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
             )

@@ -298,6 +298,7 @@ def api_download_purchased_report_pdf(
         fail(404, str(exc))
 
     watermark_on = False
+    watermark_policy_known = False
     with tx() as c:
         try:
             flag = c.execute(
@@ -305,8 +306,25 @@ def api_download_purchased_report_pdf(
                 (canonical_rep_id,),
             ).fetchone()
             watermark_on = bool(flag and int(flag[0] or 0))
+            watermark_policy_known = True
         except Exception:
-            watermark_on = False
+            try:
+                mflag = c.execute(
+                    """
+                    SELECT watermark_enabled FROM methodologies
+                    WHERE report_id = ?
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (canonical_rep_id,),
+                ).fetchone()
+                if mflag is not None:
+                    watermark_on = bool(int(mflag[0] or 0))
+                    watermark_policy_known = True
+            except Exception:
+                watermark_policy_known = False
+    if not watermark_policy_known and role_str.lower() != "admin":
+        # Fail closed: never silently skip a watermark that could not be read.
+        fail(503, "Không đọc được cấu hình watermark của ấn phẩm. Thử lại sau.")
     if watermark_on and role_str.lower() != "admin":
         from app.domains.quant.pdf_doc import build_license_page
         from app.domains.quant.service import merge_pdfs

@@ -1,0 +1,208 @@
+{
+  "report_id": "rep_eurusd_h1_asia_london_v1",
+  "slug": "eurusd-h1-asia-london-breakout-stats-v1",
+  "title_vi": "EURUSD H1: phiên Á và xác suất phá biên London — thống kê mẫu Yahoo 2024–2026",
+  "title_en": "EURUSD H1: Asia range and London breakout rates — Yahoo sample 2024–2026",
+  "price_usd": 19.0,
+  "version": "v1.0",
+  "status_on_seed": "DRAFT",
+  "publish_toggle": "Admin portal → Reports publisher → Publish (or POST /api/v1/admin/reports/rep_eurusd_h1_asia_london_v1/publish)",
+  "symbol": "EURUSD",
+  "timeframe": "H1",
+  "source": "YAHOO_FINANCE",
+  "candle_file": "data/eurusd_h1_yahoo.json",
+  "candle_count": 17246,
+  "range_start": 1707436800,
+  "range_end": 1795665765,
+  "round_trip_cost_r": 0.05,
+  "preview_pdf": "data/guides/eurusd-h1-asia-london-preview.pdf",
+  "full_pdf": "data/guides/eurusd-h1-asia-london-full.pdf",
+  "key_stats": {
+    "session_profile": {
+      "sample_size": 17246,
+      "table": {
+        "columns": [
+          "session",
+          "bars",
+          "avg_range",
+          "avg_open_to_close",
+          "avg_close_to_close",
+          "stdev_open_to_close"
+        ],
+        "rows": [
+          [
+            "asia",
+            5086,
+            0.0009,
+            1e-06,
+            -0.0,
+            0.000632
+          ],
+          [
+            "london",
+            4345,
+            0.0014,
+            -1e-06,
+            -2e-06,
+            0.001
+          ],
+          [
+            "new_york",
+            5792,
+            0.0013,
+            -1e-06,
+            -1e-06,
+            0.000932
+          ],
+          [
+            "off_hours",
+            2023,
+            0.0007,
+            2.7e-05,
+            1.9e-05,
+            0.000516
+          ]
+        ]
+      },
+      "parameters": {
+        "timezone": "UTC",
+        "sessions": {
+          "asia": "00:00-07:00",
+          "london": "07:00-13:00",
+          "new_york": "13:00-21:00",
+          "off_hours": "21:00-24:00"
+        }
+      }
+    },
+    "range_breakout": {
+      "sample_size": 727,
+      "table": {
+        "columns": [
+          "outcome",
+          "days",
+          "share_of_days",
+          "hold_rate"
+        ],
+        "rows": [
+          [
+            "up_only",
+            245,
+            0.337,
+            0.6898
+          ],
+          [
+            "down_only",
+            266,
+            0.3659,
+            0.7105
+          ],
+          [
+            "both_sides",
+            175,
+            0.2407,
+            null
+          ],
+          [
+            "inside",
+            41,
+            0.0564,
+            null
+          ]
+        ]
+      },
+      "parameters": {
+        "range_session": "asia 00:00-07:00 UTC",
+        "break_session": "london 07:00-13:00 UTC",
+        "hold_definition": "London close still outside the Asia range"
+      }
+    },
+    "mean_reversion_trend": {
+      "sample_size": 17245,
+      "table": {
+        "columns": [
+          "metric",
+          "value"
+        ],
+        "rows": [
+          [
+            "lag1_autocorrelation",
+            -0.014528
+          ],
+          [
+            "directional_persistence",
+            0.411273
+          ],
+          [
+            "return_pairs",
+            17244
+          ],
+          [
+            "sample_label",
+            "near_zero"
+          ]
+        ]
+      },
+      "parameters": {
+        "return": "close_to_close",
+        "lag": 1,
+        "near_zero_band": 0.05
+      }
+    },
+    "rule_backtest_asia_break": {
+      "sample_size": 703,
+      "table": {
+        "columns": [
+          "metric",
+          "value"
+        ],
+        "rows": [
+          [
+            "trades",
+            703
+          ],
+          [
+            "win_rate",
+            0.532
+          ],
+          [
+            "expectancy_r",
+            0.0217
+          ],
+          [
+            "profit_factor",
+            1.0513
+          ],
+          [
+            "max_drawdown_r",
+            28.589
+          ],
+          [
+            "sum_r",
+            15.2256
+          ]
+        ]
+      },
+      "parameters": {
+        "rule": "first London/New York break of the same-day Asia high or low",
+        "stop": "opposite side of the Asia range",
+        "target_r": 1.0,
+        "same_bar_stop_and_target": "count as loss",
+        "round_trip_cost_r": 0.05,
+        "skipped_ambiguous_days": 15,
+        "skipped_incomplete_days": 101
+      }
+    }
+  },
+  "highlights_vi": [
+    "Mẫu 17246 nến EURUSD H1.",
+    "Có bảng phiên, biến động, mùa vụ và một quy tắc minh họa với mức sụt giảm trên mẫu.",
+    "Không cam kết lợi nhuận. Không tự động vào lệnh."
+  ],
+  "highlights_en": [
+    "Sample of 17246 EURUSD H1 bars.",
+    "Includes session, volatility, seasonality, and one illustrative rule with its in-sample drawdown.",
+    "No profit promise. No automated order entry."
+  ],
+  "disclaimer_vi": "Tài liệu này là bài nghiên cứu thống kê phục vụ học tập. Số liệu trên dữ liệu quá khứ không phải dự báo và không phải cam kết lợi nhuận. Giao dịch ngoại hối, vàng và chỉ số có thể làm mất một phần hoặc toàn bộ vốn. ZUPIRUS không thực thi lệnh, không copy-trade, không cho thuê VPS và không giữ tiền giao dịch của bạn. Người đọc tự quyết định, tự chịu rủi ro, và nên đối chiếu lại trên dữ liệu của chính mình trước khi dùng bất kỳ quy tắc nào.",
+  "disclaimer_en": "This document is a statistical study for education. Figures computed on past data are not a forecast and are not a promise of profit. Trading forex, gold, or indices can lose some or all of the capital you commit. ZUPIRUS does not place orders, copy trades, rent a VPS for you, or hold your trading funds. You decide whether to use any rule, you carry the risk, and you should recompute the study on your own data first."
+}

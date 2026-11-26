@@ -79,16 +79,22 @@ def _as_mapping(row: Any) -> Mapping[str, Any]:
 
 
 def _num(row: Mapping[str, Any], *keys: str) -> float:
+    import math
     for key in keys:
         if key in row and row[key] is not None and row[key] != "":
             try:
-                return float(row[key])
+                value = float(row[key])
             except (TypeError, ValueError) as exc:
                 raise CandleValidationError(f"Field '{key}' is not a number.") from exc
+            if not math.isfinite(value):
+                raise CandleValidationError(f"Field '{key}' must be a finite number.")
+            return value
     raise CandleValidationError(f"Missing numeric field: {'/'.join(keys)}.")
 
 
 def _time_seconds(row: Mapping[str, Any]) -> int:
+    import math
+    from datetime import datetime, timezone
     raw = None
     for key in ("time", "timestamp", "ts", "t"):
         if key in row and row[key] is not None and row[key] != "":
@@ -105,8 +111,12 @@ def _time_seconds(row: Mapping[str, Any]) -> int:
     # Accept milliseconds.
     if value > 10_000_000_000:
         value = value / 1000.0
-    if value <= 0:
-        raise CandleValidationError("Candle time must be a positive Unix timestamp.")
+    if value <= 0 or not math.isfinite(value):
+        raise CandleValidationError("Candle time must be a positive finite Unix timestamp.")
+    try:
+        datetime.fromtimestamp(value, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise CandleValidationError("Candle time is outside the representable UTC range.") from exc
     return int(value)
 
 
