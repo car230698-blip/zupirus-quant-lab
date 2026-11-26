@@ -1,169 +1,78 @@
-import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from './lib/queryClient.ts';
-import { apiGet, apiPost } from './api/client.ts';
-import { useOrderQuery } from './hooks/useOrderQuery.ts';
-import { PortalAuth, PortalShell } from './components/PortalChrome.tsx';
-const UserOverviewTab = lazy(() => import('./components/UserOverviewTab.tsx').then((m) => ({ default: m.UserOverviewTab })));
-const UserAccountsTab = lazy(() => import('./components/UserAccountsTab.tsx').then((m) => ({ default: m.UserAccountsTab })));
-const UserOrdersTab = lazy(() => import('./components/UserOrdersTab.tsx').then((m) => ({ default: m.UserOrdersTab })));
-const AdminCommandRadarTab = lazy(() => import('./components/AdminCommandRadarTab.tsx').then((m) => ({ default: m.AdminCommandRadarTab })));
-const AdminAIEvolutionTab = lazy(() => import('./components/AdminAIEvolutionTab.tsx').then((m) => ({ default: m.AdminAIEvolutionTab })));
-const AdminBusinessCustomersTab = lazy(() => import('./components/AdminBusinessCustomersTab.tsx').then((m) => ({ default: m.AdminBusinessCustomersTab })));
-import { ToastNotification, ToastType } from './components/ToastNotification.tsx';
-import { normalizeCentToUsd } from './utils/currencyFormat.ts';
-import { LanguageProvider, useLanguage } from './i18n/LanguageContext.tsx';
+import { queryClient } from './lib/queryClient';
+import { apiGet, apiPost } from './api/client';
+import { useRoute } from './hooks/useRoute';
+import { LanguageProvider, useLanguage } from './i18n/LanguageContext';
+import { AuthScreen } from './components/auth/AuthScreen';
+import { UserLayout } from './layouts/UserLayout';
+import { AdminLayout } from './layouts/AdminLayout';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ShieldAlert } from 'lucide-react';
 
 const LandingPage = lazy(() =>
-  import('./components/LandingPage.tsx').then((m) => ({ default: m.LandingPage }))
+  import('./pages/landing/LandingPage').then((m) => ({ default: m.LandingPage }))
 );
-
-type UserTabKey = 'overview' | 'accounts' | 'orders';
-type AdminTabKey = 'radar' | 'ai' | 'business';
-export type PortalType = 'landing' | 'user' | 'admin';
+const UserCatalogPage = lazy(() =>
+  import('./pages/user/UserCatalogPage').then((m) => ({ default: m.UserCatalogPage }))
+);
+const UserLibraryPage = lazy(() =>
+  import('./pages/user/UserLibraryPage').then((m) => ({ default: m.UserLibraryPage }))
+);
+const UserBillingPage = lazy(() =>
+  import('./pages/user/UserBillingPage').then((m) => ({ default: m.UserBillingPage }))
+);
+const AdminOverviewPage = lazy(() =>
+  import('./pages/admin/AdminOverviewPage').then((m) => ({ default: m.AdminOverviewPage }))
+);
+const AdminReportsPage = lazy(() =>
+  import('./pages/admin/AdminReportsPage').then((m) => ({ default: m.AdminReportsPage }))
+);
+const AdminResearchPage = lazy(() =>
+  import('./pages/admin/AdminResearchPage').then((m) => ({ default: m.AdminResearchPage }))
+);
+const AdminOrdersUsersPage = lazy(() =>
+  import('./pages/admin/AdminOrdersUsersPage').then((m) => ({ default: m.AdminOrdersUsersPage }))
+);
 
 interface UserInfo {
   email: string;
   role: 'customer' | 'admin';
 }
 
+const PageLoader: React.FC<{ label?: string }> = ({ label }) => (
+  <div className="min-h-screen bg-[#060A13] flex items-center justify-center p-6">
+    <div className="flex flex-col items-center gap-3">
+      <div className="h-9 w-9 rounded-lg border border-[#12B5A6]/40 bg-[#0B1220] flex items-center justify-center font-mono font-bold text-[#12B5A6]">
+        Z
+      </div>
+      <span className="font-mono text-xs text-slate-400">{label || 'Đang tải...'}</span>
+    </div>
+  </div>
+);
+
 const AppContent: React.FC = () => {
   const { lang } = useLanguage();
-  const [portal, setPortal] = useState<PortalType>(() => {
-    if (typeof window !== 'undefined') {
-      const host = window.location.hostname.toLowerCase();
-      const params = new URLSearchParams(window.location.search);
-      const queryPortal = params.get('portal');
-      if (queryPortal === 'admin' || host === 'adm.zupirus.com' || host.startsWith('adm.')) {
-        return 'admin';
-      }
-      if (queryPortal === 'user' || host === 'app.zupirus.com' || host.startsWith('app.')) {
-        return 'user';
-      }
-      if (queryPortal === 'landing' || host === 'zupirus.com' || host === 'www.zupirus.com') {
-        return 'landing';
-      }
-    }
-    return 'landing';
-  });
+  const { zone, isAuthRoute, userPage, adminPage, navigate } = useRoute();
 
-  // Auth state
   const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
-  const [authChecking, setAuthChecking] = useState(true);
-  const [authPreviewOpen, setAuthPreviewOpen] = useState(false);
-  const [dashboardStatus, setDashboardStatus] = useState('loading');
-  const [monitorStatus, setMonitorStatus] = useState('loading');
+  const [authChecking, setAuthChecking] = useState<boolean>(true);
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Tab navigation
-  const [userTab, setUserTab] = useState<UserTabKey>('overview');
-  const [adminTab, setAdminTab] = useState<AdminTabKey>('radar');
-
-  // Dashboard & Market Data
-  const [dashboard, setDashboard] = useState<any>({
-    accounts: [],
-    orders: [],
-    series: [],
-    health: {},
-    real_trading: false,
-  });
-  const [selectedAccount, setSelectedAccount] = useState<string>('');
-  const [candles, setCandles] = useState<any[]>([]);
-  const [timeframe, setTimeframe] = useState<'M1' | 'M5' | 'M15' | 'H1' | 'D1'>('M15');
-  const [chartMode, setChartMode] = useState<'equity' | 'candles'>('candles');
-
-  // Admin & Monitoring state
-  const [monitorData, setMonitorData] = useState<any>({ accounts: [], audit: [], jobs: [], news: [], halted: null });
-
-  // User Order Filters
-  const [orderAccountFilter, setOrderAccountFilter] = useState<string>('all');
-  const [orderStateFilter, setOrderStateFilter] = useState<string>('all');
-
-  // Forms & notices
-  const [notice, setNotice] = useState<string | null>(null);
-  const [noticeType, setNoticeType] = useState<ToastType>('info');
-  const [killSwitchLoading, setKillSwitchLoading] = useState(false);
-
-  // Check auth session
   const checkAuth = useCallback(async () => {
     try {
       const data = await apiGet<UserInfo>('/api/me');
       setCurrentUser(data);
     } catch (err: any) {
-      if (err?.status && err.status !== 401) setAuthError('Không thể kiểm tra phiên đăng nhập.');
+      if (err?.status && err.status !== 401) {
+        setAuthError('Không thể kiểm tra phiên đăng nhập.');
+      }
+      setCurrentUser(null);
     } finally {
       setAuthChecking(false);
     }
   }, []);
-
-  const loadDashboard = useCallback(async () => {
-    try {
-      const d = await apiGet<any>('/api/dashboard');
-      setDashboard(d);
-      setDashboardStatus('ready');
-      setSelectedAccount((prev) => {
-        if (prev && d.accounts?.some((a: any) => a.id === prev)) return prev;
-        return d.accounts?.[0]?.id || '';
-      });
-    } catch (err: any) {
-      if (err?.status === 401) {
-        setCurrentUser(null);
-        setAuthError('Phiên đăng nhập đã hết hạn.');
-      } else {
-        setDashboardStatus('offline');
-      }
-    }
-  }, []);
-
-  const candleReqIdRef = useRef<number>(0);
-  const activeTimeframeRef = useRef<string>(timeframe);
-  activeTimeframeRef.current = timeframe;
-
-  const loadCandles = useCallback(async (tf: string) => {
-    const reqId = ++candleReqIdRef.current;
-    activeTimeframeRef.current = tf;
-    try {
-      const d = await apiGet<any>(`/api/timescale/candles?symbol=XAUUSD&timeframe=${tf}&source=ALL&limit=48`);
-      if (reqId !== candleReqIdRef.current || activeTimeframeRef.current !== tf) {
-        return;
-      }
-      setCandles((d.candles || []).slice().reverse());
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const loadAdminMonitor = useCallback(async () => {
-    try {
-      const data = await apiGet<any>('/api/admin/monitor');
-      setMonitorData(data);
-      setMonitorStatus('ready');
-    } catch {
-      setMonitorStatus('offline');
-    }
-  }, []);
-
-  const userOrderParams = new URLSearchParams();
-  if (orderAccountFilter !== 'all') userOrderParams.set('account_id', orderAccountFilter);
-  if (orderStateFilter !== 'all') userOrderParams.set('state', orderStateFilter);
-  const sessionKey = currentUser?.email ?? null;
-  const userOrderQuery = useOrderQuery(
-    portal === 'user' && userTab === 'orders' && currentUser ? `/api/dashboard?${userOrderParams}` : null,
-    sessionKey
-  );
-
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      if (portal === 'admin') {
-        document.title = 'ZUPIRUS — Trạm Quản Trị Chỉ Huy Định Lượng';
-      } else if (portal === 'user') {
-        document.title = 'ZUPIRUS — Cổng Giao Dịch Định Lượng XAU/USD';
-      } else {
-        document.title = 'ZUPIRUS — Bot Trade Vàng XAU/USD Cloud MT5 Chuẩn Quỹ';
-      }
-    }
-  }, [portal]);
 
   useEffect(() => {
     checkAuth();
@@ -176,18 +85,27 @@ const AppContent: React.FC = () => {
     queryClient.clear();
   }, [currentUser?.email]);
 
+  // Document title per separated zone
   useEffect(() => {
-    if (currentUser) {
-      loadDashboard();
-      if (portal === 'user' && userTab === 'overview') loadCandles(timeframe);
-      if (portal === 'admin' && currentUser.role === 'admin') loadAdminMonitor();
+    if (typeof document === 'undefined') return;
+    if (zone === 'admin') {
+      document.title = 'ZUPIRUS Admin Console · Quản Trị Ấn Phẩm & Hệ Thống';
+    } else if (zone === 'user') {
+      document.title = 'ZUPIRUS Customer Portal · Thư Viện Báo Cáo PDF';
+    } else {
+      document.title = 'ZUPIRUS Quant Lab · Nghiên Cứu Định Lượng XAU/USD';
     }
-  }, [currentUser, loadDashboard, loadCandles, loadAdminMonitor, timeframe, portal, userTab]);
+  }, [zone]);
 
-  const showNotice = (msg: string, type: ToastType = 'info') => {
-    setNotice(msg);
-    setNoticeType(type);
-  };
+  // Redirect away from /login or /admin/login once authenticated
+  useEffect(() => {
+    if (authChecking || !currentUser || !isAuthRoute) return;
+    if (zone === 'admin' && currentUser.role === 'admin') {
+      navigate('/admin', { replace: true });
+    } else if (zone === 'user') {
+      navigate('/portal', { replace: true });
+    }
+  }, [authChecking, currentUser, isAuthRoute, zone, navigate]);
 
   const authenticate = async (email: string, password: string, register: boolean, otp?: string) => {
     setAuthLoading(true);
@@ -203,7 +121,8 @@ const AppContent: React.FC = () => {
           );
         }
       }
-      let session: any;
+
+      let session: UserInfo;
       try {
         session = await apiPost<UserInfo>('/api/login', { email, password });
       } catch (err: any) {
@@ -211,11 +130,15 @@ const AppContent: React.FC = () => {
           err?.status === 401 ? 'Email hoặc mật khẩu không chính xác.' : 'Không thể đăng nhập. Vui lòng thử lại.'
         );
       }
-      setDashboardStatus('loading');
-      setMonitorStatus('loading');
-      setNotice(null);
-      setAuthPreviewOpen(false);
+
       setCurrentUser(session);
+      if (zone === 'admin') {
+        if (session.role === 'admin') {
+          navigate('/admin', { replace: true });
+        }
+      } else {
+        navigate('/portal', { replace: true });
+      }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Không thể kết nối máy chủ.');
     } finally {
@@ -234,242 +157,136 @@ const AppContent: React.FC = () => {
     }
     queryClient.clear();
     setCurrentUser(null);
-    setDashboard({ accounts: [], orders: [], series: [], health: {} });
-    setMonitorData({ accounts: [], audit: [], jobs: [], news: [], halted: null });
-    setNotice(null);
+    setAuthError(null);
+    navigate(zone === 'admin' ? '/admin/login' : '/login', { replace: true });
   };
 
-  // Admin operations
-  const handleToggleKillSwitch = async (currentHalted: boolean) => {
-    setKillSwitchLoading(true);
-    try {
-      const nextHalt = !currentHalted;
-      await apiPost('/api/admin/safety', { halted: nextHalt });
-      showNotice(
-        nextHalt
-          ? 'Đã ngắt cấp lệnh và tạm dừng sao chép trên mọi tài khoản.'
-          : 'Đã mở cấp lệnh ở cấp hệ thống. Bật lại sao chép trên từng tài khoản khi cần.',
-        nextHalt ? 'warning' : 'success'
-      );
-      await loadDashboard();
-      await loadAdminMonitor();
-    } catch {
-      showNotice('Không thể kết nối máy chủ để đổi trạng thái cấp lệnh.', 'error');
-    } finally {
-      setKillSwitchLoading(false);
-    }
-  };
-
-  // Calculations for User Dashboard (normalize Cent USC/EUC accounts by /100 when summing USD totals)
-  const accounts = dashboard.accounts || [];
-  const totalBalance = accounts.reduce((acc: number, a: any) => acc + normalizeCentToUsd(Number(a.balance || 0), a), 0);
-  const totalEquity = accounts.reduce((acc: number, a: any) => acc + normalizeCentToUsd(Number(a.equity || 0), a), 0);
-  const totalPositions = accounts.reduce((acc: number, a: any) => acc + (a.positions || 0), 0);
-  const totalPnl = totalEquity - totalBalance;
-
-  const navigateToPortal = (target: PortalType) => {
-    setAuthPreviewOpen(false);
-    if (
-      typeof window !== 'undefined' &&
-      ['zupirus.com', 'www.zupirus.com', 'adm.zupirus.com', 'app.zupirus.com'].includes(window.location.hostname)
-    ) {
-      const hostMap: Record<PortalType, string> = {
-        landing: 'zupirus.com',
-        user: 'app.zupirus.com',
-        admin: 'adm.zupirus.com',
-      };
-      if (window.location.hostname !== hostMap[target]) {
-        const queryLang = lang === 'en' ? '?lang=en' : '';
-        window.location.assign(`https://${hostMap[target]}${queryLang}`);
-        return;
-      }
-    }
-    if (typeof window !== 'undefined') {
-      try {
-        const url = new URL(window.location.href);
-        if (target === 'landing') {
-          url.searchParams.delete('portal');
-        } else {
-          url.searchParams.set('portal', target);
-        }
-        window.history.replaceState({}, '', url.toString());
-      } catch {
-        // ignore
-      }
-    }
-    setPortal(target);
-  };
-
-  // Render Landing Page for zupirus.com / landing mode
-  if (portal === 'landing') {
+  // 1. PUBLIC LANDING PAGE (/)
+  if (zone === 'landing') {
     return (
-      <Suspense
-        fallback={
-          <div className="min-h-screen bg-[#03050a] flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-10 h-10 rounded-xl border border-amber-500/40 bg-amber-950/30 flex items-center justify-center text-amber-400 font-mono font-bold animate-pulse">
-                Z
-              </div>
-              <span className="font-mono text-xs text-amber-300">Đang khởi tạo không gian lượng tử…</span>
-            </div>
-          </div>
-        }
-      >
-        <LandingPage
-          onEnterApp={() => navigateToPortal('user')}
-        />
+      <Suspense fallback={<PageLoader label="Đang tải ZUPIRUS Quant Lab..." />}>
+        <LandingPage onNavigate={navigate} />
       </Suspense>
     );
   }
 
+  // Wait for auth check for private workspaces
   if (authChecking) {
-    return (
-      <div className="quant-app quant-loading" role="status">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-xl border border-cyan-500/40 bg-cyan-950/30 flex items-center justify-center text-cyan-400 font-mono font-bold">
-            Z
+    return <PageLoader label={lang === 'en' ? 'Verifying session...' : 'Đang xác thực phiên làm việc...'} />;
+  }
+
+  // 2. ADMIN CONSOLE (/admin/login, /admin/*)
+  if (zone === 'admin') {
+    if (!currentUser || isAuthRoute) {
+      return (
+        <AuthScreen
+          mode="admin"
+          loading={authLoading}
+          error={authError}
+          onSubmit={authenticate}
+          onNavigateHome={() => navigate('/')}
+          onSwitchZone={() => navigate('/login')}
+        />
+      );
+    }
+
+    if (currentUser.role !== 'admin') {
+      return (
+        <div data-portal="admin" className="min-h-screen bg-[#060A13] flex items-center justify-center p-6">
+          <div className="w-full max-w-md rounded-2xl border border-rose-500/35 bg-[#0B1220] p-7 space-y-5 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-rose-500/35 bg-rose-500/10 text-rose-400">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <div className="space-y-1.5">
+              <div className="font-mono text-xs font-semibold uppercase tracking-wider text-rose-400">
+                403 · FORBIDDEN
+              </div>
+              <h1 className="text-xl font-bold text-white">
+                {lang === 'en' ? 'Admin Authorization Required' : 'Cần quyền Quản trị viên'}
+              </h1>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                {lang === 'en'
+                  ? `Signed in as ${currentUser.email} (customer). This route is restricted to administrators.`
+                  : `Tài khoản ${currentUser.email} thuộc nhóm Khách hàng, không có quyền truy cập Trạm Quản Trị.`}
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => navigate('/portal')}
+                className="quant-btn-secondary flex-1 text-xs"
+              >
+                {lang === 'en' ? 'Open Customer Portal' : 'Về Cổng Khách Hàng'}
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="quant-btn-primary flex-1 text-xs"
+              >
+                {lang === 'en' ? 'Sign In as Admin' : 'Đổi tài khoản Admin'}
+              </button>
+            </div>
           </div>
-          <span>Đang đồng bộ phiên giao dịch định lượng…</span>
         </div>
-      </div>
+      );
+    }
+
+    return (
+      <AdminLayout
+        activePage={adminPage}
+        email={currentUser.email}
+        onNavigate={navigate}
+        onLogout={handleLogout}
+      >
+        <Suspense fallback={<PageLoader label="Đang tải phân hệ quản trị..." />}>
+          {adminPage === 'overview' && <AdminOverviewPage onNavigate={navigate} />}
+          {adminPage === 'reports' && <AdminReportsPage />}
+          {adminPage === 'research' && <AdminResearchPage />}
+          {adminPage === 'orders' && <AdminOrdersUsersPage />}
+        </Suspense>
+      </AdminLayout>
     );
   }
 
-  if (!currentUser || authPreviewOpen) {
+  // 3. CUSTOMER PORTAL (/login, /portal/*)
+  if (!currentUser || isAuthRoute) {
     return (
-      <PortalAuth
-        portal={portal}
+      <AuthScreen
+        mode="user"
         loading={authLoading}
         error={authError}
         onSubmit={authenticate}
-        onClosePreview={currentUser ? () => setAuthPreviewOpen(false) : undefined}
+        onNavigateHome={() => navigate('/')}
+        onSwitchZone={() => navigate('/admin/login')}
       />
     );
   }
-
-  const isAdmin = currentUser.role === 'admin';
-  if (portal === 'admin' && !isAdmin) {
-    return (
-      <div className="quant-app quant-admin quant-loading">
-        <div className="quant-auth-box">
-          <h2>{lang === 'en' ? 'Admin Authorization Required' : 'Cần quyền quản trị'}</h2>
-          <p>
-            {lang === 'en'
-              ? 'Current account does not have permission to access the Admin Command Station.'
-              : 'Tài khoản hiện tại không có quyền truy cập Trạm Chỉ Huy Điều Hành.'}
-          </p>
-          <div className="flex gap-3">
-            <button className="quant-primary flex-1" onClick={handleLogout}>
-              {lang === 'en' ? 'Switch Account' : 'Đổi Tài Khoản'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const status = portal === 'admin' ? monitorStatus : dashboardStatus;
 
   return (
-    <PortalShell
-      portal={portal}
-      page={portal === 'admin' ? adminTab : userTab}
+    <UserLayout
+      activePage={userPage}
       email={currentUser.email}
-      onNavigate={(page) => (portal === 'admin' ? setAdminTab(page as AdminTabKey) : setUserTab(page as UserTabKey))}
-      logout={handleLogout}
+      onNavigate={navigate}
+      onLogout={handleLogout}
     >
-      {status === 'loading' && (
-        <div className="quant-status" role="status">
-          Đang đồng bộ luồng dữ liệu định lượng…
-        </div>
-      )}
-      {status === 'offline' && (
-        <div className="quant-alert" role="status">
-          Không thể cập nhật dữ liệu mới. Đang hiển thị bản ghi bộ nhớ đệm gần nhất.
-        </div>
-      )}
-      <ToastNotification
-        message={notice}
-        type={noticeType}
-        onClose={() => setNotice(null)}
-      />
-
-      <Suspense fallback={<div className="quant-status">Đang tải mô-đun…</div>}>
-      {/* USER PORTAL VIEWS */}
-      {portal === 'user' && (
-        <>
-          {userTab === 'overview' && (
-            <UserOverviewTab
-              totalBalance={totalBalance}
-              totalEquity={totalEquity}
-              totalPnl={totalPnl}
-              totalPositions={totalPositions}
-              mt5Connected={accounts.some((a: any) => a.deployment_state === 'DEPLOYED' || a.enabled || Number(a.auto_trade ?? 0) === 1)}
-              chartMode={chartMode}
-              setChartMode={setChartMode}
-              selectedAccount={selectedAccount}
-              setSelectedAccount={setSelectedAccount}
-              accounts={accounts}
-              candles={candles}
-              series={dashboard.series || []}
-              health={dashboard.health || {}}
-              timeframe={timeframe}
-              setTimeframe={setTimeframe}
-              loadCandles={loadCandles}
-              activeTabSetter={(tab) => setUserTab(tab)}
-            />
-          )}
-
-          {userTab === 'accounts' && (
-            <UserAccountsTab accounts={accounts} refetchAccounts={loadDashboard} />
-          )}
-
-          {userTab === 'orders' && (
-            <UserOrdersTab
-              accounts={accounts}
-              filteredUserOrders={userOrderQuery.data?.orders ?? dashboard.orders ?? []}
-              status={userOrderQuery.status}
-              orderAccountFilter={orderAccountFilter}
-              setOrderAccountFilter={setOrderAccountFilter}
-              orderStateFilter={orderStateFilter}
-              setOrderStateFilter={setOrderStateFilter}
-            />
-          )}
-        </>
-      )}
-
-      {/* ADMIN PORTAL VIEWS (3 Simplified Autonomous Tabs) */}
-      {portal === 'admin' && (
-        <>
-          {adminTab === 'radar' && (
-            <AdminCommandRadarTab
-              killSwitchLoading={killSwitchLoading}
-              handleToggleKillSwitch={handleToggleKillSwitch}
-              onNavigateTab={(tab) => setAdminTab(tab)}
-              monitorData={monitorData}
-              refetchMonitor={loadAdminMonitor}
-            />
-          )}
-
-          {adminTab === 'ai' && <AdminAIEvolutionTab />}
-
-          {adminTab === 'business' && (
-            <AdminBusinessCustomersTab accounts={monitorData.accounts} refetchAll={loadAdminMonitor} />
-          )}
-        </>
-      )}
+      <Suspense fallback={<PageLoader label="Đang tải thư viện..." />}>
+        {userPage === 'catalog' && <UserCatalogPage onNavigate={navigate} />}
+        {userPage === 'library' && <UserLibraryPage onNavigate={navigate} />}
+        {userPage === 'billing' && <UserBillingPage onNavigate={navigate} />}
       </Suspense>
-    </PortalShell>
+    </UserLayout>
   );
 };
 
 export const App: React.FC = () => {
   return (
-    <QueryClientProvider client={queryClient}>
-      <LanguageProvider>
-        <AppContent />
-      </LanguageProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <LanguageProvider>
+          <AppContent />
+        </LanguageProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 };
 

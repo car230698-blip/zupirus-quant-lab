@@ -2,129 +2,182 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { UserOrdersTab } from './UserOrdersTab';
-import { CandlestickTelemetryChart } from './CandlestickTelemetryChart';
-import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
-import { QuantReportCatalogAndLibrary } from './QuantReportCatalogAndLibrary';
-import { UserAccountsTab } from './UserAccountsTab';
-import { PRICING_TIERS } from '../data/landingData';
+import { LanguageProvider } from '../i18n/LanguageContext';
+import { resolveRoutePath } from '../hooks/useRoute';
+import { LandingPage } from '../pages/landing/LandingPage';
+import { AuthScreen } from './auth/AuthScreen';
+import { UserLayout } from '../layouts/UserLayout';
+import { AdminLayout } from '../layouts/AdminLayout';
+import { QuantReportCatalogAndLibrary } from './reports/QuantReportCatalogAndLibrary';
+import { UserBillingSection } from './reports/UserBillingSection';
+import { AdminOverviewPage } from '../pages/admin/AdminOverviewPage';
 
-test('UserOrdersTab renders Prop Firm ledger KPIs, win rate, and net PnL accurately', () => {
+const withLang = (node: React.ReactElement) =>
+  React.createElement(LanguageProvider, null, node);
+
+test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes cleanly', () => {
+  assert.deepEqual(resolveRoutePath('/'), {
+    pathname: '/',
+    zone: 'landing',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'overview',
+  });
+
+  assert.deepEqual(resolveRoutePath('/login'), {
+    pathname: '/login',
+    zone: 'user',
+    isAuthRoute: true,
+    userPage: 'catalog',
+    adminPage: 'overview',
+  });
+
+  assert.deepEqual(resolveRoutePath('/portal/library'), {
+    pathname: '/portal/library',
+    zone: 'user',
+    isAuthRoute: false,
+    userPage: 'library',
+    adminPage: 'overview',
+  });
+
+  assert.deepEqual(resolveRoutePath('/portal/billing'), {
+    pathname: '/portal/billing',
+    zone: 'user',
+    isAuthRoute: false,
+    userPage: 'billing',
+    adminPage: 'overview',
+  });
+
+  assert.deepEqual(resolveRoutePath('/admin/login'), {
+    pathname: '/admin/login',
+    zone: 'admin',
+    isAuthRoute: true,
+    userPage: 'catalog',
+    adminPage: 'overview',
+  });
+
+  assert.deepEqual(resolveRoutePath('/admin/research'), {
+    pathname: '/admin/research',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'research',
+  });
+
+  assert.deepEqual(resolveRoutePath('/admin/orders'), {
+    pathname: '/admin/orders',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'orders',
+  });
+});
+
+test('LandingPage renders separated public landing layout, catalog, methodology, and FAQ', () => {
+  const noop = () => {};
   const html = renderToStaticMarkup(
-    React.createElement(UserOrdersTab, {
-      accounts: [{ id: 'acc_prop_ftmo_100k_passed', login: '88109245', server: 'FTMO-Server' }],
-      orders: [
-        {
-          id: 'exec_1',
-          account_id: 'acc_prop_ftmo_100k_passed',
-          symbol: 'XAUUSD',
-          side: 'BUY',
-          volume: 1.2,
-          price: 3720.5,
-          state: 'filled',
-          status: 'FILLED',
-          pnl: 1320.0,
-          created_at: 1795000000,
-        },
-        {
-          id: 'exec_2',
-          account_id: 'acc_prop_ftmo_100k_passed',
-          symbol: 'XAUUSD',
-          side: 'SELL',
-          volume: 1.0,
-          price: 3714.0,
-          state: 'filled',
-          status: 'FILLED',
-          pnl: -420.0,
-          created_at: 1795003600,
-        },
-      ],
-      status: 'ready',
-    }),
+    withLang(React.createElement(LandingPage, { onNavigate: noop }))
   );
 
+  assert.match(html, /ZUPIRUS/);
   assert.match(html, /XAUUSD/);
-  assert.match(html, /50%/);
-  assert.match(html, /900\.00/);
+  assert.match(html, /Walk-Forward/);
+  assert.doesNotMatch(html, /ADMIN OPERATIONS CONSOLE/);
 });
 
-test('UserAccountsTab renders quantitative report library cleanly', () => {
-  const html = renderToStaticMarkup(
-    React.createElement(UserAccountsTab, {
-      accounts: [],
-    }),
-  );
-  assert.match(html, /Báo Cáo/);
-});
-
-test('CandlestickTelemetryChart renders SVG candles and empty sync state', () => {
+test('AuthScreen separates Customer Portal login (OTP registration enabled) from Admin Console login', () => {
+  const noopAsync = async () => {};
   const noop = () => {};
-  const emptyHtml = renderToStaticMarkup(
-    React.createElement(CandlestickTelemetryChart, {
-      candles: [],
-      symbol: 'XAUUSD',
-      timeframe: 'M15',
-      liveBid: 3725.5,
-      liveAtr14: 4.2,
-      hoveredCandleIdx: null,
-      setHoveredCandleIdx: noop,
-      showEmaOverlay: true,
-      setShowEmaOverlay: noop as any,
-      showBbChannel: true,
-      setShowBbChannel: noop as any,
-    }),
-  );
-  assert.match(emptyHtml, /Đang đồng bộ luồng nến XAUUSD/);
 
-  const chartHtml = renderToStaticMarkup(
-    React.createElement(CandlestickTelemetryChart, {
-      candles: [
-        { timestamp: 1, open: 3710, high: 3722, low: 3705, close: 3718 },
-        { timestamp: 2, open: 3718, high: 3730, low: 3715, close: 3726 },
-      ],
-      symbol: 'XAUUSD',
-      timeframe: 'M15',
-      liveBid: 3726.0,
-      liveAtr14: 5.5,
-      hoveredCandleIdx: null,
-      setHoveredCandleIdx: noop,
-      showEmaOverlay: true,
-      setShowEmaOverlay: noop as any,
-      showBbChannel: true,
-      setShowBbChannel: noop as any,
-    }),
+  const userAuthHtml = renderToStaticMarkup(
+    withLang(
+      React.createElement(AuthScreen, {
+        mode: 'user',
+        loading: false,
+        error: null,
+        onSubmit: noopAsync,
+        onNavigateHome: noop,
+      })
+    )
   );
-  assert.match(chartHtml, /data-testid="candlestick-svg"/);
-  assert.match(chartHtml, /EMA-10 ON/);
+  assert.match(userAuthHtml, /data-portal="user"/);
+  assert.match(userAuthHtml, /ZUPIRUS RESEARCH LIBRARY/);
+  assert.doesNotMatch(userAuthHtml, /ADMIN OPERATIONS CONSOLE/);
+
+  const adminAuthHtml = renderToStaticMarkup(
+    withLang(
+      React.createElement(AuthScreen, {
+        mode: 'admin',
+        loading: false,
+        error: null,
+        onSubmit: noopAsync,
+        onNavigateHome: noop,
+      })
+    )
+  );
+  assert.match(adminAuthHtml, /data-portal="admin"/);
+  assert.match(adminAuthHtml, /ADMIN OPERATIONS CONSOLE/);
+  assert.doesNotMatch(adminAuthHtml, /Register with email OTP/);
 });
 
-test('LandingPricingAndFaqSection renders all pricing tiers and FAQ items', () => {
+test('UserLayout and AdminLayout render strictly separated navigation shells', () => {
   const noop = () => {};
-  const html = renderToStaticMarkup(
-    React.createElement(LandingPricingAndFaqSection, {
-      tiers: PRICING_TIERS,
-      billingCycle: 'MONTHLY',
-      setBillingCycle: noop,
-      currencyMode: 'VND',
-      setCurrencyMode: noop,
-      usdVndRate: 25500,
-      setQrPreviewTier: noop,
-      onEnterPortal: noop,
-    }),
+
+  const userShellHtml = renderToStaticMarkup(
+    withLang(
+      React.createElement(UserLayout, {
+        activePage: 'library',
+        email: 'client@example.com',
+        onNavigate: noop,
+        onLogout: noop,
+        children: React.createElement('div', null, 'User Body'),
+      })
+    )
   );
-  assert.match(html, /Ấn Phẩm Nghiên Cứu Định Lượng/);
-  assert.match(html, /Câu Hỏi Thường Gặp/);
-  assert.match(html, /ZUPIRUS Quant Lab là gì/);
+  assert.match(userShellHtml, /data-portal="user"/);
+  assert.match(userShellHtml, /client@example\.com/);
+  assert.match(userShellHtml, /User Body/);
+  assert.doesNotMatch(userShellHtml, /Admin Console/);
+
+  const adminShellHtml = renderToStaticMarkup(
+    withLang(
+      React.createElement(AdminLayout, {
+        activePage: 'reports',
+        email: 'admin@zupirus.local',
+        onNavigate: noop,
+        onLogout: noop,
+        children: React.createElement('div', null, 'Admin Body'),
+      })
+    )
+  );
+  assert.match(adminShellHtml, /data-portal="admin"/);
+  assert.match(adminShellHtml, /admin@zupirus\.local/);
+  assert.match(adminShellHtml, /Admin Console/);
+  assert.match(adminShellHtml, /Admin Body/);
 });
 
-test('QuantReportCatalogAndLibrary renders published XAU/USD PDF research catalog and sample preview link', () => {
+test('QuantReportCatalogAndLibrary renders published XAU/USD PDF research catalog cleanly', () => {
   const html = renderToStaticMarkup(
-    React.createElement(QuantReportCatalogAndLibrary, {
-      mode: 'public',
-    }),
+    withLang(
+      React.createElement(QuantReportCatalogAndLibrary, {
+        mode: 'public',
+      })
+    )
   );
-  assert.match(html, /Danh Mục Báo Cáo Nghiên Cứu Định Lượng XAU\/USD/);
   assert.match(html, /XAUUSD/);
   assert.match(html, /v1\.0/);
-  assert.match(html, /Xem Bản Đọc Thử PDF/);
+  assert.match(html, /Sample PDF|Bản Đọc Thử PDF|sample-pdf/);
+});
+
+test('UserBillingSection and AdminOverviewPage render without crashes or legacy globals', () => {
+  const noop = () => {};
+  const billingHtml = renderToStaticMarkup(
+    withLang(React.createElement(UserBillingSection))
+  );
+  assert.match(billingHtml, /USDT|Referral|Biên lai|Receipts/i);
+
+  const adminOverviewHtml = renderToStaticMarkup(
+    withLang(React.createElement(AdminOverviewPage, { onNavigate: noop }))
+  );
+  assert.match(adminOverviewHtml, /ZUPIRUS|Admin|Published|Research/i);
 });

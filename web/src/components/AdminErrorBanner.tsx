@@ -1,5 +1,5 @@
 import React from 'react';
-import { IconAlert, IconClose } from './Icons';
+import { AlertTriangle, X } from 'lucide-react';
 
 export interface AdminErrorInfo {
   status?: number;
@@ -25,21 +25,21 @@ export const AdminErrorBanner: React.FC<AdminErrorBannerProps> = ({
 
   if (is403) {
     return (
-      <div className="rounded-2xl border border-rose-500/50 bg-rose-950/40 p-4 sm:p-5 shadow-[0_0_25px_rgba(244,63,94,0.15)] text-rose-200">
+      <div className="rounded-xl border border-rose-500/40 bg-rose-950/35 p-4 sm:p-5 text-rose-200">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300">
-              <IconAlert className="h-5 w-5" />
+              <AlertTriangle className="h-5 w-5" />
             </div>
             <div>
               <div className="font-mono text-xs font-bold uppercase tracking-wider text-rose-300">
-                LỖI BẢO MẬT PHÂN TÁCH TÊN MIỀN (HTTP 403 FORBIDDEN)
+                HTTP 403 — BỊ TỪ CHỐI TRUY CẬP QUẢN TRỊ
               </div>
               <h4 className="text-sm sm:text-base font-bold text-white mt-0.5">
-                Cổng quản trị chỉ hoạt động trên tên miền cô lập <code className="font-mono text-cyan-300 bg-black/40 px-1.5 py-0.5 rounded">adm.zupirus.com</code>
+                Phiên hiện tại không có quyền Quản trị viên (Admin Role)
               </h4>
               <p className="mt-1 text-xs text-rose-300/80 leading-relaxed">
-                Theo tiêu chuẩn Defense-in-Depth, toàn bộ API điều hành và trạm radar quản trị bị Caddy chặn trên cổng client (<code className="font-mono text-slate-300">app.zupirus.com</code>). Vui lòng chuyển sang domain quản trị độc lập.
+                {error.message || 'Vui lòng đăng nhập bằng tài khoản quản trị hợp lệ tại /admin/login.'}
               </p>
             </div>
           </div>
@@ -47,11 +47,11 @@ export const AdminErrorBanner: React.FC<AdminErrorBannerProps> = ({
             <button
               type="button"
               onClick={() => {
-                window.location.href = 'https://adm.zupirus.com';
+                window.location.href = '/admin/login';
               }}
-              className="flex-1 sm:flex-initial rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 px-4 py-2 text-xs font-bold text-white hover:opacity-95 shadow-lg transition cursor-pointer"
+              className="flex-1 sm:flex-initial rounded-xl bg-rose-500/90 px-4 py-2 text-xs font-bold text-white hover:bg-rose-500 transition cursor-pointer"
             >
-              Mở adm.zupirus.com ↗
+              Đăng Nhập Admin
             </button>
             {onDismiss && (
               <button
@@ -60,7 +60,7 @@ export const AdminErrorBanner: React.FC<AdminErrorBannerProps> = ({
                 className="p-2 text-rose-400 hover:text-white rounded-lg hover:bg-white/10 transition cursor-pointer"
                 title="Đóng cảnh báo"
               >
-                <IconClose className="h-4 w-4" />
+                <X className="h-4 w-4" />
               </button>
             )}
           </div>
@@ -71,21 +71,21 @@ export const AdminErrorBanner: React.FC<AdminErrorBannerProps> = ({
 
   if (is401) {
     return (
-      <div className="rounded-2xl border border-amber-500/50 bg-amber-950/40 p-4 sm:p-5 shadow-[0_0_25px_rgba(245,183,0,0.15)] text-amber-200">
+      <div className="rounded-xl border border-amber-500/40 bg-amber-950/35 p-4 sm:p-5 text-amber-200">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300">
-              <IconAlert className="h-5 w-5" />
+              <AlertTriangle className="h-5 w-5" />
             </div>
             <div>
               <div className="font-mono text-xs font-bold uppercase tracking-wider text-amber-300">
-                PHIÊN ĐĂNG NHẬP ĐÃ HẾT HẠN (HTTP 401 UNAUTHORIZED)
+                PHIÊN ĐĂNG NHẬP ĐÃ HẾT HẠN (HTTP 401)
               </div>
               <h4 className="text-sm sm:text-base font-bold text-white mt-0.5">
                 Phiên làm việc quản trị viên đã hết hạn hoặc chưa được xác thực
               </h4>
               <p className="mt-1 text-xs text-amber-300/80 leading-relaxed">
-                {error.message || 'Hệ thống yêu cầu xác thực phiên đăng nhập hợp lệ để truy xuất dữ liệu trung tâm chỉ huy.'}
+                {error.message || 'Hệ thống yêu cầu xác thực phiên đăng nhập hợp lệ để truy xuất dữ liệu.'}
               </p>
             </div>
           </div>
@@ -106,7 +106,7 @@ export const AdminErrorBanner: React.FC<AdminErrorBannerProps> = ({
                 className="p-2 text-amber-400 hover:text-white rounded-lg hover:bg-white/10 transition cursor-pointer"
                 title="Đóng cảnh báo"
               >
-                <IconClose className="h-4 w-4" />
+                <X className="h-4 w-4" />
               </button>
             )}
           </div>
@@ -116,11 +116,11 @@ export const AdminErrorBanner: React.FC<AdminErrorBannerProps> = ({
   }
 
   return (
-    <div className="rounded-2xl border border-rose-500/40 bg-[#10192B] p-4 sm:p-5 text-slate-200 space-y-2">
+    <div className="rounded-xl border border-rose-500/35 bg-[#10192B] p-4 sm:p-5 text-slate-200 space-y-2">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400">
-            <IconAlert className="h-5 w-5" />
+            <AlertTriangle className="h-5 w-5" />
           </div>
           <div>
             <div className="font-mono text-xs font-bold uppercase tracking-wider text-rose-400">
@@ -148,7 +148,7 @@ export const AdminErrorBanner: React.FC<AdminErrorBannerProps> = ({
               className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition cursor-pointer"
               title="Đóng cảnh báo"
             >
-              <IconClose className="h-4 w-4" />
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>

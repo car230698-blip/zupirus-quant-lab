@@ -1629,7 +1629,7 @@ export function zupirusApiPlugin(): Plugin {
     }
 
     // Live Topbar Telemetry
-    if (pathname === '/api/v1/telemetry/topbar' && method === 'GET') {
+    if ((pathname === '/api/v1/telemetry/topbar' || pathname === '/api/v1/telemetry/public') && method === 'GET') {
       const mid = prices[replayIdx] || 2656.45;
       return sendJson(res, 200, {
         xauusd: {
@@ -1638,6 +1638,10 @@ export function zupirusApiPlugin(): Plugin {
           ask: Number((mid + 0.14).toFixed(2)),
           mid: Number(mid.toFixed(2)),
           spread_pips: 2.8,
+          live: true,
+          data_available: true,
+          stale: false,
+          source: 'DEV_FIXTURE',
         },
         usd_vnd: {
           rate: 25730,
@@ -1719,7 +1723,14 @@ export function zupirusApiPlugin(): Plugin {
     }
 
     if (pathname.startsWith('/api/v1/billing/orders/') && method === 'GET') {
-      const ordId = pathname.split('/').pop() || 'ord_demo';
+      const ordId = decodeURIComponent(pathname.split('/').pop() || 'ord_demo');
+      const extState = (globalThis as any).__zupirusExtendedState;
+      const existing =
+        extState?.reportOrders?.find((o: any) => o.id === ordId) ||
+        extState?.billingOrders?.find((o: any) => o.id === ordId);
+      if (existing) {
+        return sendJson(res, 200, existing);
+      }
       return sendJson(res, 200, {
         id: ordId,
         status: 'PAID',
@@ -1734,9 +1745,14 @@ export function zupirusApiPlugin(): Plugin {
         account_holder: '',
         content_prefix: 'ZP',
         fx_mode: 'AUTO',
+        fallback_usd_vnd_rate: 25730,
         manual_fx_rate: 25730,
+        current_live_rate: 25730,
         current_fx_rate: 25730,
+        current_rate_source: 'Vietcombank Live',
         fx_source: 'Vietcombank Live',
+        fx_rate_provider_url: 'https://open.er-api.com/v6/latest/USD',
+        fx_rate_cache_ttl_seconds: 1800,
         supported_banks: [
           { shortName: 'VietinBank', name: 'Ngân hàng TMCP Công Thương Việt Nam (ICB)' },
           { shortName: 'Vietcombank', name: 'Ngân hàng TMCP Ngoại Thương Việt Nam (VCB)' },
@@ -1746,10 +1762,12 @@ export function zupirusApiPlugin(): Plugin {
       });
     }
 
-    if (pathname === '/api/admin/billing/settings' && method === 'POST') {
+    if (pathname === '/api/admin/billing/settings' && (method === 'POST' || method === 'PUT')) {
+      const body = await readJsonBody(req);
       return sendJson(res, 200, {
         ok: true,
-        message: 'Đã lưu cấu hình cổng thanh toán SePay VietQR & Tỷ giá thành công.',
+        message: 'Đã lưu cấu hình tỷ giá USD/VND thành công.',
+        settings: body,
       });
     }
 
@@ -2206,41 +2224,915 @@ export function zupirusApiPlugin(): Plugin {
       });
     }
 
-    if (pathname === '/api/admin/research' && method === 'POST') {
-      return sendJson(res, 200, { id: 'job_dev_01' });
+    // Geo & Language Preferences
+    if (pathname === '/api/v1/auth/geo' && method === 'GET') {
+      return sendJson(res, 200, { language: 'vi', is_foreign: false, country: 'VN' });
     }
-    if (pathname === '/api/admin/news/sync' && method === 'POST') {
-      return sendJson(res, 200, { ok: true, synced: 3 });
-    }
-    if (pathname === '/api/v1/signals/test-ingest' && method === 'POST') {
-      return sendJson(res, 200, { status: 'APPROVED', reason: '4-Layer Checked (Dev)' });
-    }
-    if (pathname?.startsWith('/api/admin/skills/') && method === 'PATCH') {
+    if (pathname === '/api/v1/auth/language' && method === 'PATCH') {
       const body = await readJsonBody(req);
-      return sendJson(res, 200, { ok: true, enabled: Boolean(body.enabled) });
+      return sendJson(res, 200, { ok: true, preferred_language: body.language === 'en' ? 'en' : 'vi' });
     }
-    if (pathname === '/api/admin/users' && method === 'POST') {
+
+    // In-memory state initialization for Reports, Control Plane, Notifications, Crypto & Referrals
+    const g = globalThis as any;
+    if (!g.__zupirusExtendedState) {
+      g.__zupirusExtendedState = {
+        signalMode: 'HYBRID_AGENT_SCORER',
+        autoPromote: false,
+        cryptoWallets: {
+          enabled: true,
+          trc20_address: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE',
+          bep20_address: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
+          has_trc20: true,
+          has_bep20: true,
+        },
+        aiQuota: {
+          calls_today: 42,
+          daily_cap: 500,
+          usage_pct: 8.4,
+          status: 'OK',
+          is_overridden: false,
+          override_until: 0,
+          breakdown: { sentinel: 14, alpha: 18, risk_guardian: 10 },
+        },
+        agentsHeartbeat: [
+          {
+            id: 'sentinel',
+            name: 'Sentinel Agent',
+            role: 'Macro News & Spread Shield',
+            status: 'IDLE',
+            trigger_mode: 'CRON_15M',
+            last_run_at: nowSec() - 120,
+            last_duration_ms: 184,
+            last_summary: 'Không có tin đỏ USD trong ±15 phút. Spread XAU/USD ổn định.',
+            calls_today: 14,
+            is_paused: false,
+          },
+          {
+            id: 'alpha',
+            name: 'Alpha Quant Agent',
+            role: 'Walk-Forward Hypothesis & OOS Tester',
+            status: 'IDLE',
+            trigger_mode: 'CRON_1H',
+            last_run_at: nowSec() - 480,
+            last_duration_ms: 612,
+            last_summary: 'Hoàn tất kiểm định WFO 120/60 trên mẫu XAU/USD M15 (PF 1.74).',
+            calls_today: 18,
+            is_paused: false,
+          },
+          {
+            id: 'risk_guardian',
+            name: 'Risk Guardian Agent',
+            role: 'Drawdown & Portfolio VaR Monitor',
+            status: 'IDLE',
+            trigger_mode: 'EVENT_DRIVEN',
+            last_run_at: nowSec() - 60,
+            last_duration_ms: 92,
+            last_summary: 'Drawdown danh mục trong giới hạn an toàn (2.15% < 5.0% max).',
+            calls_today: 10,
+            is_paused: false,
+          },
+        ],
+        strategyQueue: [
+          {
+            candidate: {
+              id: 'cand_xau_london_sweep_v2',
+              name: 'XAUUSD London Liquidity Sweep v2.1',
+              win_rate: 0.625,
+              profit_factor: 1.82,
+              max_drawdown_pct: 3.8,
+              sample_size: 168,
+              rules: { session: 'LONDON_NY', atr_filter: '1.2x', rr: '1:2.0' },
+            },
+            current_live: {
+              id: 'cand_xau_baseline_v1',
+              name: 'Alpha Quant XAU M15 v1.0',
+              win_rate: 0.58,
+              profit_factor: 1.54,
+              max_drawdown_pct: 4.5,
+              sample_size: 142,
+              rules: { session: 'LONDON_NY', atr_filter: '1.0x', rr: '1:1.8' },
+            },
+            delta: { win_rate_diff: 4.5, pf_diff: 0.28, dd_diff: -0.7 },
+          },
+        ],
+        strategyHistory: [
+          {
+            id: 'cand_xau_baseline_v1',
+            name: 'Alpha Quant XAU M15 v1.0',
+            status: 'APPROVED_FOR_PROD',
+            win_rate_pct: 58.0,
+            profit_factor: 1.54,
+            sharpe_ratio: 1.62,
+            max_drawdown_pct: 4.5,
+            sample_size: 142,
+            rules: { session: 'LONDON_NY', sl_pts: 6.0, tp_pts: 12.0 },
+            created_at: nowSec() - 86400 * 7,
+            updated_at: nowSec() - 86400 * 2,
+          },
+        ],
+        ingestedSkills: [
+          {
+            skill_id: 'ing_london_microstructure_2026',
+            name: 'London Gold Microstructure & Fix Volatility (2026)',
+            category: 'gold',
+            detected_category: 'gold',
+            chunks_count: 14,
+            created_at: nowSec() - 86400 * 5,
+            summary: 'Tài liệu nghiên cứu thanh khoản vàng quanh khung 07:00-16:00 UTC và hiện tượng quét thanh khoản 20 nến.',
+          },
+          {
+            skill_id: 'ing_fomc_macro_regime_guide',
+            name: 'DXY Real Yield & FOMC Macro Regime Filter',
+            category: 'macro',
+            detected_category: 'macro',
+            chunks_count: 9,
+            created_at: nowSec() - 86400 * 3,
+            summary: 'Quy tắc nhận diện chế độ thị trường theo lợi suất thực US10Y và biến động DXY trước kỳ họp FOMC.',
+          },
+        ],
+        notifications: [
+          {
+            id: 'notif_1',
+            severity: 'INFO',
+            title: 'Báo cáo nghiên cứu mới đã xuất bản',
+            body: 'Ấn phẩm XAU/USD London-NY Microstructure & WFO (v1.0) đã sẵn sàng đọc thử bản PDF mẫu.',
+            read_at: null,
+            created_at: nowSec() - 1800,
+          },
+          {
+            id: 'notif_2',
+            severity: 'INFO',
+            title: 'Hệ thống kiểm định WFO hoàn tất',
+            body: 'Chu kỳ kiểm định ngoài mẫu 120/60 hoàn tất với Profit Factor 1.74 và Max Drawdown 4.2%.',
+            read_at: nowSec() - 7200,
+            created_at: nowSec() - 7200,
+          },
+        ],
+        reports: [
+          {
+            id: 'rep_xauusd_london_ny_v1',
+            slug: 'xauusd-london-ny-liquidity-sweep-wfo-2026',
+            title: 'Nghiên Cứu Định Lượng XAU/USD: Cấu Trúc Quét Thanh Khoản Phiên London - New York & Kiểm Định Walk-Forward',
+            subtitle: 'Phân tích vi cấu trúc M15/H1, phân rã kỳ vọng theo phiên và mô hình chi phí thực chiến cho nhà giao dịch Vàng',
+            summary: 'Báo cáo định lượng chuyên sâu phân tích hiện tượng quét thanh khoản 20 nến (Liquidity Sweep) kết hợp xu hướng H1 trên thị trường Vàng (XAU/USD). Toàn bộ quy tắc được kiểm định ngoài mẫu (Walk-Forward 120/60) với giả định chi phí khứ hồi 3.5 pips minh bạch.',
+            market: 'XAUUSD',
+            timeframe: 'M15 / H1',
+            status: 'PUBLISHED',
+            current_version: 'v1.0',
+            price_vnd: 790000,
+            price_usd: 32.0,
+            page_count: 18,
+            sample_pdf_url: '/api/v1/reports/rep_xauusd_london_ny_v1/sample-pdf',
+            sample_pdf_file: 'web/public/reports_samples/zupirus-xauusd-london-ny-microstructure-v1.0-sample.pdf',
+            full_pdf_file: 'web/public/reports_samples/zupirus-xauusd-london-ny-microstructure-v1.0-sample.pdf',
+            highlights: [
+              'Phân rã hiệu suất theo từng phiên: Asia, London, London/NY Overlap và Late NY',
+              'Kiểm định Walk-Forward 120 nến huấn luyện / 60 nến ngoài mẫu chống nhìn trước tương lai',
+              'Bộ lọc Hazard Guard loại bỏ các vùng nhiễu thanh khoản khi thiếu xác nhận xu hướng H1',
+              'Bảng tham chiếu quy mô vị thế và ngưỡng chịu đựng sụt giảm (Drawdown) theo ATR(14)',
+            ],
+            wfo_metrics: {
+              sample_size: 142,
+              oos_trades: 64,
+              win_rate: 0.61,
+              expectancy_R: 0.48,
+              profit_factor: 1.74,
+              max_drawdown_pct: 4.2,
+              sharpe_ratio: 1.85,
+              cost_model_pips: 3.5,
+              cost_model_is_assumed: true,
+            },
+            published_at: nowSec() - 86400 * 5,
+            updated_at: nowSec() - 86400 * 2,
+            can_purchase: true,
+            commercial_sale_enabled: true,
+          },
+          {
+            id: 'rep_eurusd_h1_asia_london_v1',
+            slug: 'eurusd-h1-asia-london-breakout-stats-v1',
+            title: 'EURUSD H1: Phiên Á và Xác Suất Phá Biên London — Thống Kê Mẫu 2024–2026',
+            subtitle: 'Nghiên cứu thống kê mô tả biên độ phiên Á, tỷ lệ giữ biên London và đường đi lịch sử của quy tắc mẫu (17,245 nến H1)',
+            summary: 'Phân tích thống kê trên mẫu 17,245 nến EURUSD H1 về phân phối biên độ phiên Á/London/NY, vùng biến động ATR(14), tự tương quan trễ-1 và đường đi lịch sử sau chi phí khứ hồi 0.05R.',
+            market: 'EURUSD',
+            timeframe: 'H1',
+            status: 'PUBLISHED',
+            current_version: 'v1.0',
+            price_vnd: 490000,
+            price_usd: 19.0,
+            page_count: 14,
+            sample_pdf_url: '/api/v1/reports/rep_eurusd_h1_asia_london_v1/sample-pdf',
+            sample_pdf_file: 'data/guides/eurusd-h1-asia-london-preview.pdf',
+            full_pdf_file: 'data/guides/eurusd-h1-asia-london-preview.pdf',
+            highlights: [
+              'Mẫu 17,245 nến EURUSD H1 tái lập hoàn toàn được bằng tham số công khai',
+              'Bảng hành vi theo phiên UTC, vùng biến động ATR(14) và mùa vụ theo giờ/thứ',
+              'Quy tắc minh họa phá biên phiên Á với 704 giao dịch lịch sử sau chi phí 0.05R',
+            ],
+            wfo_metrics: {
+              sample_size: 704,
+              oos_trades: 704,
+              win_rate: 0.5312,
+              expectancy_R: 0.0201,
+              profit_factor: 1.0476,
+              max_drawdown_pct: 12.4,
+              sharpe_ratio: 0.92,
+              cost_model_pips: 0.8,
+              cost_model_is_assumed: true,
+            },
+            published_at: nowSec() - 86400 * 2,
+            updated_at: nowSec() - 86400,
+            can_purchase: true,
+            commercial_sale_enabled: true,
+          },
+        ],
+        library: [
+          {
+            entitlement_id: 'ent_demo_01',
+            report_id: 'rep_xauusd_london_ny_v1',
+            purchased_version: 'v1.0',
+            order_id: 'ord_rep_seed_01',
+            order_code: 'ZP-REP-01',
+            status: 'ACTIVE',
+            granted_at: nowSec() - 86400 * 2,
+            download_count: 1,
+            last_downloaded_at: nowSec() - 3600,
+            slug: 'xauusd-london-ny-liquidity-sweep-wfo-2026',
+            title: 'Nghiên Cứu Định Lượng XAU/USD: Cấu Trúc Quét Thanh Khoản Phiên London - New York & Kiểm Định Walk-Forward',
+            subtitle: 'Phân tích vi cấu trúc M15/H1, phân rã kỳ vọng theo phiên và mô hình chi phí thực chiến',
+            summary: 'Báo cáo định lượng chuyên sâu phân tích hiện tượng quét thanh khoản 20 nến trên XAU/USD.',
+            market: 'XAUUSD',
+            timeframe: 'M15 / H1',
+            report_status: 'PUBLISHED',
+            latest_catalog_version: 'v1.0',
+            page_count: 18,
+            download_url: '/api/v1/reports/rep_xauusd_london_ny_v1/download?version=v1.0',
+            sample_pdf_url: '/api/v1/reports/rep_xauusd_london_ny_v1/sample-pdf',
+          },
+        ],
+        reportOrders: [],
+        billingOrders: [
+          {
+            id: 'ord_15e8e3467903',
+            user_id: 'usr_001',
+            user_email: 'car230698@gmail.com',
+            payment_code: 'ZP15E8E3',
+            amount_usd: 32.0,
+            amount_vnd: 790000,
+            expected_amount_vnd: 790000,
+            paid_amount_vnd: 790000,
+            locked_exchange_rate: 25730,
+            plan_tier: 'report_pdf',
+            cloud_slots_count: 1,
+            status: 'PAID',
+            payment_gateway: 'USDT_BEP20',
+            created_at: nowSec() - 86400 * 2,
+            paid_at: nowSec() - 86400 * 2 + 120,
+            expires_at: nowSec() - 86400 * 2 + 1800,
+          },
+          {
+            id: 'ord_b3432835ec32',
+            user_id: 'usr_002',
+            user_email: 'trader@propfirm.vn',
+            payment_code: 'ZPB34328',
+            amount_usd: 19.0,
+            amount_vnd: 490000,
+            expected_amount_vnd: 490000,
+            locked_exchange_rate: 25730,
+            plan_tier: 'report_pdf',
+            cloud_slots_count: 1,
+            status: 'PENDING',
+            payment_gateway: 'USDT_TRC20',
+            created_at: nowSec() - 600,
+            expires_at: nowSec() + 1200,
+          },
+        ],
+        referredBy: null as string | null,
+      };
+    }
+    const ext = g.__zupirusExtendedState;
+
+    const servePdfFile = (fileRel: string | undefined, downloadName: string, inline = true) => {
+      const candidates = [
+        fileRel ? path.resolve(process.cwd(), fileRel) : '',
+        path.resolve(process.cwd(), 'web/public/reports_samples/zupirus-xauusd-london-ny-microstructure-v1.0-sample.pdf'),
+        path.resolve(process.cwd(), 'data/guides/eurusd-h1-asia-london-preview.pdf'),
+      ].filter(Boolean);
+      for (const fp of candidates) {
+        try {
+          if (fs.existsSync(fp) && fs.statSync(fp).isFile()) {
+            const buf = fs.readFileSync(fp);
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${downloadName}"`);
+            res.setHeader('Content-Length', String(buf.length));
+            res.end(buf);
+            return;
+          }
+        } catch {
+          // try next candidate
+        }
+      }
+      // Minimal valid PDF fallback if sample files were absent
+      const minimalPdf = Buffer.from(
+        '%PDF-1.4\n1 0 obj<<>>endobj\n2 0 obj<< /Type /Catalog /Pages 3 0 R >>endobj\n3 0 obj<< /Type /Pages /Kids [4 0 R] /Count 1 >>endobj\n4 0 obj<< /Type /Page /Parent 3 0 R /MediaBox [0 0 612 792] >>endobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000028 00000 n \n0000000077 00000 n \n0000000134 00000 n \ntrailer<< /Size 5 /Root 2 0 R >>\nstartxref\n204\n%%EOF\n',
+        'utf-8'
+      );
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${downloadName}"`);
+      res.end(minimalPdf);
+    };
+
+    // Public & Customer Quant Reports Catalog & Library
+    if ((pathname === '/api/v1/reports' || pathname === '/api/reports') && method === 'GET') {
+      const market = (parsedUrl.searchParams.get('market') || '').trim().toUpperCase();
+      let items = ext.reports.filter((r: any) => r.status === 'PUBLISHED');
+      if (market) items = items.filter((r: any) => String(r.market || '').toUpperCase().includes(market));
+      const enriched = items.map((r: any) => ({
+        ...r,
+        is_owned: ext.library.some((l: any) => l.report_id === r.id),
+      }));
+      return sendJson(res, 200, { items: enriched, count: enriched.length });
+    }
+
+    if (
+      (pathname === '/api/v1/reports/my/library' ||
+        pathname === '/api/v1/library/reports' ||
+        pathname === '/api/reports/my/library') &&
+      method === 'GET'
+    ) {
+      return sendJson(res, 200, {
+        items: ext.library,
+        count: ext.library.length,
+        pending_orders: ext.reportOrders.filter((o: any) => o.status === 'PENDING'),
+      });
+    }
+
+    const repSampleMatch = pathname.match(/^\/api\/(?:v1\/)?reports\/([^/]+)\/sample-pdf$/);
+    if (repSampleMatch && method === 'GET') {
+      const rid = decodeURIComponent(repSampleMatch[1]);
+      const rep = ext.reports.find((r: any) => r.id === rid || r.slug === rid);
+      return servePdfFile(rep?.sample_pdf_file, `${rep?.slug || rid}-sample.pdf`, true);
+    }
+
+    const repCheckoutMatch = pathname.match(/^\/api\/(?:v1\/)?reports\/([^/]+)\/checkout$/);
+    if (repCheckoutMatch && method === 'POST') {
+      const rid = decodeURIComponent(repCheckoutMatch[1]);
+      const rep = ext.reports.find((r: any) => r.id === rid || r.slug === rid);
+      if (!rep) return sendJson(res, 404, { detail: 'Không tìm thấy báo cáo.' });
       const body = await readJsonBody(req);
-      return sendJson(res, 200, { id: 'usr_dev_new', email: body.email, role: body.role || 'customer' });
+      const pm = String(body.payment_method || 'USDT_BEP20').toUpperCase();
+      const network = pm.includes('TRC20') ? 'TRC20' : 'BEP20';
+      const ordId = `ord_rep_${crypto.randomBytes(4).toString('hex')}`;
+      const order = {
+        id: ordId,
+        order_id: ordId,
+        order_code: `ZP-${ordId.slice(-6).toUpperCase()}`,
+        report_id: rep.id,
+        report_version: rep.current_version,
+        title: rep.title,
+        amount_usd: rep.price_usd,
+        amount_vnd: rep.price_vnd,
+        amount: rep.price_usd,
+        currency: 'USDT',
+        network,
+        payment_gateway: `USDT_${network}`,
+        wallet_address: network === 'TRC20' ? ext.cryptoWallets.trc20_address : ext.cryptoWallets.bep20_address,
+        status: 'PENDING',
+        created_at: nowSec(),
+        expires_at: nowSec() + 1800,
+      };
+      ext.reportOrders.unshift(order);
+      ext.billingOrders.unshift({ ...order, user_email: devSession?.email || 'trader@client.org', plan_tier: 'report_pdf', cloud_slots_count: 1 });
+      return sendJson(res, 200, order);
     }
-    if (pathname?.startsWith('/api/admin/users/') && pathname.endsWith('/password') && method === 'PUT') {
+
+    const repDlTokMatch = pathname.match(/^\/api\/(?:v1\/)?reports\/([^/]+)\/download-token$/);
+    if (repDlTokMatch && method === 'POST') {
+      const rid = decodeURIComponent(repDlTokMatch[1]);
+      const version = parsedUrl.searchParams.get('version') || 'v1.0';
+      const tok = crypto.randomBytes(12).toString('hex');
+      return sendJson(res, 200, {
+        token: tok,
+        report_id: rid,
+        version,
+        download_url: `/api/v1/reports/${encodeURIComponent(rid)}/download?version=${encodeURIComponent(version)}&token=${tok}`,
+      });
+    }
+
+    const repDlMatch = pathname.match(/^\/api\/(?:v1\/)?reports\/([^/]+)\/download$/);
+    if (repDlMatch && method === 'GET') {
+      const rid = decodeURIComponent(repDlMatch[1]);
+      const version = parsedUrl.searchParams.get('version') || 'v1.0';
+      const rep = ext.reports.find((r: any) => r.id === rid || r.slug === rid);
+      const libItem = ext.library.find((l: any) => l.report_id === (rep?.id || rid));
+      if (libItem) {
+        libItem.download_count = (libItem.download_count || 0) + 1;
+        libItem.last_downloaded_at = nowSec();
+      }
+      return servePdfFile(rep?.full_pdf_file || rep?.sample_pdf_file, `${rep?.slug || rid}-${version}.pdf`, false);
+    }
+
+    const repDetailMatch = pathname.match(/^\/api\/(?:v1\/)?reports\/([^/]+)$/);
+    if (repDetailMatch && method === 'GET') {
+      const rid = decodeURIComponent(repDetailMatch[1]);
+      const rep = ext.reports.find((r: any) => r.id === rid || r.slug === rid);
+      if (!rep) return sendJson(res, 404, { detail: 'Không tìm thấy báo cáo.' });
+      return sendJson(res, 200, {
+        ...rep,
+        is_owned: ext.library.some((l: any) => l.report_id === rep.id),
+      });
+    }
+
+    // Admin Reports Publisher
+    if (pathname === '/api/v1/admin/reports' && method === 'GET') {
+      return sendJson(res, 200, {
+        items: ext.reports,
+        count: ext.reports.length,
+        research_candidates: ext.strategyHistory.map((s: any) => ({ id: s.id, name: s.name, profit_factor: s.profit_factor })),
+      });
+    }
+    if (pathname === '/api/v1/admin/reports' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const id = `rep_${crypto.randomBytes(4).toString('hex')}`;
+      const item = {
+        id,
+        slug: body.slug || `${String(body.market || 'xauusd').toLowerCase()}-${id}`,
+        title: body.title || 'Báo cáo nghiên cứu định lượng mới',
+        subtitle: body.subtitle || '',
+        summary: body.summary || '',
+        market: body.market || 'XAUUSD',
+        timeframe: body.timeframe || 'M15 / H1',
+        status: 'DRAFT',
+        current_version: body.version || 'v1.0',
+        price_vnd: Number(body.price_vnd) || 790000,
+        price_usd: Number(body.price_usd) || 32.0,
+        page_count: Number(body.page_count) || 18,
+        highlights: Array.isArray(body.highlights_json) ? body.highlights_json : [],
+        sample_pdf_url: `/api/v1/reports/${id}/sample-pdf`,
+        published_at: null,
+        updated_at: nowSec(),
+      };
+      ext.reports.unshift(item);
+      return sendJson(res, 200, item);
+    }
+    const adminRepActionMatch = pathname.match(/^\/api\/v1\/admin\/reports\/([^/]+)\/(publish|discontinue|upload-pdf|preview-pdf)$/);
+    if (adminRepActionMatch) {
+      const rid = decodeURIComponent(adminRepActionMatch[1]);
+      const action = adminRepActionMatch[2];
+      const rep = ext.reports.find((r: any) => r.id === rid);
+      if (action === 'preview-pdf' && method === 'GET') {
+        return servePdfFile(rep?.full_pdf_file || rep?.sample_pdf_file, `${rid}-preview.pdf`, true);
+      }
+      if (action === 'upload-pdf' && method === 'POST') {
+        if (rep) rep.updated_at = nowSec();
+        return sendJson(res, 200, { ok: true, message: 'Đã gắn tệp PDF thành công.' });
+      }
+      if (action === 'publish' && method === 'POST') {
+        if (rep) {
+          rep.status = 'PUBLISHED';
+          rep.published_at = nowSec();
+          rep.updated_at = nowSec();
+        }
+        return sendJson(res, 200, { ok: true, status: 'PUBLISHED' });
+      }
+      if (action === 'discontinue' && method === 'POST') {
+        if (rep) {
+          rep.status = 'DISCONTINUED';
+          rep.updated_at = nowSec();
+        }
+        return sendJson(res, 200, { ok: true, status: 'DISCONTINUED' });
+      }
+    }
+    const adminRepItemMatch = pathname.match(/^\/api\/v1\/admin\/reports\/([^/]+)$/);
+    if (adminRepItemMatch && (method === 'PUT' || method === 'PATCH' || method === 'DELETE')) {
+      const rid = decodeURIComponent(adminRepItemMatch[1]);
+      const idx = ext.reports.findIndex((r: any) => r.id === rid);
+      if (idx === -1) return sendJson(res, 404, { detail: 'Report not found' });
+      if (method === 'DELETE') {
+        ext.reports.splice(idx, 1);
+        return sendJson(res, 200, { ok: true });
+      }
+      const body = await readJsonBody(req);
+      ext.reports[idx] = {
+        ...ext.reports[idx],
+        ...body,
+        current_version: body.version || ext.reports[idx].current_version,
+        highlights: Array.isArray(body.highlights_json) ? body.highlights_json : ext.reports[idx].highlights,
+        updated_at: nowSec(),
+      };
+      return sendJson(res, 200, ext.reports[idx]);
+    }
+
+    // Billing Gateways, Crypto Wallets & Admin Billing Summary/Orders
+    if (pathname === '/api/v1/billing/gateways' && method === 'GET') {
+      return sendJson(res, 200, {
+        sepay: false,
+        usdt: ext.cryptoWallets.enabled,
+        usdt_trc20: Boolean(ext.cryptoWallets.trc20_address),
+        usdt_bep20: Boolean(ext.cryptoWallets.bep20_address),
+        supported_currencies: ['USDT'],
+      });
+    }
+    if (pathname === '/api/v1/billing/my-orders' && method === 'GET') {
+      return sendJson(res, 200, { orders: ext.billingOrders });
+    }
+    const verifyTxMatch = pathname.match(/^\/api\/v1\/billing\/orders\/([^/]+)\/verify-tx$/);
+    if (verifyTxMatch && method === 'POST') {
+      const ordId = decodeURIComponent(verifyTxMatch[1]);
+      const ts = nowSec();
+      const repOrd = ext.reportOrders.find((o: any) => o.id === ordId);
+      const billOrd = ext.billingOrders.find((o: any) => o.id === ordId);
+      if (repOrd) {
+        repOrd.status = 'PAID';
+        repOrd.paid_at = ts;
+      }
+      if (billOrd) {
+        billOrd.status = 'PAID';
+        billOrd.paid_at = ts;
+      }
+      const ord = repOrd || billOrd;
+      if (ord?.report_id && !ext.library.some((l: any) => l.report_id === ord.report_id)) {
+        const rep = ext.reports.find((r: any) => r.id === ord.report_id);
+        if (rep) {
+          ext.library.unshift({
+            entitlement_id: `ent_${crypto.randomBytes(4).toString('hex')}`,
+            report_id: rep.id,
+            purchased_version: rep.current_version,
+            order_id: ord.id,
+            order_code: ord.order_code,
+            status: 'ACTIVE',
+            granted_at: ts,
+            download_count: 0,
+            slug: rep.slug,
+            title: rep.title,
+            subtitle: rep.subtitle,
+            summary: rep.summary,
+            market: rep.market,
+            timeframe: rep.timeframe,
+            report_status: rep.status,
+            latest_catalog_version: rep.current_version,
+            page_count: rep.page_count,
+            download_url: `/api/v1/reports/${rep.id}/download?version=${rep.current_version}`,
+            sample_pdf_url: rep.sample_pdf_url,
+          });
+        }
+      }
+      return sendJson(res, 200, { ok: true, status: 'PAID', message: 'Đã xác nhận giao dịch USDT on-chain và mở khóa ấn phẩm PDF.' });
+    }
+    if (pathname === '/api/v1/admin/billing/crypto-wallets' && method === 'GET') {
+      return sendJson(res, 200, ext.cryptoWallets);
+    }
+    if (pathname === '/api/v1/admin/billing/crypto-wallets' && method === 'PUT') {
+      const body = await readJsonBody(req);
+      ext.cryptoWallets = {
+        enabled: body.enabled !== false,
+        trc20_address: String(body.trc20_address || '').trim(),
+        bep20_address: String(body.bep20_address || '').trim(),
+        has_trc20: Boolean(body.trc20_address),
+        has_bep20: Boolean(body.bep20_address),
+      };
+      return sendJson(res, 200, ext.cryptoWallets);
+    }
+    if (pathname === '/api/admin/billing/summary' && method === 'GET') {
+      const paidOrders = ext.billingOrders.filter((o: any) => o.status === 'PAID');
+      return sendJson(res, 200, {
+        orders: {
+          total_orders: ext.billingOrders.length,
+          paid_orders: paidOrders.length,
+          paid_revenue_vnd: paidOrders.reduce((s: number, o: any) => s + Number(o.amount_vnd || 0), 0),
+          paid_revenue_usd: paidOrders.reduce((s: number, o: any) => s + Number(o.amount_usd || 0), 0),
+        },
+        total_revenue_vnd: paidOrders.reduce((s: number, o: any) => s + Number(o.amount_vnd || 0), 0),
+      });
+    }
+    if (pathname === '/api/admin/billing/orders' && method === 'GET') {
+      return sendJson(res, 200, { orders: ext.billingOrders, total: ext.billingOrders.length });
+    }
+    const adminOrderApproveMatch = pathname.match(/^\/api\/admin\/billing\/orders\/([^/]+)\/approve$/);
+    if (adminOrderApproveMatch && method === 'POST') {
+      const ordId = decodeURIComponent(adminOrderApproveMatch[1]);
+      const ts = nowSec();
+      const repOrd = ext.reportOrders.find((o: any) => o.id === ordId);
+      const billOrd = ext.billingOrders.find((o: any) => o.id === ordId);
+      if (repOrd) {
+        repOrd.status = 'PAID';
+        repOrd.paid_at = ts;
+      }
+      if (billOrd) {
+        billOrd.status = 'PAID';
+        billOrd.paid_at = ts;
+      }
+      const ord = repOrd || billOrd;
+      if (ord?.report_id && !ext.library.some((l: any) => l.report_id === ord.report_id)) {
+        const rep = ext.reports.find((r: any) => r.id === ord.report_id);
+        if (rep) {
+          ext.library.unshift({
+            entitlement_id: `ent_${crypto.randomBytes(4).toString('hex')}`,
+            report_id: rep.id,
+            purchased_version: rep.current_version,
+            order_id: ord.id,
+            order_code: ord.order_code,
+            status: 'ACTIVE',
+            granted_at: ts,
+            download_count: 0,
+            slug: rep.slug,
+            title: rep.title,
+            subtitle: rep.subtitle,
+            summary: rep.summary,
+            market: rep.market,
+            timeframe: rep.timeframe,
+            report_status: rep.status,
+            latest_catalog_version: rep.current_version,
+            page_count: rep.page_count,
+            download_url: `/api/v1/reports/${rep.id}/download?version=${rep.current_version}`,
+            sample_pdf_url: rep.sample_pdf_url,
+          });
+        }
+      }
+      return sendJson(res, 200, { ok: true, message: `Đã duyệt đơn hàng ${ordId} thành công.` });
+    }
+
+    // Notifications & Referrals & Orders Export
+    if (pathname === '/api/v1/notifications' && method === 'GET') {
+      const unreadCount = ext.notifications.filter((n: any) => !n.read_at).length;
+      return sendJson(res, 200, { ok: true, unread_count: unreadCount, notifications: ext.notifications });
+    }
+    if (pathname === '/api/v1/notifications/read-all' && method === 'POST') {
+      const ts = nowSec();
+      for (const n of ext.notifications) if (!n.read_at) n.read_at = ts;
       return sendJson(res, 200, { ok: true });
     }
-    if (pathname?.startsWith('/api/admin/users/') && pathname.endsWith('/role') && method === 'PUT') {
+    const notifReadMatch = pathname.match(/^\/api\/v1\/notifications\/([^/]+)\/read$/);
+    if (notifReadMatch && method === 'POST') {
+      const nid = decodeURIComponent(notifReadMatch[1]);
+      const n = ext.notifications.find((x: any) => x.id === nid);
+      if (n) n.read_at = nowSec();
       return sendJson(res, 200, { ok: true });
     }
+    if (pathname === '/api/v1/referral/me' && method === 'GET') {
+      return sendJson(res, 200, {
+        referral_code: 'ZUP-QUANT26',
+        invite_url: 'https://zupirus.com/?ref=ZUP-QUANT26',
+        referred_count: 2,
+        bonus_days_earned: 14,
+        referred_by: ext.referredBy,
+        reward_rule: 'Phần thưởng giới thiệu do chủ sở hữu cấu hình, không phải lợi nhuận giao dịch.',
+      });
+    }
+    if (pathname === '/api/v1/referral/apply' && method === 'POST') {
+      const body = await readJsonBody(req);
+      ext.referredBy = String(body.code || '').trim().toUpperCase();
+      return sendJson(res, 200, { ok: true, code: ext.referredBy, message: 'Áp dụng mã giới thiệu thành công!' });
+    }
+    if (pathname === '/api/v1/orders/export' && method === 'GET') {
+      const header = 'id,account_id,signal_id,side,lot,price,sl,tp,pnl,state,ticket\n';
+      const rows = orders
+        .map((o) => `${o.id},${o.account_id},${o.signal_id},${o.side},${o.lot || 0.1},${o.price},${o.sl},${o.tp},${o.pnl},${o.state},${o.ticket}`)
+        .join('\n');
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="zupirus_orders.csv"');
+      res.end(header + rows);
+      return;
+    }
+
+    // Admin Command Radar, Agents Heartbeat, AI Quota, Strategies & AI Evolution
+    if (pathname === '/api/v1/telemetry/admin-radar' && method === 'GET') {
+      const mid = prices[replayIdx] || 2656.45;
+      return sendJson(res, 200, {
+        halted,
+        health_cards: [
+          { key: 'market_data', title: 'Dữ liệu thị trường XAU/USD', ok: true, status_text: `Đang cập nhật (${mid.toFixed(2)})` },
+          { key: 'ai_swarm', title: 'Bộ não AI Swarm & WFO', ok: true, status_text: `Đang hoạt động (${mockGeminiKeys.filter((k) => k.is_active).length} Key)` },
+          { key: 'reports_vault', title: 'Kho Báo cáo & Kiểm định PDF', ok: true, status_text: `Sẵn sàng (${ext.reports.length} ấn phẩm)` },
+          { key: 'usdt', title: 'Cổng thanh toán USDT on-chain', ok: true, status_text: 'Mặc định (An toàn)' },
+        ],
+        timeline: [
+          { ts: nowSec() - 90, text: 'AI quét nến M15 XAUUSD: Biến động ổn định trong biên độ London/NY.', kind: 'info' },
+          { ts: nowSec() - 320, text: 'Hoàn tất kiểm định Walk-Forward 120/60 ngoài mẫu (PF 1.74).', kind: 'success' },
+        ],
+        alerts: [],
+        server_time: nowSec(),
+        auto_promote: ext.autoPromote,
+        signal_mode: ext.signalMode,
+        active_strategy: 'Alpha Quant XAU M15 v1.0',
+        canary_strategy: ext.strategyQueue[0]?.candidate?.name || null,
+        regime: 'TRENDING',
+        meta_router_scale: 1.0,
+        dxy_trend: 'FLAT',
+        macro_degraded: false,
+        circuit_breaker_active: false,
+        unverified_count: 0,
+      });
+    }
+    if (
+      (pathname === '/api/v1/telemetry/dry-run' || pathname === '/api/v1/telemetry/admin-radar/dry-run') &&
+      (method === 'POST' || method === 'GET')
+    ) {
+      const mid = prices[replayIdx] || 2656.45;
+      return sendJson(res, 200, {
+        ok: true,
+        timestamp: nowSec(),
+        steps: [
+          { step: '1. Dữ liệu thị trường XAU/USD', ok: true, detail: `Giá tham chiếu ${mid.toFixed(2)} (spread 2.8 pips)` },
+          { step: '2. Bộ não AI Swarm', ok: true, detail: 'Sentinel blackout=false | Cycle hoàn tất an toàn.' },
+          { step: '3. Kiểm tra 4 lớp màng lọc an toàn', ok: true, detail: '4 lớp màng lọc hoạt động chuẩn.' },
+          { step: '4. Kho lưu trữ & Báo cáo PDF', ok: true, detail: `Kho báo cáo hoạt động tốt · ${ext.reports.length} ấn phẩm.` },
+        ],
+      });
+    }
+    if (pathname === '/api/admin-radar/retry-pending' && method === 'POST') {
+      return sendJson(res, 200, { ok: true, redeployed: 0, message: 'Không có tác vụ chờ xử lý.' });
+    }
+    if (pathname === '/api/v1/telemetry/ai-evolution' && method === 'GET') {
+      return sendJson(res, 200, {
+        stage: {
+          active_mode: ext.signalMode,
+          auto_promote: ext.autoPromote,
+          samples_learned: 242,
+          target_samples: 500,
+          readiness_pct: 48.4,
+        },
+        shadow_summary: {
+          total_evaluated: 242,
+          total_open: 3,
+          overall_win_rate_pct: 61.2,
+          sources: [
+            { id: 'src_london_alpha', name: 'London Institutional Orderflow', source_type: 'METAAPI_STREAM', status: 'ACTIVE_LIVE', trust_score: 91.4, win_rate_pct: 64.0, profit_factor: 1.88, evaluated_signals: 112, open_signals: 1 },
+            { id: 'src_tv_quant_m15', name: 'ZUPIRUS M15 Volatility Breakout', source_type: 'TRADINGVIEW_WEBHOOK', status: 'ACTIVE_LIVE', trust_score: 86.8, win_rate_pct: 59.5, profit_factor: 1.65, evaluated_signals: 130, open_signals: 2 },
+          ],
+        },
+        hindsight_lessons: mockHindsightMemories.map((m) => ({
+          id: m.id,
+          category: m.category,
+          content: m.content,
+          confidence: 0.88,
+          created_at: nowSec() - 3600,
+        })),
+        wfo_candidates: ext.strategyQueue.map((q: any) => ({
+          id: q.candidate.id,
+          name: q.candidate.name,
+          status: 'WAITING_APPROVAL',
+          win_rate_pct: Number((q.candidate.win_rate * 100).toFixed(1)),
+          profit_factor: q.candidate.profit_factor,
+          sharpe_ratio: 1.85,
+          max_drawdown_pct: q.candidate.max_drawdown_pct,
+          sample_size: q.candidate.sample_size,
+        })),
+        skills_builtin: [
+          { skill_id: 'market_regime_scanner', name: 'Market Regime Scanner', description: 'Phân loại Trend/Range theo ATR(14)', trigger_condition: 'Mỗi đóng nến M15', is_builtin: true, enabled: true, usage_count: 342 },
+          { skill_id: 'macro_news_interpreter', name: 'Macro News Shield', description: 'Chặn vùng tin đỏ USD ±15 phút', trigger_condition: 'Trước phiên NY/FOMC', is_builtin: true, enabled: true, usage_count: 210 },
+        ],
+        skills_learned: [
+          { skill_id: 'learned_london_buy_filter', name: 'London Liquidity Sweep Filter', description: 'Lọc điểm đảo chiều quét thanh khoản 20 nến', trigger_condition: 'Phiên London 07:00-13:00 UTC', is_builtin: false, enabled: true, usage_count: 47 },
+        ],
+      });
+    }
+    if (pathname === '/api/admin/agents/heartbeat' && method === 'GET') {
+      return sendJson(res, 200, { total: ext.agentsHeartbeat.length, agents: ext.agentsHeartbeat });
+    }
+    const agentWakeMatch = pathname.match(/^\/api\/admin\/agents\/([^/]+)\/wake$/);
+    if (agentWakeMatch && method === 'POST') {
+      const aid = decodeURIComponent(agentWakeMatch[1]);
+      const ag = ext.agentsHeartbeat.find((a: any) => a.id === aid);
+      if (ag) {
+        ag.last_run_at = nowSec();
+        ag.calls_today += 1;
+      }
+      return sendJson(res, 200, { ok: true, message: `Đã kích hoạt agent ${aid} thành công.` });
+    }
+    const agentPauseMatch = pathname.match(/^\/api\/admin\/agents\/([^/]+)\/toggle-pause$/);
+    if (agentPauseMatch && method === 'POST') {
+      const aid = decodeURIComponent(agentPauseMatch[1]);
+      const ag = ext.agentsHeartbeat.find((a: any) => a.id === aid);
+      if (ag) {
+        ag.is_paused = !ag.is_paused;
+        ag.status = ag.is_paused ? 'PAUSED' : 'IDLE';
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        agent_id: aid,
+        is_paused: Boolean(ag?.is_paused),
+        status: ag?.status || 'IDLE',
+        message: ag?.is_paused ? `Đã tạm dừng agent ${aid}.` : `Đã tiếp tục agent ${aid}.`,
+      });
+    }
+    if (pathname === '/api/admin/ai/quota' && method === 'GET') {
+      return sendJson(res, 200, ext.aiQuota);
+    }
+    if (pathname === '/api/admin/ai/quota' && method === 'PUT') {
+      const body = await readJsonBody(req);
+      if (body.reset_today) {
+        ext.aiQuota.calls_today = 0;
+        ext.aiQuota.usage_pct = 0;
+      }
+      if (typeof body.daily_cap === 'number') ext.aiQuota.daily_cap = body.daily_cap;
+      if (typeof body.override_minutes === 'number') {
+        ext.aiQuota.is_overridden = true;
+        ext.aiQuota.override_until = nowSec() + body.override_minutes * 60;
+      }
+      return sendJson(res, 200, ext.aiQuota);
+    }
+    if (pathname === '/api/admin/gemini/keys/ping-all' && method === 'POST') {
+      return sendJson(res, 200, { ok: true, message: `Đã kiểm tra ${mockGeminiKeys.filter((k) => k.is_active).length} Gemini key hoạt động bình thường.` });
+    }
+    if (pathname === '/api/admin/skills/ingested' && method === 'GET') {
+      return sendJson(res, 200, { skills: ext.ingestedSkills, ingested_skills: ext.ingestedSkills });
+    }
+    if (pathname === '/api/admin/skills/ingest-pdf' && method === 'POST') {
+      const newSkill = {
+        skill_id: `ing_${crypto.randomBytes(4).toString('hex')}`,
+        name: 'Tài liệu định lượng mới nạp',
+        category: 'macro',
+        detected_category: 'macro',
+        chunks_count: 8,
+        created_at: nowSec(),
+        summary: 'Đã bóc tách và lập chỉ mục vào kho tri thức RAG.',
+      };
+      ext.ingestedSkills.unshift(newSkill);
+      return sendJson(res, 200, { ok: true, ...newSkill });
+    }
+    if (pathname === '/api/admin/skills/reclassify-all' && method === 'POST') {
+      return sendJson(res, 200, { ok: true, reclassified_count: ext.ingestedSkills.length });
+    }
+    const delIngestedMatch = pathname.match(/^\/api\/admin\/skills\/ingested\/([^/]+)$/);
+    if (delIngestedMatch && method === 'DELETE') {
+      const sid = decodeURIComponent(delIngestedMatch[1]);
+      const idx = ext.ingestedSkills.findIndex((s: any) => s.skill_id === sid);
+      if (idx !== -1) ext.ingestedSkills.splice(idx, 1);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/admin/sources/signal-mode' && method === 'POST') {
+      const body = await readJsonBody(req);
+      if (body.mode) ext.signalMode = body.mode;
+      return sendJson(res, 200, { ok: true, mode: ext.signalMode });
+    }
+    if ((pathname === '/api/admin/sources/auto-promote' || pathname === '/api/sources/auto-promote') && method === 'POST') {
+      const body = await readJsonBody(req);
+      ext.autoPromote = Boolean(body.enabled);
+      return sendJson(res, 200, {
+        ok: true,
+        enabled: ext.autoPromote,
+        message: ext.autoPromote ? 'Đã BẬT tự động thăng hạng chiến lược.' : 'Đã TẮT tự động thăng hạng chiến lược.',
+      });
+    }
+    if (pathname === '/api/admin/strategies/review-queue' && method === 'GET') {
+      return sendJson(res, 200, { total: ext.strategyQueue.length, queue: ext.strategyQueue });
+    }
+    if (pathname === '/api/admin/strategies/history' && method === 'GET') {
+      return sendJson(res, 200, { total: ext.strategyHistory.length, strategies: ext.strategyHistory });
+    }
+    const stratDecisionMatch = pathname.match(/^\/api\/admin\/strategies\/([^/]+)\/(approve|reject|rollback)$/);
+    if (stratDecisionMatch && method === 'POST') {
+      const cid = decodeURIComponent(stratDecisionMatch[1]);
+      const action = stratDecisionMatch[2];
+      const qIdx = ext.strategyQueue.findIndex((q: any) => q.candidate.id === cid);
+      if (qIdx !== -1 && (action === 'approve' || action === 'reject')) {
+        const item = ext.strategyQueue.splice(qIdx, 1)[0];
+        ext.strategyHistory.unshift({
+          id: item.candidate.id,
+          name: item.candidate.name,
+          status: action === 'approve' ? 'APPROVED_FOR_PROD' : 'REJECTED',
+          win_rate_pct: Number((item.candidate.win_rate * 100).toFixed(1)),
+          profit_factor: item.candidate.profit_factor,
+          sharpe_ratio: 1.85,
+          max_drawdown_pct: item.candidate.max_drawdown_pct,
+          sample_size: item.candidate.sample_size,
+          rules: item.candidate.rules,
+          created_at: nowSec() - 3600,
+          updated_at: nowSec(),
+        });
+      }
+      return sendJson(res, 200, { ok: true, message: `Đã xử lý chiến lược ${cid} (${action}).` });
+    }
+
     if (pathname === '/api/v1/stream/topbar' && method === 'GET') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       });
+      const mid = prices[replayIdx] || 2656.45;
       const snap = {
-        xauusd: { symbol: 'XAUUSD', bid: 2948.2, ask: 2948.45, mid: 2948.32, spread_pips: 2.5, ts: nowSec(), source: 'DEV_MOCK' },
-        fx_rate: { usd_vnd: 25450, source: 'DEV_MOCK', updated_at: nowSec() },
-        shield_4_layer: { l1_idempotency: 'ACTIVE', l2_hard_sl_atr: 'ACTIVE', l3_news_shield: 'CLEAR', l4_slippage_guard: 'ACTIVE', news_blackout: false },
-        bridge: { region: 'london-g2', latency_ms: 12, status: 'CONNECTED' },
-        system_status: halted ? 'HALTED' : 'OPERATIONAL',
+        xauusd: {
+          symbol: 'XAUUSD',
+          bid: Number((mid - 0.14).toFixed(2)),
+          ask: Number((mid + 0.14).toFixed(2)),
+          mid: Number(mid.toFixed(2)),
+          spread_pips: 2.8,
+          live: true,
+          data_available: true,
+          stale: false,
+          source: 'DEV_FIXTURE',
+        },
+        usd_vnd: { rate: 25730, source: 'Vietcombank Live' },
+        news_shield: { status: 'CLEAR', distance_mins: 185, nearest_title: 'US Core CPI (MoM)' },
+        metaapi_latency_ms: 28,
+        region: 'london-g2',
+        active_sources_count: 2,
+        system_status: halted ? 'HALTED' : 'NOMINAL',
         server_time: nowSec(),
       };
       res.write(`event: topbar\ndata: ${JSON.stringify(snap)}\n\n`);

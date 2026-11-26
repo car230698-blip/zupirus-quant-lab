@@ -21,19 +21,13 @@ const dotStyles: Record<BadgeTone, string> = {
 export const StatusBadge: React.FC<{
   tone?: BadgeTone;
   dot?: boolean;
-  pulse?: boolean;
   children: ReactNode;
   className?: string;
-}> = ({ tone = 'neutral', dot = false, pulse = false, children, className = '' }) => (
+}> = ({ tone = 'neutral', dot = false, children, className = '' }) => (
   <span
-    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide whitespace-nowrap ${badgeStyles[tone]} ${className}`}
+    className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-0.5 font-mono text-[11px] font-semibold tracking-wide whitespace-nowrap ${badgeStyles[tone]} ${className}`}
   >
-    {dot && (
-      <span className="relative flex h-1.5 w-1.5 shrink-0">
-        {pulse && <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-70 ${dotStyles[tone]}`} />}
-        <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${dotStyles[tone]}`} />
-      </span>
-    )}
+    {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotStyles[tone]}`} />}
     {children}
   </span>
 );
@@ -48,25 +42,25 @@ export const MetricCard: React.FC<{
 }> = ({ label, value, subtext, icon, tone = 'default', className = '' }) => {
   const iconTone: Record<string, string> = {
     default: 'bg-white/[0.04] text-slate-200 border-white/10',
-    emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-    amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-    cyan: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
-    rose: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    emerald: 'bg-emerald-500/12 text-emerald-300 border-emerald-500/25',
+    amber: 'bg-amber-500/12 text-amber-300 border-amber-500/25',
+    cyan: 'bg-cyan-500/12 text-cyan-300 border-cyan-500/25',
+    rose: 'bg-rose-500/12 text-rose-300 border-rose-500/25',
   };
 
   return (
-    <div className={`quant-card-interactive p-5 sm:p-6 flex flex-col justify-between gap-3 ${className}`}>
+    <div className={`quant-card-interactive p-5 flex flex-col justify-between gap-2.5 ${className}`}>
       <div className="flex items-start justify-between gap-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-300 leading-snug">
+        <span className="text-xs font-medium text-slate-400 leading-snug">
           {label}
         </span>
         {icon && (
-          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${iconTone[tone]}`}>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ${iconTone[tone]}`}>
             {icon}
           </span>
         )}
       </div>
-      <div className="font-mono text-2xl sm:text-[26px] font-extrabold tracking-tight text-white tabular-nums">
+      <div className="font-mono text-2xl font-bold tracking-tight text-white tabular-nums">
         {value}
       </div>
       {subtext && <div className="text-xs text-slate-400 leading-relaxed">{subtext}</div>}
@@ -88,7 +82,7 @@ export const Panel: React.FC<{
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-5 py-4 sm:px-6">
         <div className="flex items-center gap-3 min-w-0">
           {icon && (
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-200">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-200">
               {icon}
             </span>
           )}
