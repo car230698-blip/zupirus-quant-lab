@@ -157,6 +157,11 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
             "UPDATE research_reports SET status = 'PUBLISHED', published_at = ?, updated_at = ? WHERE id = ?",
             (now_pub, now_pub, rep_id),
         )
+        # Prevent the product seeder from retiring this placeholder again mid-test.
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES ('legacy_flagship_retired', '1') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
         c.execute(
             """
             INSERT INTO report_versions (

@@ -413,42 +413,52 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
             # the Asia high/low (touch alone is not a break).
             up = bar.high > asia_high
             down = bar.low < asia_low
+            open_up = bar.open > asia_high
+            open_down = bar.open < asia_low
             if up and down:
-                skipped_ambiguous += 1
-                chosen = "ambiguous"
-                break
-            if up or down:
-                side = "long" if up else "short"
-                # Gap policy: if the bar opens beyond the boundary without trading
-                # through it, enter at the open and recalculate 1R risk/target.
-                # Boundary fills remain when the bar crosses the level.
-                if side == "long":
-                    entry = bar.open if bar.open > asia_high else asia_high
-                    stop = asia_low
+                # If the open already prints beyond one boundary, that open is the
+                # first break; otherwise both sides on one bar are excluded.
+                if open_up and not open_down:
+                    side = "long"
+                elif open_down and not open_up:
+                    side = "short"
                 else:
-                    entry = bar.open if bar.open < asia_low else asia_low
-                    stop = asia_high
-                risk = abs(entry - stop)
-                if risk <= 0:
-                    skipped_incomplete += 1
-                    chosen = "invalid_risk"
+                    skipped_ambiguous += 1
+                    chosen = "ambiguous"
                     break
-                target = entry + risk if side == "long" else entry - risk
-                result = _walk_exit(later[index:], side, entry, stop, target)
-                if result is None:
-                    skipped_incomplete += 1
-                else:
-                    net = result - float(round_trip_cost_r)
-                    trades.append({
-                        "day": day,
-                        "side": side,
-                        "entry": _round(entry, 6),
-                        "stop": _round(stop, 6),
-                        "target": _round(target, 6),
-                        "r_multiple": _round(net, 6),
-                    })
-                chosen = side
+            elif up or down:
+                side = "long" if up else "short"
+            else:
+                continue
+            # Gap fill at open only when the bar never trades back to the boundary.
+            # If it trades through the boundary, fill at the boundary price.
+            if side == "long":
+                entry = bar.open if (bar.open > asia_high and bar.low > asia_high) else asia_high
+                stop = asia_low
+            else:
+                entry = bar.open if (bar.open < asia_low and bar.high < asia_low) else asia_low
+                stop = asia_high
+            risk = abs(entry - stop)
+            if risk <= 0:
+                skipped_incomplete += 1
+                chosen = "invalid_risk"
                 break
+            target = entry + risk if side == "long" else entry - risk
+            result = _walk_exit(later[index:], side, entry, stop, target)
+            if result is None:
+                skipped_incomplete += 1
+            else:
+                net = result - float(round_trip_cost_r)
+                trades.append({
+                    "day": day,
+                    "side": side,
+                    "entry": _round(entry, 6),
+                    "stop": _round(stop, 6),
+                    "target": _round(target, 6),
+                    "r_multiple": _round(net, 6),
+                })
+            chosen = side
+            break
         if chosen is None:
             skipped_incomplete += 1
     rs = [float(t["r_multiple"]) for t in trades]

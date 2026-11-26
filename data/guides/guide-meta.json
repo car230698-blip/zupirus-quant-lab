@@ -20,23 +20,21 @@
     "breakout_down_only_days": 266,
     "breakout_down_only_share": 0.3659,
     "breakout_down_hold_rate": 0.7105,
-    "rule_trades": 703,
-    "rule_win_rate": 0.5292,
-    "rule_expectancy_r": 0.0147,
-    "rule_profit_factor": 1.0345,
-    "rule_max_drawdown_r": 30.6761
+    "rule_trades": 704,
+    "rule_win_rate": 0.5312,
+    "rule_expectancy_r": 0.0201,
+    "rule_profit_factor": 1.0476,
+    "rule_max_drawdown_r": 28.5957
   },
   "highlights_vi": [
-    "Mẫu Yahoo Finance EURUSD H1: 17,245 nến, 2024-02-09 → 2026-11-26.",
-    "Biên trung bình London ≈ 0.0014 so với phiên Á ≈ 0.0009 (mô tả mẫu).",
-    "Phá biên một phía London: up_only 245 ngày (giữ 0.6898), down_only 266 ngày (giữ 0.7105).",
-    "Quy tắc minh họa 1R (chi phí 0.05R): 703 lệnh, kỳ vọng ≈ 0.0147R, max DD ≈ 30.6761R — thống kê lịch sử, không phải lời hứa lợi nhuận."
+    "Mẫu 17245 nến EURUSD H1.",
+    "Có bảng phiên, biến động, mùa vụ và một quy tắc minh họa với mức sụt giảm trên mẫu.",
+    "Không cam kết lợi nhuận. Không tự động vào lệnh."
   ],
   "highlights_en": [
-    "Yahoo Finance EURUSD H1 sample: 17,245 bars, 2024-02-09 → 2026-11-26.",
-    "London average range ≈ 0.0014 vs Asia ≈ 0.0009 (sample description).",
-    "One-sided London breaks: up_only 245 days (hold 0.6898), down_only 266 days (hold 0.7105).",
-    "Illustrative 1R rule (0.05R cost): 703 trades, expectancy ≈ 0.0147R, max DD ≈ 30.6761R — historical statistics, not a profit promise."
+    "Sample of 17245 EURUSD H1 bars.",
+    "Includes session, volatility, seasonality, and one illustrative rule with its in-sample drawdown.",
+    "No profit promise. No automated order entry."
   ],
   "disclaimer_vi": "Tài liệu này là bài nghiên cứu thống kê phục vụ học tập. Số liệu trên dữ liệu quá khứ không phải dự báo và không phải cam kết lợi nhuận. Giao dịch ngoại hối, vàng và chỉ số có thể làm mất một phần hoặc toàn bộ vốn. ZUPIRUS không thực thi lệnh, không copy-trade, không cho thuê VPS và không giữ tiền giao dịch của bạn. Người đọc tự quyết định, tự chịu rủi ro, và nên đối chiếu lại trên dữ liệu của chính mình trước khi dùng bất kỳ quy tắc nào.",
   "disclaimer_en": "This document is a statistical study for education. Figures computed on past data are not a forecast and are not a promise of profit. Trading forex, gold, or indices can lose some or all of the capital you commit. ZUPIRUS does not place orders, copy trades, rent a VPS for you, or hold your trading funds. You decide whether to use any rule, you carry the risk, and you should recompute the study on your own data first.",
@@ -46,8 +44,8 @@
     "version": "v1.0",
     "author": "ZUPIRUS Quant Lab",
     "as_of": "2026-11-26",
-    "symbol": "XAUUSD",
-    "timeframe": "M15",
+    "symbol": "EURUSD",
+    "timeframe": "H1",
     "disclaimer_vi": "Tài liệu này là bài nghiên cứu thống kê phục vụ học tập. Số liệu trên dữ liệu quá khứ không phải dự báo và không phải cam kết lợi nhuận. Giao dịch ngoại hối, vàng và chỉ số có thể làm mất một phần hoặc toàn bộ vốn. ZUPIRUS không thực thi lệnh, không copy-trade, không cho thuê VPS và không giữ tiền giao dịch của bạn. Người đọc tự quyết định, tự chịu rủi ro, và nên đối chiếu lại trên dữ liệu của chính mình trước khi dùng bất kỳ quy tắc nào.",
     "disclaimer_en": "This document is a statistical study for education. Figures computed on past data are not a forecast and are not a promise of profit. Trading forex, gold, or indices can lose some or all of the capital you commit. ZUPIRUS does not place orders, copy trades, rent a VPS for you, or hold your trading funds. You decide whether to use any rule, you carry the risk, and you should recompute the study on your own data first.",
     "preview_sections": [
@@ -56,13 +54,13 @@
         "heading_en": "Purpose and scope",
         "lines_vi": [
           "EURUSD H1: phiên Á và xác suất phá biên London — thống kê mẫu Yahoo 2024–2026 là một phương pháp đọc thị trường, không phải một dịch vụ vào lệnh.",
-          "Thị trường: XAUUSD. Khung: M15. Mẫu: 17245 nến, từ 2024-02-09 00:00 UTC đến 2026-11-26 04:00 UTC.",
+          "Thị trường: EURUSD. Khung: H1. Mẫu: 17245 nến, từ 2024-02-09 00:00 UTC đến 2026-11-26 04:00 UTC.",
           "Các phép tính có thể chạy lại: cùng nến và cùng tham số cho cùng một bảng số.",
           "ZUPIRUS không kết nối tài khoản MT5 của bạn và không tự động khớp lệnh."
         ],
         "lines_en": [
           "EURUSD H1: Asia range and London breakout rates — Yahoo sample 2024–2026 is a way to read a market, not an order-execution service.",
-          "Market: XAUUSD. Timeframe: M15. Sample: 17245 bars, from 2024-02-09 00:00 UTC to 2026-11-26 04:00 UTC.",
+          "Market: EURUSD. Timeframe: H1. Sample: 17245 bars, from 2024-02-09 00:00 UTC to 2026-11-26 04:00 UTC.",
           "The calculations are reproducible: the same bars and the same parameters produce the same tables.",
           "ZUPIRUS does not connect to your MT5 account and does not fill orders for you."
         ],
@@ -92,13 +90,13 @@
         "heading_en": "Purpose and scope",
         "lines_vi": [
           "EURUSD H1: phiên Á và xác suất phá biên London — thống kê mẫu Yahoo 2024–2026 là một phương pháp đọc thị trường, không phải một dịch vụ vào lệnh.",
-          "Thị trường: XAUUSD. Khung: M15. Mẫu: 17245 nến, từ 2024-02-09 00:00 UTC đến 2026-11-26 04:00 UTC.",
+          "Thị trường: EURUSD. Khung: H1. Mẫu: 17245 nến, từ 2024-02-09 00:00 UTC đến 2026-11-26 04:00 UTC.",
           "Các phép tính có thể chạy lại: cùng nến và cùng tham số cho cùng một bảng số.",
           "ZUPIRUS không kết nối tài khoản MT5 của bạn và không tự động khớp lệnh."
         ],
         "lines_en": [
           "EURUSD H1: Asia range and London breakout rates — Yahoo sample 2024–2026 is a way to read a market, not an order-execution service.",
-          "Market: XAUUSD. Timeframe: M15. Sample: 17245 bars, from 2024-02-09 00:00 UTC to 2026-11-26 04:00 UTC.",
+          "Market: EURUSD. Timeframe: H1. Sample: 17245 bars, from 2024-02-09 00:00 UTC to 2026-11-26 04:00 UTC.",
           "The calculations are reproducible: the same bars and the same parameters produce the same tables.",
           "ZUPIRUS does not connect to your MT5 account and does not fill orders for you."
         ],
@@ -410,24 +408,24 @@
         "lines_vi": [
           "Kỳ vọng và mức sụt giảm chỉ mô tả đường đi lịch sử này, sau chi phí đã ghi. Chúng không phải cam kết lợi nhuận tương lai, và sẽ đổi nếu quy tắc, múi giờ phiên hoặc chi phí đổi.",
           "metric | value",
-          "trades | 703",
-          "win_rate | 0.5292",
-          "expectancy_r | 0.0147",
-          "profit_factor | 1.0345",
-          "max_drawdown_r | 30.6761",
-          "sum_r | 10.3198",
-          "Tham số: rule=first London/New York break of the same-day Asia high or low, stop=opposite side of the Asia range, target_r=1.0, same_bar_stop_and_target=count as loss, round_trip_cost_r=0.05, skipped_ambiguous_days=15, skipped_incomplete_days=101"
+          "trades | 704",
+          "win_rate | 0.5312",
+          "expectancy_r | 0.0201",
+          "profit_factor | 1.0476",
+          "max_drawdown_r | 28.5957",
+          "sum_r | 14.1689",
+          "Tham số: rule=first London/New York break of the same-day Asia high or low, stop=opposite side of the Asia range, target_r=1.0, same_bar_stop_and_target=count as loss, round_trip_cost_r=0.05, skipped_ambiguous_days=14, skipped_incomplete_days=101"
         ],
         "lines_en": [
           "Expectancy and drawdown describe this historical path only, after the stated cost. They are not a promise of future profit, and the path would change if the rule, the session clock, or the cost changed.",
           "metric | value",
-          "trades | 703",
-          "win_rate | 0.5292",
-          "expectancy_r | 0.0147",
-          "profit_factor | 1.0345",
-          "max_drawdown_r | 30.6761",
-          "sum_r | 10.3198",
-          "Parameters: rule=first London/New York break of the same-day Asia high or low, stop=opposite side of the Asia range, target_r=1.0, same_bar_stop_and_target=count as loss, round_trip_cost_r=0.05, skipped_ambiguous_days=15, skipped_incomplete_days=101"
+          "trades | 704",
+          "win_rate | 0.5312",
+          "expectancy_r | 0.0201",
+          "profit_factor | 1.0476",
+          "max_drawdown_r | 28.5957",
+          "sum_r | 14.1689",
+          "Parameters: rule=first London/New York break of the same-day Asia high or low, stop=opposite side of the Asia range, target_r=1.0, same_bar_stop_and_target=count as loss, round_trip_cost_r=0.05, skipped_ambiguous_days=14, skipped_incomplete_days=101"
         ],
         "chart": {
           "type": "bar",
@@ -583,6 +581,7 @@
             "2024-09-11",
             "2024-09-12",
             "2024-09-16",
+            "2024-09-17",
             "2024-09-18",
             "2024-09-19",
             "2024-09-20",
@@ -1238,7 +1237,7 @@
             0.95,
             0.086706,
             -0.163896,
-            -1.05,
+            0.95,
             0.95,
             0.95,
             0.95,
@@ -1289,7 +1288,8 @@
             0.95,
             0.561155,
             -1.05,
-            0.148335,
+            -1.05,
+            0.168449,
             -1.05,
             0.95,
             0.95,
@@ -1485,7 +1485,7 @@
             -1.05,
             -1.05,
             -0.257433,
-            -0.088581,
+            -0.008193,
             -1.05,
             -1.05,
             -0.78017,
@@ -1502,7 +1502,7 @@
             0.95,
             0.95,
             -1.05,
-            -1.05,
+            0.95,
             0.95,
             0.95,
             -0.198243,
@@ -1695,7 +1695,7 @@
             -1.05,
             0.95,
             -0.471605,
-            -0.704406,
+            -0.692101,
             0.95,
             0.95,
             0.95,
@@ -1705,10 +1705,10 @@
             -1.05,
             0.95,
             0.3629,
-            0.317291,
+            0.95,
             0.184758,
             0.95,
-            0.176578,
+            0.234788,
             0.619383,
             0.95,
             -1.05,
@@ -1743,7 +1743,7 @@
             0.95,
             0.95,
             -1.05,
-            0.477816,
+            0.573164,
             -1.05,
             0.512871,
             0.95,
@@ -1862,12 +1862,12 @@
       }
     ],
     "highlights_vi": [
-      "Mẫu 17245 nến XAUUSD M15.",
+      "Mẫu 17245 nến EURUSD H1.",
       "Có bảng phiên, biến động, mùa vụ và một quy tắc minh họa với mức sụt giảm trên mẫu.",
       "Không cam kết lợi nhuận. Không tự động vào lệnh."
     ],
     "highlights_en": [
-      "Sample of 17245 XAUUSD M15 bars.",
+      "Sample of 17245 EURUSD H1 bars.",
       "Includes session, volatility, seasonality, and one illustrative rule with its in-sample drawdown.",
       "No profit promise. No automated order entry."
     ]

@@ -1027,10 +1027,17 @@ def apply_migration_029(c, is_pg: bool):
             c.execute("ALTER TABLE report_entitlements ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
 
     # First real product: EURUSD H1 Asia/London methodology as DRAFT (admin publish toggle).
+    c.execute("SAVEPOINT sp_mig029_launch_guide")
     try:
         from app.domains.quant.launch_guide import ensure_launch_guide_seeded
         ensure_launch_guide_seeded(c)
+        c.execute("RELEASE SAVEPOINT sp_mig029_launch_guide")
     except Exception as seed_err:
+        c.execute("ROLLBACK TO SAVEPOINT sp_mig029_launch_guide")
+        try:
+            c.execute("RELEASE SAVEPOINT sp_mig029_launch_guide")
+        except Exception:
+            pass
         logger.warning("Launch guide seed note in migration 029: %s", seed_err)
 
 

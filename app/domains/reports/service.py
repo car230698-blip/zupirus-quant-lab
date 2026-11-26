@@ -97,11 +97,17 @@ def list_public_reports() -> List[Dict[str, Any]]:
     """Return strictly PUBLISHED research reports for public catalog browsing."""
     with tx() as c:
         ensure_flagship_sample_report_seeded(c)
+        c.execute("SAVEPOINT sp_launch_guide_seed")
         try:
             from app.domains.quant.launch_guide import ensure_launch_guide_seeded
             ensure_launch_guide_seeded(c)
+            c.execute("RELEASE SAVEPOINT sp_launch_guide_seed")
         except Exception:
-            pass
+            c.execute("ROLLBACK TO SAVEPOINT sp_launch_guide_seed")
+            try:
+                c.execute("RELEASE SAVEPOINT sp_launch_guide_seed")
+            except Exception:
+                pass
         rows = c.execute(
             """
             SELECT * FROM research_reports

@@ -570,9 +570,10 @@ def insert_timescale_candle(
 ):
     """Insert or upsert an OHLCV candle into TimescaleDB (Postgres) or SQLite.
 
-    Live tick aggregation keeps extrema and accumulates volume. Research imports
-    (`replace_ohlcv=True`) replace the full OHLCV bar so a re-import matches the
-    study sample exactly.
+    Live tick aggregation keeps the first open, expands high/low, updates close,
+    and replaces volume with the latest running value from the streamer.
+    Research imports (`replace_ohlcv=True`) replace the full OHLCV bar so a
+    re-import matches the study sample exactly.
     """
     if is_postgres():
         if replace_ohlcv:
@@ -598,7 +599,7 @@ def insert_timescale_candle(
                     high = GREATEST(candles.high, excluded.high),
                     low = LEAST(candles.low, excluded.low),
                     close = excluded.close,
-                    volume = candles.volume + excluded.volume
+                    volume = excluded.volume
                 """,
                 (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
             )
@@ -615,7 +616,7 @@ def insert_timescale_candle(
                     volume = excluded.volume
                 """
         else:
-            # Live/stream path: keep the first open; update extrema/close/volume.
+            # Live/stream path: keep the first open; update extrema/close; replace volume.
             conflict_sql = """
                 INSERT INTO candles (source, symbol, timeframe, time, open, high, low, close, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -623,7 +624,7 @@ def insert_timescale_candle(
                     high = MAX(candles.high, excluded.high),
                     low = MIN(candles.low, excluded.low),
                     close = excluded.close,
-                    volume = candles.volume + excluded.volume
+                    volume = excluded.volume
                 """
         try:
             c.execute(

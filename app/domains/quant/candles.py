@@ -92,11 +92,11 @@ def _num(row: Mapping[str, Any], *keys: str) -> float:
     raise CandleValidationError(f"Missing numeric field: {'/'.join(keys)}.")
 
 
-def _validate_unix_seconds(value: float) -> int:
+def _validate_unix_seconds(value: float, *, allow_millis: bool = False) -> int:
     import math
     from datetime import datetime, timezone
 
-    if value > 10_000_000_000:
+    if allow_millis and value > 10_000_000_000:
         value = value / 1000.0
     if value <= 0 or not math.isfinite(value):
         raise CandleValidationError("Candle time must be a positive finite Unix timestamp.")
@@ -123,7 +123,8 @@ def _time_seconds(row: Mapping[str, Any]) -> int:
         if raw.tzinfo is None:
             raw = raw.replace(tzinfo=timezone.utc)
         try:
-            return _validate_unix_seconds(float(raw.timestamp()))
+            # datetime.timestamp() is always seconds — do not apply the ms heuristic.
+            return _validate_unix_seconds(float(raw.timestamp()), allow_millis=False)
         except (OverflowError, OSError, ValueError) as exc:
             raise CandleValidationError("Candle time is outside the representable UTC range.") from exc
     if hasattr(raw, "timestamp") and not isinstance(raw, (int, float, str)):
@@ -132,7 +133,7 @@ def _time_seconds(row: Mapping[str, Any]) -> int:
         value = float(raw)
     except (TypeError, ValueError, OverflowError) as exc:
         raise CandleValidationError("Candle time must be a Unix timestamp.") from exc
-    return _validate_unix_seconds(value)
+    return _validate_unix_seconds(value, allow_millis=True)
 
 
 def parse_candle(row: Any, index: int = 0) -> Candle:

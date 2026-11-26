@@ -24,6 +24,15 @@ def test_launch_guide_seeds_as_draft_with_price(client):
     assert Path(sample).exists() and Path(sample).stat().st_size > 1000
     assert Path(full).exists() and Path(full).stat().st_size > Path(sample).stat().st_size
 
+    from app.domains.quant.launch_guide import _load_meta
+    meta = _load_meta()
+    doc = meta.get("document_json") or {}
+    assert meta.get("symbol") == "EURUSD"
+    assert meta.get("timeframe") == "H1"
+    assert doc.get("symbol") == "EURUSD"
+    assert doc.get("timeframe") == "H1"
+    assert "XAUUSD" not in (doc.get("preview_sections") or [{}])[0].get("lines_en", [""])[1]
+
     # Not public until admin publishes
     pub = client.get("/api/v1/reports")
     assert pub.status_code == 200

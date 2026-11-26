@@ -45,7 +45,8 @@ To change the password on purpose: update Postgres first, then `.env`, then recr
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T timescaledb \
   psql -U "${POSTGRES_USER:-zupirus}" -d "${POSTGRES_DB:-zupirus_quant}" \
   -c "ALTER USER \"${POSTGRES_USER:-zupirus}\" WITH PASSWORD 'NEW_PASSWORD';"
-# Then set POSTGRES_PASSWORD=NEW_PASSWORD in .env and:
+# Then set POSTGRES_PASSWORD=NEW_PASSWORD in .env and reload it before recreate:
+set -a; source .env; set +a
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --force-recreate api research
 ```
 
@@ -146,7 +147,7 @@ docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml --profile pu
   caddy reload --config /etc/caddy/Caddyfile
 ```
 
-If you use Nginx Proxy Manager, leave it alone: it should already proxy `zupirus.com`, `www`, `app.zupirus.com`, and `adm.zupirus.com` to `127.0.0.1:8080`.
+If you use Nginx Proxy Manager on the `npm_default` Docker network, point each proxy host upstream to **`zupirus-api:8000`** (Compose network alias + container port). Use `127.0.0.1:8080` only for health checks from the VPS host itself — that address is the published host port, not what another container should call.
 
 ---
 

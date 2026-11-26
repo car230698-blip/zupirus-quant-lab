@@ -26,6 +26,9 @@ data/reports_samples/
 tmp/
 *.pdf
 !web/public/*.pdf
-!data/guides/*.pdf
-!artifacts/launch-guide/*.pdf
+!data/guides/*-preview.pdf
+!artifacts/launch-guide/*-preview.pdf
+!artifacts/launch-guide/preview-page-*.png
+!artifacts/launch-guide/guide-meta.json
+!data/guides/guide-meta.json
 

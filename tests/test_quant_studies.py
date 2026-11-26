@@ -117,6 +117,7 @@ def test_license_page_names_the_buyer():
 def test_gap_open_beyond_asia_boundary_enters_at_open():
     from app.domains.quant.studies import rule_backtest
 
+    # Pure gap: never trades back to 110 → fill at open 123.
     bars = [
         _bar(2, 1, 100, 110, 100, 105),
         _bar(2, 3, 105, 108, 100, 102),
@@ -126,6 +127,21 @@ def test_gap_open_beyond_asia_boundary_enters_at_open():
     out = rule_backtest(normalize_candles(bars), round_trip_cost_r=0.0)
     assert out["trades"]
     assert out["trades"][0]["entry"] == 123.0
+
+
+def test_gap_open_then_trade_through_boundary_fills_at_boundary():
+    from app.domains.quant.studies import rule_backtest
+
+    # Opens at 112 but trades down through 110 → boundary fill at 110.
+    bars = [
+        _bar(2, 1, 100, 110, 100, 105),
+        _bar(2, 3, 105, 108, 100, 102),
+        _bar(2, 8, 112, 121, 108, 119),
+        _bar(2, 9, 119, 120, 118, 119),
+    ]
+    out = rule_backtest(normalize_candles(bars), round_trip_cost_r=0.0)
+    assert out["trades"]
+    assert out["trades"][0]["entry"] == 110.0
 
 
 def test_rejects_non_finite_and_overflow_prices():

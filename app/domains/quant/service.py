@@ -156,6 +156,7 @@ def create_methodology_from_candles(
     """
     if price_usd is None or float(price_usd) <= 0:
         raise ValueError("price_usd is required and must be positive. The owner sets the price.")
+    canonical_source = (source or "QUANT_IMPORT").strip() or "QUANT_IMPORT"
     bundle = run_studies(
         rows,
         symbol=symbol,
@@ -164,7 +165,7 @@ def create_methodology_from_candles(
     )
     document = build_methodology(bundle, title_vi=title_vi, title_en=title_en, version=version)
     if store_candles:
-        ingest_candles(rows, symbol=symbol, timeframe=timeframe, source=source)
+        ingest_candles(rows, symbol=symbol, timeframe=timeframe, source=canonical_source)
 
     summary = document["highlights_vi"][0] + " " + document["highlights_vi"][2]
     draft = create_admin_report_draft(
@@ -212,7 +213,7 @@ def create_methodology_from_candles(
                 study_id,
                 bundle["symbol"],
                 bundle["timeframe"],
-                source,
+                canonical_source,
                 json.dumps(bundle["parameters"]),
                 json.dumps(bundle["studies"]),
                 bundle["candle_count"],
