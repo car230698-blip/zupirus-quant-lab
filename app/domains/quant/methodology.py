@@ -54,6 +54,7 @@ def build_methodology(
     title_en: str,
     version: str = "v1.0",
     author: str = "ZUPIRUS Quant Lab",
+    ai_report: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     studies = {item["id"]: item for item in bundle.get("studies") or []}
     start = _fmt_ts(bundle["range_start"])
@@ -102,7 +103,9 @@ def build_methodology(
         ("range_breakout", "Phá biên độ phiên Á", "Asia-range breaks"),
         ("mean_reversion_trend", "Hồi quy và độ bền xu hướng", "Mean reversion and trend persistence"),
         ("seasonality", "Mùa vụ theo giờ và thứ", "Hour and weekday seasonality"),
-        ("rule_backtest_asia_break", "Đường đi lịch sử của một quy tắc", "Historical path of one rule"),
+        ("rule_backtest_asia_break", "Đường đi lịch sử: Breakout & Retest", "Historical path: Breakout & Retest"),
+        ("rule_backtest_asian_mean_reversion", "Đường đi lịch sử: Đảo chiều phiên Á", "Historical path: Asian Mean-Reversion"),
+        ("rule_backtest_london_liquidity_sweep", "Đường đi lịch sử: Quét thanh khoản London", "Historical path: London Liquidity Sweep"),
     ]
     for key, heading_vi, heading_en in catalog:
         study = studies.get(key)
@@ -123,7 +126,7 @@ def build_methodology(
         full_sections.append(_section(heading_vi, heading_en, lines_vi, lines_en, study.get("chart")))
 
         # If rule study contains cost matrix, monte carlo, or equity curves, append specialized sections
-        if key == "rule_backtest_asia_break":
+        if key.startswith("rule_backtest"):
             cost_matrix = study.get("cost_stress_matrix")
             if cost_matrix and cost_matrix.get("rows"):
                 c_sec = _section(
@@ -188,6 +191,19 @@ def build_methodology(
                     "values": [pt["drawdown_r"] for pt in dd_series],
                 }
                 full_sections.append(curve_sec)
+    if ai_report and ai_report.get("sections"):
+        for sec in ai_report["sections"]:
+            sec_title = str(sec.get("title") or "Nghiên cứu chuyên sâu")
+            sec_content = str(sec.get("content") or "")
+            full_sections.append(
+                _section(
+                    heading_vi=sec_title,
+                    heading_en=sec_title,
+                    lines_vi=[sec_content],
+                    lines_en=[sec_content],
+                )
+            )
+
     full_sections.append(
         _section(
             "Giới hạn",
@@ -217,11 +233,11 @@ def build_methodology(
         "disclaimer_en": DISCLAIMER_EN,
         "preview_sections": preview_sections,
         "full_sections": full_sections,
-        "highlights_vi": [
+        "highlights_vi": (ai_report.get("highlights_vi") if ai_report and ai_report.get("highlights_vi") else [
             f"Mẫu {bundle.get('candle_count')} nến {symbol} {timeframe}.",
             "Có bảng phiên, biến động, mùa vụ và một quy tắc minh họa với mức sụt giảm trên mẫu.",
             "Không cam kết lợi nhuận. Không tự động vào lệnh.",
-        ],
+        ]),
         "highlights_en": [
             f"Sample of {bundle.get('candle_count')} {symbol} {timeframe} bars.",
             "Includes session, volatility, seasonality, and one illustrative rule with its in-sample drawdown.",

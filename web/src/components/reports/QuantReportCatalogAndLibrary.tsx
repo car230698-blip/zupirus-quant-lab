@@ -1032,44 +1032,82 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                   </div>
                 )}
 
-                {checkoutOrder.status !== 'PAID' && (
-                  <div className="rounded-xl border border-slate-800 bg-[#060A13] p-4 space-y-2.5">
-                    <label className="block text-xs font-medium text-slate-300">
+                {checkoutOrder.status === 'PAID' ? (
+                  <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-5 space-y-3 text-center">
+                    <div className="flex items-center justify-center gap-2 text-emerald-400 font-bold text-sm">
+                      <CheckCircle2 className="h-5 w-5" />
+                      <span>
+                        {lang === 'en'
+                          ? 'Payment Settled! Full Report Unlocked'
+                          : 'Thanh toán thành công! Báo cáo đã được mở khóa'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300">
                       {lang === 'en'
-                        ? 'Transaction Hash (TxHash) for instant verification'
-                        : 'Mã giao dịch (TxHash) để xác nhận tức thì'}
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={txHashInput}
-                        onChange={(e) => setTxHashInput(e.target.value)}
-                        placeholder="0x... / TxHash"
-                        className="quant-input flex-1 font-mono text-xs"
-                      />
+                        ? 'Your license entitlement has been granted. You can download the full institutional PDF immediately.'
+                        : 'Quyền truy cập bản quyền vĩnh viễn đã được cấp. Bạn có thể tải ngay file PDF bản đầy đủ.'}
+                    </p>
+                    {checkoutReport && (
                       <button
                         type="button"
-                        disabled={verifyingTx}
-                        onClick={handleVerifyTx}
-                        className="quant-btn-primary text-xs shrink-0"
+                        onClick={() =>
+                          handleDownloadPurchasedPdf(
+                            checkoutReport.id,
+                            checkoutReport.current_version,
+                            checkoutReport.title
+                          )
+                        }
+                        className="w-full quant-btn-primary text-xs py-2.5 justify-center bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400"
                       >
-                        {verifyingTx
-                          ? lang === 'en'
-                            ? 'Verifying...'
-                            : 'Đang kiểm tra...'
-                          : lang === 'en'
-                          ? 'Verify Tx'
-                          : 'Xác nhận giao dịch'}
+                        <Download className="h-4 w-4" />
+                        <span>
+                          {lang === 'en'
+                            ? `Download Full PDF (${checkoutReport.current_version})`
+                            : `Tải Xuống PDF Bản Đầy Đủ (${checkoutReport.current_version})`}
+                        </span>
                       </button>
-                    </div>
+                    )}
                   </div>
-                )}
+                ) : (
+                  <>
+                    <div className="rounded-xl border border-slate-800 bg-[#060A13] p-4 space-y-2.5">
+                      <label className="block text-xs font-medium text-slate-300">
+                        {lang === 'en'
+                          ? 'Transaction Hash (TxHash) for instant verification'
+                          : 'Mã giao dịch (TxHash) để xác nhận tức thì'}
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={txHashInput}
+                          onChange={(e) => setTxHashInput(e.target.value)}
+                          placeholder="0x... / TxHash"
+                          className="quant-input flex-1 font-mono text-xs"
+                        />
+                        <button
+                          type="button"
+                          disabled={verifyingTx}
+                          onClick={handleVerifyTx}
+                          className="quant-btn-primary text-xs shrink-0"
+                        >
+                          {verifyingTx
+                            ? lang === 'en'
+                              ? 'Verifying...'
+                              : 'Đang kiểm tra...'
+                            : lang === 'en'
+                            ? 'Verify Tx'
+                            : 'Xác nhận giao dịch'}
+                        </button>
+                      </div>
+                    </div>
 
-                <div className="text-center font-mono text-xs text-slate-400">
-                  {lang === 'en'
-                    ? 'Automatic on-chain polling active. Your full PDF unlocks as soon as payment settles.'
-                    : 'Hệ thống tự động đối soát giao dịch. Báo cáo PDF sẽ mở khóa ngay khi xác nhận hoàn tất.'}
-                </div>
+                    <div className="text-center font-mono text-xs text-slate-400">
+                      {lang === 'en'
+                        ? 'Automatic on-chain polling active. Your full PDF unlocks as soon as payment settles.'
+                        : 'Hệ thống tự động đối soát giao dịch. Báo cáo PDF sẽ mở khóa ngay khi xác nhận hoàn tất.'}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>

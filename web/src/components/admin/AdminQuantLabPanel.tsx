@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   FileText,
   Play,
+  RefreshCw,
   Sparkles,
   TrendingDown,
   UploadCloud,
@@ -21,15 +22,39 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
   const [fileName, setFileName] = useState('');
   const [symbol, setSymbol] = useState('XAUUSD');
   const [timeframe, setTimeframe] = useState('M15');
+  const [strategyName, setStrategyName] = useState('breakout_retest');
   const [costR, setCostR] = useState('0.025');
   const [titleVi, setTitleVi] = useState('Nghiên cứu Định Lượng Breakout & Retest XAU/USD M15');
   const [titleEn, setTitleEn] = useState('XAU/USD M15 Breakout & Retest Quantitative Study');
   const [priceUsd, setPriceUsd] = useState('32.0');
 
   const [loading, setLoading] = useState(false);
+  const [syncingFeed, setSyncingFeed] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [parsedData, setParsedData] = useState<any>(null);
   const [studyResult, setStudyResult] = useState<any>(null);
+
+  const handleLiveFeedSync = async () => {
+    setSyncingFeed(true);
+    setMsg('');
+    try {
+      const res: any = await api.post('/api/v1/admin/quant/data/sync', {
+        symbol,
+        timeframe,
+        range_str: '5d',
+      });
+      if (res?.data?.candles && res.data.candles.length > 0) {
+        setParsedData(res.data);
+        setMsg(`Đồng bộ thành công ${res.data.total_candles} nến thực tế ${symbol} (${timeframe}) từ thị trường!`);
+      } else {
+        setMsg('Đã kích hoạt đồng bộ dữ liệu thị trường.');
+      }
+    } catch (err: any) {
+      setMsg(err?.message || 'Lỗi đồng bộ nến từ thị trường.');
+    } finally {
+      setSyncingFeed(false);
+    }
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -94,7 +119,7 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
   const handleRunStudy = async () => {
     const candles = parsedData?.candles;
     if (!candles || candles.length < 2) {
-      setMsg('Vui lòng bấm "Phân tích CSV" trước khi chạy nghiên cứu định lượng.');
+      setMsg('Vui lòng bấm "Phân tích CSV" hoặc "Đồng bộ nến thị trường" trước khi chạy nghiên cứu định lượng.');
       return;
     }
     setLoading(true);
@@ -103,6 +128,7 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
       const res: any = await api.post('/api/v1/admin/quant/lab/run', {
         symbol,
         timeframe,
+        strategy_name: strategyName,
         round_trip_cost_r: Number(costR) || 0.0,
         candles,
       });
@@ -126,6 +152,7 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
       const res: any = await api.post('/api/v1/admin/quant/studies', {
         symbol,
         timeframe,
+        strategy_name: strategyName,
         title_vi: titleVi,
         title_en: titleEn,
         price_usd: Number(priceUsd) || 32.0,
@@ -164,14 +191,26 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
                 <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
               </label>
 
-              <button
-                type="button"
-                onClick={loadSampleData}
-                className="quant-btn-secondary text-xs"
-              >
-                <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-                <span>{lang === 'en' ? 'Load Sample (200 Bars M15)' : 'Nạp mẫu test (200 nến M15)'}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={syncingFeed}
+                  onClick={handleLiveFeedSync}
+                  className="quant-btn-secondary text-xs border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 text-emerald-400 ${syncingFeed ? 'animate-spin' : ''}`} />
+                  <span>{syncingFeed ? 'Đang đồng bộ...' : (lang === 'en' ? 'Sync Live Feed' : 'Đồng bộ nến thị trường (Live)')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={loadSampleData}
+                  className="quant-btn-secondary text-xs"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                  <span>{lang === 'en' ? 'Load Sample (200 Bars M15)' : 'Nạp mẫu test (200 nến M15)'}</span>
+                </button>
+              </div>
             </div>
 
             <div>
@@ -244,6 +283,32 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
                 <option value="0.025">0.025R (Tương đương ECN ~1.0 pip)</option>
                 <option value="0.05">0.050R (Tương đương Standard ~2.5 pips)</option>
                 <option value="0.10">0.100R (Stress test khắc nghiệt ~5.0 pips)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Mô hình Định Lượng (Strategy)</label>
+              <select
+                value={strategyName}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setStrategyName(val);
+                  if (val === 'breakout_retest') {
+                    setTitleVi('Nghiên cứu Định Lượng Breakout & Retest XAU/USD M15');
+                    setTitleEn('XAU/USD M15 Breakout & Retest Quantitative Study');
+                  } else if (val === 'asian_mean_reversion') {
+                    setTitleVi('Nghiên cứu Định Lượng Asian Session Mean-Reversion XAU/USD');
+                    setTitleEn('XAU/USD Asian Session Mean-Reversion Quantitative Study');
+                  } else if (val === 'london_sweep') {
+                    setTitleVi('Nghiên cứu Định Lượng London Liquidity Sweep XAU/USD');
+                    setTitleEn('XAU/USD London Liquidity Sweep Quantitative Study');
+                  }
+                }}
+                className="quant-input font-mono text-xs text-cyan-300 font-semibold"
+              >
+                <option value="breakout_retest">Breakout & Retest (London Break of Asia Range)</option>
+                <option value="asian_mean_reversion">Asian Session Mean-Reversion (ATR Extreme Fade)</option>
+                <option value="london_sweep">London Liquidity Sweep (Asia Range Purge & Reversal)</option>
               </select>
             </div>
 

@@ -540,104 +540,15 @@ def _walk_exit(bars: Sequence[Candle], side: str, entry: float, stop: float, tar
     return raw
 
 
-def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> Dict[str, Any]:
-    """Historical R-multiples of one published rule: London break of the Asia range.
-
-    Long if London first breaks the Asia high, short if it first breaks the Asia low.
-    Stop is the other side of the Asia range. Target is 1R. If a bar touches both,
-    the study records a loss. The position is marked at the 21:00 UTC bar if neither
-    is reached. This is a sample statistic, not a recommendation to run the rule live.
-    """
-    by_day: Dict[str, List[Candle]] = defaultdict(list)
-    for candle in candles:
-        by_day[utc_date_key(candle.time)].append(candle)
-    trades: List[Dict[str, Any]] = []
-    skipped_ambiguous = 0
-    skipped_incomplete = 0
-    for day in sorted(by_day):
-        bars = by_day[day]
-        asia = [c for c in bars if c.session == "asia"]
-        later = [c for c in bars if session_name(c.time) in ("london", "new_york")]
-        if not asia or not later:
-            skipped_incomplete += 1
-            continue
-        asia_high = max(c.high for c in asia)
-        asia_low = min(c.low for c in asia)
-        if asia_high <= asia_low:
-            skipped_incomplete += 1
-            continue
-        chosen = None
-        for index, bar in enumerate(later):
-            # Match range_breakout_stats: a break requires a strict trade beyond
-            # the Asia high/low (touch alone is not a break).
-            up = bar.high > asia_high
-            down = bar.low < asia_low
-            open_up = bar.open > asia_high
-            open_down = bar.open < asia_low
-            if up and down:
-                # If the open already prints beyond one boundary, that open is the
-                # first break; otherwise both sides on one bar are excluded.
-                if open_up and not open_down:
-                    side = "long"
-                elif open_down and not open_up:
-                    side = "short"
-                else:
-                    skipped_ambiguous += 1
-                    chosen = "ambiguous"
-                    break
-            elif up or down:
-                side = "long" if up else "short"
-            else:
-                continue
-            # Gap fill at open only when the bar never trades back to the boundary.
-            # If it trades through the boundary, fill at the boundary price.
-            pure_gap = (
-                (side == "long" and bar.open > asia_high and bar.low > asia_high)
-                or (side == "short" and bar.open < asia_low and bar.high < asia_low)
-            )
-            if side == "long":
-                entry = bar.open if pure_gap else asia_high
-                stop = asia_low
-            else:
-                entry = bar.open if pure_gap else asia_low
-                stop = asia_high
-            risk = abs(entry - stop)
-            if risk <= 0:
-                skipped_incomplete += 1
-                chosen = "invalid_risk"
-                break
-            target = entry + risk if side == "long" else entry - risk
-            retracing_fill = (
-                (side == "long" and bar.open > asia_high and not pure_gap)
-                or (side == "short" and bar.open < asia_low and not pure_gap)
-            )
-            if retracing_fill:
-                # OHLC cannot prove a target print happened after the boundary fill.
-                # On the fill bar: only allow a stop-out; never credit +1R. Then walk later bars.
-                stopped_on_fill = (
-                    (side == "long" and bar.low <= stop)
-                    or (side == "short" and bar.high >= stop)
-                )
-                result = -1.0 if stopped_on_fill else _walk_exit(later[index + 1 :], side, entry, stop, target)
-            else:
-                result = _walk_exit(later[index:], side, entry, stop, target)
-            if result is None:
-                skipped_incomplete += 1
-            else:
-                net = result - float(round_trip_cost_r)
-                trades.append({
-                    "day": day,
-                    "side": side,
-                    "entry": _round(entry, 6),
-                    "stop": _round(stop, 6),
-                    "target": _round(target, 6),
-                    "raw_r": _round(result, 6),
-                    "r_multiple": _round(net, 6),
-                })
-            chosen = side
-            break
-        if chosen is None:
-            skipped_incomplete += 1
+def _compile_rule_study_result(
+    *,
+    study_id: str,
+    trades: List[Dict[str, Any]],
+    round_trip_cost_r: float,
+    parameters: Dict[str, Any],
+    notes_en: str,
+    notes_vi: str,
+) -> Dict[str, Any]:
     rs = [float(t["r_multiple"]) for t in trades]
     raw_rs = [float(t.get("raw_r", t["r_multiple"])) for t in trades]
     wins = [r for r in rs if r > 0]
@@ -676,17 +587,9 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
     cost_matrix = _cost_stress_matrix(raw_rs)
 
     return {
-        "id": "rule_backtest_asia_break",
+        "id": study_id,
         "sample_size": len(trades),
-        "parameters": {
-            "rule": "first London/New York break of the same-day Asia high or low",
-            "stop": "opposite side of the Asia range",
-            "target_r": 1.0,
-            "same_bar_stop_and_target": "count as loss",
-            "round_trip_cost_r": float(round_trip_cost_r),
-            "skipped_ambiguous_days": skipped_ambiguous,
-            "skipped_incomplete_days": skipped_incomplete,
-        },
+        "parameters": parameters,
         "table": _table(
             ["metric", "value"],
             [
@@ -714,15 +617,317 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
             [float(pt["equity_r"]) for pt in equity_series] or [0.0],
             "R",
         ),
-        "notes_en": (
-            "Expectancy, statistical significance, and tail risk describe this historical sample path. "
-            "They are not a promise of future profit. The empirical edge varies across session times and market regimes."
-        ),
-        "notes_vi": (
-            "Kỳ vọng, ý nghĩa thống kê (t-stat/p-value) và rủi ro đuôi mô tả mẫu dữ liệu lịch sử này. "
-            "Chúng không phải cam kết lợi nhuận tương lai. Lợi thế định lượng thay đổi theo khung giờ phiên và cơ chế biến động."
-        ),
+        "notes_en": notes_en,
+        "notes_vi": notes_vi,
     }
+
+
+def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> Dict[str, Any]:
+    """Historical R-multiples of one published rule: London break of the Asia range."""
+    by_day: Dict[str, List[Candle]] = defaultdict(list)
+    for candle in candles:
+        by_day[utc_date_key(candle.time)].append(candle)
+    trades: List[Dict[str, Any]] = []
+    skipped_ambiguous = 0
+    skipped_incomplete = 0
+    for day in sorted(by_day):
+        bars = by_day[day]
+        asia = [c for c in bars if c.session == "asia"]
+        later = [c for c in bars if session_name(c.time) in ("london", "new_york")]
+        if not asia or not later:
+            skipped_incomplete += 1
+            continue
+        asia_high = max(c.high for c in asia)
+        asia_low = min(c.low for c in asia)
+        if asia_high <= asia_low:
+            skipped_incomplete += 1
+            continue
+        chosen = None
+        for index, bar in enumerate(later):
+            up = bar.high > asia_high
+            down = bar.low < asia_low
+            open_up = bar.open > asia_high
+            open_down = bar.open < asia_low
+            if up and down:
+                if open_up and not open_down:
+                    side = "long"
+                elif open_down and not open_up:
+                    side = "short"
+                else:
+                    skipped_ambiguous += 1
+                    chosen = "ambiguous"
+                    break
+            elif up or down:
+                side = "long" if up else "short"
+            else:
+                continue
+            pure_gap = (
+                (side == "long" and bar.open > asia_high and bar.low > asia_high)
+                or (side == "short" and bar.open < asia_low and bar.high < asia_low)
+            )
+            if side == "long":
+                entry = bar.open if pure_gap else asia_high
+                stop = asia_low
+            else:
+                entry = bar.open if pure_gap else asia_low
+                stop = asia_high
+            risk = abs(entry - stop)
+            if risk <= 0:
+                skipped_incomplete += 1
+                chosen = "invalid_risk"
+                break
+            target = entry + risk if side == "long" else entry - risk
+            retracing_fill = (
+                (side == "long" and bar.open > asia_high and not pure_gap)
+                or (side == "short" and bar.open < asia_low and not pure_gap)
+            )
+            if retracing_fill:
+                stopped_on_fill = (
+                    (side == "long" and bar.low <= stop)
+                    or (side == "short" and bar.high >= stop)
+                )
+                result = -1.0 if stopped_on_fill else _walk_exit(later[index + 1 :], side, entry, stop, target)
+            else:
+                result = _walk_exit(later[index:], side, entry, stop, target)
+            if result is None:
+                skipped_incomplete += 1
+            else:
+                net = result - float(round_trip_cost_r)
+                trades.append({
+                    "day": day,
+                    "side": side,
+                    "entry": _round(entry, 6),
+                    "stop": _round(stop, 6),
+                    "target": _round(target, 6),
+                    "raw_r": _round(result, 6),
+                    "r_multiple": _round(net, 6),
+                })
+            chosen = side
+            break
+        if chosen is None:
+            skipped_incomplete += 1
+
+    return _compile_rule_study_result(
+        study_id="rule_backtest_asia_break",
+        trades=trades,
+        round_trip_cost_r=round_trip_cost_r,
+        parameters={
+            "strategy": "Breakout & Retest of Asia Range in London",
+            "rule": "first London/New York break of same-day Asia high or low",
+            "stop": "opposite side of Asia range",
+            "target_r": 1.0,
+            "round_trip_cost_r": float(round_trip_cost_r),
+            "skipped_ambiguous_days": skipped_ambiguous,
+            "skipped_incomplete_days": skipped_incomplete,
+        },
+        notes_en="Expectancy, statistical significance, and tail risk describe this historical sample path. They are not a promise of future profit. The empirical edge varies across session times and market regimes.",
+        notes_vi="Kỳ vọng, ý nghĩa thống kê (t-stat/p-value) và rủi ro đuôi mô tả mẫu dữ liệu lịch sử này. Chúng không phải cam kết lợi nhuận tương lai. Lợi thế định lượng thay đổi theo khung giờ phiên và cơ chế biến động.",
+    )
+
+
+def rule_backtest_asian_mean_reversion(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> Dict[str, Any]:
+    """Historical R-multiples of Asian Session Mean-Reversion strategy.
+
+    Fades extreme price deviations outside 1.8 ATR during the lower-volatility Asian session (00:00-06:00 UTC),
+    targeting reversion to the session mean.
+    """
+    by_day: Dict[str, List[Candle]] = defaultdict(list)
+    for candle in candles:
+        by_day[utc_date_key(candle.time)].append(candle)
+
+    atrs = _atr(candles, period=14)
+    candle_atr_map = {c.time: atrs[idx] for idx, c in enumerate(candles) if atrs[idx] is not None}
+
+    trades: List[Dict[str, Any]] = []
+    skipped_incomplete = 0
+
+    for day in sorted(by_day):
+        bars = by_day[day]
+        asia = [c for c in bars if c.session == "asia"]
+        if len(asia) < 6:
+            skipped_incomplete += 1
+            continue
+
+        session_open = asia[0].open
+        traded = False
+
+        for idx, bar in enumerate(asia[3:], start=3):
+            bar_atr = candle_atr_map.get(bar.time)
+            if not bar_atr or bar_atr <= 0:
+                continue
+
+            running_mean = sum(c.close for c in asia[:idx]) / idx
+            dev_up = bar.high - running_mean
+            dev_down = running_mean - bar.low
+
+            # Short condition: Upper extreme fade with bearish reaction
+            if dev_up >= 1.8 * bar_atr and bar.close < bar.open:
+                entry = bar.close
+                stop = bar.high + 0.3 * bar_atr
+                risk = stop - entry
+                if risk <= 0:
+                    continue
+                target = entry - 1.5 * risk
+                result = _walk_exit(asia[idx + 1:], "short", entry, stop, target)
+                if result is not None:
+                    net = result - float(round_trip_cost_r)
+                    trades.append({
+                        "day": day,
+                        "side": "short",
+                        "entry": _round(entry, 6),
+                        "stop": _round(stop, 6),
+                        "target": _round(target, 6),
+                        "raw_r": _round(result, 6),
+                        "r_multiple": _round(net, 6),
+                    })
+                    traded = True
+                    break
+
+            # Long condition: Lower extreme fade with bullish reaction
+            elif dev_down >= 1.8 * bar_atr and bar.close > bar.open:
+                entry = bar.close
+                stop = bar.low - 0.3 * bar_atr
+                risk = entry - stop
+                if risk <= 0:
+                    continue
+                target = entry + 1.5 * risk
+                result = _walk_exit(asia[idx + 1:], "long", entry, stop, target)
+                if result is not None:
+                    net = result - float(round_trip_cost_r)
+                    trades.append({
+                        "day": day,
+                        "side": "long",
+                        "entry": _round(entry, 6),
+                        "stop": _round(stop, 6),
+                        "target": _round(target, 6),
+                        "raw_r": _round(result, 6),
+                        "r_multiple": _round(net, 6),
+                    })
+                    traded = True
+                    break
+
+        if not traded:
+            skipped_incomplete += 1
+
+    return _compile_rule_study_result(
+        study_id="rule_backtest_asian_mean_reversion",
+        trades=trades,
+        round_trip_cost_r=round_trip_cost_r,
+        parameters={
+            "strategy": "Asian Session Mean-Reversion",
+            "rule": "Fade extreme deviations > 1.8 ATR from Asian running mean (00:00-06:00 UTC)",
+            "stop": "Extreme wick + 0.3 ATR buffer",
+            "target_r": 1.5,
+            "round_trip_cost_r": float(round_trip_cost_r),
+            "skipped_incomplete_days": skipped_incomplete,
+        },
+        notes_en="Asian mean-reversion exploits compressed volatility before European session open. Performance degrades on major Asian macroeconomic news days.",
+        notes_vi="Chiến lược đảo chiều trung tính phiên Á khai thác giai đoạn nén biên độ trước giờ mở cửa châu Âu. Hiệu suất suy giảm khi có tin tức kinh tế vĩ mô đột biến.",
+    )
+
+
+def rule_backtest_london_liquidity_sweep(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> Dict[str, Any]:
+    """Historical R-multiples of London Liquidity Sweep strategy.
+
+    Detects false breakouts (sweeps/purges) of the Asian high or low during the London open
+    (07:00-09:30 UTC) with strong wick rejections back inside the range.
+    """
+    by_day: Dict[str, List[Candle]] = defaultdict(list)
+    for candle in candles:
+        by_day[utc_date_key(candle.time)].append(candle)
+
+    trades: List[Dict[str, Any]] = []
+    skipped_incomplete = 0
+
+    for day in sorted(by_day):
+        bars = by_day[day]
+        asia = [c for c in bars if c.session == "asia"]
+        london = [c for c in bars if session_name(c.time) in ("london", "new_york")]
+        if not asia or not london:
+            skipped_incomplete += 1
+            continue
+
+        asia_high = max(c.high for c in asia)
+        asia_low = min(c.low for c in asia)
+        if asia_high <= asia_low:
+            skipped_incomplete += 1
+            continue
+
+        traded = False
+        # Restrict entry search to the first 10 bars of London (approx 07:00 - 09:30 UTC)
+        search_window = london[:10]
+
+        for idx, bar in enumerate(search_window):
+            bar_range = bar.high - bar.low
+            if bar_range <= 0:
+                continue
+
+            # Bear trap (Long sweep): Purges asia_low but closes back above asia_low with lower wick >= 35%
+            lower_wick = min(bar.open, bar.close) - bar.low
+            if bar.low < asia_low and bar.close >= asia_low and (lower_wick / bar_range) >= 0.35:
+                entry = bar.close
+                stop = bar.low
+                risk = entry - stop
+                if risk <= 0:
+                    continue
+                target = entry + 1.8 * risk
+                result = _walk_exit(london[idx + 1:], "long", entry, stop, target)
+                if result is not None:
+                    net = result - float(round_trip_cost_r)
+                    trades.append({
+                        "day": day,
+                        "side": "long",
+                        "entry": _round(entry, 6),
+                        "stop": _round(stop, 6),
+                        "target": _round(target, 6),
+                        "raw_r": _round(result, 6),
+                        "r_multiple": _round(net, 6),
+                    })
+                    traded = True
+                    break
+
+            # Bull trap (Short sweep): Purges asia_high but closes back below asia_high with upper wick >= 35%
+            upper_wick = bar.high - max(bar.open, bar.close)
+            if bar.high > asia_high and bar.close <= asia_high and (upper_wick / bar_range) >= 0.35:
+                entry = bar.close
+                stop = bar.high
+                risk = stop - entry
+                if risk <= 0:
+                    continue
+                target = entry - 1.8 * risk
+                result = _walk_exit(london[idx + 1:], "short", entry, stop, target)
+                if result is not None:
+                    net = result - float(round_trip_cost_r)
+                    trades.append({
+                        "day": day,
+                        "side": "short",
+                        "entry": _round(entry, 6),
+                        "stop": _round(stop, 6),
+                        "target": _round(target, 6),
+                        "raw_r": _round(result, 6),
+                        "r_multiple": _round(net, 6),
+                    })
+                    traded = True
+                    break
+
+        if not traded:
+            skipped_incomplete += 1
+
+    return _compile_rule_study_result(
+        study_id="rule_backtest_london_liquidity_sweep",
+        trades=trades,
+        round_trip_cost_r=round_trip_cost_r,
+        parameters={
+            "strategy": "London Liquidity Sweep (Asian Range Purge & Reversal)",
+            "rule": "False breakout of Asian High/Low during 07:00-09:30 UTC with rejection wick >= 35%",
+            "stop": "Extreme sweep wick",
+            "target_r": 1.8,
+            "round_trip_cost_r": float(round_trip_cost_r),
+            "skipped_incomplete_days": skipped_incomplete,
+        },
+        notes_en="Liquidity sweep captures institutional stop-running at London open. Most effective on liquid instruments like XAUUSD, EURUSD, GBPUSD.",
+        notes_vi="Mô hình quét thanh khoản nắm bắt hành vi săn lệnh dừng lỗ của tổ chức tại giờ mở cửa London. Đặc biệt hiệu quả trên các cặp tài sản có tính thanh khoản cao.",
+    )
 
 
 def run_studies(
@@ -730,18 +935,58 @@ def run_studies(
     *,
     symbol: str = "XAUUSD",
     timeframe: str = "M15",
+    strategy_name: str = "breakout_retest",
     round_trip_cost_r: float = 0.0,
     atr_period: int = 14,
 ) -> Dict[str, Any]:
     """Run the full study set. Output depends only on the candles and parameters."""
     candles = normalize_candles(list(rows))
+    strat = (strategy_name or "breakout_retest").strip().lower()
+
+    if strat in ("asian_mean_reversion", "mean_reversion"):
+        rule_eval = rule_backtest_asian_mean_reversion(candles, round_trip_cost_r=round_trip_cost_r)
+    elif strat in ("london_sweep", "sweep", "liquidity_sweep"):
+        rule_eval = rule_backtest_london_liquidity_sweep(candles, round_trip_cost_r=round_trip_cost_r)
+    elif strat in ("all", "multi"):
+        # Include all 3 backtests
+        r1 = rule_backtest(candles, round_trip_cost_r=round_trip_cost_r)
+        r2 = rule_backtest_asian_mean_reversion(candles, round_trip_cost_r=round_trip_cost_r)
+        r3 = rule_backtest_london_liquidity_sweep(candles, round_trip_cost_r=round_trip_cost_r)
+        studies = [
+            session_profile(candles),
+            volatility_regimes(candles, atr_period=atr_period),
+            range_breakout_stats(candles),
+            mean_reversion_and_trend(candles),
+            seasonality(candles),
+            r1,
+            r2,
+            r3,
+        ]
+        return {
+            "symbol": str(symbol or "XAUUSD").upper().replace("/", ""),
+            "timeframe": str(timeframe or "M15").upper(),
+            "strategy": strat,
+            "candle_count": len(candles),
+            "range_start": candles[0].time,
+            "range_end": candles[-1].time,
+            "parameters": {
+                "strategy": strat,
+                "round_trip_cost_r": float(round_trip_cost_r),
+                "atr_period": int(atr_period),
+                "timezone": "UTC",
+            },
+            "studies": studies,
+        }
+    else:
+        rule_eval = rule_backtest(candles, round_trip_cost_r=round_trip_cost_r)
+
     studies = [
         session_profile(candles),
         volatility_regimes(candles, atr_period=atr_period),
         range_breakout_stats(candles),
         mean_reversion_and_trend(candles),
         seasonality(candles),
-        rule_backtest(candles, round_trip_cost_r=round_trip_cost_r),
+        rule_eval,
     ]
     return {
         "symbol": str(symbol or "XAUUSD").upper().replace("/", ""),

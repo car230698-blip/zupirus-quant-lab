@@ -147,6 +147,7 @@ def create_methodology_from_candles(
     title_vi: str,
     title_en: str,
     price_usd: float,
+    strategy_name: str = "breakout_retest",
     admin_id: str = "admin",
     version: str = "v1.0",
     price_vnd: Optional[int] = None,
@@ -165,13 +166,16 @@ def create_methodology_from_candles(
         rows,
         symbol=symbol,
         timeframe=timeframe,
+        strategy_name=strategy_name,
         round_trip_cost_r=round_trip_cost_r,
     )
-    document = build_methodology(bundle, title_vi=title_vi, title_en=title_en, version=version)
+    from app.domains.ai.report_writer import generate_research_report
+    ai_report = generate_research_report(bundle, use_gemini=True)
+    document = build_methodology(bundle, title_vi=title_vi, title_en=title_en, version=version, ai_report=ai_report)
     if store_candles:
         ingest_candles(rows, symbol=symbol, timeframe=timeframe, source=canonical_source)
 
-    rule_study = next((s for s in bundle.get("studies", []) if s.get("id") == "rule_backtest_asia_break"), {})
+    rule_study = next((s for s in bundle.get("studies", []) if str(s.get("id", "")).startswith("rule_backtest")), {})
     metrics_tbl = {row[0]: row[1] for row in rule_study.get("table", {}).get("rows", [])} if rule_study else {}
 
     summary = document["highlights_vi"][0] + " " + document["highlights_vi"][2]

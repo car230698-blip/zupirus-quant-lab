@@ -34,6 +34,7 @@ class CandleIn(BaseModel):
 class StudyRequest(BaseModel):
     symbol: str = "XAUUSD"
     timeframe: str = "M15"
+    strategy_name: str = "breakout_retest"
     title_vi: str = Field(min_length=4, max_length=180)
     title_en: str = Field(min_length=4, max_length=180)
     price_usd: float = Field(gt=0, le=10000)
@@ -60,6 +61,7 @@ def api_run_study(body: StudyRequest, admin: dict = Depends(get_current_admin)):
             rows,
             symbol=body.symbol,
             timeframe=body.timeframe,
+            strategy_name=body.strategy_name,
             title_vi=body.title_vi,
             title_en=body.title_en,
             price_usd=body.price_usd,
@@ -95,6 +97,7 @@ class UploadCsvRequest(BaseModel):
 class RunLabStudyRequest(BaseModel):
     symbol: str = "XAUUSD"
     timeframe: str = "M15"
+    strategy_name: str = "breakout_retest"
     round_trip_cost_r: confloat(ge=0, le=5, allow_inf_nan=False) = 0.0
     source: str = "QUANT_IMPORT"
     use_stored_candles: bool = False
@@ -176,6 +179,7 @@ def api_run_lab_study(body: RunLabStudyRequest, admin: dict = Depends(get_curren
             rows,
             symbol=body.symbol,
             timeframe=body.timeframe,
+            strategy_name=body.strategy_name,
             round_trip_cost_r=body.round_trip_cost_r,
         )
     except CandleValidationError as exc:
@@ -183,7 +187,7 @@ def api_run_lab_study(body: RunLabStudyRequest, admin: dict = Depends(get_curren
     except Exception as exc:
         fail(500, f"Lỗi tính toán định lượng: {exc}")
 
-    rule_study = next((s for s in bundle.get("studies", []) if s.get("id") == "rule_backtest_asia_break"), {})
+    rule_study = next((s for s in bundle.get("studies", []) if str(s.get("id", "")).startswith("rule_backtest")), {})
     metrics_tbl = {row[0]: row[1] for row in rule_study.get("table", {}).get("rows", [])} if rule_study else {}
 
     return {
@@ -234,3 +238,34 @@ def api_list_buyers(admin: dict = Depends(get_current_admin)):
 def api_list_orders(admin: dict = Depends(get_current_admin)):
     items = list_pdf_orders()
     return {"items": items, "count": len(items)}
+
+
+class DataSyncRequest(BaseModel):
+    symbol: str = "XAUUSD"
+    timeframe: str = "M15"
+    range_str: str = "5d"
+
+
+@router.post("/api/v1/admin/quant/data/sync")
+@router.post("/api/admin/quant/data/sync")
+def api_sync_market_data(body: DataSyncRequest, admin: dict = Depends(get_current_admin)):
+    """Fetch live institutional market data from public feeds and store into TimescaleDB/SQLite."""
+    from app.domains.quant.data_feed import sync_market_candles
+    try:
+        result = sync_market_candles(symbol=body.symbol, timeframe=body.timeframe, range_str=body.range_str)
+        return {"success": True, "data": result}
+    except Exception as exc:
+        fail(500, f"Lỗi đồng bộ dữ liệu thị trường: {exc}")
+
+
+@router.get("/api/v1/admin/quant/data/status")
+@router.get("/api/admin/quant/data/status")
+def api_get_data_status(admin: dict = Depends(get_current_admin)):
+    """Return candle inventory and health check across tracked symbols/timeframes."""
+    from app.domains.quant.data_feed import get_market_data_status
+    try:
+        items = get_market_data_status()
+        return {"success": True, "items": items}
+    except Exception as exc:
+        fail(500, f"Lỗi kiểm tra trạng thái dữ liệu: {exc}")
+
