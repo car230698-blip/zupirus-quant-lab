@@ -28,10 +28,8 @@ services:
       ALLOWED_ORIGINS: "https://zupirus.com,https://www.zupirus.com,https://app.zupirus.com,https://adm.zupirus.com"
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
-      SEPAY_WEBHOOK_SECRET: ${SEPAY_WEBHOOK_SECRET:-}
-      SEPAY_BANK_NAME: ${SEPAY_BANK_NAME:-}
-      SEPAY_ACCOUNT_NUMBER: ${SEPAY_ACCOUNT_NUMBER:-}
-      SEPAY_ACCOUNT_HOLDER: ${SEPAY_ACCOUNT_HOLDER:-}
+      USDT_TRC20_ADDRESS: ${USDT_TRC20_ADDRESS:-}
+      USDT_BEP20_ADDRESS: ${USDT_BEP20_ADDRESS:-}
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
     networks:
       private:
