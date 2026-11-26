@@ -214,11 +214,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
         <button
           type="button"
           onClick={() => setActiveSubTab('reports')}
-          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
-            activeSubTab === 'reports'
-              ? 'text-white'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${activeSubTab === 'reports'
+            ? 'text-white'
+            : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <span>{lang === 'en' ? 'PDF Reports Publisher' : 'Xuất Bản Báo Cáo PDF'}</span>
           {activeSubTab === 'reports' && (
@@ -229,11 +228,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
         <button
           type="button"
           onClick={() => setActiveSubTab('orders')}
-          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
-            activeSubTab === 'orders'
-              ? 'text-white'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${activeSubTab === 'orders'
+            ? 'text-white'
+            : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <span>{lang === 'en' ? 'Report Orders (USDT)' : 'Đơn Mua Báo Cáo (USDT)'}</span>
           {pendingOrdersCount > 0 && (
@@ -249,11 +247,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
         <button
           type="button"
           onClick={() => setActiveSubTab('customers')}
-          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
-            activeSubTab === 'customers'
-              ? 'text-white'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${activeSubTab === 'customers'
+            ? 'text-white'
+            : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <span>{lang === 'en' ? 'Customers & Archive' : 'Khách Hàng & Lưu Trữ'}</span>
           <span className="ml-2 rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-400">
@@ -267,11 +264,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
         <button
           type="button"
           onClick={() => setActiveSubTab('settings')}
-          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
-            activeSubTab === 'settings'
-              ? 'text-white'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${activeSubTab === 'settings'
+            ? 'text-white'
+            : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           <span>{lang === 'en' ? 'USDT Gateway & FX Rates' : 'Cấu Hình Ví USDT & Tỷ Giá'}</span>
           {activeSubTab === 'settings' && (
@@ -302,17 +298,16 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                     key={f}
                     type="button"
                     onClick={() => setStatusFilter(f)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-medium cursor-pointer transition ${
-                      statusFilter === f
-                        ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/40 font-bold'
-                        : 'bg-[#080E1A] text-slate-400 hover:text-white border border-slate-800'
-                    }`}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium cursor-pointer transition ${statusFilter === f
+                      ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/40 font-bold'
+                      : 'bg-[#080E1A] text-slate-400 hover:text-white border border-slate-800'
+                      }`}
                   >
                     {f === 'ALL'
                       ? (lang === 'en' ? 'All' : 'Tất cả')
                       : f === 'EXCEPTIONS'
-                      ? (lang === 'en' ? 'Pending / Exceptions' : 'Chờ / Ngoại lệ')
-                      : (lang === 'en' ? 'Paid' : 'Đã thanh toán')}
+                        ? (lang === 'en' ? 'Pending / Exceptions' : 'Chờ / Ngoại lệ')
+                        : (lang === 'en' ? 'Paid' : 'Đã thanh toán')}
                   </button>
                 ))}
               </div>
@@ -374,11 +369,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                               {/* Mốc 1: Nhận tiền */}
                               <span
                                 title={lang === 'en' ? 'Step 1: Payment Confirmed' : 'Mốc 1: Đã nhận tiền'}
-                                className={`rounded px-1.5 py-0.5 font-bold ${
-                                  o.payment_confirmed || st === 'PAID'
-                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                    : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                                }`}
+                                className={`rounded px-1.5 py-0.5 font-bold ${o.payment_confirmed || st === 'PAID'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                  }`}
                               >
                                 {o.payment_confirmed || st === 'PAID' ? '✓ Tiền' : 'Chờ Tiền'}
                               </span>
@@ -386,11 +380,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                               {/* Mốc 2: Cấp quyền */}
                               <span
                                 title={lang === 'en' ? 'Step 2: Entitlement Applied' : 'Mốc 2: Đã cấp quyền'}
-                                className={`rounded px-1.5 py-0.5 font-bold ${
-                                  o.entitlement_applied
-                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                    : 'bg-slate-700/50 text-slate-400 border border-slate-700'
-                                }`}
+                                className={`rounded px-1.5 py-0.5 font-bold ${o.entitlement_applied
+                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-slate-700/50 text-slate-400 border border-slate-700'
+                                  }`}
                               >
                                 {o.entitlement_applied ? '✓ Quyền' : 'Chờ Quyền'}
                               </span>
@@ -401,7 +394,7 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                                 const isReady = Boolean(o.cloud_ready || cloudStatus === 'DEPLOYED');
                                 const isFailed = cloudStatus === 'FAILED';
                                 const isAwaitingLink = cloudStatus === 'PENDING_LINK' || cloudStatus === 'AWAITING_ACCOUNT' || (!o.account_id && !o.metaapi_account_id && !isReady);
-                                
+
                                 if (isReady) {
                                   return (
                                     <span
@@ -548,11 +541,10 @@ export const AdminBusinessCustomersTab: React.FC<AdminBusinessCustomersTabProps>
                           </td>
                           <td className="py-2.5 pr-4">
                             <span
-                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                                a.deployment_state === 'DEPLOYED' && autoTrade
-                                  ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/30'
-                                  : 'bg-slate-800 text-slate-400 border border-slate-700'
-                              }`}
+                              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${a.deployment_state === 'DEPLOYED' && autoTrade
+                                ? 'bg-[#12B5A6]/15 text-[#12B5A6] border border-[#12B5A6]/30'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                }`}
                             >
                               {a.deployment_state || 'UNKNOWN'} {autoTrade ? '• AUTO' : '• PAUSED'}
                             </span>

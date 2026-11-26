@@ -25,10 +25,10 @@ export const detectInitialLanguage = (): Language => {
       try {
         localStorage.setItem('zupirus_user_lang_pref', qLang);
         localStorage.setItem('zupirus_geo_lang', qLang);
-      } catch {}
+      } catch { }
       return qLang;
     }
-  } catch {}
+  } catch { }
 
   // 1b. User manual preference
   try {
@@ -36,7 +36,7 @@ export const detectInitialLanguage = (): Language => {
     if (userPref === 'vi' || userPref === 'en') {
       return userPref as Language;
     }
-  } catch {}
+  } catch { }
 
   // 2. Cookie set by server based on Cloudflare CF-IPCountry / GeoIP
   try {
@@ -47,7 +47,7 @@ export const detectInitialLanguage = (): Language => {
         return v as Language;
       }
     }
-  } catch {}
+  } catch { }
 
   // 3. LocalStorage persistence
   try {
@@ -55,7 +55,7 @@ export const detectInitialLanguage = (): Language => {
     if (saved === 'vi' || saved === 'en') {
       return saved as Language;
     }
-  } catch {}
+  } catch { }
 
   // 4. Fallback: Browser Language & Physical Timezone check
   const navLang = (navigator.language || '').toLowerCase();
@@ -66,7 +66,7 @@ export const detectInitialLanguage = (): Language => {
   try {
     const tz = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').toLowerCase();
     isVnTimezone = tz.includes('ho_chi_minh') || tz.includes('saigon');
-  } catch {}
+  } catch { }
 
   // If visitor is outside Vietnam (either non-VN timezone or non-VN browser):
   if (!hasVietnameseLang || !isVnTimezone) {
@@ -88,7 +88,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (qLang === 'vi' || qLang === 'en') return;
       const userPref = localStorage.getItem('zupirus_user_lang_pref');
       if (userPref === 'vi' || userPref === 'en') return;
-    } catch {}
+    } catch { }
 
     let active = true;
     api.get<{ language: Language; is_foreign: boolean; country?: string }>('/api/v1/auth/geo')
@@ -102,10 +102,10 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             const domainAttr = isZupirus ? '; domain=.zupirus.com' : '';
             document.cookie = `zupirus_geo_lang=${res.language}; path=/${domainAttr}; max-age=604800; SameSite=Lax`;
             localStorage.setItem('zupirus_geo_lang', res.language);
-          } catch {}
+          } catch { }
         }
       })
-      .catch(() => {});
+      .catch(() => { });
     return () => {
       active = false;
     };
@@ -117,9 +117,9 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       try {
         localStorage.setItem('zupirus_user_lang_pref', newLang);
         localStorage.setItem('zupirus_geo_lang', newLang);
-      } catch {}
+      } catch { }
       document.documentElement.lang = newLang;
-      api.patch('/api/v1/auth/language', { language: newLang }).catch(() => {});
+      api.patch('/api/v1/auth/language', { language: newLang }).catch(() => { });
     }
   }, []);
 
@@ -180,8 +180,8 @@ export const useLanguage = (): LanguageContextProps => {
   if (!context) {
     return {
       lang: 'vi',
-      setLang: () => {},
-      toggleLang: () => {},
+      setLang: () => { },
+      toggleLang: () => { },
       t: vi,
     };
   }

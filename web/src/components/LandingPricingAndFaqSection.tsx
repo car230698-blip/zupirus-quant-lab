@@ -115,11 +115,10 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                   key={cycle}
                   type="button"
                   onClick={() => setBillingCycle(cycle)}
-                  className={`rounded-lg px-3.5 py-1.5 font-medium transition cursor-pointer ${
-                    billingCycle === cycle
-                      ? 'bg-[#12B5A6] text-[#042F2E] font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`rounded-lg px-3.5 py-1.5 font-medium transition cursor-pointer ${billingCycle === cycle
+                    ? 'bg-[#12B5A6] text-[#042F2E] font-bold'
+                    : 'text-slate-400 hover:text-white'
+                    }`}
                 >
                   {label}
                 </button>
@@ -132,11 +131,10 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                   key={cur}
                   type="button"
                   onClick={() => setCurrencyMode(cur)}
-                  className={`rounded-lg px-3 py-1.5 font-medium transition cursor-pointer ${
-                    currencyMode === cur
-                      ? 'bg-slate-700 text-white font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`rounded-lg px-3 py-1.5 font-medium transition cursor-pointer ${currencyMode === cur
+                    ? 'bg-slate-700 text-white font-bold'
+                    : 'text-slate-400 hover:text-white'
+                    }`}
                 >
                   {cur}
                 </button>
@@ -154,11 +152,10 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
               <SpotlightBento
                 key={tier.id}
                 borderBeam={isPopular}
-                className={`p-7 flex flex-col justify-between h-full transition-all ${
-                  isPopular
-                    ? 'border-[#12B5A6]/80 relative shadow-[0_0_35px_rgba(18,181,166,0.18)]'
-                    : 'border-white/10 hover:border-white/20'
-                }`}
+                className={`p-7 flex flex-col justify-between h-full transition-all ${isPopular
+                  ? 'border-[#12B5A6]/80 relative shadow-[0_0_35px_rgba(18,181,166,0.18)]'
+                  : 'border-white/10 hover:border-white/20'
+                  }`}
               >
                 {isPopular && (
                   <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border border-[#12B5A6] bg-[#060A13] px-3.5 py-0.5 font-mono text-[11px] font-bold text-[#12B5A6] shadow-[0_0_12px_rgba(18,181,166,0.4)]">
@@ -207,11 +204,10 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                   <button
                     type="button"
                     onClick={onEnterPortal}
-                    className={`rounded-xl py-2.5 text-xs font-bold transition cursor-pointer ${
-                      isPopular
-                        ? 'bg-[#12B5A6] text-[#042F2E] hover:bg-[#14C9B8]'
-                        : 'border border-[#12B5A6]/50 bg-[#12B5A6]/10 text-[#12B5A6] hover:bg-[#12B5A6]/20'
-                    }`}
+                    className={`rounded-xl py-2.5 text-xs font-bold transition cursor-pointer ${isPopular
+                      ? 'bg-[#12B5A6] text-[#042F2E] hover:bg-[#14C9B8]'
+                      : 'border border-[#12B5A6]/50 bg-[#12B5A6]/10 text-[#12B5A6] hover:bg-[#12B5A6]/20'
+                      }`}
                   >
                     {lang === 'en' ? 'Activate Now →' : 'Kích Hoạt →'}
                   </button>

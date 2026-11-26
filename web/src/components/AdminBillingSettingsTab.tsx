@@ -46,7 +46,7 @@ export const AdminBillingSettingsTab: React.FC = () => {
             bep20_address: cData.bep20_address || '',
           });
         }
-      } catch {}
+      } catch { }
     } catch (e: any) {
       setMsg(`Lỗi tải cấu hình thanh toán: ${e?.message || 'Không thể kết nối API'}`);
     } finally {
@@ -176,11 +176,10 @@ export const AdminBillingSettingsTab: React.FC = () => {
 
         {cryptoMsg && (
           <div
-            className={`rounded-xl border p-3.5 text-xs font-medium ${
-              cryptoMsg.startsWith('✓')
-                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
-            }`}
+            className={`rounded-xl border p-3.5 text-xs font-medium ${cryptoMsg.startsWith('✓')
+              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+              : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+              }`}
           >
             {cryptoMsg}
           </div>
