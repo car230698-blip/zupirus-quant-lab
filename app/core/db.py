@@ -603,9 +603,8 @@ def insert_timescale_candle(
                 (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
             )
     else:
-        try:
-            c.execute(
-                """
+        if replace_ohlcv:
+            conflict_sql = """
                 INSERT INTO candles (source, symbol, timeframe, time, open, high, low, close, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
@@ -614,7 +613,21 @@ def insert_timescale_candle(
                     low = excluded.low,
                     close = excluded.close,
                     volume = excluded.volume
-                """,
+                """
+        else:
+            # Live/stream path: keep the first open; update extrema/close/volume.
+            conflict_sql = """
+                INSERT INTO candles (source, symbol, timeframe, time, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
+                    high = MAX(candles.high, excluded.high),
+                    low = MIN(candles.low, excluded.low),
+                    close = excluded.close,
+                    volume = candles.volume + excluded.volume
+                """
+        try:
+            c.execute(
+                conflict_sql,
                 (source, symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
             )
         except Exception:

@@ -50,7 +50,7 @@ def dashboard(
                         THEN COALESCE(amount_vnd, amount_usd)
                         ELSE COALESCE(amount_usd, amount_vnd)
                    END AS amount,
-                   currency, status, created_at, NULL AS paid_at
+                   currency, status, created_at, paid_at
             FROM orders
             WHERE user_id = ?
             ORDER BY created_at DESC LIMIT 50
@@ -108,7 +108,7 @@ def export_orders_csv(
                         THEN COALESCE(o.amount_vnd, o.amount_usd)
                         ELSE COALESCE(o.amount_usd, o.amount_vnd)
                    END AS amount,
-                   o.currency, o.status, o.created_at, NULL AS paid_at, r.title
+                   o.currency, o.status, o.created_at, o.paid_at, r.title
             FROM orders o
             LEFT JOIN research_reports r ON r.id = o.report_id
             WHERE o.user_id = ? AND o.created_at >= ?

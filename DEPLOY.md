@@ -233,8 +233,10 @@ Create a separate restore database, validate it, then switch only after checks p
 ```bash
 cd /root/zupirus-quant-lab
 set -a; source .env; set +a
-STAMP=YYYYMMDDTHHMMSSZ   # the stamp from your backup filename
-RESTORE_DB=zupirus_quant_restore_${STAMP}
+STAMP=YYYYMMDDTHHMMSSZ   # the stamp from your backup filename (keep original case in the filename)
+# Lowercase the DB name so CREATE DATABASE and pg_restore/-d stay in sync
+# (PostgreSQL folds unquoted identifiers to lowercase).
+RESTORE_DB=$(echo "zupirus_quant_restore_${STAMP}" | tr '[:upper:]' '[:lower:]')
 
 # 1) Create an empty restore database (production DB stays untouched)
 docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T timescaledb \
@@ -253,7 +255,15 @@ docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml exec -T time
   -c "SELECT count(*) AS orders FROM orders;"
 ```
 
-Do **not** run `pg_restore --clean` against `zupirus_quant` while it is the live production database. Point `DATABASE_URL` at the restore DB only after you have verified the counts and any payments that arrived after the snapshot.
+Do **not** run `pg_restore --clean` against `zupirus_quant` while it is the live production database.
+
+After validation, switch the stack by changing **`POSTGRES_DB`** (Compose builds `DATABASE_URL` from `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` — a bare `DATABASE_URL=` line in `.env` is ignored by `compose.prod.yaml`):
+
+```bash
+# Edit .env: set POSTGRES_DB=${RESTORE_DB}
+set -a; source .env; set +a
+docker compose -p zupirus-prod -f compose.yaml -f compose.prod.yaml up -d --force-recreate api research
+```
 
 Restore PDF files if the volume was replaced:
 

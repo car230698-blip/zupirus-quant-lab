@@ -112,3 +112,31 @@ def test_license_page_names_the_buyer():
     page = build_license_page(["Buyer / Người mua: minh@example.com", "Version / Phiên bản: v1.0"])
     assert page.startswith(b"%PDF")
     assert b"minh@example.com" in page
+
+
+def test_gap_open_beyond_asia_boundary_enters_at_open():
+    from app.domains.quant.studies import rule_backtest
+
+    bars = [
+        _bar(2, 1, 100, 110, 100, 105),
+        _bar(2, 3, 105, 108, 100, 102),
+        _bar(2, 8, 123, 124, 121, 122),
+        _bar(2, 9, 122, 122, 120, 120),
+    ]
+    out = rule_backtest(normalize_candles(bars), round_trip_cost_r=0.0)
+    assert out["trades"]
+    assert out["trades"][0]["entry"] == 123.0
+
+
+def test_rejects_non_finite_and_overflow_prices():
+    with pytest.raises(CandleValidationError):
+        normalize_candles([{"time": _ts(2, 1), "open": "nan", "high": "nan", "low": "nan", "close": "nan"}])
+    with pytest.raises(CandleValidationError):
+        normalize_candles([{"time": _ts(2, 1), "open": 10**400, "high": 10**400, "low": 10**400, "close": 10**400}])
+
+
+def test_research_import_rejects_live_feed_source():
+    from app.domains.quant.service import ingest_candles
+
+    with pytest.raises(ValueError, match="live-feed"):
+        ingest_candles([_bar(2, 1, 1, 1, 1, 1)], symbol="EURUSD", timeframe="H1", source="MARKET_LIVE")

@@ -84,7 +84,7 @@ def _num(row: Mapping[str, Any], *keys: str) -> float:
         if key in row and row[key] is not None and row[key] != "":
             try:
                 value = float(row[key])
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, OverflowError) as exc:
                 raise CandleValidationError(f"Field '{key}' is not a number.") from exc
             if not math.isfinite(value):
                 raise CandleValidationError(f"Field '{key}' must be a finite number.")
@@ -92,23 +92,10 @@ def _num(row: Mapping[str, Any], *keys: str) -> float:
     raise CandleValidationError(f"Missing numeric field: {'/'.join(keys)}.")
 
 
-def _time_seconds(row: Mapping[str, Any]) -> int:
+def _validate_unix_seconds(value: float) -> int:
     import math
     from datetime import datetime, timezone
-    raw = None
-    for key in ("time", "timestamp", "ts", "t"):
-        if key in row and row[key] is not None and row[key] != "":
-            raw = row[key]
-            break
-    if raw is None:
-        raise CandleValidationError("Each candle needs a UTC timestamp in 'time'.")
-    if hasattr(raw, "timestamp"):
-        return int(raw.timestamp())
-    try:
-        value = float(raw)
-    except (TypeError, ValueError) as exc:
-        raise CandleValidationError("Candle time must be a Unix timestamp.") from exc
-    # Accept milliseconds.
+
     if value > 10_000_000_000:
         value = value / 1000.0
     if value <= 0 or not math.isfinite(value):
@@ -117,7 +104,35 @@ def _time_seconds(row: Mapping[str, Any]) -> int:
         datetime.fromtimestamp(value, tz=timezone.utc)
     except (OverflowError, OSError, ValueError) as exc:
         raise CandleValidationError("Candle time is outside the representable UTC range.") from exc
-    return int(value)
+    whole = int(value)
+    if whole <= 0:
+        raise CandleValidationError("Candle time must be a positive finite Unix timestamp.")
+    return whole
+
+
+def _time_seconds(row: Mapping[str, Any]) -> int:
+    from datetime import datetime, timezone
+    raw = None
+    for key in ("time", "timestamp", "ts", "t"):
+        if key in row and row[key] is not None and row[key] != "":
+            raw = row[key]
+            break
+    if raw is None:
+        raise CandleValidationError("Each candle needs a UTC timestamp in 'time'.")
+    if isinstance(raw, datetime):
+        if raw.tzinfo is None:
+            raw = raw.replace(tzinfo=timezone.utc)
+        try:
+            return _validate_unix_seconds(float(raw.timestamp()))
+        except (OverflowError, OSError, ValueError) as exc:
+            raise CandleValidationError("Candle time is outside the representable UTC range.") from exc
+    if hasattr(raw, "timestamp") and not isinstance(raw, (int, float, str)):
+        raise CandleValidationError("Candle time must be a Unix timestamp or timezone-aware datetime.")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise CandleValidationError("Candle time must be a Unix timestamp.") from exc
+    return _validate_unix_seconds(value)
 
 
 def parse_candle(row: Any, index: int = 0) -> Candle:

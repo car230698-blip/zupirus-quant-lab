@@ -300,8 +300,16 @@ def mean_reversion_and_trend(candles: Sequence[Candle]) -> Dict[str, Any]:
             "share",
         ),
         "tendency": tendency,
-        "notes_en": "Positive autocorrelation means recent direction continued more often in this sample. It can disappear out of sample.",
-        "notes_vi": "Tự tương quan dương nghĩa là hướng gần đây tiếp diễn nhiều hơn trên mẫu này. Hiện tượng đó có thể biến mất ngoài mẫu.",
+        "notes_en": (
+            "Lag-1 Pearson autocorrelation measures how successive return values vary together; "
+            "it is not the same as same-sign frequency. Use directional_persistence for how often "
+            "adjacent returns share a sign. Either figure can disappear out of sample."
+        ),
+        "notes_vi": (
+            "Tự tương quan Pearson trễ-1 đo mức hai suất sinh lời liên tiếp biến thiên cùng nhau; "
+            "không phải tần suất cùng dấu. Dùng directional_persistence cho tần suất cùng dấu. "
+            "Cả hai đều có thể biến mất ngoài mẫu."
+        ),
     }
 
 
@@ -411,9 +419,20 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
                 break
             if up or down:
                 side = "long" if up else "short"
-                entry = asia_high if side == "long" else asia_low
-                stop = asia_low if side == "long" else asia_high
+                # Gap policy: if the bar opens beyond the boundary without trading
+                # through it, enter at the open and recalculate 1R risk/target.
+                # Boundary fills remain when the bar crosses the level.
+                if side == "long":
+                    entry = bar.open if bar.open > asia_high else asia_high
+                    stop = asia_low
+                else:
+                    entry = bar.open if bar.open < asia_low else asia_low
+                    stop = asia_high
                 risk = abs(entry - stop)
+                if risk <= 0:
+                    skipped_incomplete += 1
+                    chosen = "invalid_risk"
+                    break
                 target = entry + risk if side == "long" else entry - risk
                 result = _walk_exit(later[index:], side, entry, stop, target)
                 if result is None:

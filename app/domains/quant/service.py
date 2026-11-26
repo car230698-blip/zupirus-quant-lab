@@ -35,7 +35,22 @@ def render_bilingual_pdf(document: Dict[str, Any], *, preview: bool = False, wat
     return merge_pdfs([vi, en])
 
 
+_RESERVED_LIVE_SOURCES = frozenset({
+    "MARKET_LIVE",
+    "LIVE_FEED",
+    "METAAPI",
+    "DEMO",
+    "REPLAY",
+})
+
+
 def ingest_candles(rows: List[Dict[str, Any]], *, symbol: str, timeframe: str, source: str = "QUANT_IMPORT") -> int:
+    src = (source or "QUANT_IMPORT").strip() or "QUANT_IMPORT"
+    if src.upper() in _RESERVED_LIVE_SOURCES:
+        raise ValueError(
+            f"Research imports cannot use live-feed source '{src}'. "
+            "Use QUANT_IMPORT or another research-only source name."
+        )
     candles = normalize_candles(rows)
     sym = symbol.upper().replace("/", "")
     tf = timeframe.upper()
@@ -51,7 +66,7 @@ def ingest_candles(rows: List[Dict[str, Any]], *, symbol: str, timeframe: str, s
                 low_p=candle.low,
                 close_p=candle.close,
                 volume=candle.volume,
-                source=source,
+                source=src,
                 replace_ohlcv=True,
             )
     return len(candles)

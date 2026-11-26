@@ -3,205 +3,40 @@
   "slug": "eurusd-h1-asia-london-breakout-stats-v1",
   "title_vi": "EURUSD H1: phiên Á và xác suất phá biên London — thống kê mẫu Yahoo 2024–2026",
   "title_en": "EURUSD H1: Asia range and London breakout rates — Yahoo sample 2024–2026",
-  "price_usd": 19.0,
-  "version": "v1.0",
-  "status_on_seed": "DRAFT",
-  "publish_toggle": "Admin portal → Reports publisher → Publish (or POST /api/v1/admin/reports/rep_eurusd_h1_asia_london_v1/publish)",
   "symbol": "EURUSD",
   "timeframe": "H1",
   "source": "YAHOO_FINANCE",
-  "candle_file": "data/eurusd_h1_yahoo.json",
-  "candle_count": 17246,
-  "range_start": 1707436800,
-  "range_end": 1795665765,
+  "candle_count": 17245,
+  "range_start": "2024-02-09T00:00:00Z",
+  "range_end": "2026-11-26T04:00:00Z",
   "round_trip_cost_r": 0.05,
-  "preview_pdf": "data/guides/eurusd-h1-asia-london-preview.pdf",
-  "full_pdf": "data/guides/eurusd-h1-asia-london-full.pdf",
+  "price_usd": 19.0,
   "key_stats": {
-    "session_profile": {
-      "sample_size": 17246,
-      "table": {
-        "columns": [
-          "session",
-          "bars",
-          "avg_range",
-          "avg_open_to_close",
-          "avg_close_to_close",
-          "stdev_open_to_close"
-        ],
-        "rows": [
-          [
-            "asia",
-            5086,
-            0.0009,
-            1e-06,
-            -0.0,
-            0.000632
-          ],
-          [
-            "london",
-            4345,
-            0.0014,
-            -1e-06,
-            -2e-06,
-            0.001
-          ],
-          [
-            "new_york",
-            5792,
-            0.0013,
-            -1e-06,
-            -1e-06,
-            0.000932
-          ],
-          [
-            "off_hours",
-            2023,
-            0.0007,
-            2.7e-05,
-            1.9e-05,
-            0.000516
-          ]
-        ]
-      },
-      "parameters": {
-        "timezone": "UTC",
-        "sessions": {
-          "asia": "00:00-07:00",
-          "london": "07:00-13:00",
-          "new_york": "13:00-21:00",
-          "off_hours": "21:00-24:00"
-        }
-      }
-    },
-    "range_breakout": {
-      "sample_size": 727,
-      "table": {
-        "columns": [
-          "outcome",
-          "days",
-          "share_of_days",
-          "hold_rate"
-        ],
-        "rows": [
-          [
-            "up_only",
-            245,
-            0.337,
-            0.6898
-          ],
-          [
-            "down_only",
-            266,
-            0.3659,
-            0.7105
-          ],
-          [
-            "both_sides",
-            175,
-            0.2407,
-            null
-          ],
-          [
-            "inside",
-            41,
-            0.0564,
-            null
-          ]
-        ]
-      },
-      "parameters": {
-        "range_session": "asia 00:00-07:00 UTC",
-        "break_session": "london 07:00-13:00 UTC",
-        "hold_definition": "London close still outside the Asia range"
-      }
-    },
-    "mean_reversion_trend": {
-      "sample_size": 17245,
-      "table": {
-        "columns": [
-          "metric",
-          "value"
-        ],
-        "rows": [
-          [
-            "lag1_autocorrelation",
-            -0.014528
-          ],
-          [
-            "directional_persistence",
-            0.411273
-          ],
-          [
-            "return_pairs",
-            17244
-          ],
-          [
-            "sample_label",
-            "near_zero"
-          ]
-        ]
-      },
-      "parameters": {
-        "return": "close_to_close",
-        "lag": 1,
-        "near_zero_band": 0.05
-      }
-    },
-    "rule_backtest_asia_break": {
-      "sample_size": 703,
-      "table": {
-        "columns": [
-          "metric",
-          "value"
-        ],
-        "rows": [
-          [
-            "trades",
-            703
-          ],
-          [
-            "win_rate",
-            0.532
-          ],
-          [
-            "expectancy_r",
-            0.0217
-          ],
-          [
-            "profit_factor",
-            1.0513
-          ],
-          [
-            "max_drawdown_r",
-            28.589
-          ],
-          [
-            "sum_r",
-            15.2256
-          ]
-        ]
-      },
-      "parameters": {
-        "rule": "first London/New York break of the same-day Asia high or low",
-        "stop": "opposite side of the Asia range",
-        "target_r": 1.0,
-        "same_bar_stop_and_target": "count as loss",
-        "round_trip_cost_r": 0.05,
-        "skipped_ambiguous_days": 15,
-        "skipped_incomplete_days": 101
-      }
-    }
+    "asia_avg_range": 0.0009,
+    "london_avg_range": 0.0014,
+    "breakout_up_only_days": 245,
+    "breakout_up_only_share": 0.337,
+    "breakout_up_hold_rate": 0.6898,
+    "breakout_down_only_days": 266,
+    "breakout_down_only_share": 0.3659,
+    "breakout_down_hold_rate": 0.7105,
+    "rule_trades": 703,
+    "rule_win_rate": 0.5292,
+    "rule_expectancy_r": 0.0147,
+    "rule_profit_factor": 1.0345,
+    "rule_max_drawdown_r": 30.6761
   },
   "highlights_vi": [
-    "Mẫu 17246 nến EURUSD H1.",
-    "Có bảng phiên, biến động, mùa vụ và một quy tắc minh họa với mức sụt giảm trên mẫu.",
-    "Không cam kết lợi nhuận. Không tự động vào lệnh."
+    "Mẫu Yahoo Finance EURUSD H1: 17,245 nến, 2024-02-09 → 2026-11-26.",
+    "Biên trung bình London ≈ 0.0014 so với phiên Á ≈ 0.0009 (mô tả mẫu).",
+    "Phá biên một phía London: up_only 245 ngày (giữ 0.6898), down_only 266 ngày (giữ 0.7105).",
+    "Quy tắc minh họa 1R (chi phí 0.05R): 703 lệnh, kỳ vọng ≈ 0.0147R, max DD ≈ 30.6761R — thống kê lịch sử, không phải lời hứa lợi nhuận."
   ],
   "highlights_en": [
-    "Sample of 17246 EURUSD H1 bars.",
-    "Includes session, volatility, seasonality, and one illustrative rule with its in-sample drawdown.",
-    "No profit promise. No automated order entry."
+    "Yahoo Finance EURUSD H1 sample: 17,245 bars, 2024-02-09 → 2026-11-26.",
+    "London average range ≈ 0.0014 vs Asia ≈ 0.0009 (sample description).",
+    "One-sided London breaks: up_only 245 days (hold 0.6898), down_only 266 days (hold 0.7105).",
+    "Illustrative 1R rule (0.05R cost): 703 trades, expectancy ≈ 0.0147R, max DD ≈ 30.6761R — historical statistics, not a profit promise."
   ],
   "disclaimer_vi": "Tài liệu này là bài nghiên cứu thống kê phục vụ học tập. Số liệu trên dữ liệu quá khứ không phải dự báo và không phải cam kết lợi nhuận. Giao dịch ngoại hối, vàng và chỉ số có thể làm mất một phần hoặc toàn bộ vốn. ZUPIRUS không thực thi lệnh, không copy-trade, không cho thuê VPS và không giữ tiền giao dịch của bạn. Người đọc tự quyết định, tự chịu rủi ro, và nên đối chiếu lại trên dữ liệu của chính mình trước khi dùng bất kỳ quy tắc nào.",
   "disclaimer_en": "This document is a statistical study for education. Figures computed on past data are not a forecast and are not a promise of profit. Trading forex, gold, or indices can lose some or all of the capital you commit. ZUPIRUS does not place orders, copy trades, rent a VPS for you, or hold your trading funds. You decide whether to use any rule, you carry the risk, and you should recompute the study on your own data first.",
@@ -211,8 +46,8 @@
     "version": "v1.0",
     "author": "ZUPIRUS Quant Lab",
     "as_of": "2026-11-26",
-    "symbol": "EURUSD",
-    "timeframe": "H1",
+    "symbol": "XAUUSD",
+    "timeframe": "M15",
     "disclaimer_vi": "Tài liệu này là bài nghiên cứu thống kê phục vụ học tập. Số liệu trên dữ liệu quá khứ không phải dự báo và không phải cam kết lợi nhuận. Giao dịch ngoại hối, vàng và chỉ số có thể làm mất một phần hoặc toàn bộ vốn. ZUPIRUS không thực thi lệnh, không copy-trade, không cho thuê VPS và không giữ tiền giao dịch của bạn. Người đọc tự quyết định, tự chịu rủi ro, và nên đối chiếu lại trên dữ liệu của chính mình trước khi dùng bất kỳ quy tắc nào.",
     "disclaimer_en": "This document is a statistical study for education. Figures computed on past data are not a forecast and are not a promise of profit. Trading forex, gold, or indices can lose some or all of the capital you commit. ZUPIRUS does not place orders, copy trades, rent a VPS for you, or hold your trading funds. You decide whether to use any rule, you carry the risk, and you should recompute the study on your own data first.",
     "preview_sections": [
@@ -221,13 +56,13 @@
         "heading_en": "Purpose and scope",
         "lines_vi": [
           "EURUSD H1: phiên Á và xác suất phá biên London — thống kê mẫu Yahoo 2024–2026 là một phương pháp đọc thị trường, không phải một dịch vụ vào lệnh.",
-          "Thị trường: EURUSD. Khung: H1. Mẫu: 17246 nến, từ 2024-02-09 00:00 UTC đến 2026-11-26 04:02 UTC.",
+          "Thị trường: XAUUSD. Khung: M15. Mẫu: 17245 nến, từ 2024-02-09 00:00 UTC đến 2026-11-26 04:00 UTC.",
           "Các phép tính có thể chạy lại: cùng nến và cùng tham số cho cùng một bảng số.",
           "ZUPIRUS không kết nối tài khoản MT5 của bạn và không tự động khớp lệnh."
         ],
         "lines_en": [
           "EURUSD H1: Asia range and London breakout rates — Yahoo sample 2024–2026 is a way to read a market, not an order-execution service.",
-          "Market: EURUSD. Timeframe: H1. Sample: 17246 bars, from 2024-02-09 00:00 UTC to 2026-11-26 04:02 UTC.",
+          "Market: XAUUSD. Timeframe: M15. Sample: 17245 bars, from 2024-02-09 00:00 UTC to 2026-11-26 04:00 UTC.",
           "The calculations are reproducible: the same bars and the same parameters produce the same tables.",
           "ZUPIRUS does not connect to your MT5 account and does not fill orders for you."
         ],
@@ -257,13 +92,13 @@
         "heading_en": "Purpose and scope",
         "lines_vi": [
           "EURUSD H1: phiên Á và xác suất phá biên London — thống kê mẫu Yahoo 2024–2026 là một phương pháp đọc thị trường, không phải một dịch vụ vào lệnh.",
-          "Thị trường: EURUSD. Khung: H1. Mẫu: 17246 nến, từ 2024-02-09 00:00 UTC đến 2026-11-26 04:02 UTC.",
+          "Thị trường: XAUUSD. Khung: M15. Mẫu: 17245 nến, từ 2024-02-09 00:00 UTC đến 2026-11-26 04:00 UTC.",
           "Các phép tính có thể chạy lại: cùng nến và cùng tham số cho cùng một bảng số.",
           "ZUPIRUS không kết nối tài khoản MT5 của bạn và không tự động khớp lệnh."
         ],
         "lines_en": [
           "EURUSD H1: Asia range and London breakout rates — Yahoo sample 2024–2026 is a way to read a market, not an order-execution service.",
-          "Market: EURUSD. Timeframe: H1. Sample: 17246 bars, from 2024-02-09 00:00 UTC to 2026-11-26 04:02 UTC.",
+          "Market: XAUUSD. Timeframe: M15. Sample: 17245 bars, from 2024-02-09 00:00 UTC to 2026-11-26 04:00 UTC.",
           "The calculations are reproducible: the same bars and the same parameters produce the same tables.",
           "ZUPIRUS does not connect to your MT5 account and does not fill orders for you."
         ],
@@ -292,7 +127,7 @@
         "lines_vi": [
           "Mô tả biên độ thường gặp của từng phiên UTC trên mẫu này. Đây không phải dự báo phiên kế tiếp.",
           "session | bars | avg_range | avg_open_to_close | avg_close_to_close | stdev_open_to_close",
-          "asia | 5086 | 0.0009 | 1e-06 | -0.0 | 0.000632",
+          "asia | 5085 | 0.0009 | 1e-06 | -0.0 | 0.000632",
           "london | 4345 | 0.0014 | -1e-06 | -2e-06 | 0.001",
           "new_york | 5792 | 0.0013 | -1e-06 | -1e-06 | 0.000932",
           "off_hours | 2023 | 0.0007 | 2.7e-05 | 1.9e-05 | 0.000516",
@@ -301,7 +136,7 @@
         "lines_en": [
           "Describes how far price typically travels inside each UTC session in this sample. It is not a forecast of the next session.",
           "session | bars | avg_range | avg_open_to_close | avg_close_to_close | stdev_open_to_close",
-          "asia | 5086 | 0.0009 | 1e-06 | -0.0 | 0.000632",
+          "asia | 5085 | 0.0009 | 1e-06 | -0.0 | 0.000632",
           "london | 4345 | 0.0014 | -1e-06 | -2e-06 | 0.001",
           "new_york | 5792 | 0.0013 | -1e-06 | -1e-06 | 0.000932",
           "off_hours | 2023 | 0.0007 | 2.7e-05 | 1.9e-05 | 0.000516",
@@ -317,7 +152,7 @@
             "off_hours"
           ],
           "values": [
-            0.0008766,
+            0.00087677,
             0.00140405,
             0.00132503,
             0.00067644
@@ -332,17 +167,17 @@
           "Các vùng biến động chỉ so với chính mẫu này. Một nến 'cao' ở đây có thể là bình thường ở giai đoạn khác.",
           "regime | bars | avg_atr | avg_open_to_close | stdev_open_to_close",
           "low | 5687 | 0.0007 | 6e-06 | 0.000521",
-          "mid | 5687 | 0.0011 | -2.5e-05 | 0.000729",
+          "mid | 5686 | 0.0011 | -2.5e-05 | 0.000729",
           "high | 5859 | 0.0017 | 2.6e-05 | 0.001121",
-          "Tham số: atr_period=14, low_max=0.000901, mid_max=0.001242, rule=low <= p33, mid <= p66, high above p66 of ATR in this sample"
+          "Tham số: atr_period=14, low_max=0.000901, mid_max=0.001243, rule=low <= p33, mid <= p66, high above p66 of ATR in this sample"
         ],
         "lines_en": [
           "Regimes are relative to this sample only. A 'high' bar here can be ordinary in another year.",
           "regime | bars | avg_atr | avg_open_to_close | stdev_open_to_close",
           "low | 5687 | 0.0007 | 6e-06 | 0.000521",
-          "mid | 5687 | 0.0011 | -2.5e-05 | 0.000729",
+          "mid | 5686 | 0.0011 | -2.5e-05 | 0.000729",
           "high | 5859 | 0.0017 | 2.6e-05 | 0.001121",
-          "Parameters: atr_period=14, low_max=0.000901, mid_max=0.001242, rule=low <= p33, mid <= p66, high above p66 of ATR in this sample"
+          "Parameters: atr_period=14, low_max=0.000901, mid_max=0.001243, rule=low <= p33, mid <= p66, high above p66 of ATR in this sample"
         ],
         "chart": {
           "type": "bar",
@@ -353,8 +188,8 @@
             "high"
           ],
           "values": [
-            0.00072342,
-            0.00105496,
+            0.00072344,
+            0.00105499,
             0.00169933
           ],
           "unit": "price"
@@ -403,20 +238,20 @@
         "heading_vi": "Hồi quy và độ bền xu hướng",
         "heading_en": "Mean reversion and trend persistence",
         "lines_vi": [
-          "Tự tương quan dương nghĩa là hướng gần đây tiếp diễn nhiều hơn trên mẫu này. Hiện tượng đó có thể biến mất ngoài mẫu.",
+          "Tự tương quan Pearson trễ-1 đo mức hai suất sinh lời liên tiếp biến thiên cùng nhau; không phải tần suất cùng dấu. Dùng directional_persistence cho tần suất cùng dấu. Cả hai đều có thể biến mất ngoài mẫu.",
           "metric | value",
           "lag1_autocorrelation | -0.014528",
-          "directional_persistence | 0.411273",
-          "return_pairs | 17244",
+          "directional_persistence | 0.411239",
+          "return_pairs | 17243",
           "sample_label | near_zero",
           "Tham số: return=close_to_close, lag=1, near_zero_band=0.05"
         ],
         "lines_en": [
-          "Positive autocorrelation means recent direction continued more often in this sample. It can disappear out of sample.",
+          "Lag-1 Pearson autocorrelation measures how successive return values vary together; it is not the same as same-sign frequency. Use directional_persistence for how often adjacent returns share a sign. Either figure can disappear out of sample.",
           "metric | value",
           "lag1_autocorrelation | -0.014528",
-          "directional_persistence | 0.411273",
-          "return_pairs | 17244",
+          "directional_persistence | 0.411239",
+          "return_pairs | 17243",
           "sample_label | near_zero",
           "Parameters: return=close_to_close, lag=1, near_zero_band=0.05"
         ],
@@ -428,7 +263,7 @@
             "baseline_0.5"
           ],
           "values": [
-            0.41127349,
+            0.41123934,
             0.5
           ],
           "unit": "share"
@@ -444,7 +279,7 @@
           "01:00 | 727 | -6.1e-05",
           "02:00 | 726 | 1.9e-05",
           "03:00 | 726 | -2.5e-05",
-          "04:00 | 728 | 2e-06",
+          "04:00 | 727 | 2e-06",
           "05:00 | 728 | 4e-06",
           "06:00 | 725 | 2.6e-05",
           "07:00 | 724 | -1.8e-05",
@@ -469,7 +304,7 @@
           "Monday | 3477 | 1.4e-05",
           "Tuesday | 3502 | 4e-06",
           "Wednesday | 3474 | -1.2e-05",
-          "Thursday | 3456 | 9e-06",
+          "Thursday | 3455 | 9e-06",
           "Friday | 3248 | -0.0",
           "Sunday | 89 | 4.3e-05",
           "Tham số: clock=UTC, return=open_to_close"
@@ -481,7 +316,7 @@
           "01:00 | 727 | -6.1e-05",
           "02:00 | 726 | 1.9e-05",
           "03:00 | 726 | -2.5e-05",
-          "04:00 | 728 | 2e-06",
+          "04:00 | 727 | 2e-06",
           "05:00 | 728 | 4e-06",
           "06:00 | 725 | 2.6e-05",
           "07:00 | 724 | -1.8e-05",
@@ -506,7 +341,7 @@
           "Monday | 3477 | 1.4e-05",
           "Tuesday | 3502 | 4e-06",
           "Wednesday | 3474 | -1.2e-05",
-          "Thursday | 3456 | 9e-06",
+          "Thursday | 3455 | 9e-06",
           "Friday | 3248 | -0.0",
           "Sunday | 89 | 4.3e-05",
           "Parameters: clock=UTC, return=open_to_close"
@@ -545,7 +380,7 @@
             -6.099e-05,
             1.925e-05,
             -2.518e-05,
-            2.13e-06,
+            2.14e-06,
             3.81e-06,
             2.642e-05,
             -1.842e-05,
@@ -576,22 +411,22 @@
           "Kỳ vọng và mức sụt giảm chỉ mô tả đường đi lịch sử này, sau chi phí đã ghi. Chúng không phải cam kết lợi nhuận tương lai, và sẽ đổi nếu quy tắc, múi giờ phiên hoặc chi phí đổi.",
           "metric | value",
           "trades | 703",
-          "win_rate | 0.532",
-          "expectancy_r | 0.0217",
-          "profit_factor | 1.0513",
-          "max_drawdown_r | 28.589",
-          "sum_r | 15.2256",
+          "win_rate | 0.5292",
+          "expectancy_r | 0.0147",
+          "profit_factor | 1.0345",
+          "max_drawdown_r | 30.6761",
+          "sum_r | 10.3198",
           "Tham số: rule=first London/New York break of the same-day Asia high or low, stop=opposite side of the Asia range, target_r=1.0, same_bar_stop_and_target=count as loss, round_trip_cost_r=0.05, skipped_ambiguous_days=15, skipped_incomplete_days=101"
         ],
         "lines_en": [
           "Expectancy and drawdown describe this historical path only, after the stated cost. They are not a promise of future profit, and the path would change if the rule, the session clock, or the cost changed.",
           "metric | value",
           "trades | 703",
-          "win_rate | 0.532",
-          "expectancy_r | 0.0217",
-          "profit_factor | 1.0513",
-          "max_drawdown_r | 28.589",
-          "sum_r | 15.2256",
+          "win_rate | 0.5292",
+          "expectancy_r | 0.0147",
+          "profit_factor | 1.0345",
+          "max_drawdown_r | 30.6761",
+          "sum_r | 10.3198",
           "Parameters: rule=first London/New York break of the same-day Asia high or low, stop=opposite side of the Asia range, target_r=1.0, same_bar_stop_and_target=count as loss, round_trip_cost_r=0.05, skipped_ambiguous_days=15, skipped_incomplete_days=101"
         ],
         "chart": {
@@ -1403,7 +1238,7 @@
             0.95,
             0.086706,
             -0.163896,
-            0.95,
+            -1.05,
             0.95,
             0.95,
             0.95,
@@ -1454,7 +1289,7 @@
             0.95,
             0.561155,
             -1.05,
-            0.168449,
+            0.148335,
             -1.05,
             0.95,
             0.95,
@@ -1650,7 +1485,7 @@
             -1.05,
             -1.05,
             -0.257433,
-            -0.008193,
+            -0.088581,
             -1.05,
             -1.05,
             -0.78017,
@@ -1667,7 +1502,7 @@
             0.95,
             0.95,
             -1.05,
-            0.95,
+            -1.05,
             0.95,
             0.95,
             -0.198243,
@@ -1684,7 +1519,7 @@
             0.95,
             0.95,
             0.95,
-            -0.883705,
+            -0.890376,
             0.95,
             0.95,
             0.95,
@@ -1860,7 +1695,7 @@
             -1.05,
             0.95,
             -0.471605,
-            -0.692101,
+            -0.704406,
             0.95,
             0.95,
             0.95,
@@ -1870,10 +1705,10 @@
             -1.05,
             0.95,
             0.3629,
-            0.95,
+            0.317291,
             0.184758,
             0.95,
-            0.234788,
+            0.176578,
             0.619383,
             0.95,
             -1.05,
@@ -1908,7 +1743,7 @@
             0.95,
             0.95,
             -1.05,
-            0.573164,
+            0.477816,
             -1.05,
             0.512871,
             0.95,
@@ -2027,12 +1862,12 @@
       }
     ],
     "highlights_vi": [
-      "Mẫu 17246 nến EURUSD H1.",
+      "Mẫu 17245 nến XAUUSD M15.",
       "Có bảng phiên, biến động, mùa vụ và một quy tắc minh họa với mức sụt giảm trên mẫu.",
       "Không cam kết lợi nhuận. Không tự động vào lệnh."
     ],
     "highlights_en": [
-      "Sample of 17246 EURUSD H1 bars.",
+      "Sample of 17245 XAUUSD M15 bars.",
       "Includes session, volatility, seasonality, and one illustrative rule with its in-sample drawdown.",
       "No profit promise. No automated order entry."
     ]

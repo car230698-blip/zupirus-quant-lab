@@ -194,9 +194,9 @@ def create_admin_report_draft(
     rate, _, _ = get_usd_vnd_rate()
     # Preserve the caller's positive price. Methodology drafts may be below $1.
     raw_usd = float(price_usd) if price_usd is not None else 29.0
-    if raw_usd <= 0:
-        raise ValueError("price_usd must be positive")
     eff_usd = round(raw_usd, 2)
+    if eff_usd < 0.01:
+        raise ValueError("price_usd must be at least 0.01 after rounding")
     eff_vnd = int(price_vnd) if (price_vnd is not None and int(price_vnd) > 0) else convert_usd_to_vnd(eff_usd, rate)
 
     with tx() as c:
