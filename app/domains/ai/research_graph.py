@@ -1428,6 +1428,28 @@ def main():
     from app.domains.notifications.service import run_daily_executive_digest
     while True:
         try:
+            # 1. Background live market quote & candle streamer
+            try:
+                from app.services.sources.streamer import fetch_next_supported_market_data
+                fetch_next_supported_market_data()
+            except Exception as stream_err:
+                logger.debug(f"Periodic market data streaming note: {stream_err}")
+
+            # 2. Background blockchain scanner for PENDING USDT Direct Orders
+            try:
+                from app.domains.billing.crypto_direct import scan_and_reconcile_pending_crypto_orders
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(scan_and_reconcile_pending_crypto_orders())
+                    else:
+                        loop.run_until_complete(scan_and_reconcile_pending_crypto_orders())
+                except RuntimeError:
+                    asyncio.run(scan_and_reconcile_pending_crypto_orders())
+            except Exception as crypto_err:
+                logger.debug(f"Periodic crypto reconciliation note: {crypto_err}")
+
             process_once()
             run_periodic_calendar_sync()
             run_periodic_source_discovery()

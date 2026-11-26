@@ -430,6 +430,51 @@ def run_session_breakdown(trades: List[Dict[str, Any]]) -> Dict[str, Dict[str, A
     return breakdown
 
 
+def compute_hourly_breakdown(trades_3_5: List[Dict[str, Any]], trades_5_0: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Group trade outcomes into 24 UTC hourly buckets, recording trades, expectancy and Profit Factor across 3.5 and 5.0 pips.
+    If an hour has 0 trades, explicitly mark metrics as unverified."""
+    rows = []
+    for h in range(24):
+        t35 = [t for t in trades_3_5 if datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).hour == h]
+        t50 = [t for t in trades_5_0 if datetime.fromtimestamp(t["entry_time"], tz=timezone.utc).hour == h]
+        count = len(t35)
+        if count > 0:
+            m35 = compute_performance_metrics(t35)
+            m50 = compute_performance_metrics(t50)
+            rows.append({
+                "hour": h,
+                "hour_label": f"{h:02d}:00 - {h:02d}:59 UTC",
+                "trade_count": count,
+                "pf_3_5": m35["profit_factor"],
+                "expectancy_r_3_5": m35["expectancy_r"],
+                "win_rate_3_5": m35["win_rate"],
+                "net_r_3_5": m35["net_r"],
+                "pf_5_0": m50["profit_factor"],
+                "expectancy_r_5_0": m50["expectancy_r"],
+                "win_rate_5_0": m50["win_rate"],
+                "net_r_5_0": m50["net_r"],
+                "is_verified": True,
+                "status_note": f"{count} lenh da xac minh",
+            })
+        else:
+            rows.append({
+                "hour": h,
+                "hour_label": f"{h:02d}:00 - {h:02d}:59 UTC",
+                "trade_count": 0,
+                "pf_3_5": None,
+                "expectancy_r_3_5": None,
+                "win_rate_3_5": None,
+                "net_r_3_5": None,
+                "pf_5_0": None,
+                "expectancy_r_5_0": None,
+                "win_rate_5_0": None,
+                "net_r_5_0": None,
+                "is_verified": False,
+                "status_note": "Chua xac minh duoc (0 lenh)",
+            })
+    return rows
+
+
 def run_full_walk_forward_study(
     candles: List[Dict[str, Any]],
     train_bars: int = 1500,
@@ -504,6 +549,9 @@ def run_full_walk_forward_study(
     overall_sessions_base = run_session_breakdown(all_trades_base)
     overall_sessions_severe = run_session_breakdown(all_trades_severe)
 
+    hourly_full = compute_hourly_breakdown(all_trades_base, all_trades_severe)
+    hourly_holdout = compute_hourly_breakdown(holdout_trades_base, holdout_trades_severe)
+
     return {
         "dataset_info": {
             "symbol": "GC=F (COMEX Gold Continuous Futures)",
@@ -529,6 +577,7 @@ def run_full_walk_forward_study(
             "severe_5_0_pips": holdout_metrics_severe,
             "sessions_baseline": holdout_sessions_base,
             "sessions_severe": holdout_sessions_severe,
+            "hourly_breakdown": hourly_holdout,
             "sample_trades": holdout_trades_base[:15],
         },
         "full_period_metrics": {
@@ -536,5 +585,6 @@ def run_full_walk_forward_study(
             "severe_5_0_pips": overall_metrics_severe,
             "sessions_baseline": overall_sessions_base,
             "sessions_severe": overall_sessions_severe,
+            "hourly_breakdown": hourly_full,
         },
     }

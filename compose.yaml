@@ -89,31 +89,6 @@ services:
       timeout: 5s
       retries: 6
 
-  execution:
-    <<: *app
-    command: [python, -m, app.domains.execution.engine]
-    depends_on:
-      api: { condition: service_healthy }
-      timescaledb: { condition: service_healthy }
-      redis: { condition: service_healthy }
-    environment:
-      APP_ENV: ${APP_ENV:-dev}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
-      METAAPI_TOKEN: ${METAAPI_TOKEN:-}
-      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      EMAIL_FROM: ${EMAIL_FROM:-ZUPIRUS Quant Lab <system@zupirus.com>}
-      DISCORD_WEBHOOK_SIGNALS: ${DISCORD_WEBHOOK_SIGNALS:-}
-      DISCORD_WEBHOOK_ALERTS: ${DISCORD_WEBHOOK_ALERTS:-}
-      DISCORD_WEBHOOK_BILLING: ${DISCORD_WEBHOOK_BILLING:-}
-    healthcheck:
-      test: [CMD, python, scripts/ops/worker_health.py, execution_heartbeat]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-
   research:
     <<: *app
     command: [python, -m, app.domains.ai.research_graph]

@@ -106,13 +106,37 @@ def test_3_draft_report_seeded_and_hidden_from_public(client, monkeypatch):
     """3. Lifecycle & Access Control:
     - Draft report exists in DB with 2 valid PDFs attached.
     - Public catalog strictly hides the DRAFT report.
-    - Commercial sales remain disabled by default."""
+    - Commercial sales remain disabled by default.
+    - Authenticated customer checkout for USDT is strictly rejected when COMMERCIAL_REPORTS_SALE_ENABLED=false.
+    - Wording verification: Title is 'Breakout & Retest vàng COMEX M15 — nghiên cứu thăm dò'.
+    - Forbidden phrases 'Edge chỉ tồn tại' and 'London Trap' are absent.
+    - Hourly breakdown data exists with 24 hours and verified reconciliation."""
     monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "false")
 
     rep_info = generate_and_save_reports()
     assert rep_info["status"] == "DRAFT"
-    assert Path(rep_info["sample_pdf"]).exists()
-    assert Path(rep_info["full_pdf"]).exists()
+    sample_pdf_path = Path(rep_info["sample_pdf"])
+    full_pdf_path = Path(rep_info["full_pdf"])
+    assert sample_pdf_path.exists()
+    assert full_pdf_path.exists()
+
+    # Verify PDF content does not contain forbidden phrases
+    sample_content = sample_pdf_path.read_text(encoding="latin1")
+    full_content = full_pdf_path.read_text(encoding="latin1")
+    for content in (sample_content, full_content):
+        assert "London Trap" not in content
+        assert "Edge ch" not in content  # Checks for "Edge chỉ tồn tại"
+
+    # Verify title in DB metadata
+    with tx() as c:
+        row = c.execute("SELECT title, summary, status FROM research_reports WHERE id = ?", (rep_info["report_id"],)).fetchone()
+        assert row is not None
+        title, summary, status = row
+        assert "Breakout & Retest" in title
+        assert "nghiên cứu thăm dò" in title or "nghiên cứu thăm dò" in summary
+        assert "London Trap" not in title and "London Trap" not in summary
+        assert "Edge chỉ" not in title and "Edge chỉ" not in summary
+        assert status == "DRAFT"
 
     # Public visitor check
     pub_res = client.get("/api/v1/reports")
@@ -127,3 +151,26 @@ def test_3_draft_report_seeded_and_hidden_from_public(client, monkeypatch):
         json={"payment_method": "USDT"},
     )
     assert checkout_res.status_code in (400, 401, 404)
+
+    # Check evidence file hourly breakdown
+    evidence_path = Path("data/research_xauusd_breakout_retest_evidence.json")
+    assert evidence_path.exists()
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    
+    full_hourly = evidence["full_period_metrics"]["hourly_breakdown"]
+    assert len(full_hourly) == 24
+    total_trades_full = sum(h["trade_count"] for h in full_hourly)
+    assert total_trades_full == 116
+    
+    oos_hourly = evidence["holdout_30pct_oos"]["hourly_breakdown"]
+    assert len(oos_hourly) == 24
+    total_trades_oos = sum(h["trade_count"] for h in oos_hourly)
+    assert total_trades_oos == 36
+
+    # Verify unverified slots have is_verified == False and trade_count == 0
+    zero_slots = [h for h in oos_hourly if h["trade_count"] == 0]
+    assert len(zero_slots) > 0
+    for zs in zero_slots:
+        assert zs["is_verified"] is False
+        assert "Chua xac minh duoc" in zs["status_note"]
+

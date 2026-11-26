@@ -200,16 +200,10 @@ def readyz():
                 rhb_val = float(rhb[0]) if rhb and rhb[0] else 0.0
 
                 if app_env_check == "production" and not in_pytest:
-                    # In production, verify heartbeats were generated strictly after THIS container startup
-                    if hb and hb_val >= APP_BOOT_TIME and (now_ts - hb_val) < 30.0:
-                        engine_ok = True
+                    # In production, verify research heartbeat was generated strictly after THIS container startup
                     if rhb and rhb_val >= APP_BOOT_TIME and (now_ts - rhb_val) < 45.0:
                         research_ok = True
                 else:
-                    if hb and (now_ts - hb_val) < 30.0:
-                        engine_ok = True
-                    elif hb is None and not is_postgres():
-                        engine_ok = True
                     if rhb and (now_ts - rhb_val) < 45.0:
                         research_ok = True
                     elif rhb is None and not is_postgres():
@@ -222,9 +216,9 @@ def readyz():
         timescale_ok = bool(timescale_info.get("timescaledb_available"))
     app_env = os.getenv("APP_ENV", "dev").strip().lower()
     if is_postgres() or app_env == "production":
-        workers_ok = engine_ok and research_ok
+        workers_ok = research_ok
     else:
-        workers_ok = (engine_ok if has_hb_records else True) and (research_ok if has_hb_records else True)
+        workers_ok = (research_ok if has_hb_records else True)
     overall_ready = db_ok and timescale_ok and redis_ok and workers_ok
     payload = {
         'status': 'ready' if overall_ready else 'not_ready',
@@ -236,7 +230,7 @@ def readyz():
         },
         'timescaledb': timescale_info,
         'redis': {'connected': redis_ok, 'error': redis_err},
-        'execution_worker': {'heartbeat_active': engine_ok},
+        'execution_worker': {'heartbeat_active': False, 'decommissioned': True, 'status': 'RETIRED'},
         'research_worker': {'heartbeat_active': research_ok},
         'langsmith': {'enabled': bool(os.getenv('LANGSMITH_API_KEY'))},
     }
