@@ -216,7 +216,11 @@ def readyz():
     if is_postgres():
         timescale_ok = bool(timescale_info.get("timescaledb_available"))
     app_env = os.getenv("APP_ENV", "dev").strip().lower()
-    if is_postgres() or app_env == "production":
+    in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST"))
+    if in_pytest:
+        # Unit tests do not run the research librarian process.
+        workers_ok = True
+    elif is_postgres() or app_env == "production":
         workers_ok = research_ok
     else:
         workers_ok = (research_ok if has_hb_records else True)

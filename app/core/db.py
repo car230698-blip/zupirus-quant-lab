@@ -95,7 +95,8 @@ class RowDictWrapper:
         return self._dict[item]
 
     def __iter__(self):
-        return iter(self._dict)
+        # Match sqlite3.Row: unpacking yields column values, not names.
+        return iter(self._values)
 
     def __len__(self) -> int:
         return len(self._dict)
@@ -250,6 +251,15 @@ class CursorWrapper:
                         translated += f" ON CONFLICT ({pk_col}) DO NOTHING"
                 else:
                     translated += f" ON CONFLICT ({pk_col}) DO NOTHING"
+
+        # JSONB columns cannot use LIKE directly; cast to text for SQLite-style queries.
+        if self._is_pg and re.search(r'\bpayload\s+LIKE\b', translated, re.IGNORECASE):
+            translated = re.sub(
+                r'\bpayload\s+LIKE\b',
+                'payload::text LIKE',
+                translated,
+                flags=re.IGNORECASE,
+            )
 
         # Adapt epoch parameters for PostgreSQL TIMESTAMPTZ columns on candles and quotes tables
         if re.search(r'\b(candles|quotes)\b', translated, re.IGNORECASE):

@@ -355,8 +355,13 @@ def apply_migration_016(c, is_pg: bool):
         """)
 
     # Clean up legacy master feed source if present and ensure Zupirus AI Inductive Engine exists
+    sp_ok = False
     if is_pg:
-        c.execute("SAVEPOINT sp_mig_016_seed")
+        try:
+            c.execute("SAVEPOINT sp_mig_016_seed")
+            sp_ok = True
+        except Exception:
+            sp_ok = False
     try:
         c.execute("DELETE FROM signal_sources WHERE id = 'src_metaapi_feed' OR source_type = 'metaapi_feed'")
         c.execute("""
@@ -367,11 +372,14 @@ def apply_migration_016(c, is_pg: bool):
             ) VALUES ('src_zupirus_agent', 'Zupirus AI Inductive Engine', 'agent_inductive', 'ACTIVE_LIVE', 'XAUUSD', 88.5, 1.92, 0.66, 22.0, 110, 110, '{}', ?, ?)
             ON CONFLICT (id) DO NOTHING
         """, (now_ts, now_ts))
-        if is_pg:
+        if sp_ok:
             c.execute("RELEASE SAVEPOINT sp_mig_016_seed")
     except Exception:
-        if is_pg:
-            c.execute("ROLLBACK TO SAVEPOINT sp_mig_016_seed")
+        if sp_ok:
+            try:
+                c.execute("ROLLBACK TO SAVEPOINT sp_mig_016_seed")
+            except Exception:
+                pass
 
 
 def apply_migration_017(c, is_pg: bool):
@@ -430,14 +438,24 @@ def apply_migration_019(c, is_pg: bool):
         """)
         enable_pgvector = os.getenv("ENABLE_PGVECTOR", "true").lower() in ("true", "1", "yes")
         if enable_pgvector:
-            c.execute("SAVEPOINT sp_mig_019_vector")
+            sp_ok = False
+            try:
+                c.execute("SAVEPOINT sp_mig_019_vector")
+                sp_ok = True
+            except Exception:
+                sp_ok = False
             try:
                 c.execute("CREATE EXTENSION IF NOT EXISTS vector;")
                 c.execute("ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS embedding vector(768);")
-                c.execute("RELEASE SAVEPOINT sp_mig_019_vector")
+                if sp_ok:
+                    c.execute("RELEASE SAVEPOINT sp_mig_019_vector")
             except Exception as e:
                 logger.warning(f"pgvector extension not available or failed: {e}. Falling back to embedding_json.")
-                c.execute("ROLLBACK TO SAVEPOINT sp_mig_019_vector")
+                if sp_ok:
+                    try:
+                        c.execute("ROLLBACK TO SAVEPOINT sp_mig_019_vector")
+                    except Exception:
+                        pass
     else:
         c.executescript("""
             CREATE TABLE IF NOT EXISTS knowledge_chunks (
@@ -927,9 +945,14 @@ def apply_migration_029(c, is_pg: bool):
                 range_end DOUBLE PRECISION,
                 created_by TEXT,
                 created_at DOUBLE PRECISION NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_quant_studies_symbol ON quant_studies(symbol, timeframe, created_at DESC);
-
+            )
+            """
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_quant_studies_symbol ON quant_studies(symbol, timeframe, created_at DESC)"
+        )
+        c.execute(
+            """
             CREATE TABLE IF NOT EXISTS methodologies (
                 id TEXT PRIMARY KEY,
                 study_id TEXT,
@@ -946,12 +969,17 @@ def apply_migration_029(c, is_pg: bool):
                 watermark_enabled INTEGER NOT NULL DEFAULT 1,
                 created_at DOUBLE PRECISION NOT NULL,
                 updated_at DOUBLE PRECISION NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_methodologies_report ON methodologies(report_id, created_at DESC);
-
-            ALTER TABLE research_reports ADD COLUMN IF NOT EXISTS watermark_enabled INTEGER NOT NULL DEFAULT 0;
-            ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS download_count INTEGER NOT NULL DEFAULT 0;
+            )
             """
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_methodologies_report ON methodologies(report_id, created_at DESC)"
+        )
+        c.execute(
+            "ALTER TABLE research_reports ADD COLUMN IF NOT EXISTS watermark_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+        c.execute(
+            "ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS download_count INTEGER NOT NULL DEFAULT 0"
         )
     else:
         c.executescript(

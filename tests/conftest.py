@@ -111,6 +111,34 @@ def client(tmp_path,monkeypatch):
             bootstrap(boot_cur)
         except Exception:
             pass
+        # Shared Postgres CI DBs can lose seed sources when other modules DELETE them.
+        # Re-upsert the curator cold-start set so admin source tests stay deterministic.
+        try:
+            import time as _time
+            now_ts = _time.time()
+            for sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev in (
+                ("src_tv_primary", "TradingView Webhook Primary", "tradingview_webhook", "ACTIVE_LIVE", "XAUUSD,EURUSD,GBPUSD,USDJPY", 86.5, 1.82, 0.64, 45.0, 120, 120),
+                ("src_zupirus_agent", "Zupirus AI Inductive Engine", "agent_inductive", "ACTIVE_LIVE", "XAUUSD", 88.5, 1.92, 0.66, 22.0, 110, 110),
+                ("src_gold_momentum", "PineScript XAUUSD Trend Seeker", "pinescript_scraper", "SHADOW_ONLY", "XAUUSD", 74.0, 1.48, 0.53, 72.0, 48, 48),
+                ("src_fx_breakout", "London FX Squeeze Alpha", "external_feed", "SHADOW_ONLY", "EURUSD,GBPUSD", 71.5, 1.42, 0.51, 80.0, 36, 36),
+            ):
+                boot_cur.execute(
+                    """
+                    INSERT INTO signal_sources (
+                        id, name, source_type, status, symbol_universe,
+                        trust_score, profit_factor, win_rate, max_drawdown_pips,
+                        total_signals, evaluated_signals, config_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                    ON CONFLICT (id) DO UPDATE SET
+                        name = excluded.name,
+                        status = excluded.status,
+                        trust_score = excluded.trust_score,
+                        updated_at = excluded.updated_at
+                    """,
+                    (sid, sname, stype, sstat, suniv, score, pf, wr, mdd, tot, ev, now_ts, now_ts),
+                )
+        except Exception:
+            pass
     with TestClient(main.app) as c:
         c.headers.update({'X-Zupirus':'1'})
         yield c
