@@ -313,16 +313,14 @@ export function PortalShell({
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 XAU/USD SPOT
               </span>
-              <span className="text-emerald-400 font-bold tabular-nums">{liveSpot.latency}ms G2</span>
+              <span className="text-emerald-400 font-bold tabular-nums">{lang === 'en' ? 'Reference' : 'Tham khảo'}</span>
             </div>
             <div className="flex items-baseline justify-between font-mono tabular-nums">
               <span className="text-lg font-extrabold text-white">{liveSpot.loaded && liveSpot.bid > 0 ? `$${liveSpot.bid.toFixed(2)}` : "Đang nạp..."}</span>
               <span className="text-[11px] text-amber-300">{liveSpot.loaded && liveSpot.spread > 0 ? `Spread ${liveSpot.spread.toFixed(1)}p` : "Real-time"}</span>
             </div>
             <div className="grid grid-cols-3 gap-1 pt-1 border-t border-white/[0.06] font-mono text-[9.5px] text-slate-400">
-              <span>SL: <strong className="text-emerald-300">100%</strong></span>
-              <span>BE: <strong className="text-cyan-300">1R</strong></span>
-              <span>DD: <strong className="text-amber-300">4.0%</strong></span>
+              <span className="col-span-3">{lang === 'en' ? 'Price for reference only · no orders' : 'Giá chỉ để tham khảo · không đặt lệnh'}</span>
             </div>
           </div>
         )}
@@ -334,7 +332,7 @@ export function PortalShell({
               : 'USR'
             : portal === 'admin'
             ? <span className="inline-flex items-center gap-1.5"><IconBolt className="w-3.5 h-3.5" />ROOT ADMIN COMMAND</span>
-            : 'TRADER WORKSPACE'}
+            : (lang === 'en' ? 'PDF LIBRARY' : 'THƯ VIỆN PDF')}
         </div>
 
         <nav className="quant-nav" aria-label="Menu chính">
@@ -364,9 +362,9 @@ export function PortalShell({
               <div className="flex items-center justify-between text-[11px] text-slate-300 pb-2 border-b border-white/[0.08]">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-amber-400" />
-                  {lang === 'en' ? 'Cloud Cluster' : 'Cụm Đám Mây'}
+                  {lang === 'en' ? 'Library' : 'Thư viện'}
                 </span>
-                <span className="text-amber-300 font-mono tabular-nums">London G2 · OK</span>
+                <span className="text-amber-300 font-mono tabular-nums">Online</span>
               </div>
               <div className="flex flex-col gap-1.5 pt-0.5 w-full">
                 <button
@@ -421,14 +419,14 @@ export function PortalShell({
             </span>
             <span className="text-slate-600">·</span>
             <span>
-              {lang === 'en' ? 'CAPITAL SHIELD: ' : 'GIÁP VỐN: '}<strong className="text-cyan-300">4/4 FAIL-CLOSED</strong>
+              <strong className="text-cyan-300">{lang === 'en' ? 'NO AUTOMATED ORDERS' : 'KHÔNG LỆNH TỰ ĐỘNG'}</strong>
             </span>
           </div>
 
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 font-mono text-[10.5px] text-[#12B5A6]">
               <span className="pulse-wrap"><span className="pulse-core" /></span>
-              LONDON G2 · {liveSpot.latency || 24}ms
+              ZUPIRUS QUANT LAB
             </span>
           </div>
         </div>
@@ -497,7 +495,7 @@ export function PortalShell({
               <IconMenu className="w-4 h-4" />
             </button>
             <span className={`hidden sm:inline font-semibold ${portal === 'admin' ? 'text-cyan-300/90' : 'text-amber-300/90'}`}>
-              {portal === 'admin' ? (lang === 'en' ? 'ADMIN COMMAND' : 'TRẠM QUẢN TRỊ') : (lang === 'en' ? 'TRADER PORTAL' : 'CỔNG TRADER')}
+              {portal === 'admin' ? (lang === 'en' ? 'ADMIN COMMAND' : 'TRẠM QUẢN TRỊ') : (lang === 'en' ? 'PDF LIBRARY' : 'THƯ VIỆN PDF')}
             </span>
             <span aria-hidden="true" className="text-slate-600 hidden sm:inline">/</span>
             <span className="text-white font-bold">{currentNavLabel}</span>
@@ -506,8 +504,8 @@ export function PortalShell({
           {/* Zone 2: Dedicated Workspace Telemetry Indicator (No Cross-Portal Switcher) */}
           <div className="hidden xl:flex items-center gap-2 px-3 py-1 rounded-xl bg-[#040711] border border-amber-500/20 font-mono text-[11px] text-slate-300 shrink-0">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>{portal === 'admin' ? 'ADMIN CLUSTER · LONDON G2' : 'CLOUD MT5 STREAM · LONDON G2'}</span>
-            <span className="text-amber-300 font-bold tabular-nums">~{liveSpot.latency}ms</span>
+            <span>{portal === 'admin' ? 'ADMIN · PUBLISHING' : 'PDF LIBRARY · USDT'}</span>
+            
           </div>
 
           {/* Zone 3: Session Identity & Primary Action (Language auto-detected via IP) */}
@@ -561,7 +559,7 @@ export function PortalShell({
           <div className="quant-heading">
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-amber-300">
-                <span>{portal === 'admin' ? 'QUANTUM OS // EXECUTIVE COMMAND' : 'QUANTUM OS // PORTFOLIO COCKPIT'}</span>
+                <span>{portal === 'admin' ? 'ZUPIRUS // ADMIN' : 'ZUPIRUS // QUANT LAB'}</span>
                 <span aria-hidden="true" className="text-slate-600">·</span>
                 <span className="text-cyan-300">PDF RESEARCH LIBRARY</span>
               </div>
@@ -598,7 +596,7 @@ export function PortalShell({
                       ? (lang === 'en' ? 'SYSTEM HALTED · KILL SWITCH ENGAGED' : 'TẠM DỪNG TOÀN HỆ THỐNG · LỆNH NGẮT BẬT')
                       : portal === 'admin'
                       ? (isEngineHealthy ? 'CLUSTER HEALTHY · ENGINES ONLINE' : 'CLUSTER DEGRADED')
-                      : `${shieldCount}/4 ${lang === 'en' ? 'CAPITAL SHIELDS ACTIVE' : 'LỚP GIÁP BẢO VỆ VỐN'}`}
+                      : (void shieldCount, lang === 'en' ? 'STATISTICS · NO PROFIT PROMISE' : 'THỐNG KÊ · KHÔNG CAM KẾT LỢI NHUẬN')}
                   </span>
                 );
               })()}
