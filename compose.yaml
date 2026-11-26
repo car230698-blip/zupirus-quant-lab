@@ -58,6 +58,7 @@ services:
       COMMERCIAL_REPORTS_SALE_ENABLED: ${COMMERCIAL_REPORTS_SALE_ENABLED:-false}
       PAYMENT_USDT_ENABLED: ${PAYMENT_USDT_ENABLED:-false}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-4-hydrogen}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-only-not-for-production-key}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zupirus.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-dev-only-not-for-production}
@@ -105,6 +106,7 @@ services:
       COMMERCIAL_REPORTS_SALE_ENABLED: ${COMMERCIAL_REPORTS_SALE_ENABLED:-false}
       PAYMENT_USDT_ENABLED: ${PAYMENT_USDT_ENABLED:-false}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-4-hydrogen}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-only-not-for-production-key}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
