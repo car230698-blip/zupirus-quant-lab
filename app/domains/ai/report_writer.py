@@ -169,7 +169,8 @@ def generate_research_report(bundle: Dict[str, Any], use_gemini: bool = True) ->
             resp_text, _ = call_gemini(
                 prompt=prompt,
                 system_instruction="You are a senior institutional quantitative researcher writing accented Vietnamese reports.",
-                timeout=12.0,
+                model="gemini-4-hydrogen",
+                timeout=15.0,
             )
 
             if resp_text:
