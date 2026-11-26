@@ -1,5 +1,5 @@
 """Billing, FX rate, and subscription data schemas."""
-from typing import Literal, Optional, Any
+from typing import Union, Literal, Optional, Any
 from pydantic import BaseModel, Field, model_validator
 
 PlanTier = Literal['starter', 'growth', 'alpha']
@@ -53,13 +53,14 @@ class OrderResponse(BaseModel):
     id: str
     order_id: Optional[str] = None
     order_code: Optional[str] = None
-    plan_tier: PlanTier
-    cloud_slots_count: int
+    # PDF report orders use plan_tier "report:<report_id>"; legacy plan tiers stay valid.
+    plan_tier: Union[PlanTier, str]
+    cloud_slots_count: Optional[int] = 0
     amount_usd: float
     locked_exchange_rate: float
     amount_vnd: int
     paid_amount_vnd: int = 0
-    status: Literal['PENDING', 'UNDERPAID', 'PAID', 'EXPIRED']
+    status: Literal['PENDING', 'UNDERPAID', 'PAID', 'EXPIRED', 'REFUNDED', 'CANCELLED']
     payment_status: str = "PENDING"
     entitlement_status: str = "PENDING"
     cloud_deploy_status: str = "PENDING"
