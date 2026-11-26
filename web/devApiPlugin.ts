@@ -1710,8 +1710,8 @@ export function zupirusApiPlugin(): Plugin {
         amount_vnd: vnd,
         locked_exchange_rate: rate,
         bank_name: 'VietinBank',
-        account_number: '105887054819',
-        account_holder: 'LE NGUYEN NHU THUY',
+        account_number: '',
+        account_holder: '',
         payment_content: memo,
         status: 'PENDING',
         expires_at: nowSec() + 1200,
@@ -1730,8 +1730,8 @@ export function zupirusApiPlugin(): Plugin {
     if (pathname === '/api/admin/billing/settings' && method === 'GET') {
       return sendJson(res, 200, {
         bank_name: 'VietinBank',
-        account_number: '105887054819',
-        account_holder: 'LE NGUYEN NHU THUY',
+        account_number: '',
+        account_holder: '',
         content_prefix: 'ZP',
         fx_mode: 'AUTO',
         manual_fx_rate: 25730,

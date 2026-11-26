@@ -95,7 +95,8 @@ class RowDictWrapper:
         return self._dict[item]
 
     def __iter__(self):
-        return iter(self._dict)
+        # Match sqlite3.Row: unpacking yields column values, not names.
+        return iter(self._values)
 
     def __len__(self) -> int:
         return len(self._dict)
@@ -250,6 +251,15 @@ class CursorWrapper:
                         translated += f" ON CONFLICT ({pk_col}) DO NOTHING"
                 else:
                     translated += f" ON CONFLICT ({pk_col}) DO NOTHING"
+
+        # JSONB columns cannot use LIKE directly; cast to text for SQLite-style queries.
+        if self._is_pg and re.search(r'\bpayload\s+LIKE\b', translated, re.IGNORECASE):
+            translated = re.sub(
+                r'\bpayload\s+LIKE\b',
+                'payload::text LIKE',
+                translated,
+                flags=re.IGNORECASE,
+            )
 
         # Adapt epoch parameters for PostgreSQL TIMESTAMPTZ columns on candles and quotes tables
         if re.search(r'\b(candles|quotes)\b', translated, re.IGNORECASE):
@@ -555,30 +565,70 @@ def insert_timescale_candle(
     close_p: float,
     volume: float = 1.0,
     source: str = "MARKET_LIVE",
+    *,
+    replace_ohlcv: bool = False,
 ):
-    """Insert or upsert an OHLCV candle into TimescaleDB (Postgres) or SQLite."""
+    """Insert or upsert an OHLCV candle into TimescaleDB (Postgres) or SQLite.
+
+    Live tick aggregation keeps the first open, expands high/low, updates close,
+    and replaces volume with the latest running value from the streamer.
+    Research imports (`replace_ohlcv=True`) replace the full OHLCV bar so a
+    re-import matches the study sample exactly.
+    """
     if is_postgres():
-        c.execute(
-            """
-            INSERT INTO candles (time, source, symbol, timeframe, open, high, low, close, volume)
-            VALUES (to_timestamp(?), ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
-                high = GREATEST(candles.high, excluded.high),
-                low = LEAST(candles.low, excluded.low),
-                close = excluded.close,
-                volume = candles.volume + excluded.volume
-            """,
-            (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
-        )
-    else:
-        try:
+        if replace_ohlcv:
             c.execute(
                 """
+                INSERT INTO candles (time, source, symbol, timeframe, open, high, low, close, volume)
+                VALUES (to_timestamp(?), ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume
+                """,
+                (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+            )
+        else:
+            c.execute(
+                """
+                INSERT INTO candles (time, source, symbol, timeframe, open, high, low, close, volume)
+                VALUES (to_timestamp(?), ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
+                    high = GREATEST(candles.high, excluded.high),
+                    low = LEAST(candles.low, excluded.low),
+                    close = excluded.close,
+                    volume = excluded.volume
+                """,
+                (float(ts), source, symbol, timeframe, float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
+            )
+    else:
+        if replace_ohlcv:
+            conflict_sql = """
                 INSERT INTO candles (source, symbol, timeframe, time, open, high, low, close, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
-                    high = excluded.high, low = excluded.low, close = excluded.close, volume = excluded.volume
-                """,
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume
+                """
+        else:
+            # Live/stream path: keep the first open; update extrema/close; replace volume.
+            conflict_sql = """
+                INSERT INTO candles (source, symbol, timeframe, time, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (time, source, symbol, timeframe) DO UPDATE SET
+                    high = MAX(candles.high, excluded.high),
+                    low = MIN(candles.low, excluded.low),
+                    close = excluded.close,
+                    volume = excluded.volume
+                """
+        try:
+            c.execute(
+                conflict_sql,
                 (source, symbol, timeframe, int(ts), float(open_p), float(high_p), float(low_p), float(close_p), float(volume)),
             )
         except Exception:

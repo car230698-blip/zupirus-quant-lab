@@ -144,8 +144,13 @@ MIGRATIONS = [
     },
     {
         "version": 28,
-        "name": "028_prune_legacy_trading_schema",
-        "description": "Prune legacy customer MT5 copy-trading and execution tables"
+        "name": "028_retire_legacy_execution",
+        "description": "Mark customer auto-execution retired without dropping historical tables"
+    },
+    {
+        "version": 29,
+        "name": "029_quant_studies_and_methodologies",
+        "description": "Additive quant study and bilingual methodology tables, plus optional PDF watermark flag"
     }
 ]
 
@@ -164,8 +169,9 @@ from .seed_and_fixes import (
     apply_migration_016, apply_migration_017, apply_migration_018,
     apply_migration_019, apply_migration_020, apply_migration_021,
     apply_migration_022, apply_migration_023, apply_migration_024,
-    apply_migration_025, apply_migration_026, apply_migration_027,
+    apply_migration_025, apply_migration_026,     apply_migration_027,
     apply_migration_028,
+    apply_migration_029,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -202,6 +208,7 @@ def run_all_migrations(c, is_pg: bool):
         26: apply_migration_026,
         27: apply_migration_027,
         28: apply_migration_028,
+        29: apply_migration_029,
     }
 
     for m in MIGRATIONS:
@@ -223,6 +230,8 @@ def run_all_migrations(c, is_pg: bool):
         try:
             apply_migration_026(c, is_pg=False)
             apply_migration_027(c, is_pg=False)
+            apply_migration_028(c, is_pg=False)
+            apply_migration_029(c, is_pg=False)
             c.commit()
         except Exception as e:
             logger.debug(f"SQLite migration 026/027 verification note: {e}")
@@ -284,33 +293,39 @@ def run_postgres_migration_test(database_url: str = None):
     if not (database_url.startswith("postgresql://") or database_url.startswith("postgres://")):
         return
 
-    # A. Fresh schema test
-    with psycopg.connect(database_url, autocommit=True) as raw_conn:
+    expected = list(range(1, len(MIGRATIONS) + 1))
+
+    # A. Fresh schema test — transactional so SAVEPOINT-using migrations work.
+    with psycopg.connect(database_url, autocommit=False) as raw_conn:
         with raw_conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS fresh_schema_test CASCADE;")
             cur.execute("CREATE SCHEMA fresh_schema_test;")
             cur.execute("SET search_path TO fresh_schema_test, public;")
-        
+        raw_conn.commit()
+
         wrapped_fresh = ConnectionWrapper(raw_conn, is_pg=True)
         run_all_migrations(wrapped_fresh, is_pg=True)
         fresh_versions = get_applied_versions(wrapped_fresh)
-        assert fresh_versions == list(range(1, 18)), f"Expected all migrations 1..17, got {fresh_versions}"
+        assert fresh_versions == expected, f"Expected all migrations {expected[0]}..{expected[-1]}, got {fresh_versions}"
 
         with raw_conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS fresh_schema_test CASCADE;")
+        raw_conn.commit()
 
     # B. Legacy schema test: pre-existing schema with legacy quotes and data
-    with psycopg.connect(database_url, autocommit=True) as raw_conn:
+    with psycopg.connect(database_url, autocommit=False) as raw_conn:
         with raw_conn.cursor() as cur:
             cur.execute("DROP SCHEMA IF EXISTS legacy_schema_test CASCADE;")
             cur.execute("CREATE SCHEMA legacy_schema_test;")
             cur.execute("SET search_path TO legacy_schema_test, public;")
+        raw_conn.commit()
 
         wrapped_legacy = ConnectionWrapper(raw_conn, is_pg=True)
         apply_migration_001(wrapped_legacy, is_pg=True)
+        wrapped_legacy.commit()
         with raw_conn.cursor() as cur:
             cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW());")
-            cur.execute("INSERT INTO schema_migrations (version, name) VALUES (1, '001_core_schema');")
+            cur.execute("INSERT INTO schema_migrations (version, name) VALUES (1, '001_core_schema') ON CONFLICT DO NOTHING;")
             # Legacy quotes table without hypertable structure
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS quotes (
@@ -324,11 +339,12 @@ def run_postgres_migration_test(database_url: str = None):
                 );
             """)
             cur.execute("INSERT INTO quotes (source, symbol, ts, bid, ask) VALUES ('DEMO', 'XAUUSD', 1700000000.0, 2600.0, 2600.3);")
+        raw_conn.commit()
 
         # Run all migrations on legacy schema
         run_all_migrations(wrapped_legacy, is_pg=True)
         legacy_versions = get_applied_versions(wrapped_legacy)
-        assert legacy_versions == list(range(1, 18)), f"Expected 1..17, got {legacy_versions}"
+        assert legacy_versions == expected, f"Expected {expected[0]}..{expected[-1]}, got {legacy_versions}"
 
         # Verify existing data is preserved
         with raw_conn.cursor() as cur:
@@ -340,4 +356,5 @@ def run_postgres_migration_test(database_url: str = None):
             assert float(row[0]) == 2600.0 and float(row[1]) == 2600.3, f"Corrupted data: {row}"
             cur.execute("DROP SCHEMA IF EXISTS legacy_schema_test CASCADE;")
             cur.execute("SET search_path TO public;")
+        raw_conn.commit()
 

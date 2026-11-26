@@ -175,7 +175,7 @@ def migrate(sqlite_path: Path, pg_url: str):
 def main():
     parser = argparse.ArgumentParser(description="ZUPIRUS SQLite to PostgreSQL Migration")
     parser.add_argument("--sqlite", default="./data/lab.sqlite3", help="Path to source SQLite file")
-    parser.add_argument("--pg", default=os.getenv("DATABASE_URL", "postgresql://zupirus:zupirus_secure_password@127.0.0.1:5432/zupirus"))
+    parser.add_argument("--pg", default=os.getenv("DATABASE_URL", "postgresql://zupirus:dev-only-not-for-production@127.0.0.1:5432/zupirus"))
     args = parser.parse_args()
 
     try:

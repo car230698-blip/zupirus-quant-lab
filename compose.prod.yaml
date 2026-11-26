@@ -19,11 +19,16 @@ services:
     environment:
       APP_ENV: "production"
       COOKIE_SECURE: "true"
+      # Persist PDFs on the lab_data volume mounted at /data (rootfs is read-only).
+      DATA_DIR: /data
       ENABLE_LEGACY_EA_BRIDGE: "false"
+      ENABLE_LEGACY_CUSTOMER_EXECUTION: "false"
+      ENABLE_LEGACY_RESEARCH_LOOP: "false"
       COMMERCIAL_REPORTS_SALE_ENABLED: ${COMMERCIAL_REPORTS_SALE_ENABLED:-false}
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}@timescaledb:5432/${POSTGRES_DB:-zupirus_quant}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set in production}
+      REPORT_DOWNLOAD_SECRET: ${REPORT_DOWNLOAD_SECRET:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in production}
       ALLOWED_ORIGINS: "https://zupirus.com,https://www.zupirus.com,https://app.zupirus.com,https://adm.zupirus.com"
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -40,7 +45,10 @@ services:
   research:
     environment:
       APP_ENV: "production"
+      DATA_DIR: /data
       ENABLE_LEGACY_EA_BRIDGE: "false"
+      ENABLE_LEGACY_CUSTOMER_EXECUTION: "false"
+      ENABLE_LEGACY_RESEARCH_LOOP: "false"
       DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}@timescaledb:5432/${POSTGRES_DB:-zupirus_quant}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
 

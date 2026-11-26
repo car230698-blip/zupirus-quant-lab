@@ -11,9 +11,18 @@ from app.domains.ai.ingest_swarm import retrieve_relevant_knowledge, embed_text
 
 @pytest.fixture(autouse=True)
 def setup_test_db(tmp_path, monkeypatch):
+    """Isolate this module on a private SQLite file.
+
+    Clearing module DATABASE_URL / pool is required so CI Postgres is not wiped
+    by DELETE FROM signal_sources in these unit tests.
+    """
     test_db = tmp_path / "test_skills_rag.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{test_db}")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr("app.core.db.DATABASE_URL", "")
+    monkeypatch.setattr("app.core.db._pg_pool", None)
     monkeypatch.setattr("app.core.db.DB", test_db)
+    monkeypatch.setattr("app.db.DATABASE_URL", "")
+    monkeypatch.setattr("app.db._pg_pool", None)
     monkeypatch.setattr("app.db.DB", test_db)
     init()
     yield

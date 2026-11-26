@@ -201,6 +201,7 @@ def test_redis_quote_rejects_stale_under_require_broker_feed():
 
 
 def test_is_account_drawdown_halted_emergency_pending():
+    pytest.importorskip("app.domains.execution.watcher")
     from app.domains.execution.watcher import is_account_drawdown_halted
     with tx() as c:
         c.execute("INSERT INTO kv (key, value) VALUES ('emergency_close_pending:acc_test_halt', 'DRAWDOWN_LIMIT_5.00') ON CONFLICT(key) DO UPDATE SET value = excluded.value")

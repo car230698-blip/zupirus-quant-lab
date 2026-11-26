@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { calculateQuantLotSizing, type AccountKind, type BillingCycle } from '../utils/quantMath';
+import { type BillingCycle } from '../utils/quantMath';
 import { useLiveTopbarTelemetry } from '../hooks/useQuantData.ts';
 import { LandingQrPreviewModal } from './LandingQrPreviewModal';
 import { LandingPricingAndFaqSection } from './LandingPricingAndFaqSection';
 import { LandingFooter } from './LandingFooter';
-import { LandingLotCalculator } from './LandingLotCalculator';
 import { PRICING_TIERS, getPricingTiers } from '../data/landingData';
 import { LandingHeader } from './LandingHeader';
-import { LandingComparisonSection } from './LandingComparisonSection';
-import { LandingGuardSimulatorSection } from './LandingGuardSimulatorSection';
 import { FintechAmbientBackdrop } from './FintechAmbientBackdrop';
 import { ScrollProgressBar } from './ui/ScrollProgressBar';
 import { LandingHeroTerminal } from './LandingHeroTerminal';
@@ -35,16 +32,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const usdVndRate = Number(telemetryData?.usd_vnd?.rate || 25720);
   const [quantTheme, setQuantTheme] = useState<'gold' | 'cyber'>('gold');
 
-  // Interactive Safety Guard Selection
-  const [selectedGuardIdx, setSelectedGuardIdx] = useState(0);
-
-  // Interactive Lot Sizing Calculator State
-  const [calcBalance, setCalcBalance] = useState(50000);
-  const [calcRiskPct, setCalcRiskPct] = useState(1.0);
-  const [calcSlPips, setCalcSlPips] = useState(35);
-  const [calcAccountKind, setCalcAccountKind] = useState<AccountKind>('PROP');
-
-  // Interactive Pricing & VietQR Preview State
+  // Example guide prices. The owner sets the real price of each published PDF.
   const [billingCycle, setBillingCycle] = useState<BillingCycle>('QUARTERLY');
   const [currencyMode, setCurrencyMode] = useState<'VND' | 'USD'>(lang === 'en' ? 'USD' : 'VND');
   const [qrPreviewTier, setQrPreviewTier] = useState<typeof PRICING_TIERS[number] | null>(null);
@@ -56,14 +44,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   useEffect(() => {
     document.documentElement.setAttribute('data-quant-theme', quantTheme);
   }, [quantTheme]);
-
-  const lotCalc = calculateQuantLotSizing({
-    balanceUsd: calcBalance,
-    riskPercent: calcRiskPct,
-    stopLossPips: calcSlPips,
-    accountKind: calcAccountKind,
-    dailyDrawdownLimitPct: calcAccountKind === 'PROP' ? 4.0 : 10,
-  });
 
   const askPrice = spotPrice > 0 ? Math.round((spotPrice + (spreadPips || 1.8) * 0.1) * 100) / 100 : 0;
 
@@ -159,32 +139,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           />
         </section>
 
-        {/* SECTION 2: INFINITE LOGO MARQUEE */}
         <LandingTrustMarquee />
 
-        {/* SECTION 3: 4 CORE VALUES & DETAILED COMPARISON */}
-        <LandingComparisonSection />
-
-        {/* SECTION 4: 4-LAYER FAIL-CLOSED SAFETY SHIELD */}
-        <LandingGuardSimulatorSection
-          selectedGuardIdx={selectedGuardIdx}
-          setSelectedGuardIdx={setSelectedGuardIdx}
-        />
-
-        {/* SECTION 5: LOT SIZING CALCULATOR */}
-        <LandingLotCalculator
-          calcAccountKind={calcAccountKind}
-          setCalcAccountKind={setCalcAccountKind}
-          calcBalance={calcBalance}
-          setCalcBalance={setCalcBalance}
-          calcRiskPct={calcRiskPct}
-          setCalcRiskPct={setCalcRiskPct}
-          calcSlPips={calcSlPips}
-          setCalcSlPips={setCalcSlPips}
-          lotCalc={lotCalc}
-        />
-
-        {/* SECTION 6: PRICING & FAQ */}
+        {/* PDF library pricing and questions */}
         <LandingPricingAndFaqSection
           tiers={getPricingTiers(lang)}
           billingCycle={billingCycle}

@@ -246,7 +246,7 @@ def ensure_flagship_sample_report_seeded(c) -> Optional[str]:
                 price_usd, price_vnd, currency, sample_pdf_path, full_pdf_path,
                 preview_highlights_json, research_candidate_id, wfo_metrics_json,
                 published_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 'XAU/USD', 'M15 / H1', 'v1.0', 'PUBLISHED', ?, ?, 'VND', ?, ?, ?, NULL, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, 'XAU/USD', 'M15 / H1', 'v1.0', 'DISCONTINUED', ?, ?, 'VND', ?, ?, ?, NULL, ?, NULL, ?, ?)
             """,
             (
                 rep_id,
@@ -262,24 +262,26 @@ def ensure_flagship_sample_report_seeded(c) -> Optional[str]:
                 json.dumps(wfo_metrics, ensure_ascii=False),
                 now,
                 now,
-                now,
             ),
         )
-        c.execute(
-            """
-            INSERT INTO report_versions (
-                id, report_id, version, full_pdf_path, sample_pdf_path, changelog, wfo_metrics_json, published_at, created_at
-            ) VALUES (?, ?, 'v1.0', ?, ?, 'Phát hành phiên bản v1.0 đầu tiên đã kiểm định WFO.', ?, ?, ?)
-            ON CONFLICT(report_id, version) DO NOTHING
-            """,
-            (
-                f"ver_{rep_id}_v1_0",
-                rep_id,
-                str(full_file),
-                str(sample_file),
-                json.dumps(wfo_metrics, ensure_ascii=False),
-                now,
-                now,
-            ),
-        )
+        # No report_versions row: this legacy placeholder stays DISCONTINUED so the
+        # public catalog only shows real published methodology guides.
+    else:
+        # One-shot retirement of the synthetic flagship so the public catalog
+        # only lists real methodology guides. Operators may re-publish for tests.
+        try:
+            retired = c.execute(
+                "SELECT value FROM kv WHERE key = 'legacy_flagship_retired'"
+            ).fetchone()
+            if not retired:
+                c.execute(
+                    "UPDATE research_reports SET status = 'DISCONTINUED', updated_at = ? WHERE id = ? AND UPPER(status) = 'PUBLISHED'",
+                    (now, rep_id),
+                )
+                c.execute(
+                    "INSERT INTO kv (key, value) VALUES ('legacy_flagship_retired', '1') "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+                )
+        except Exception:
+            pass
     return rep_id

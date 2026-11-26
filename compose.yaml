@@ -21,7 +21,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-zupirus}
       POSTGRES_USER: ${POSTGRES_USER:-zupirus}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zupirus_secure_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-only-not-for-production}
     ports: ["127.0.0.1:5432:5432"]
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
@@ -35,12 +35,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-zupirus_redis_secret}"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-dev-only-not-for-production}"]
     ports: ["127.0.0.1:6379:6379"]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-zupirus_redis_secret}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-dev-only-not-for-production}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -53,13 +53,13 @@ services:
       redis: { condition: service_healthy }
     environment:
       APP_ENV: ${APP_ENV:-dev}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-dev-only-not-for-production}@timescaledb:5432/${POSTGRES_DB:-zupirus}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-dev-only-not-for-production}@redis:6379/0
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-only-not-for-production-key}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zupirus.local}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin_secure_change_me_2026}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-dev-only-not-for-production}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,https://zupirus.com,https://www.zupirus.com,https://app.zupirus.com,https://adm.zupirus.com}
       FEED_TOKEN: ${FEED_TOKEN:-}
@@ -91,18 +91,18 @@ services:
 
   research:
     <<: *app
-    command: [python, -m, app.domains.ai.research_graph]
+    command: [python, -m, app.domains.quant.worker]
     depends_on:
       api: { condition: service_healthy }
       timescaledb: { condition: service_healthy }
       redis: { condition: service_healthy }
     environment:
       APP_ENV: ${APP_ENV:-dev}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-zupirus_secure_password}@timescaledb:5432/${POSTGRES_DB:-zupirus}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-zupirus_redis_secret}@redis:6379/0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-zupirus}:${POSTGRES_PASSWORD:-dev-only-not-for-production}@timescaledb:5432/${POSTGRES_DB:-zupirus}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-dev-only-not-for-production}@redis:6379/0
       METAAPI_TOKEN: ${METAAPI_TOKEN:-}
       GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-zupirus_master_secret_enc_key_2026}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-only-not-for-production-key}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
       AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}

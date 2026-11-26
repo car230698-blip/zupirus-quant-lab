@@ -1422,6 +1422,10 @@ def run_periodic_macro_bias():
 
 
 def main():
+    if os.getenv("ENABLE_LEGACY_RESEARCH_LOOP", "").strip().lower() not in ("1", "true", "yes"):
+        from app.domains.quant.worker import main as librarian_main
+        librarian_main()
+        return
     init()
     from app.domains.ai.signal_swarm import is_agent_paused
     from app.domains.execution.engine import is_weekend_market_closed

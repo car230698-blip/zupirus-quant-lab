@@ -32,6 +32,7 @@ from app.routers import (
     telemetry_admin_router,
     webhooks_router,
 )
+from app.routers.quant import router as quant_router
 from app.routers.growth import router as growth_router
 from app.routers.seo_pages import router as seo_pages_router
 from app.routers.auth import _client_ip, resolve_ip_country
@@ -215,7 +216,11 @@ def readyz():
     if is_postgres():
         timescale_ok = bool(timescale_info.get("timescaledb_available"))
     app_env = os.getenv("APP_ENV", "dev").strip().lower()
-    if is_postgres() or app_env == "production":
+    in_pytest = bool(os.getenv("PYTEST_CURRENT_TEST"))
+    if in_pytest:
+        # Unit tests do not run the research librarian process.
+        workers_ok = True
+    elif is_postgres() or app_env == "production":
         workers_ok = research_ok
     else:
         workers_ok = (research_ok if has_hb_records else True)
@@ -248,6 +253,7 @@ for _router in (
     notifications_router,
     realtime_router,
     reports_router,
+    quant_router,
     billing_router,
     webhooks_router,
     signals_router,

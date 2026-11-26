@@ -1171,6 +1171,18 @@ def tick():
 
 def main():
     init()
+    from app.core.config import is_customer_auto_trading_enabled
+    if not is_customer_auto_trading_enabled():
+        logger.warning("Customer auto-execution is retired. This process will not place or copy trades.")
+        while True:
+            try:
+                with tx() as c:
+                    setkv(c, "execution_heartbeat", time.time())
+                    setkv(c, "execution_mode", "retired")
+            except Exception as exc:
+                logger.debug("Retired execution heartbeat note: %s", type(exc).__name__)
+            time.sleep(30)
+        return
     while True:
         try:
             tick()

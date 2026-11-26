@@ -37,11 +37,12 @@ def test_1_admin_report_lifecycle_and_public_catalog_visibility(client, monkeypa
     Unauthenticated visitor sees only PUBLISHED reports, report details, and sample PDF (DRAFT hidden)."""
     monkeypatch.delenv("ENABLE_LEGACY_CUSTOMER_EXECUTION", raising=False)
 
-    # Unauthenticated visitor checks default seeded catalog
+    # Unauthenticated visitor: legacy synthetic flagship is discontinued; launch guide stays DRAFT
     pub_list = client.get("/api/v1/reports")
     assert pub_list.status_code == 200
     initial_items = pub_list.json()["items"]
-    assert any(r["id"] == "rep_xauusd_london_ny_v1" for r in initial_items)
+    assert not any(r["id"] == "rep_xauusd_london_ny_v1" for r in initial_items)
+    assert not any(r["id"] == "rep_eurusd_h1_asia_london_v1" for r in initial_items)
 
     # Seed a WFO strategy candidate to attach
     now_ts = time.time()
@@ -149,6 +150,30 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
     monkeypatch.delenv("ENABLE_LEGACY_CUSTOMER_EXECUTION", raising=False)
     rep_id = "rep_xauusd_london_ny_v1"
 
+    # Product seed keeps this legacy placeholder DISCONTINUED; re-publish for this purchase flow test.
+    now_pub = time.time()
+    with db.tx() as c:
+        c.execute(
+            "UPDATE research_reports SET status = 'PUBLISHED', published_at = ?, updated_at = ? WHERE id = ?",
+            (now_pub, now_pub, rep_id),
+        )
+        # Prevent the product seeder from retiring this placeholder again mid-test.
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES ('legacy_flagship_retired', '1') "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        c.execute(
+            """
+            INSERT INTO report_versions (
+                id, report_id, version, full_pdf_path, sample_pdf_path, changelog, wfo_metrics_json, published_at, created_at
+            )
+            SELECT 'ver_test_' || id, id, version, full_pdf_path, sample_pdf_path, 'test publish', wfo_metrics_json, ?, ?
+            FROM research_reports WHERE id = ?
+            ON CONFLICT(report_id, version) DO NOTHING
+            """,
+            (now_pub, now_pub, rep_id),
+        )
+
     # Register Buyer A
     _register_and_login(client, "buyer_a@example.com")
 
@@ -178,6 +203,12 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
 
     # Enable commercial sale to test full purchase, idempotent webhook, and library fulfillment
     monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "true")
+    from app.domains.billing.crypto_direct import save_crypto_wallets_config
+    save_crypto_wallets_config(
+        enabled=True,
+        bep20_address="0x1111111111111111111111111111111111111111",
+        admin_id="test",
+    )
 
     # Buyer A creates checkout order for rep_xauusd_london_ny_v1 (v1.0)
     co_res = client.post(

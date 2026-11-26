@@ -97,6 +97,17 @@ def list_public_reports() -> List[Dict[str, Any]]:
     """Return strictly PUBLISHED research reports for public catalog browsing."""
     with tx() as c:
         ensure_flagship_sample_report_seeded(c)
+        c.execute("SAVEPOINT sp_launch_guide_seed")
+        try:
+            from app.domains.quant.launch_guide import ensure_launch_guide_seeded
+            ensure_launch_guide_seeded(c)
+            c.execute("RELEASE SAVEPOINT sp_launch_guide_seed")
+        except Exception:
+            c.execute("ROLLBACK TO SAVEPOINT sp_launch_guide_seed")
+            try:
+                c.execute("RELEASE SAVEPOINT sp_launch_guide_seed")
+            except Exception:
+                pass
         rows = c.execute(
             """
             SELECT * FROM research_reports
@@ -187,7 +198,11 @@ def create_admin_report_draft(
     rep_id = f"rep_{secrets.token_hex(6)}"
     base_slug = _slugify(title)
     rate, _, _ = get_usd_vnd_rate()
-    eff_usd = round(max(1.0, float(price_usd or 29.0)), 2)
+    # Preserve the caller's positive price. Methodology drafts may be below $1.
+    raw_usd = float(price_usd) if price_usd is not None else 29.0
+    eff_usd = round(raw_usd, 2)
+    if eff_usd < 0.01:
+        raise ValueError("price_usd must be at least 0.01 after rounding")
     eff_vnd = int(price_vnd) if (price_vnd is not None and int(price_vnd) > 0) else convert_usd_to_vnd(eff_usd, rate)
 
     with tx() as c:
@@ -621,7 +636,7 @@ def create_report_checkout_order(
 
     wallet_address = crypto_cfg.get("trc20_address") if network == "TRC20" else crypto_cfg.get("bep20_address")
     if not wallet_address:
-        wallet_address = "0x55d398326f99059fF775485246999027B3197955"
+        fail(400, "Chưa cấu hình ví nhận USDT. Quản trị viên cần lưu địa chỉ BEP20 hoặc TRC20 trước khi mở đơn.")
 
     gateway = f"USDT_{network}"
     currency = "USDT"
@@ -929,8 +944,13 @@ def verify_user_report_download_access(
 
 
 def _signing_secret() -> bytes:
-    raw = os.getenv("SECRET_KEY") or os.getenv("ZUPIRUS_SECRET") or "zupirus-quant-lab-report-download-secret"
-    return raw.encode("utf-8")
+    raw = os.getenv("REPORT_DOWNLOAD_SECRET") or os.getenv("ENCRYPTION_KEY") or os.getenv("SECRET_KEY") or os.getenv("ZUPIRUS_SECRET")
+    if raw:
+        return raw.encode("utf-8")
+    app_env = os.getenv("APP_ENV", "dev").strip().lower()
+    if app_env in ("production", "prod") and not os.getenv("PYTEST_CURRENT_TEST"):
+        raise RuntimeError("REPORT_DOWNLOAD_SECRET or ENCRYPTION_KEY is required in production")
+    return b"dev-only-report-download-secret"
 
 
 def issue_signed_report_download_token(user_id: str, report_id: str, version: str, ttl_sec: int = 300) -> str:

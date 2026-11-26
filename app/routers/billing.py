@@ -68,7 +68,7 @@ def get_available_gateways():
     has_bep20 = is_enabled and bool(cfg.get("bep20_address"))
     return {
         "sepay": False,
-        "usdt": bool(has_trc20 or has_bep20 or True),
+        "usdt": bool(has_trc20 or has_bep20),
         "usdt_trc20": has_trc20,
         "usdt_bep20": has_bep20,
         "supported_currencies": ["USDT", "USD"],
@@ -143,6 +143,7 @@ def get_order_status(order_id: str, u=Depends(get_current_user)):
                 bank_holder = saved_bank_info.get("account_holder")
                 content_memo = saved_bank_info.get("content_memo")
             else:
+                from app.domains.billing.service import get_effective_sepay_config
                 bank_name, bank_acc, bank_holder = get_effective_sepay_config(db_cursor=c)
                 content_memo = f"ZP {d['id'][-6:].upper()}"
                 is_vietin = str(bank_name or "").lower() in ("vietinbank", "icb")

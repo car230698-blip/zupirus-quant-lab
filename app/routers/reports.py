@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.db import tx
@@ -296,6 +296,58 @@ def api_download_purchased_report_pdf(
         fail(403, str(exc))
     except FileNotFoundError as exc:
         fail(404, str(exc))
+
+    watermark_on = False
+    watermark_policy_known = False
+    with tx() as c:
+        try:
+            flag = c.execute(
+                "SELECT watermark_enabled FROM research_reports WHERE id = ?",
+                (canonical_rep_id,),
+            ).fetchone()
+            watermark_on = bool(flag and int(flag[0] or 0))
+            watermark_policy_known = True
+        except Exception:
+            try:
+                mflag = c.execute(
+                    """
+                    SELECT watermark_enabled FROM methodologies
+                    WHERE report_id = ?
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (canonical_rep_id,),
+                ).fetchone()
+                if mflag is not None:
+                    watermark_on = bool(int(mflag[0] or 0))
+                    watermark_policy_known = True
+            except Exception:
+                watermark_policy_known = False
+    if not watermark_policy_known and role_str.lower() != "admin":
+        # Fail closed: never silently skip a watermark that could not be read.
+        fail(503, "Không đọc được cấu hình watermark của ấn phẩm. Thử lại sau.")
+    if watermark_on and role_str.lower() != "admin":
+        from app.domains.quant.pdf_doc import build_license_page
+        from app.domains.quant.service import merge_pdfs
+        buyer = str(current_user.get("email") or uid_str)
+        license_pdf = build_license_page([
+            f"Buyer / Người mua: {buyer}",
+            f"Report / Ấn phẩm: {canonical_rep_id}",
+            f"Version / Phiên bản: {dl_ver}",
+            "Educational copy. Past statistics are not a promise of profit.",
+            "Bản học tập. Thống kê quá khứ không phải cam kết lợi nhuận.",
+        ])
+        stamped = merge_pdfs([file_path.read_bytes(), license_pdf])
+        return Response(
+            content=stamped,
+            media_type="application/pdf",
+            headers={
+                "Cache-Control": "private, no-store, no-cache, must-revalidate",
+                "X-Report-Id": canonical_rep_id,
+                "X-Report-Version": dl_ver,
+                "X-Buyer-Watermark": "applied",
+                "Content-Disposition": f'attachment; filename="{dl_filename}"',
+            },
+        )
 
     return FileResponse(
         file_path,

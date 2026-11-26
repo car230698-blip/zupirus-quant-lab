@@ -112,9 +112,9 @@ test('LandingPricingAndFaqSection renders all pricing tiers and FAQ items', () =
       onEnterPortal: noop,
     }),
   );
-  assert.match(html, /Biểu Phí Hạ Tầng Đám Mây Cloud MT5/);
+  assert.match(html, /Ấn phẩm PDF, tính giá từng cuốn/);
   assert.match(html, /Câu Hỏi Thường Gặp/);
-  assert.match(html, /ZUPIRUS có giữ tiền nạp của tôi không/);
+  assert.match(html, /ZUPIRUS có vào lệnh giúp tôi không/);
 });
 
 test('QuantReportCatalogAndLibrary renders published XAU/USD PDF research catalog and sample preview link', () => {

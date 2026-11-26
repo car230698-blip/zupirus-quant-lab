@@ -2,26 +2,14 @@
 'Breakout & Retest XAU/USD M15: Expectancy After Costs & Cross-Session Heterogeneity'.
 """
 import json
-import os
 from pathlib import Path
 
-import pytest
-from starlette.testclient import TestClient
-
-from app.db import tx, is_postgres
+from app.db import tx
 from app.domains.ai.breakout_retest_research import (
     detect_breakout_retest_signals,
     simulate_trade_outcomes,
-    compute_performance_metrics,
-    run_session_breakdown,
 )
 from app.domains.reports.generate_first_research_report import generate_and_save_reports
-from app.main import app
-
-
-@pytest.fixture
-def client():
-    return TestClient(app)
 
 
 def test_1_breakout_retest_rules_deterministic_and_causal():
@@ -127,11 +115,13 @@ def test_3_draft_report_seeded_and_hidden_from_public(client, monkeypatch):
         assert "London Trap" not in content
         assert "Edge ch" not in content  # Checks for "Edge chỉ tồn tại"
 
-    # Verify title in DB metadata
+    # Verify title in DB metadata (keyed access works for both sqlite3.Row and PG RowDictWrapper)
     with tx() as c:
         row = c.execute("SELECT title, summary, status FROM research_reports WHERE id = ?", (rep_info["report_id"],)).fetchone()
         assert row is not None
-        title, summary, status = row
+        title = row["title"] if hasattr(row, "keys") else row[0]
+        summary = row["summary"] if hasattr(row, "keys") else row[1]
+        status = row["status"] if hasattr(row, "keys") else row[2]
         assert "Breakout & Retest" in title
         assert "nghiên cứu thăm dò" in title or "nghiên cứu thăm dò" in summary
         assert "London Trap" not in title and "London Trap" not in summary
