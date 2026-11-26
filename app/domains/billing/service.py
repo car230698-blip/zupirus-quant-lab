@@ -15,9 +15,6 @@ from app.config import (
     TIER_GROWTH_MONTHLY_USD,
     TIER_ALPHA_MONTHLY_USD,
     ORDER_LOCK_MINUTES,
-    SEPAY_BANK_NAME,
-    SEPAY_ACCOUNT_NUMBER,
-    SEPAY_ACCOUNT_HOLDER,
 )
 from app.services.fx_rate import get_usd_vnd_rate, convert_usd_to_vnd
 
@@ -93,10 +90,10 @@ def calculate_order_totals(
 
 
 def get_effective_sepay_config(db_cursor=None) -> Tuple[str, str, str]:
-    """Retrieve active SePay bank configuration from dynamic kv settings or environment config."""
-    bank_name = SEPAY_BANK_NAME or ""
-    acc_num = SEPAY_ACCOUNT_NUMBER or ""
-    holder = SEPAY_ACCOUNT_HOLDER or ""
+    """Retrieve active SePay bank configuration (deprecated in favor of USDT default)."""
+    bank_name = ""
+    acc_num = ""
+    holder = ""
 
     try:
         def _read(c):

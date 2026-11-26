@@ -171,7 +171,7 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
     monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "false")
     blocked_co = client.post(
         f"/api/v1/reports/{rep_id}/checkout",
-        json={"payment_method": "VIETQR"},
+        json={"payment_method": "USDT"},
     )
     assert blocked_co.status_code == 400
     assert "tạm tắt" in blocked_co.text
@@ -182,15 +182,16 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
     # Buyer A creates checkout order for rep_xauusd_london_ny_v1 (v1.0)
     co_res = client.post(
         f"/api/v1/reports/{rep_id}/checkout",
-        json={"payment_method": "VIETQR"},
+        json={"payment_method": "USDT"},
     )
     assert co_res.status_code == 200, co_res.text
     order_info = co_res.json()
     order_id = order_info["order_id"]
     order_code = order_info["order_code"]
-    amount_vnd = int(order_info["amount_vnd"])
+    amount_usd = float(order_info.get("amount_usd", 29.0))
     assert order_info["product_type"] == "PDF_REPORT"
     assert order_info["report_version"] == "v1.0"
+    assert "USDT" in order_info.get("payment_gateway", "")
 
     # Before payment, library is empty (only pending_orders has the order)
     lib_before = client.get("/api/v1/reports/my/library").json()
@@ -202,8 +203,8 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
     res_pay_1 = asyncio.run(
         process_successful_payment(
             order_id=order_id,
-            sepay_trans_id="SEPAY_TX_9001",
-            amount_received_vnd=amount_vnd,
+            sepay_trans_id="USDT_TX_9001",
+            amount_received_vnd=750000,
         )
     )
     assert res_pay_1 is True
@@ -211,8 +212,8 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
     res_pay_2 = asyncio.run(
         process_successful_payment(
             order_id=order_id,
-            sepay_trans_id="SEPAY_TX_9001_DUP",
-            amount_received_vnd=amount_vnd,
+            sepay_trans_id="USDT_TX_9001_DUP",
+            amount_received_vnd=750000,
         )
     )
     assert res_pay_2 is True
@@ -278,7 +279,7 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
     # User B tries to purchase the discontinued report -> blocked with HTTP 400
     client.post("/api/logout")
     _register_and_login(client, "intruder_b@example.com")
-    co_disc = client.post(f"/api/v1/reports/{rep_id}/checkout", json={"payment_method": "VIETQR"})
+    co_disc = client.post(f"/api/v1/reports/{rep_id}/checkout", json={"payment_method": "USDT"})
     assert co_disc.status_code == 400
 
     # Buyer A logs back in: even though report is DISCONTINUED and current_version is v2.0,

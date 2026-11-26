@@ -11,11 +11,6 @@ from fastapi import APIRouter, Depends
 
 from app.db import tx
 from app.routers.deps import get_current_admin, fail
-from app.config import (
-    SEPAY_BANK_NAME,
-    SEPAY_ACCOUNT_NUMBER,
-    SEPAY_ACCOUNT_HOLDER,
-)
 from app.services.fx_rate import get_usd_vnd_rate, REDIS_FX_KEY
 from app.redis_client import get_redis_client
 
@@ -79,9 +74,9 @@ def get_billing_settings(_admin=Depends(get_current_admin)):
         row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
         saved = json.loads(row[0]) if row else {}
 
-    bank_name = (saved.get("sepay_bank_name") or saved.get("bank_name") or SEPAY_BANK_NAME or "").strip()
-    account_number = (saved.get("sepay_account_number") or saved.get("account_number") or SEPAY_ACCOUNT_NUMBER or "").strip()
-    account_holder = (saved.get("sepay_account_holder") or saved.get("account_holder") or SEPAY_ACCOUNT_HOLDER or "").strip().upper()
+    bank_name = (saved.get("sepay_bank_name") or saved.get("bank_name") or "").strip()
+    account_number = (saved.get("sepay_account_number") or saved.get("account_number") or "").strip()
+    account_holder = (saved.get("sepay_account_holder") or saved.get("account_holder") or "").strip().upper()
     content_prefix = (saved.get("content_prefix") or "ZP").strip().upper()
     fx_mode = (saved.get("fx_mode") or "AUTO").strip().upper()
     manual_fx_rate = float(saved.get("fallback_usd_vnd_rate") or saved.get("manual_fx_rate") or 25600.0)
@@ -131,9 +126,9 @@ def _save_settings(req: FlexibleBillingSettingsUpdate):
         row = c.execute("SELECT value FROM kv WHERE key = 'billing:settings'").fetchone()
         existing = json.loads(row[0]) if row else {}
 
-    bank_name = (req.sepay_bank_name or req.bank_name or existing.get("sepay_bank_name") or existing.get("bank_name") or SEPAY_BANK_NAME or "").strip()
-    account_number = (req.sepay_account_number or req.account_number or existing.get("sepay_account_number") or existing.get("account_number") or SEPAY_ACCOUNT_NUMBER or "").strip()
-    account_holder = (req.sepay_account_holder or req.account_holder or existing.get("sepay_account_holder") or existing.get("account_holder") or SEPAY_ACCOUNT_HOLDER or "").strip().upper()
+    bank_name = (req.sepay_bank_name or req.bank_name or existing.get("sepay_bank_name") or existing.get("bank_name") or "").strip()
+    account_number = (req.sepay_account_number or req.account_number or existing.get("sepay_account_number") or existing.get("account_number") or "").strip()
+    account_holder = (req.sepay_account_holder or req.account_holder or existing.get("sepay_account_holder") or existing.get("account_holder") or "").strip().upper()
     content_prefix = (req.content_prefix or existing.get("content_prefix") or "ZP").strip().upper()
     fx_mode = (req.fx_mode or existing.get("fx_mode") or "AUTO").strip().upper()
 
@@ -202,9 +197,9 @@ def update_billing_settings(req: FlexibleBillingSettingsUpdate, _admin=Depends(g
 @router.post("/api/admin/billing/preview-qr")
 def generate_preview_qr(req: PreviewQRRequest, _admin=Depends(get_current_admin)):
     """Generate live preview URLs for SePay VietQR and fallback VietQR."""
-    bank = req.bank_name or SEPAY_BANK_NAME
-    acc = req.account_number or SEPAY_ACCOUNT_NUMBER
-    holder = req.account_holder or SEPAY_ACCOUNT_HOLDER
+    bank = req.bank_name or ""
+    acc = req.account_number or ""
+    holder = req.account_holder or ""
     memo = req.content_memo
     if str(bank or "").lower() in ("vietinbank", "icb") and not memo.upper().startswith("SEVQR"):
         memo = f"SEVQR {memo}"

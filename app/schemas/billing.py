@@ -37,7 +37,7 @@ class CreateOrderRequest(BaseModel):
     cloud_slots: int = Field(default=1, ge=1, le=20)
     cloud_accounts_count: Optional[int] = None
     billing_cycle: Optional[str] = None
-    payment_method: Optional[str] = "SEPAY"
+    payment_method: Optional[str] = "USDT"
 
     @model_validator(mode="before")
     def resolve_fields(cls, values):

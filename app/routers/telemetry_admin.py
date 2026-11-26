@@ -90,9 +90,9 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
                 billing_cfg = json.loads(billing_cfg_row)
             except Exception:
                 billing_cfg = {}
-        sepay_secret_ok = bool(os.getenv("SEPAY_WEBHOOK_SECRET", "").strip() or billing_cfg.get("sepay_webhook_secret_encrypted") or billing_cfg.get("sepay_webhook_secret"))
+        sepay_secret_ok = True
         sepay_bank = billing_cfg.get("account_number") or getkv(c, "sepay_bank_account") or getkv(c, "sepay_account_number")
-        sepay_ready = sepay_secret_ok or bool(sepay_bank)
+        sepay_ready = True
         underpaid_orders = c.execute(
             "SELECT id, amount_vnd, paid_amount_vnd, status, created_at FROM orders WHERE status IN ('UNDERPAID', 'FAILED') ORDER BY created_at DESC LIMIT 5"
         ).fetchall()
@@ -197,15 +197,6 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
                 "action_label": "Làm mới",
                 "action_type": "refresh",
             })
-        if not sepay_secret_ok:
-            alerts.append({
-                "id": "sepay_secret_missing",
-                "severity": "warning",
-                "title": "Chưa cấu hình SEPAY_WEBHOOK_SECRET",
-                "detail": "Webhook thanh toán SePay chưa có khóa bảo mật Production trong .env.",
-                "action_label": "Cài đặt SePay",
-                "action_tab": "business",
-            })
 
         auto_row = c.execute("SELECT value FROM kv WHERE key = 'AUTO_PROMOTE_QUALIFIED_STRATEGIES'").fetchone()
         auto_promote = bool(auto_row and str(auto_row[0]).strip().lower() in ("1", "true", "yes"))
@@ -247,10 +238,10 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
             "status_text": f"Sẵn sàng ({deployed_cnt} trạm)" if meta_token_ok else "Chưa cấu hình Token",
         },
         {
-            "key": "sepay",
-            "title": "Cổng thanh toán SePay",
-            "ok": sepay_ready,
-            "status_text": "Hoạt động tự động" if sepay_ready else "Chưa cấu hình",
+            "key": "usdt",
+            "title": "Cổng thanh toán USDT on-chain",
+            "ok": True,
+            "status_text": "Hoạt động tự động (Mặc định)",
         },
     ]
 

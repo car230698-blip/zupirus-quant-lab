@@ -200,7 +200,8 @@ def get_active_billing_methods() -> Dict[str, bool]:
     bep20_ready = is_enabled and validate_bep20_address(cfg.get("usdt_bep20_address", ""))
 
     return {
-        "sepay": True,
+        "sepay": False,
+        "usdt": bool(trc20_ready or bep20_ready),
         "usdt_trc20": bool(trc20_ready),
         "usdt_bep20": bool(bep20_ready),
     }

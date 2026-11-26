@@ -144,7 +144,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
   const [selectedReport, setSelectedReport] = useState<ResearchReportItem | null>(null);
   const [checkoutReport, setCheckoutReport] = useState<ResearchReportItem | null>(null);
   const [checkoutOrder, setCheckoutOrder] = useState<any | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'VIETQR' | 'USDT_BEP20' | 'USDT_TRC20'>('VIETQR');
+  const [paymentMethod, setPaymentMethod] = useState<'USDT_BEP20' | 'USDT_TRC20'>('USDT_BEP20');
   const [checkoutBusy, setCheckoutBusy] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -232,11 +232,10 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
     setCheckoutBusy(true);
     setStatusMessage(null);
     try {
-      const isCrypto = paymentMethod.startsWith('USDT');
       const net = paymentMethod === 'USDT_TRC20' ? 'TRC20' : 'BEP20';
       const data = await apiPost<any>(`/api/v1/reports/${encodeURIComponent(checkoutReport.id)}/checkout`, {
-        payment_method: isCrypto ? 'CRYPTO' : 'VIETQR',
-        network: isCrypto ? net : undefined,
+        payment_method: paymentMethod,
+        network: net,
       });
       setCheckoutOrder(data);
       await loadData();
@@ -880,7 +879,8 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                   <div className="grid grid-cols-1 gap-2.5">
                     {(
                       [
-                        ['VIETQR', 'VietQR / SePay (Chuyển khoản Ngân hàng Việt Nam - Tự động kích hoạt)'],
+                        ['USDT_BEP20', 'USDT (BEP20 - BNB Chain · Tự động kích hoạt)'],
+                        ['USDT_TRC20', 'USDT (TRC20 - Tron · Tự động kích hoạt)'],
                       ] as const
                     ).map(([code, label]) => (
                       <button
@@ -928,8 +928,8 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                       ? 'Creating Order...'
                       : 'Đang khởi tạo mã thanh toán...'
                     : lang === 'en'
-                    ? 'Generate Payment QR / Invoice →'
-                    : 'Tạo Mã QR Thanh Toán Báo Cáo →'}
+                    ? 'Generate USDT Payment Order →'
+                    : 'Tạo Lệnh Thanh Toán USDT Báo Cáo →'}
                 </button>
               </div>
             ) : (

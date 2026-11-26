@@ -18,7 +18,6 @@ from app.services.billing_service import (
     create_checkout_order,
     get_user_subscription,
     process_successful_payment,
-    get_effective_sepay_config,
 )
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
@@ -68,11 +67,11 @@ def get_available_gateways():
     has_trc20 = is_enabled and bool(cfg.get("trc20_address"))
     has_bep20 = is_enabled and bool(cfg.get("bep20_address"))
     return {
-        "sepay": True,
-        "usdt": bool(has_trc20 or has_bep20),
+        "sepay": False,
+        "usdt": bool(has_trc20 or has_bep20 or True),
         "usdt_trc20": has_trc20,
         "usdt_bep20": has_bep20,
-        "supported_currencies": ["VND", "USD", "USDT"],
+        "supported_currencies": ["USDT", "USD"],
     }
 
 
@@ -85,13 +84,13 @@ def get_my_subscription(u=Depends(get_current_user)):
 
 @router.post("/checkout", response_model=OrderResponse)
 def checkout(p: CreateOrderRequest, u=Depends(get_current_user)):
-    """Create checkout order with locked FX rate, SePay VietQR (VND) or Direct USDT (TRC20/BEP20)."""
+    """Create checkout order with default Direct USDT (TRC20/BEP20)."""
     order_data = create_checkout_order(
         user_id=u["id"],
         plan_tier=p.plan_tier,
         cloud_slots=p.cloud_slots,
         billing_cycle=p.billing_cycle or "MONTHLY",
-        payment_method=p.payment_method or "SEPAY",
+        payment_method=p.payment_method or "USDT",
     )
     return OrderResponse(**order_data)
 

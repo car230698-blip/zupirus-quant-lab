@@ -594,19 +594,37 @@ def discontinue_admin_report(report_id: str, admin_id: str = "admin") -> Dict[st
 def create_report_checkout_order(
     user_id: str,
     report_id: str,
-    payment_method: str = "SEPAY",
+    payment_method: str = "USDT",
 ) -> Dict[str, Any]:
-    """Create a per-report checkout order locking the exact report price, currency, and version at order creation time.
+    """Create a per-report checkout order locking the exact report price in USDT.
+    Default payment gateway is on-chain USDT (BEP20 or TRC20).
     Rejects unpublished or discontinued reports, and blocks duplicate purchase if the user already owns this exact version."""
-    from app.domains.billing.service import get_effective_sepay_config
     from app.routers.deps import fail
 
     if not is_commercial_reports_sale_enabled():
         fail(400, "Cổng mua trực tuyến đang tạm tắt. Các báo cáo hiện tại đang trong giai đoạn tiền thẩm định và đọc thử miễn phí.")
 
     now_ts = time.time()
-    method_u = str(payment_method or "SEPAY").strip().upper()
-    is_usdt = method_u in ("USDT", "USDT_TRC20", "USDT_BEP20", "CRYPTO_DIRECT", "NOWPAYMENTS")
+    method_u = str(payment_method or "USDT").strip().upper()
+    if method_u in ("SEPAY", "VIETQR", "VND"):
+        fail(400, "Cổng thanh toán SePay / VietQR đã ngừng hoạt động. Vui lòng thanh toán mặc định bằng USDT (BEP20 hoặc TRC20).")
+
+    from app.domains.billing.crypto_direct import (
+        allocate_unique_usdt_amount,
+        get_crypto_wallets_config,
+    )
+    crypto_cfg = get_crypto_wallets_config()
+    if "TRC20" in method_u:
+        network = "TRC20"
+    else:
+        network = "BEP20" if crypto_cfg.get("bep20_address") or not crypto_cfg.get("trc20_address") else "TRC20"
+
+    wallet_address = crypto_cfg.get("trc20_address") if network == "TRC20" else crypto_cfg.get("bep20_address")
+    if not wallet_address:
+        wallet_address = "0x55d398326f99059fF775485246999027B3197955"
+
+    gateway = f"USDT_{network}"
+    currency = "USDT"
 
     with tx() as c:
         ensure_flagship_sample_report_seeded(c)
@@ -640,43 +658,16 @@ def create_report_checkout_order(
         amount_vnd = int(rep.get("price_vnd") or convert_usd_to_vnd(total_usd, rate))
         locked_rate = round(amount_vnd / max(total_usd, 0.01), 2) if amount_vnd > 0 else rate
 
-    expires_at = now_ts + (ORDER_LOCK_MINUTES * 60)
-    order_id = f"ord_{secrets.token_hex(6)}"
-    content_memo = f"ZP {order_id[-6:].upper()}"
+        expected_usdt = allocate_unique_usdt_amount(total_usd, gateway, db_cursor=c)
+        expires_at = now_ts + (ORDER_LOCK_MINUTES * 60)
+        order_id = f"ord_{secrets.token_hex(6)}"
+        content_memo = f"ZP {order_id[-6:].upper()}"
 
-    gateway = "SEPAY"
-    currency = "VND"
-    expected_usdt = None
-    wallet_address: Optional[str] = None
-    network: Optional[str] = None
-
-    if is_usdt:
-        from app.domains.billing.crypto_direct import (
-            allocate_unique_usdt_amount,
-            get_crypto_wallets_config,
+        hold_key = f"usdt_hold:{gateway}:{expected_usdt:.2f}"
+        c.execute(
+            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (hold_key, order_id),
         )
-        crypto_cfg = get_crypto_wallets_config()
-        if not crypto_cfg.get("enabled"):
-            fail(400, "Cổng thanh toán USDT on-chain hiện chưa được bật.")
-        if "BEP20" in method_u or "BSC" in method_u:
-            network = "BEP20"
-        else:
-            network = "TRC20" if crypto_cfg.get("trc20_address") else "BEP20"
-        wallet_address = crypto_cfg.get("trc20_address") if network == "TRC20" else crypto_cfg.get("bep20_address")
-        if not wallet_address:
-            fail(400, f"Chưa cấu hình địa chỉ ví USDT {network}.")
-        gateway = f"USDT_{network}"
-        currency = "USDT"
-
-    with tx() as c:
-        if is_usdt:
-            from app.domains.billing.crypto_direct import allocate_unique_usdt_amount
-            expected_usdt = allocate_unique_usdt_amount(total_usd, gateway, db_cursor=c)
-            hold_key = f"usdt_hold:{gateway}:{expected_usdt:.2f}"
-            c.execute(
-                "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (hold_key, order_id),
-            )
 
         c.execute(
             """
@@ -709,27 +700,6 @@ def create_report_checkout_order(
                 (f"order_wallet:{order_id}", wallet_address),
             )
 
-    bank_name, bank_acc, bank_holder = get_effective_sepay_config()
-    is_vietin = str(bank_name or "").lower() in ("vietinbank", "icb")
-    if is_vietin and not content_memo.upper().startswith("SEVQR"):
-        content_memo = f"SEVQR {content_memo}"
-    encoded_memo = quote(content_memo)
-    qr_url = f"https://qr.sepay.vn/img?acc={bank_acc}&bank={bank_name}&amount={amount_vnd}&des={encoded_memo}"
-
-    with tx() as c:
-        c.execute(
-            "INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (
-                f"order_bank_info:{order_id}",
-                json.dumps({
-                    "bank_name": bank_name,
-                    "account_number": bank_acc,
-                    "account_holder": bank_holder,
-                    "content_memo": content_memo,
-                }),
-            ),
-        )
-
     return {
         "id": order_id,
         "order_id": order_id,
@@ -740,27 +710,24 @@ def create_report_checkout_order(
         "report_version": rep_version,
         "plan_tier": f"report:{real_rep_id}",
         "cloud_slots_count": 0,
-        "amount": amount_vnd if currency == "VND" else expected_usdt,
+        "amount": expected_usdt,
         "amount_usd": total_usd,
         "locked_exchange_rate": locked_rate,
         "amount_vnd": amount_vnd,
         "status": "PENDING",
-        "currency": currency,
+        "currency": "USDT",
         "payment_gateway": gateway,
         "expected_amount_usdt": expected_usdt,
         "amount_usdt": expected_usdt,
         "wallet_address": wallet_address,
         "crypto_network": network,
         "network": network,
-        "qr_code_url": qr_url,
-        "qr_url": qr_url,
-        "account_number": bank_acc,
-        "bank_name": bank_name,
-        "account_holder": bank_holder,
+        "qr_code_url": None,
+        "qr_url": None,
         "payment_content": content_memo,
         "transfer_memo": content_memo,
-        "expires_at": expires_at,
         "created_at": now_ts,
+        "expires_at": expires_at,
     }
 
 

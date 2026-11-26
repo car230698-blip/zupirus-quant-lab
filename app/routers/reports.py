@@ -54,8 +54,8 @@ def _get_optional_user(request: Request) -> Optional[Dict[str, Any]]:
 
 
 class ReportCheckoutRequest(BaseModel):
-    payment_method: str = "VIETQR"
-    network: Optional[str] = None
+    payment_method: str = "USDT"
+    network: Optional[str] = "BEP20"
 
 
 class AdminReportDraftRequest(BaseModel):
@@ -203,8 +203,8 @@ def api_checkout_report(
     body: ReportCheckoutRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Create a per-report checkout order (VIETQR via SePay or Direct USDT Crypto)."""
-    pm = str(body.payment_method or "SEPAY").upper()
+    """Create a per-report checkout order (Direct USDT Crypto)."""
+    pm = str(body.payment_method or "USDT").upper()
     if pm in ("CRYPTO", "USDT") and body.network:
         pm = f"USDT_{body.network.strip().upper()}"
     return create_report_checkout_order(
