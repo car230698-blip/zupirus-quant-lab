@@ -26,6 +26,13 @@ SYMBOL_MAP = {
     "EUR/USD": "EURUSD=X",
     "GBPUSD": "GBPUSD=X",
     "GBP/USD": "GBPUSD=X",
+    "BTCUSD": "BTC-USD",
+    "BTC/USD": "BTC-USD",
+    "BTCUSDT": "BTC-USD",
+    "BTC-USD": "BTC-USD",
+    "US30": "^DJI",
+    "DJI": "^DJI",
+    "^DJI": "^DJI",
 }
 
 TIMEFRAME_MAP = {

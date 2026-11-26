@@ -30,9 +30,27 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
 
   const [loading, setLoading] = useState(false);
   const [syncingFeed, setSyncingFeed] = useState(false);
+  const [triggeringAutonomous, setTriggeringAutonomous] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [parsedData, setParsedData] = useState<any>(null);
   const [studyResult, setStudyResult] = useState<any>(null);
+
+  const handleTriggerAutonomous = async () => {
+    setTriggeringAutonomous(true);
+    setMsg('');
+    try {
+      const res: any = await api.post('/api/v1/admin/quant/autonomous/trigger', { force: false });
+      if (res?.summary) {
+        setMsg(`Tiến trình tự hành hoàn tất: Đã kiểm tra ${res.summary.total_candidates} chiến lược, tự động xuất bản ${res.summary.published_count} báo cáo lên danh mục!`);
+      } else {
+        setMsg('Đã kích hoạt tiến trình nghiên cứu và xuất bản tự hành 100%!');
+      }
+    } catch (err: any) {
+      setMsg(err?.message || 'Lỗi khi kích hoạt tiến trình tự hành.');
+    } finally {
+      setTriggeringAutonomous(false);
+    }
+  };
 
   const handleLiveFeedSync = async () => {
     setSyncingFeed(true);
@@ -200,6 +218,17 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
                 >
                   <RefreshCw className={`h-3.5 w-3.5 text-emerald-400 ${syncingFeed ? 'animate-spin' : ''}`} />
                   <span>{syncingFeed ? 'Đang đồng bộ...' : (lang === 'en' ? 'Sync Live Feed' : 'Đồng bộ nến thị trường (Live)')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={triggeringAutonomous}
+                  onClick={handleTriggerAutonomous}
+                  className="quant-btn-primary text-xs bg-indigo-600/80 hover:bg-indigo-600 text-white border-indigo-500/40 shadow-sm"
+                  title="Tự động thu thập dữ liệu, kiểm định tổ chức 5 tiêu chí, viết luận văn AI (Gemini 4 Hydrogen) và xuất bản 100% tự động"
+                >
+                  <Sparkles className={`h-3.5 w-3.5 text-amber-300 ${triggeringAutonomous ? 'animate-spin' : ''}`} />
+                  <span>{triggeringAutonomous ? 'Đang chạy tự hành...' : (lang === 'en' ? 'Run 100% Autonomous Desk' : 'Chạy bàn nghiên cứu tự hành 100%')}</span>
                 </button>
 
                 <button

@@ -269,3 +269,32 @@ def api_get_data_status(admin: dict = Depends(get_current_admin)):
     except Exception as exc:
         fail(500, f"Lỗi kiểm tra trạng thái dữ liệu: {exc}")
 
+
+class AutonomousTriggerRequest(BaseModel):
+    force: bool = False
+
+
+@router.post("/api/v1/admin/quant/autonomous/trigger")
+@router.post("/api/admin/quant/autonomous/trigger")
+def api_trigger_autonomous_cycle(body: AutonomousTriggerRequest, admin: dict = Depends(get_current_admin)):
+    """Trigger the 100% Zero-Touch Autonomous Quant Research & Publishing pipeline on-demand."""
+    from app.domains.ai.autonomous_pipeline import run_autonomous_research_cycle
+    try:
+        summary = run_autonomous_research_cycle(force=body.force)
+        return {"success": True, "summary": summary}
+    except Exception as exc:
+        fail(500, f"Lỗi kích hoạt tiến trình tự hành: {exc}")
+
+
+@router.get("/api/v1/admin/quant/autonomous/status")
+@router.get("/api/admin/quant/autonomous/status")
+def api_get_autonomous_status(admin: dict = Depends(get_current_admin)):
+    """Get real-time operational status, last run results, and metrics of the autonomous desk."""
+    from app.domains.ai.autonomous_pipeline import get_autonomous_pipeline_status
+    try:
+        status_info = get_autonomous_pipeline_status()
+        return {"success": True, "data": status_info}
+    except Exception as exc:
+        fail(500, f"Lỗi truy vấn trạng thái tiến trình tự hành: {exc}")
+
+

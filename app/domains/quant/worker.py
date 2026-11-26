@@ -37,13 +37,28 @@ def main() -> None:
         if now - last_sync_time > 14400:
             try:
                 from app.domains.quant.data_feed import sync_market_candles
-                logger.info("Running automated market data sync for XAUUSD & EURUSD...")
+                logger.info("Running automated market data sync for XAUUSD, EURUSD & BTCUSD...")
                 sync_market_candles("XAUUSD", "M15", "5d")
                 sync_market_candles("EURUSD", "M15", "5d")
+                sync_market_candles("BTCUSD", "M15", "5d")
                 last_sync_time = now
                 logger.info("Automated market data sync completed successfully.")
             except Exception as exc:
                 logger.warning("Automated market data sync skipped/failed: %s", exc)
+
+        # 100% Zero-Touch Autonomous Research Cycle (Runs weekly or upon initial startup)
+        try:
+            from app.db import getkv
+            from app.domains.ai.autonomous_pipeline import run_autonomous_research_cycle
+            with tx() as c:
+                last_run_raw = getkv(c, "quant_auto_research_last_run")
+            last_run = float(last_run_raw) if last_run_raw else 0.0
+            # 604800s = 7 days
+            if (now - last_run > 604800) and (now - last_sync_time < 30):
+                logger.info("Triggering scheduled weekly Autonomous Quant Research Cycle...")
+                run_autonomous_research_cycle(force=False)
+        except Exception as exc:
+            logger.debug("Autonomous research cycle worker check note: %s", exc)
 
         time.sleep(10)
 

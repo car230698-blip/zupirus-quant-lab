@@ -41,20 +41,26 @@ def hash_key(key: str) -> str:
 
 
 def seed_default_keys(c):
-    """Ensure the 5 default Gemini keys exist in the database."""
+    """Ensure all default Gemini keys exist in the database."""
     now = time.time()
     for idx, raw_key in enumerate(DEFAULT_GEMINI_KEYS):
         k_hash = hash_key(raw_key)
         k_masked = mask_key(raw_key)
-        kid = f"gemini_key_{idx + 1}"
+        kid = f"gemini_key_{k_hash[:10]}"
         try:
-            # Check if exists
-            row = c.execute("SELECT id FROM gemini_keys WHERE key_hash = ?", (k_hash,)).fetchone()
+            # Check if exists by hash or id
+            row = c.execute("SELECT id FROM gemini_keys WHERE key_hash = ? OR id = ?", (k_hash, kid)).fetchone()
             if not row:
                 c.execute(
                     """INSERT INTO gemini_keys (id, key_hash, key_masked, key_cipher, is_active, calls_count, last_used, status, created)
                        VALUES (?, ?, ?, ?, 1, 0, NULL, 'active', ?)""",
                     (kid, k_hash, k_masked, encrypt_secret(raw_key.strip()), now),
+                )
+            else:
+                # Ensure it remains active
+                c.execute(
+                    "UPDATE gemini_keys SET is_active = 1, status = 'active' WHERE key_hash = ? OR id = ?",
+                    (k_hash, kid),
                 )
         except Exception as e:
             logger.debug(f"Key seed note: {e}")
