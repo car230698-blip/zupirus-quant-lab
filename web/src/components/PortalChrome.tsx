@@ -48,7 +48,6 @@ export const getNavigation = (lang: 'vi' | 'en' = 'vi') => ({
   user: [
     ['overview', lang === 'en' ? 'Research Catalog' : 'Danh mục báo cáo', '01'],
     ['accounts', lang === 'en' ? 'My PDF Library' : 'Thư viện của tôi', '02'],
-    ['orders', lang === 'en' ? 'Orders & Audit Archive' : 'Đơn hàng & Lịch sử', '03'],
   ],
   admin: [
     ['radar', lang === 'en' ? 'System Monitor & Alerts' : 'Giám Sát & Cảnh Báo', '01'],
@@ -59,7 +58,7 @@ export const getNavigation = (lang: 'vi' | 'en' = 'vi') => ({
 
 export const getPageTitles = (lang: 'vi' | 'en' = 'vi'): Record<Portal, Record<string, string>> => ({
   user: {
-    overview: lang === 'en' ? 'ZUPIRUS Quant Lab · XAU/USD Research Catalog & Market Telemetry' : 'ZUPIRUS Quant Lab · Danh Mục Báo Cáo Nghiên Cứu XAU/USD',
+    overview: lang === 'en' ? 'ZUPIRUS Quant Lab · PDF Method Catalog' : 'ZUPIRUS Quant Lab · Danh Mục Phương Pháp PDF',
     accounts: lang === 'en' ? 'My Quantitative PDF Report Library' : 'Thư Viện Báo Cáo PDF Của Tôi',
     orders: lang === 'en' ? 'Historical Reconciliation Archive' : 'Sổ Cái Đối Soát & Lưu Trữ Lịch Sử',
   },
@@ -73,11 +72,11 @@ export const getPageTitles = (lang: 'vi' | 'en' = 'vi'): Record<Portal, Record<s
 export const getPageSubtitles = (lang: 'vi' | 'en' = 'vi'): Record<Portal, Record<string, string>> => ({
   user: {
     overview: lang === 'en'
-      ? 'Browse published XAU/USD quantitative research reports, preview sample PDFs, and inspect real-time TimescaleDB market telemetry.'
-      : 'Xem danh mục báo cáo nghiên cứu định lượng XAU/USD, đọc bản mẫu PDF miễn phí và theo dõi dữ liệu thị trường TimescaleDB 24/5.',
+      ? 'Browse published quantitative guides, read the free preview PDFs and buy a guide in USDT.'
+      : 'Xem các ấn phẩm định lượng đã xuất bản, đọc bản PDF thử miễn phí và mua bằng USDT.',
     accounts: lang === 'en'
-      ? 'Access and download your purchased XAU/USD quantitative PDF reports directly on the web — no MT5, VPS, or broker account needed.'
-      : 'Quản lý và tải xuống các báo cáo nghiên cứu định lượng XAU/USD bạn đã mua trực tiếp trên website — không cần MT5, VPS hay kết nối sàn.',
+      ? 'Download the guides you bought and follow your pending USDT orders.'
+      : 'Tải các ấn phẩm bạn đã mua và theo dõi đơn USDT đang chờ.',
     orders: lang === 'en'
       ? 'Read-only historical execution and reconciliation archive preserved for accounting transparency.'
       : 'Lưu trữ lịch sử đối soát chỉ đọc (Read-only Archive) phục vụ tra cứu và minh bạch dữ liệu.',
@@ -124,7 +123,7 @@ export function Brand({ onClick, collapsed }: { onClick?: () => void; collapsed?
             </span>
           </div>
           <span className="text-[10.5px] text-amber-300/85 font-mono block mt-1 truncate">
-            Sovereign XAU Quant OS
+            Quant Lab · PDF Library
           </span>
         </div>
       )}

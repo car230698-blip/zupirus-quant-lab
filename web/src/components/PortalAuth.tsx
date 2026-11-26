@@ -151,21 +151,21 @@ export function PortalAuth({
             <div>
               <div className="font-mono text-xs font-semibold text-[#12B5A6] uppercase tracking-wider">
                 {portal === 'admin'
-                  ? (lang === 'en' ? 'ADMIN COMMAND RADAR' : 'TRẠM CHỈ HUY QUẢN TRỊ')
-                  : (lang === 'en' ? 'QUANT TRADING PORTAL' : 'CỔNG GIAO DỊCH ĐỊNH LƯỢNG')}
+                  ? (lang === 'en' ? 'ADMIN · PUBLISHING' : 'QUẢN TRỊ · XUẤT BẢN')
+                  : (lang === 'en' ? 'PDF LIBRARY' : 'THƯ VIỆN PDF')}
               </div>
               <h1 className="mt-1.5 text-2xl sm:text-3xl font-bold text-white tracking-tight">
                 {forgotMode
                   ? (lang === 'en' ? 'Reset Password' : 'Khôi Phục Mật Khẩu')
                   : register
                   ? (lang === 'en' ? 'Create Account (OTP)' : 'Đăng Ký Tài Khoản OTP')
-                  : (lang === 'en' ? 'Sign In to Terminal' : 'Đăng Nhập Hệ Thống')}
+                  : (lang === 'en' ? 'Sign In' : 'Đăng Nhập')}
               </h1>
               <p className="mt-1 text-xs text-[#94A3B8] leading-relaxed">
                 {portal === 'admin'
                   ? (lang === 'en'
-                      ? 'Authenticate administrative credentials for quant infrastructure operations.'
-                      : 'Xác thực phân quyền quản trị viên vận hành hệ thống định lượng.')
+                      ? 'Admin sign-in to manage guides, orders and billing settings.'
+                      : 'Đăng nhập quản trị để quản lý ấn phẩm, đơn hàng và cấu hình thanh toán.')
                   : forgotMode
                   ? (lang === 'en'
                       ? 'Enter your registered email to receive a secure recovery code.'
@@ -175,8 +175,8 @@ export function PortalAuth({
                       ? 'Verify email via a 6-digit code to open your PDF library.'
                       : 'Xác thực email qua mã 6 số để mở thư viện PDF.')
                   : (lang === 'en'
-                      ? 'Access MT5 terminal portfolio, risk configuration, and cloud execution ledger.'
-                      : 'Truy cập danh mục tài khoản MT5, cấu hình rủi ro và sổ lệnh đám mây.')}
+                      ? 'Open your PDF library: guides you bought, pending USDT orders and downloads.'
+                      : 'Mở thư viện PDF của bạn: ấn phẩm đã mua, đơn USDT đang chờ và lượt tải.')}
               </p>
             </div>
 
@@ -325,7 +325,7 @@ export function PortalAuth({
                     ? (lang === 'en' ? 'Confirm Password Reset' : 'Xác Nhận Đặt Lại Mật Khẩu')
                     : register
                     ? (lang === 'en' ? 'Verify OTP & Create Account' : 'Xác Nhận OTP & Tạo Tài Khoản')
-                    : (lang === 'en' ? 'Sign In to Terminal' : 'Đăng Nhập Vào Hệ Thống')}
+                    : (lang === 'en' ? 'Sign In' : 'Đăng Nhập')}
                 </span>
                 <span>→</span>
               </button>
@@ -369,7 +369,7 @@ export function PortalAuth({
           <div className="text-xs text-slate-500 font-mono">
             <span>
               {lang === 'en'
-                ? '© 2026 ZUPIRUS Quant Lab · Institutional Quant Standards'
+                ? '© 2026 ZUPIRUS Quant Lab'
                 : '© 2026 ZUPIRUS Quant Lab · Chuẩn Quỹ Định Lượng'}
             </span>
           </div>
@@ -426,8 +426,8 @@ export function PortalAuth({
                   </div>
                   <div className="mt-0.5 text-xs text-[#94A3B8] leading-relaxed">
                     {lang === 'en'
-                      ? 'Trade credentials are encrypted at rest with deep AES-256 HSM keys. Never stored in plaintext.'
-                      : 'Thông tin đăng nhập giao dịch được mã hóa tầng sâu trước khi lưu trữ, không bao giờ xuất hiện ở dạng thô.'}
+                      ? 'Passwords are stored only as salted hashes, never in plain text. We never ask for broker logins.'
+                      : 'Mật khẩu chỉ lưu dạng băm có salt, không bao giờ ở dạng thô. Chúng tôi không bao giờ hỏi thông tin đăng nhập sàn.'}
                   </div>
                 </div>
               </div>
@@ -438,12 +438,12 @@ export function PortalAuth({
                 </div>
                 <div>
                   <div className="text-sm font-bold text-white">
-                    {lang === 'en' ? '100% Direct Broker Custody' : 'Tiền nằm 100% tại sàn của bạn'}
+                    {lang === 'en' ? 'One-time USDT payment' : 'Thanh toán USDT một lần'}
                   </div>
                   <div className="mt-0.5 text-xs text-[#94A3B8] leading-relaxed">
                     {lang === 'en'
-                      ? 'ZUPIRUS does not take fund custody or manage pooled assets. Deposits and withdrawals occur directly at your broker.'
-                      : 'ZUPIRUS không giữ tiền nạp hay ủy thác. Tài sản và lợi nhuận rút nạp trực tiếp qua tài khoản sàn MT5 của bạn.'}
+                      ? 'You pay once per guide in USDT (BEP20 or TRC20). ZUPIRUS does not hold trading funds or manage accounts.'
+                      : 'Bạn trả một lần cho mỗi ấn phẩm bằng USDT (BEP20 hoặc TRC20). ZUPIRUS không giữ tiền giao dịch và không quản lý tài khoản.'}
                   </div>
                 </div>
               </div>
@@ -451,9 +451,9 @@ export function PortalAuth({
           </div>
 
           <div className="flex items-center justify-between text-xs font-mono text-slate-500 border-t border-slate-800/80 pt-6">
-            <span>MetaApi London G2 Gateway</span>
+            <span>ZUPIRUS Quant Lab · PDF</span>
             <span className="text-[#12B5A6]">
-              {lang === 'en' ? '4 Fail-Closed Shield Layers Armed' : '4 Lớp Giáp Fail-Closed Armed'}
+              {lang === 'en' ? 'No automated orders · No profit promise' : 'Không lệnh tự động · Không cam kết lợi nhuận'}
             </span>
           </div>
         </div>

@@ -28,8 +28,8 @@ export const UserAccountsTab: React.FC<UserAccountsTabProps> = ({
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
             {lang === 'en'
-              ? `ZUPIRUS Quant Lab operates exclusively as an XAU/USD quantitative research & PDF report platform. Automated customer trade execution is disabled. Your ${accounts.length} historical record(s) are preserved in read-only mode for reconciliation.`
-              : `ZUPIRUS Quant Lab vận hành hoàn toàn dưới mô hình Phòng nghiên cứu định lượng XAU/USD & Ấn phẩm báo cáo PDF trên website. Tính năng tự động giao dịch qua tài khoản môi giới đã được tắt an toàn. ${accounts.length} bản ghi lịch sử của bạn được giữ nguyên ở chế độ chỉ đọc để đối soát.`}
+              ? `ZUPIRUS Quant Lab operates exclusively as a quantitative research & PDF guide platform. Automated customer trade execution is disabled. Your ${accounts.length} historical record(s) are preserved in read-only mode for reconciliation.`
+              : `ZUPIRUS Quant Lab vận hành hoàn toàn dưới mô hình Phòng nghiên cứu định lượng & Ấn phẩm PDF trên website. Tính năng tự động giao dịch qua tài khoản môi giới đã được tắt an toàn. ${accounts.length} bản ghi lịch sử của bạn được giữ nguyên ở chế độ chỉ đọc để đối soát.`}
           </p>
         </div>
       )}

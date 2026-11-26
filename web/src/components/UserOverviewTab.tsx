@@ -11,6 +11,8 @@ import { getShieldLayers } from '../data/quantConstants';
 import { IconSettings, IconSpark } from './Icons';
 import { QuantReportCatalogAndLibrary } from './QuantReportCatalogAndLibrary';
 
+const SHOW_LEGACY_TRADING_PANELS = false as boolean;
+
 export interface UserOverviewTabProps {
   totalBalance?: number;
   totalEquity?: number;
@@ -184,6 +186,9 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
     <div className="space-y-6">
       {/* Quantitative Research Report Catalog & Sample PDF Hub */}
       <QuantReportCatalogAndLibrary mode="portal" initialSection="catalog" />
+
+      {/* Legacy trading dashboard panels are retired in the PDF-library model. */}
+      {SHOW_LEGACY_TRADING_PANELS && (<>
 
       {/* BENTO GRID 12 CỘT: 8 CỘT CHART + 4 CỘT GAUGE RỦI RO */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-stretch">
@@ -633,6 +638,7 @@ export const UserOverviewTab: React.FC<UserOverviewTabProps> = ({
           </span>
         </div>
       </SpotlightBento>
+      </>)}
     </div>
   );
 };
