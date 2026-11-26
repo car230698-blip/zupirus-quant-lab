@@ -179,3 +179,133 @@ def weekday_name(ts: int) -> str:
 
 def utc_date_key(ts: int) -> str:
     return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def parse_csv_candles(csv_text: str) -> List[Dict[str, Any]]:
+    """Parse CSV text from MetaTrader 4/5, TradingView, Dukascopy, or standard format into candle dicts."""
+    import csv
+    import io
+    from datetime import datetime, timezone
+
+    if not csv_text or not csv_text.strip():
+        raise CandleValidationError("CSV dữ liệu nến trống.")
+
+    sample = csv_text[:2048]
+    delim = ","
+    if "\t" in sample and sample.count("\t") > sample.count(","):
+        delim = "\t"
+    elif ";" in sample and sample.count(";") > sample.count(","):
+        delim = ";"
+
+    reader = csv.reader(io.StringIO(csv_text), delimiter=delim)
+    rows = [r for r in reader if r and any(cell.strip() for cell in r)]
+    if not rows:
+        raise CandleValidationError("Không tìm thấy dòng dữ liệu nào trong CSV.")
+
+    header = [c.strip().lower().lstrip("<").rstrip(">") for c in rows[0]]
+    has_header = any(h in header for h in ("open", "close", "time", "date", "high", "low", "timestamp"))
+
+    data_rows = rows[1:] if has_header else rows
+    if not data_rows:
+        raise CandleValidationError("CSV chỉ chứa tiêu đề, không có nến dữ liệu.")
+
+    time_idx = -1
+    date_idx = -1
+    open_idx = -1
+    high_idx = -1
+    low_idx = -1
+    close_idx = -1
+    vol_idx = -1
+
+    if has_header:
+        for i, h in enumerate(header):
+            if h in ("time", "timestamp", "ts", "datetime", "gmt time", "date time") and time_idx == -1:
+                time_idx = i
+            elif h in ("date", "<date>"):
+                date_idx = i
+            elif h in ("time", "<time>") and date_idx != -1:
+                time_idx = i
+            elif h in ("open", "o", "<open>"):
+                open_idx = i
+            elif h in ("high", "h", "<high>"):
+                high_idx = i
+            elif h in ("low", "l", "<low>"):
+                low_idx = i
+            elif h in ("close", "c", "<close>"):
+                close_idx = i
+            elif h in ("volume", "vol", "v", "tickvol", "<vol>", "<tickvol>"):
+                vol_idx = i
+    else:
+        if len(data_rows[0]) >= 6:
+            date_idx, time_idx, open_idx, high_idx, low_idx, close_idx = 0, 1, 2, 3, 4, 5
+            vol_idx = 6 if len(data_rows[0]) >= 7 else -1
+        elif len(data_rows[0]) >= 5:
+            time_idx, open_idx, high_idx, low_idx, close_idx = 0, 1, 2, 3, 4
+
+    if open_idx == -1 or high_idx == -1 or low_idx == -1 or close_idx == -1:
+        raise CandleValidationError("Không tìm thấy đủ 4 cột Open, High, Low, Close trong file CSV.")
+
+    parsed_candles: List[Dict[str, Any]] = []
+
+    def _parse_ts(raw_dt_str: str) -> int:
+        raw = raw_dt_str.strip().replace("T", " ").replace("Z", "")
+        try:
+            val = float(raw)
+            if val > 10_000_000_000:
+                val /= 1000.0
+            return int(val)
+        except ValueError:
+            pass
+
+        formats = (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y.%m.%d %H:%M:%S",
+            "%Y/%m/%d %H:%M:%S",
+            "%d.%m.%Y %H:%M:%S",
+            "%d/%m/%Y %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y.%m.%d %H:%M",
+            "%Y/%m/%d %H:%M",
+            "%d.%m.%Y %H:%M",
+            "%d/%m/%Y %H:%M",
+            "%Y-%m-%d",
+            "%Y.%m.%d",
+        )
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(raw[:19], fmt).replace(tzinfo=timezone.utc)
+                return int(dt.timestamp())
+            except ValueError:
+                continue
+        raise CandleValidationError(f"Không thể nhận diện định dạng thời gian: '{raw_dt_str}'.")
+
+    for idx, r in enumerate(data_rows):
+        try:
+            if date_idx != -1 and time_idx != -1 and date_idx != time_idx:
+                raw_time_str = f"{r[date_idx]} {r[time_idx]}"
+            elif time_idx != -1:
+                raw_time_str = r[time_idx]
+            elif date_idx != -1:
+                raw_time_str = r[date_idx]
+            else:
+                raw_time_str = r[0]
+
+            ts = _parse_ts(raw_time_str)
+            op = float(r[open_idx])
+            hi = float(r[high_idx])
+            lo = float(r[low_idx])
+            cl = float(r[close_idx])
+            vl = float(r[vol_idx]) if vol_idx != -1 and vol_idx < len(r) and r[vol_idx].strip() else 0.0
+
+            parsed_candles.append({
+                "time": ts,
+                "open": op,
+                "high": hi,
+                "low": lo,
+                "close": cl,
+                "volume": vl,
+            })
+        except (ValueError, IndexError) as exc:
+            raise CandleValidationError(f"Dòng #{idx + 1}: Lỗi phân tích nến - {exc}") from exc
+
+    return parsed_candles

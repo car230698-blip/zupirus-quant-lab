@@ -171,6 +171,187 @@ class _Writer:
             self.canvas.drawCentredString(x + bar_w / 2, bottom - 3.2 * mm, _text(label, self.family)[:8])
         self.y = bottom - 8 * mm
 
+    def line_chart(self, chart: Dict[str, Any]) -> None:
+        title = str(chart.get("title") or "Cumulative Equity Curve (R)")
+        raw_vals = chart.get("values") or []
+        values = [float(v or 0) for v in raw_vals]
+        if not values:
+            return
+        self.ensure(65 * mm)
+        self.paragraph(title, size=10, color=INK)
+        left = 16 * mm
+        width = PAGE_W - 32 * mm
+        height = 40 * mm
+        bottom = self.y - height
+
+        c = self.canvas
+        c.setFillColor(HexColor("#F8FAFC"))
+        c.rect(left, bottom, width, height, fill=1, stroke=0)
+        c.setStrokeColor(RULE)
+        c.setLineWidth(0.6)
+        c.rect(left, bottom, width, height, fill=0, stroke=1)
+
+        min_v = min(values)
+        max_v = max(values)
+        span = max(0.001, max_v - min_v)
+        pad = span * 0.1
+        min_y = min_v - pad
+        max_y = max_v + pad
+        y_range = max_y - min_y
+
+        if min_y <= 0 <= max_y:
+            zero_y = bottom + ((0.0 - min_y) / y_range) * height
+            c.setStrokeColor(HexColor("#CBD5E1"))
+            c.setLineWidth(0.6)
+            c.line(left, zero_y, left + width, zero_y)
+            c.setFillColor(MUTED)
+            c.setFont(_font(self.family, False), 6.5)
+            c.drawRightString(left - 1.5 * mm, zero_y - 2, "0.0R")
+
+        for q in (0.25, 0.50, 0.75):
+            gy = bottom + q * height
+            val_at_q = min_y + q * y_range
+            c.setStrokeColor(HexColor("#E2E8F0"))
+            c.setLineWidth(0.4)
+            c.line(left, gy, left + width, gy)
+            c.setFillColor(MUTED)
+            c.setFont(_font(self.family, False), 6.0)
+            c.drawRightString(left - 1.5 * mm, gy - 2, f"{val_at_q:+.1f}R")
+
+        n = len(values)
+        points = []
+        for i, val in enumerate(values):
+            px = left + (i / max(1, n - 1)) * width
+            py = bottom + ((val - min_y) / y_range) * height
+            points.append((px, py))
+
+        fill_path = c.beginPath()
+        fill_path.moveTo(points[0][0], bottom)
+        for px, py in points:
+            fill_path.lineTo(px, py)
+        fill_path.lineTo(points[-1][0], bottom)
+        fill_path.close()
+        c.setFillColor(Color(0.06, 0.46, 0.43, alpha=0.15))
+        c.drawPath(fill_path, fill=1, stroke=0)
+
+        line_path = c.beginPath()
+        line_path.moveTo(points[0][0], points[0][1])
+        for px, py in points[1:]:
+            line_path.lineTo(px, py)
+        c.setStrokeColor(TEAL)
+        c.setLineWidth(1.4)
+        c.drawPath(line_path, fill=0, stroke=1)
+
+        end_pt = points[-1]
+        c.setFillColor(TEAL)
+        c.circle(end_pt[0], end_pt[1], 2.2, fill=1, stroke=0)
+        c.setFont(_font(self.family, True), 7.5)
+        c.drawRightString(left + width - 2 * mm, bottom + height - 4 * mm, f"Net Return: {values[-1]:+.2f}R")
+        self.y = bottom - 6 * mm
+
+    def underwater_chart(self, chart: Dict[str, Any]) -> None:
+        title = str(chart.get("title") or "Drawdown Underwater Chart (R)")
+        raw_vals = chart.get("values") or []
+        values = [float(v or 0) for v in raw_vals]
+        if not values:
+            return
+        self.ensure(52 * mm)
+        self.paragraph(title, size=10, color=INK)
+        left = 16 * mm
+        width = PAGE_W - 32 * mm
+        height = 30 * mm
+        bottom = self.y - height
+
+        c = self.canvas
+        c.setFillColor(HexColor("#FFF1F2"))
+        c.rect(left, bottom, width, height, fill=1, stroke=0)
+        c.setStrokeColor(RULE)
+        c.setLineWidth(0.6)
+        c.rect(left, bottom, width, height, fill=0, stroke=1)
+
+        min_dd = min(values) if values else 0.0
+        deepest = abs(min_dd) or 1.0
+        top_y = bottom + height
+
+        c.setStrokeColor(HexColor("#991B1B"))
+        c.setLineWidth(0.8)
+        c.line(left, top_y, left + width, top_y)
+
+        n = len(values)
+        points = []
+        for i, val in enumerate(values):
+            px = left + (i / max(1, n - 1)) * width
+            offset = (abs(val) / deepest) * (height - 3 * mm)
+            py = top_y - offset
+            points.append((px, py))
+
+        path = c.beginPath()
+        path.moveTo(left, top_y)
+        for px, py in points:
+            path.lineTo(px, py)
+        path.lineTo(points[-1][0], top_y)
+        path.close()
+        c.setFillColor(Color(0.88, 0.28, 0.35, alpha=0.35))
+        c.drawPath(path, fill=1, stroke=0)
+
+        line_path = c.beginPath()
+        line_path.moveTo(points[0][0], points[0][1])
+        for px, py in points[1:]:
+            line_path.lineTo(px, py)
+        c.setStrokeColor(HexColor("#BE123C"))
+        c.setLineWidth(1.1)
+        c.drawPath(line_path, fill=0, stroke=1)
+
+        c.setFillColor(HexColor("#881337"))
+        c.setFont(_font(self.family, True), 7.5)
+        c.drawString(left + 2 * mm, bottom + 2 * mm, f"Max Sụt Giảm (Drawdown): -{deepest:.2f}R")
+        self.y = bottom - 6 * mm
+
+    def table(self, table_data: Dict[str, Any]) -> None:
+        columns: Sequence[str] = table_data.get("columns") or []
+        rows: Sequence[Sequence[Any]] = table_data.get("rows") or []
+        if not columns or not rows:
+            return
+        row_h = 5.2 * mm
+        header_h = 6.0 * mm
+        needed = header_h + len(rows) * row_h + 8 * mm
+        self.ensure(min(needed, 45 * mm))
+
+        left = 16 * mm
+        width = PAGE_W - 32 * mm
+        col_w = width / len(columns)
+
+        c = self.canvas
+        c.setFillColor(HexColor("#F1F5F9"))
+        c.rect(left, self.y - header_h, width, header_h, fill=1, stroke=0)
+        c.setStrokeColor(RULE)
+        c.setLineWidth(0.6)
+        c.rect(left, self.y - header_h, width, header_h, fill=0, stroke=1)
+
+        c.setFillColor(INK)
+        c.setFont(_font(self.family, True), 7.0)
+        for i, col in enumerate(columns):
+            cx = left + i * col_w + 1.5 * mm
+            c.drawString(cx, self.y - 4.2 * mm, _text(col, self.family)[:18])
+        self.y -= header_h
+
+        c.setFont(_font(self.family, False), 6.8)
+        for r_idx, row in enumerate(rows):
+            self.ensure(row_h + 2 * mm)
+            if r_idx % 2 == 1:
+                c.setFillColor(HexColor("#F8FAFC"))
+                c.rect(left, self.y - row_h, width, row_h, fill=1, stroke=0)
+            c.setStrokeColor(HexColor("#E2E8F0"))
+            c.setLineWidth(0.4)
+            c.line(left, self.y - row_h, left + width, self.y - row_h)
+            c.setFillColor(INK)
+            for i, val in enumerate(row):
+                cx = left + i * col_w + 1.5 * mm
+                raw_val = "" if val is None else str(val)
+                c.drawString(cx, self.y - 3.8 * mm, _text(raw_val, self.family)[:18])
+            self.y -= row_h
+        self.y -= 3 * mm
+
     def save(self) -> bytes:
         self.canvas.save()
         return self.buffer.getvalue()
@@ -185,6 +366,9 @@ def _sections_for_lang(sections: Sequence[Dict[str, Any]], lang: str) -> List[Di
             "heading": section.get(key_h) or section.get("heading_en") or "",
             "lines": section.get(key_l) or section.get("lines_en") or [],
             "chart": section.get("chart"),
+            "line_chart": section.get("line_chart"),
+            "underwater_chart": section.get("underwater_chart"),
+            "table": section.get("table"),
         })
     return out
 
@@ -225,8 +409,15 @@ def build_methodology_pdf(
         for line in section["lines"]:
             if str(line).strip():
                 writer.paragraph(str(line))
-        if section.get("chart") and not preview:
-            writer.bar_chart(section["chart"])
+        if not preview:
+            if section.get("table"):
+                writer.table(section["table"])
+            if section.get("line_chart"):
+                writer.line_chart(section["line_chart"])
+            if section.get("underwater_chart"):
+                writer.underwater_chart(section["underwater_chart"])
+            if section.get("chart"):
+                writer.bar_chart(section["chart"])
     writer.heading("Risk disclaimer" if language == "en" else "Tuyên bố rủi ro")
     writer.paragraph(disclaimer)
     if preview:

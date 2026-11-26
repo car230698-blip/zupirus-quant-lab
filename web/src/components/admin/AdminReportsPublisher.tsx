@@ -24,6 +24,12 @@ export const AdminReportsPublisher: React.FC = () => {
     price_usd: '32.0',
     page_count: '18',
     research_candidate_id: '',
+    wfo_win_rate: '',
+    wfo_profit_factor: '',
+    wfo_max_drawdown: '',
+    wfo_sharpe: '',
+    wfo_sample_size: '',
+    wfo_data_source: '',
     highlights_text:
       'Phân rã hiệu suất theo phiên London & New York\nKiểm định Walk-Forward 120/60 ngoài mẫu\nMô hình chi phí giả định 3.5 pips minh bạch',
   });
@@ -63,7 +69,7 @@ export const AdminReportsPublisher: React.FC = () => {
         .split('\n')
         .map((s) => s.trim())
         .filter(Boolean);
-      const payload = {
+      const payload: any = {
         title: form.title.trim(),
         subtitle: form.subtitle.trim(),
         summary: form.summary.trim(),
@@ -76,6 +82,18 @@ export const AdminReportsPublisher: React.FC = () => {
         research_candidate_id: form.research_candidate_id || undefined,
         highlights_json: highlights,
       };
+
+      if (form.wfo_win_rate || form.wfo_profit_factor || form.wfo_max_drawdown || form.wfo_sample_size || form.wfo_sharpe) {
+        payload.wfo_metrics = {
+          win_rate: form.wfo_win_rate ? Number(form.wfo_win_rate) / 100 : undefined,
+          profit_factor: form.wfo_profit_factor ? Number(form.wfo_profit_factor) : undefined,
+          max_drawdown: form.wfo_max_drawdown ? Number(form.wfo_max_drawdown) : undefined,
+          sharpe_ratio: form.wfo_sharpe ? Number(form.wfo_sharpe) : undefined,
+          sample_size: form.wfo_sample_size ? Number(form.wfo_sample_size) : undefined,
+          data_source: form.wfo_data_source.trim() || 'HISTORICAL_M15_WFO',
+          evidence_type: 'WFO_OUT_OF_SAMPLE',
+        };
+      }
       if (form.editingId) {
         await api.put(`/api/v1/admin/reports/${encodeURIComponent(form.editingId)}`, payload);
         setMsg(`Đã cập nhật báo cáo #${form.editingId} (${payload.version}).`);
@@ -95,6 +113,12 @@ export const AdminReportsPublisher: React.FC = () => {
         price_usd: '32.0',
         page_count: '18',
         research_candidate_id: '',
+        wfo_win_rate: '',
+        wfo_profit_factor: '',
+        wfo_max_drawdown: '',
+        wfo_sharpe: '',
+        wfo_sample_size: '',
+        wfo_data_source: '',
         highlights_text:
           'Phân rã hiệu suất theo phiên London & New York\nKiểm định Walk-Forward 120/60 ngoài mẫu\nMô hình chi phí giả định 3.5 pips minh bạch',
       });
@@ -165,6 +189,7 @@ export const AdminReportsPublisher: React.FC = () => {
   };
 
   const startEdit = (rep: any) => {
+    const wm = rep.wfo_metrics || {};
     setForm({
       editingId: rep.id,
       title: rep.title || '',
@@ -177,6 +202,12 @@ export const AdminReportsPublisher: React.FC = () => {
       price_usd: String(rep.price_usd || 32.0),
       page_count: String(rep.page_count || 18),
       research_candidate_id: rep.research_candidate_id || '',
+      wfo_win_rate: wm.win_rate !== undefined ? String(Math.round(wm.win_rate * 100)) : '',
+      wfo_profit_factor: wm.profit_factor !== undefined ? String(wm.profit_factor) : '',
+      wfo_max_drawdown: wm.max_drawdown !== undefined ? String(wm.max_drawdown) : '',
+      wfo_sharpe: wm.sharpe_ratio !== undefined ? String(wm.sharpe_ratio) : '',
+      wfo_sample_size: wm.sample_size !== undefined ? String(wm.sample_size) : '',
+      wfo_data_source: wm.data_source || '',
       highlights_text: Array.isArray(rep.highlights) ? rep.highlights.join('\n') : '',
     });
     setUploadReportId(rep.id);
@@ -225,6 +256,12 @@ export const AdminReportsPublisher: React.FC = () => {
                     price_usd: '32.0',
                     page_count: '18',
                     research_candidate_id: '',
+                    wfo_win_rate: '',
+                    wfo_profit_factor: '',
+                    wfo_max_drawdown: '',
+                    wfo_sharpe: '',
+                    wfo_sample_size: '',
+                    wfo_data_source: '',
                     highlights_text: '',
                   })
                 }
@@ -349,6 +386,84 @@ export const AdminReportsPublisher: React.FC = () => {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              {/* Manual WFO Metrics Grid */}
+              <div className="sm:col-span-2 rounded-xl border border-slate-800 bg-[#060A13] p-3.5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs font-semibold text-cyan-400">
+                    {lang === 'en' ? 'WFO Metrics & Quantitative Calibration' : 'Chỉ số WFO Ngoài Mẫu & Định lượng'}
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    {lang === 'en' ? 'Manual override if no candidate attached' : 'Tự điền nếu không chọn ứng viên'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Win Rate (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="62.5"
+                      value={form.wfo_win_rate}
+                      onChange={(e) => setForm({ ...form, wfo_win_rate: e.target.value })}
+                      className="quant-input font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Profit Factor</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="1.85"
+                      value={form.wfo_profit_factor}
+                      onChange={(e) => setForm({ ...form, wfo_profit_factor: e.target.value })}
+                      className="quant-input font-mono text-xs text-amber-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Max Drawdown (R/%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="5.2"
+                      value={form.wfo_max_drawdown}
+                      onChange={(e) => setForm({ ...form, wfo_max_drawdown: e.target.value })}
+                      className="quant-input font-mono text-xs text-rose-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Sharpe Ratio</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="1.42"
+                      value={form.wfo_sharpe}
+                      onChange={(e) => setForm({ ...form, wfo_sharpe: e.target.value })}
+                      className="quant-input font-mono text-xs text-cyan-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Sample Size (nến/mẫu)</label>
+                    <input
+                      type="number"
+                      placeholder="1200"
+                      value={form.wfo_sample_size}
+                      onChange={(e) => setForm({ ...form, wfo_sample_size: e.target.value })}
+                      className="quant-input font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-slate-400 mb-1">Data Source</label>
+                    <input
+                      type="text"
+                      placeholder="HISTORICAL_M15_WFO"
+                      value={form.wfo_data_source}
+                      onChange={(e) => setForm({ ...form, wfo_data_source: e.target.value })}
+                      className="quant-input font-mono text-xs"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="sm:col-span-2">

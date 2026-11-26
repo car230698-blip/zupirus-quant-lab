@@ -54,9 +54,32 @@ def _escape_pdf_text(text: str) -> str:
 
 
 def build_pdf_bytes(title: str, subtitle: str, pages_lines: List[List[str]]) -> bytes:
-    """Build a valid multi-page PDF-1.4 document from structured lines."""
+    """Build a valid multi-page PDF-1.4 document from structured lines.
+    Uses ReportLab + DejaVu for UTF-8 Vietnamese and crisp rendering when available,
+    falling back to Type1 Helvetica byte stream.
+    """
     if not pages_lines:
         pages_lines = [["ZUPIRUS Quant Lab - XAU/USD Research Report"]]
+
+    try:
+        from app.domains.quant.pdf_doc import _Writer, _ensure_fonts
+        family = _ensure_fonts()
+        writer = _Writer(family, None)
+        for p_idx, lines in enumerate(pages_lines):
+            writer.new_page()
+            writer.heading(title)
+            writer.paragraph(f"{subtitle}  ·  Trang {p_idx + 1}/{len(pages_lines)}", size=8.5)
+            for line in lines:
+                if not line or not line.strip():
+                    continue
+                clean = line.strip()
+                if clean.startswith("# ") or clean.startswith("## "):
+                    writer.heading(clean.lstrip("# ").strip())
+                else:
+                    writer.paragraph(clean)
+        return writer.save()
+    except Exception as e:
+        logger.warning("ReportLab builder fallback: %s", e)
 
     objects: List[bytes] = []
 

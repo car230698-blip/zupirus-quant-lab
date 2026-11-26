@@ -96,6 +96,165 @@ def _percentile(sorted_values: Sequence[float], q: float) -> Optional[float]:
     return sorted_values[lo] * (1 - weight) + sorted_values[hi] * weight
 
 
+def _t_stat_and_p_value(values: Sequence[float]) -> Tuple[Optional[float], Optional[float]]:
+    """Compute Student's t-statistic and two-tailed p-value against null hypothesis H0: mu = 0."""
+    n = len(values)
+    if n < 3:
+        return None, None
+    avg = sum(values) / n
+    std = _stdev(values)
+    if not std or std <= 0:
+        return None, None
+    se = std / math.sqrt(n)
+    t = avg / se
+    p = math.erfc(abs(t) / math.sqrt(2.0))
+    return _round(t, 4), _round(p, 6)
+
+
+def _sharpe_ratio(values: Sequence[float]) -> Optional[float]:
+    """Trade-based Sharpe ratio (mean return / standard deviation)."""
+    if len(values) < 2:
+        return None
+    avg = _mean(values)
+    std = _stdev(values)
+    if not std or std <= 0 or avg is None:
+        return None
+    return _round(avg / std, 4)
+
+
+def _sortino_ratio(values: Sequence[float]) -> Optional[float]:
+    """Sortino ratio using downside standard deviation below 0."""
+    if len(values) < 2:
+        return None
+    avg = _mean(values)
+    if avg is None:
+        return None
+    downside = [v for v in values if v < 0]
+    if not downside:
+        return None
+    downside_dev = math.sqrt(sum(v ** 2 for v in downside) / len(values))
+    if downside_dev <= 0:
+        return None
+    return _round(avg / downside_dev, 4)
+
+
+def _calmar_ratio(sum_r: float, max_dd_r: float) -> Optional[float]:
+    """Calmar ratio (Cumulative Return / Max Drawdown)."""
+    if max_dd_r <= 0:
+        return None
+    return _round(sum_r / max_dd_r, 4)
+
+
+def _monte_carlo_simulation(returns: Sequence[float], num_simulations: int = 1000, seed: int = 42) -> Dict[str, Any]:
+    """1,000 bootstrap simulations of trade sequence to evaluate tail risk, drawdowns, and loss streaks."""
+    import random
+    if not returns or len(returns) < 5:
+        return {
+            "simulations": 0,
+            "p50_max_dd": None,
+            "p90_max_dd": None,
+            "p95_max_dd": None,
+            "p99_max_dd": None,
+            "p95_max_losing_streak": None,
+            "prob_loss_streak_5": None,
+            "prob_loss_streak_7": None,
+            "prob_loss_streak_10": None,
+        }
+    rng = random.Random(seed)
+    n = len(returns)
+    max_dds: List[float] = []
+    max_streaks: List[int] = []
+    streak_5_count = 0
+    streak_7_count = 0
+    streak_10_count = 0
+
+    for _ in range(num_simulations):
+        sim_sample = [rng.choice(returns) for _ in range(n)]
+        eq = 0.0
+        peak = 0.0
+        dd = 0.0
+        cur_streak = 0
+        longest_streak = 0
+        for r in sim_sample:
+            eq += r
+            if eq > peak:
+                peak = eq
+            if peak - eq > dd:
+                dd = peak - eq
+            if r < 0:
+                cur_streak += 1
+                if cur_streak > longest_streak:
+                    longest_streak = cur_streak
+            else:
+                cur_streak = 0
+        max_dds.append(dd)
+        max_streaks.append(longest_streak)
+        if longest_streak >= 5:
+            streak_5_count += 1
+        if longest_streak >= 7:
+            streak_7_count += 1
+        if longest_streak >= 10:
+            streak_10_count += 1
+
+    max_dds.sort()
+    max_streaks.sort()
+    return {
+        "simulations": num_simulations,
+        "p50_max_dd": _round(_percentile(max_dds, 0.50), 4),
+        "p90_max_dd": _round(_percentile(max_dds, 0.90), 4),
+        "p95_max_dd": _round(_percentile(max_dds, 0.95), 4),
+        "p99_max_dd": _round(_percentile(max_dds, 0.99), 4),
+        "p95_max_losing_streak": int(_percentile([float(s) for s in max_streaks], 0.95) or 0),
+        "prob_loss_streak_5": _round(streak_5_count / num_simulations, 4),
+        "prob_loss_streak_7": _round(streak_7_count / num_simulations, 4),
+        "prob_loss_streak_10": _round(streak_10_count / num_simulations, 4),
+    }
+
+
+def _cost_stress_matrix(raw_returns: Sequence[float]) -> Dict[str, Any]:
+    """Evaluate performance across 4 transaction friction tiers (0R, 0.025R, 0.05R, 0.10R)."""
+    tiers = [
+        ("0.00R (No Friction)", 0.0),
+        ("0.025R (ECN Raw ~1.0 pip)", 0.025),
+        ("0.050R (Standard ~2.5 pips)", 0.050),
+        ("0.100R (High Stress ~5.0 pips)", 0.100),
+    ]
+    rows = []
+    for label, cost in tiers:
+        adjusted = [r - cost for r in raw_returns]
+        wins = [r for r in adjusted if r > 0]
+        losses = [r for r in adjusted if r < 0]
+        n = len(adjusted)
+        wr = (len(wins) / n) if n else 0.0
+        exp = _mean(adjusted) if n else 0.0
+        gross_w = sum(wins)
+        gross_l = abs(sum(losses))
+        pf = (gross_w / gross_l) if gross_l > 0 else (99.0 if gross_w > 0 else 0.0)
+        eq = 0.0
+        peak = 0.0
+        mdd = 0.0
+        for r in adjusted:
+            eq += r
+            peak = max(peak, eq)
+            mdd = max(mdd, peak - eq)
+        t_stat, p_val = _t_stat_and_p_value(adjusted)
+        rows.append([
+            label,
+            _round(cost, 4),
+            n,
+            _round(wr * 100, 2),
+            _round(exp, 4),
+            _round(pf, 3),
+            _round(mdd, 3),
+            _round(t_stat, 2),
+            _round(p_val, 4),
+        ])
+    return _table(
+        ["cost_tier", "cost_r", "trades", "win_rate_pct", "expectancy_r", "profit_factor", "max_drawdown_r", "t_stat", "p_value"],
+        rows,
+    )
+
+
 def _table(columns: Sequence[str], rows: Sequence[Sequence[Any]]) -> Dict[str, Any]:
     return {"columns": list(columns), "rows": [list(row) for row in rows]}
 
@@ -472,6 +631,7 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
                     "entry": _round(entry, 6),
                     "stop": _round(stop, 6),
                     "target": _round(target, 6),
+                    "raw_r": _round(result, 6),
                     "r_multiple": _round(net, 6),
                 })
             chosen = side
@@ -479,18 +639,42 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
         if chosen is None:
             skipped_incomplete += 1
     rs = [float(t["r_multiple"]) for t in trades]
+    raw_rs = [float(t.get("raw_r", t["r_multiple"])) for t in trades]
     wins = [r for r in rs if r > 0]
     losses = [r for r in rs if r < 0]
     equity = 0.0
     peak = 0.0
     max_dd = 0.0
-    for r in rs:
+    equity_series = []
+    drawdown_series = []
+    for idx, r in enumerate(rs):
         equity += r
         peak = max(peak, equity)
-        max_dd = max(max_dd, peak - equity)
+        dd = peak - equity
+        max_dd = max(max_dd, dd)
+        equity_series.append({
+            "trade": idx + 1,
+            "day": trades[idx]["day"],
+            "equity_r": _round(equity, 4),
+            "peak_r": _round(peak, 4),
+            "drawdown_r": _round(dd, 4),
+        })
+        drawdown_series.append({
+            "trade": idx + 1,
+            "day": trades[idx]["day"],
+            "drawdown_r": _round(-dd, 4),
+        })
     gross_win = sum(wins)
     gross_loss = abs(sum(losses))
     profit_factor = None if gross_loss == 0 else gross_win / gross_loss
+
+    t_stat, p_val = _t_stat_and_p_value(rs)
+    sharpe = _sharpe_ratio(rs)
+    sortino = _sortino_ratio(rs)
+    calmar = _calmar_ratio(sum(rs), max_dd)
+    mc_risk = _monte_carlo_simulation(rs, num_simulations=1000)
+    cost_matrix = _cost_stress_matrix(raw_rs)
+
     return {
         "id": "rule_backtest_asia_break",
         "sample_size": len(trades),
@@ -512,22 +696,31 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
                 ["profit_factor", _round(profit_factor, 4) if profit_factor is not None else None],
                 ["max_drawdown_r", _round(max_dd, 4)],
                 ["sum_r", _round(sum(rs), 4) if rs else 0.0],
+                ["sharpe_ratio", sharpe],
+                ["sortino_ratio", sortino],
+                ["calmar_ratio", calmar],
+                ["t_statistic", t_stat],
+                ["p_value", p_val],
             ],
         ),
         "trades": trades,
+        "equity_series": equity_series,
+        "drawdown_series": drawdown_series,
+        "cost_stress_matrix": cost_matrix,
+        "monte_carlo_risk": mc_risk,
         "chart": _chart(
-            "Trade R-multiples in sample order",
-            [t["day"] for t in trades] or ["none"],
-            rs or [0.0],
+            "Cumulative Equity Curve (R)",
+            [pt["day"] for pt in equity_series] or ["none"],
+            [float(pt["equity_r"]) for pt in equity_series] or [0.0],
             "R",
         ),
         "notes_en": (
-            "Expectancy and drawdown describe this historical path only, after the stated cost. "
-            "They are not a promise of future profit, and the path would change if the rule, the session clock, or the cost changed."
+            "Expectancy, statistical significance, and tail risk describe this historical sample path. "
+            "They are not a promise of future profit. The empirical edge varies across session times and market regimes."
         ),
         "notes_vi": (
-            "Kỳ vọng và mức sụt giảm chỉ mô tả đường đi lịch sử này, sau chi phí đã ghi. "
-            "Chúng không phải cam kết lợi nhuận tương lai, và sẽ đổi nếu quy tắc, múi giờ phiên hoặc chi phí đổi."
+            "Kỳ vọng, ý nghĩa thống kê (t-stat/p-value) và rủi ro đuôi mô tả mẫu dữ liệu lịch sử này. "
+            "Chúng không phải cam kết lợi nhuận tương lai. Lợi thế định lượng thay đổi theo khung giờ phiên và cơ chế biến động."
         ),
     }
 

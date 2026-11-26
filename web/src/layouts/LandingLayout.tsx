@@ -16,6 +16,7 @@ export const LandingLayout: React.FC<LandingLayoutProps> = ({ onNavigate, childr
     { href: '#overview', label: t.nav.about },
     { href: '#reports', label: t.nav.reports },
     { href: '#method', label: t.nav.method },
+    { href: '/guides', label: lang === 'vi' ? 'Tài liệu & Phương pháp' : 'Guides & Methodology' },
     { href: '#faq', label: t.nav.faq },
   ];
 
@@ -142,6 +143,9 @@ export const LandingLayout: React.FC<LandingLayoutProps> = ({ onNavigate, childr
               </a>
               <a href="#reports" className="hover:text-white transition">
                 {t.footer.reportsLink}
+              </a>
+              <a href="/guides" className="hover:text-[#12B5A6] transition">
+                {lang === 'vi' ? 'Tài liệu hướng dẫn' : 'Research Guides'}
               </a>
               <a href="#faq" className="hover:text-white transition">
                 {t.footer.faqLink}

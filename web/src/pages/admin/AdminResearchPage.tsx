@@ -10,6 +10,7 @@ import { ToastNotification } from '../../components/ToastNotification';
 import { AdminAiOverviewPanel } from '../../components/admin/AdminAiOverviewPanel';
 import { AdminAiKnowledgePanel } from '../../components/admin/AdminAiKnowledgePanel';
 import { AdminAiManualOverrideDrawer } from '../../components/admin/AdminAiManualOverrideDrawer';
+import { AdminQuantLabPanel } from '../../components/admin/AdminQuantLabPanel';
 import { AdminErrorBanner, AdminErrorInfo } from '../../components/AdminErrorBanner';
 import { Panel, StatusBadge } from '../../components/ui/Primitives';
 import { useLanguage } from '../../i18n/LanguageContext';
@@ -23,7 +24,7 @@ export const AdminResearchPage: React.FC = () => {
   const [reviewQueue, setReviewQueue] = useState<StrategyReviewQueueItem[]>([]);
   const [msg, setMsg] = useState<string>('');
   const [busyCandId, setBusyCandId] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<'overview' | 'knowledge'>('overview');
+  const [activeSection, setActiveSection] = useState<'quant_lab' | 'overview' | 'knowledge'>('quant_lab');
   const [errorBanner, setErrorBanner] = useState<AdminErrorInfo | null>(null);
 
   const loadAll = useCallback(async () => {
@@ -153,6 +154,19 @@ export const AdminResearchPage: React.FC = () => {
       <div className="border-b border-slate-800 flex items-center gap-8">
         <button
           type="button"
+          onClick={() => setActiveSection('quant_lab')}
+          className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
+            activeSection === 'quant_lab' ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>Phòng Lab Định Lượng &amp; CSV</span>
+          {activeSection === 'quant_lab' && (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-cyan-400" />
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveSection('overview')}
           className={`pb-3 text-sm font-semibold transition cursor-pointer relative ${
             activeSection === 'overview' ? 'text-white' : 'text-slate-400 hover:text-slate-200'
@@ -178,7 +192,9 @@ export const AdminResearchPage: React.FC = () => {
         </button>
       </div>
 
-      {activeSection === 'overview' ? (
+      {activeSection === 'quant_lab' ? (
+        <AdminQuantLabPanel setMsg={setMsg} />
+      ) : activeSection === 'overview' ? (
         <AdminAiOverviewPanel evo={evo} geminiPool={geminiPool} onRefresh={loadAll} setMsg={setMsg} />
       ) : (
         <AdminAiKnowledgePanel

@@ -231,6 +231,7 @@ def _resolve_lang(request: Optional[Request], lang: Optional[str]) -> str:
 
 
 @router.get("/huong-dan", response_class=HTMLResponse)
+@router.get("/guides", response_class=HTMLResponse)
 def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
     effective_lang = _resolve_lang(request, lang)
     canonical = "https://zupirus.com/huong-dan"

@@ -121,6 +121,73 @@ def build_methodology(
             lines_vi.append(f"Tham số: {rendered}")
             lines_en.append(f"Parameters: {rendered}")
         full_sections.append(_section(heading_vi, heading_en, lines_vi, lines_en, study.get("chart")))
+
+        # If rule study contains cost matrix, monte carlo, or equity curves, append specialized sections
+        if key == "rule_backtest_asia_break":
+            cost_matrix = study.get("cost_stress_matrix")
+            if cost_matrix and cost_matrix.get("rows"):
+                c_sec = _section(
+                    "Ma trận nhạy chi phí giao dịch (Cost Stress Matrix)",
+                    "Transaction Friction Stress Matrix",
+                    [
+                        "Bảng so sánh kỳ vọng (Expectancy), Profit Factor và ý nghĩa thống kê (t-stat, p-value) theo các mức chi phí:",
+                    ],
+                    [
+                        "Expectancy, Profit Factor, and statistical significance across realistic friction tiers:",
+                    ],
+                )
+                c_sec["table"] = cost_matrix
+                full_sections.append(c_sec)
+
+            mc = study.get("monte_carlo_risk")
+            if mc and mc.get("simulations"):
+                mc_table = {
+                    "columns": ["metric", "value", "description_vi", "description_en"],
+                    "rows": [
+                        ["simulations", mc.get("simulations"), "Số lượt mô phỏng ngẫu nhiên", "Random bootstrap iterations"],
+                        ["p50_max_dd", f"{mc.get('p50_max_dd')} R", "Mức sụt giảm trung vị (Median DD)", "Median Max Drawdown"],
+                        ["p95_max_dd", f"{mc.get('p95_max_dd')} R", "Sụt giảm phân vị 95% (Tail Risk P95)", "95th percentile Max DD"],
+                        ["p99_max_dd", f"{mc.get('p99_max_dd')} R", "Sụt giảm phân vị 99% (Worst-case P99)", "99th percentile Max DD"],
+                        ["p95_loss_streak", f"{mc.get('p95_max_losing_streak')} lệnh", "Chuỗi thua tối đa P95", "P95 Max consecutive losses"],
+                        ["prob_streak_5", f"{float(mc.get('prob_loss_streak_5') or 0)*100:.1f}%", "Xác suất gặp chuỗi thua >= 5 lệnh", "Probability of streak >= 5"],
+                        ["prob_streak_7", f"{float(mc.get('prob_loss_streak_7') or 0)*100:.1f}%", "Xác suất gặp chuỗi thua >= 7 lệnh", "Probability of streak >= 7"],
+                    ],
+                }
+                mc_sec = _section(
+                    "Đánh giá rủi ro đuôi Monte Carlo & Chuỗi thua",
+                    "Monte Carlo Tail Risk & Loss Streak Distribution",
+                    [
+                        "1,000 lượt mô phỏng đảo ngẫu nhiên chuỗi lệnh nhằm kiểm tra rủi ro phân vị xấu và nguy cơ chuỗi thua liên tiếp:",
+                    ],
+                    [
+                        "1,000 bootstrap resamplings assessing tail drawdown and consecutive loss streaks:",
+                    ],
+                )
+                mc_sec["table"] = mc_table
+                full_sections.append(mc_sec)
+
+            eq_series = study.get("equity_series")
+            dd_series = study.get("drawdown_series")
+            if eq_series and dd_series:
+                curve_sec = _section(
+                    "Đường cong vốn & Biểu đồ sụt giảm (Equity & Underwater)",
+                    "Equity Curve & Underwater Drawdown Charts",
+                    [
+                        "Đường cong tích lũy R-multiples và biểu đồ sụt giảm vốn thực tế:",
+                    ],
+                    [
+                        "Cumulative R-multiples equity curve and underwater drawdown trajectory:",
+                    ],
+                )
+                curve_sec["line_chart"] = {
+                    "title": "Cumulative Equity Curve (R)",
+                    "values": [pt["equity_r"] for pt in eq_series],
+                }
+                curve_sec["underwater_chart"] = {
+                    "title": "Underwater Drawdown (R)",
+                    "values": [pt["drawdown_r"] for pt in dd_series],
+                }
+                full_sections.append(curve_sec)
     full_sections.append(
         _section(
             "Giới hạn",

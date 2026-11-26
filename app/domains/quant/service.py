@@ -171,6 +171,9 @@ def create_methodology_from_candles(
     if store_candles:
         ingest_candles(rows, symbol=symbol, timeframe=timeframe, source=canonical_source)
 
+    rule_study = next((s for s in bundle.get("studies", []) if s.get("id") == "rule_backtest_asia_break"), {})
+    metrics_tbl = {row[0]: row[1] for row in rule_study.get("table", {}).get("rows", [])} if rule_study else {}
+
     summary = document["highlights_vi"][0] + " " + document["highlights_vi"][2]
     draft = create_admin_report_draft(
         title=title_vi,
@@ -183,11 +186,21 @@ def create_methodology_from_candles(
         price_vnd=price_vnd,
         preview_highlights=document["highlights_vi"],
         wfo_metrics={
-            "evidence_type": "DESCRIPTIVE_STATISTICS",
+            "evidence_type": "QUANT_STUDY_BACKTEST",
             "sample_size": bundle["candle_count"],
+            "trades_count": rule_study.get("sample_size"),
+            "win_rate": metrics_tbl.get("win_rate"),
+            "profit_factor": metrics_tbl.get("profit_factor"),
+            "max_drawdown": metrics_tbl.get("max_drawdown_r"),
+            "sharpe_ratio": metrics_tbl.get("sharpe_ratio"),
+            "sortino_ratio": metrics_tbl.get("sortino_ratio"),
+            "calmar_ratio": metrics_tbl.get("calmar_ratio"),
+            "t_statistic": metrics_tbl.get("t_statistic"),
+            "p_value": metrics_tbl.get("p_value"),
             "cost_model_r": round_trip_cost_r,
             "cost_model_is_assumed": True,
-            "cost_model_note": "Round-trip cost is a parameter of the historical rule study, not a measured broker invoice.",
+            "cost_model_note": "Chi phí khứ hồi R là tham số của quy tắc kiểm tra trên mẫu lịch sử.",
+            "data_source": canonical_source,
         },
         admin_id=admin_id,
     )
@@ -293,6 +306,34 @@ def list_studies(limit: int = 50) -> List[Dict[str, Any]]:
         "candle_count": row[4], "range_start": row[5], "range_end": row[6],
         "created_by": row[7], "created_at": row[8],
     } for row in rows]
+
+
+def get_study(study_id: str) -> Optional[Dict[str, Any]]:
+    with tx() as c:
+        row = c.execute(
+            """
+            SELECT id, symbol, timeframe, source, params_json, result_json, candle_count, range_start, range_end, created_by, created_at
+            FROM quant_studies
+            WHERE id = ?
+            """,
+            (study_id,),
+        ).fetchone()
+    if not row:
+        return None
+    data = dict(row) if hasattr(row, "keys") else {
+        "id": row[0], "symbol": row[1], "timeframe": row[2], "source": row[3],
+        "params_json": row[4], "result_json": row[5], "candle_count": row[6],
+        "range_start": row[7], "range_end": row[8], "created_by": row[9], "created_at": row[10],
+    }
+    try:
+        data["parameters"] = json.loads(data.get("params_json") or "{}")
+    except Exception:
+        data["parameters"] = {}
+    try:
+        data["studies"] = json.loads(data.get("result_json") or "[]")
+    except Exception:
+        data["studies"] = []
+    return data
 
 
 def list_buyers(limit: int = 200) -> List[Dict[str, Any]]:

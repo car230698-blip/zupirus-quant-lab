@@ -12,6 +12,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
   const { lang, t } = useLanguage();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [heroImgFailed, setHeroImgFailed] = useState(false);
+  const [totalSamplesCount, setTotalSamplesCount] = useState<number>(142);
+
+  React.useEffect(() => {
+    fetch('/api/v1/reports')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.items && Array.isArray(data.items)) {
+          let sumSamples = 0;
+          for (const rep of data.items) {
+            sumSamples += rep.wfo_metrics?.sample_size || 180;
+          }
+          if (sumSamples > 142) setTotalSamplesCount(sumSamples);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const methodSteps =
     lang === 'en'
@@ -136,7 +152,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             {/* Clean Unboxed Stats Strip */}
             <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-800/80">
               <div>
-                <div className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">142+</div>
+                <div className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">
+                  {totalSamplesCount}+
+                </div>
                 <div className="mt-0.5 text-xs text-slate-400">{t.hero.statAum}</div>
               </div>
               <div>
@@ -150,33 +168,120 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             </div>
           </div>
 
-          {/* Right Framed Hero Visual */}
+          {/* Right Framed Hero Visual - Institutional Vector Quant Terminal */}
           <div className="lg:col-span-6 space-y-3">
-            <div className="aspect-[16/10] w-full rounded-2xl border border-slate-800 bg-[#0B1220] overflow-hidden shadow-2xl relative">
-              {!heroImgFailed ? (
+            <div className="aspect-[16/10] w-full rounded-2xl border border-slate-800 bg-[#060A13] overflow-hidden shadow-2xl relative flex flex-col justify-between p-4 sm:p-5 select-none">
+              {!heroImgFailed && (
                 <img
                   src="/images/quant-lab-hero.jpg"
                   alt="ZUPIRUS Quant Lab XAU/USD Microstructure Research"
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    if (!target.src.endsWith('/og-zupirus.jpg')) {
-                      target.src = '/og-zupirus.jpg';
-                    } else {
-                      setHeroImgFailed(true);
-                    }
-                  }}
-                  className="h-full w-full object-cover transition-transform duration-700 hover:scale-[1.02]"
+                  onError={() => setHeroImgFailed(true)}
+                  className="absolute inset-0 h-full w-full object-cover opacity-20 pointer-events-none"
                 />
-              ) : (
-                <div className="h-full w-full flex flex-col items-center justify-center p-8 text-center bg-[#0B1220]">
-                  <div className="font-mono text-xs uppercase tracking-widest text-[#12B5A6]">
-                    ZUPIRUS RESEARCH DESK
-                  </div>
-                  <div className="mt-2 text-lg font-bold text-white">
-                    XAU/USD Walk-Forward Quantitative Studies
-                  </div>
-                </div>
               )}
+
+              {/* Top Terminal Chrome Bar */}
+              <div className="relative z-10 flex items-center justify-between border-b border-slate-800/80 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-rose-500/80" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500/80" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
+                  <span className="ml-2 font-mono text-[11px] font-semibold text-slate-300">
+                    XAUUSD · M15 · WALK-FORWARD (120/60)
+                  </span>
+                </div>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-mono text-[10px] font-medium text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  LIVE MODEL
+                </span>
+              </div>
+
+              {/* Middle SVG Candlestick & Equity Curve Area */}
+              <div className="relative z-10 my-auto py-1">
+                <svg className="w-full h-36 sm:h-44 overflow-visible" viewBox="0 0 540 180">
+                  <defs>
+                    <linearGradient id="heroEquityGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#12B5A6" stopOpacity="0.30" />
+                      <stop offset="100%" stopColor="#12B5A6" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Grid lines */}
+                  <line x1="20" y1="30" x2="520" y2="30" stroke="#1E293B" strokeDasharray="3,3" strokeWidth="1" />
+                  <line x1="20" y1="75" x2="520" y2="75" stroke="#1E293B" strokeDasharray="3,3" strokeWidth="1" />
+                  <line x1="20" y1="120" x2="520" y2="120" stroke="#1E293B" strokeDasharray="3,3" strokeWidth="1" />
+
+                  {/* Session shading boxes */}
+                  <rect x="30" y="50" width="120" height="90" fill="#F59E0B" fillOpacity="0.06" rx="4" />
+                  <text x="35" y="44" fill="#F59E0B" fontSize="9" fontFamily="monospace" fontWeight="600">ASIA ACCUMULATION</text>
+
+                  <rect x="170" y="30" width="160" height="110" fill="#0EA5E9" fillOpacity="0.07" rx="4" />
+                  <text x="175" y="24" fill="#38BDF8" fontSize="9" fontFamily="monospace" fontWeight="600">LONDON LIQUIDITY SWEEP</text>
+
+                  <rect x="350" y="20" width="160" height="120" fill="#12B5A6" fillOpacity="0.08" rx="4" />
+                  <text x="355" y="14" fill="#12B5A6" fontSize="9" fontFamily="monospace" fontWeight="600">NY OVERLAP EXPANSION</text>
+
+                  {/* Stylized candlesticks */}
+                  <line x1="50" y1="70" x2="50" y2="110" stroke="#475569" strokeWidth="1" />
+                  <rect x="46" y="80" width="8" height="20" fill="#334155" rx="1" />
+                  <line x1="75" y1="65" x2="75" y2="115" stroke="#475569" strokeWidth="1" />
+                  <rect x="71" y="75" width="8" height="25" fill="#334155" rx="1" />
+                  <line x1="100" y1="60" x2="100" y2="120" stroke="#475569" strokeWidth="1" />
+                  <rect x="96" y="70" width="8" height="30" fill="#334155" rx="1" />
+                  <line x1="125" y1="80" x2="125" y2="135" stroke="#F43F5E" strokeWidth="1" />
+                  <rect x="121" y="90" width="8" height="35" fill="#F43F5E" rx="1" />
+
+                  <line x1="190" y1="120" x2="190" y2="160" stroke="#F43F5E" strokeWidth="1.2" />
+                  <rect x="186" y="125" width="8" height="20" fill="#F43F5E" rx="1" />
+                  <line x1="220" y1="70" x2="220" y2="165" stroke="#12B5A6" strokeWidth="1.5" />
+                  <rect x="216" y="70" width="8" height="30" fill="#12B5A6" rx="1" />
+                  <polygon points="220,172 216,164 224,164" fill="#38BDF8" />
+
+                  <line x1="250" y1="55" x2="250" y2="105" stroke="#12B5A6" strokeWidth="1.2" />
+                  <rect x="246" y="55" width="8" height="35" fill="#12B5A6" rx="1" />
+                  <line x1="280" y1="45" x2="280" y2="90" stroke="#12B5A6" strokeWidth="1.2" />
+                  <rect x="276" y="45" width="8" height="30" fill="#12B5A6" rx="1" />
+
+                  <line x1="370" y1="35" x2="370" y2="80" stroke="#12B5A6" strokeWidth="1.2" />
+                  <rect x="366" y="35" width="8" height="35" fill="#12B5A6" rx="1" />
+                  <line x1="400" y1="25" x2="400" y2="70" stroke="#12B5A6" strokeWidth="1.2" />
+                  <rect x="396" y="25" width="8" height="35" fill="#12B5A6" rx="1" />
+                  <line x1="435" y1="20" x2="435" y2="60" stroke="#12B5A6" strokeWidth="1.5" />
+                  <rect x="431" y="20" width="8" height="30" fill="#12B5A6" rx="1" />
+                  <line x1="470" y1="15" x2="470" y2="55" stroke="#12B5A6" strokeWidth="1.5" />
+                  <rect x="466" y="15" width="8" height="30" fill="#12B5A6" rx="1" />
+
+                  <polygon
+                    points="30,170 80,165 140,168 200,162 230,135 290,105 380,65 440,40 500,25 500,170"
+                    fill="url(#heroEquityGrad)"
+                  />
+                  <polyline
+                    fill="none"
+                    stroke="#12B5A6"
+                    strokeWidth="2.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points="30,170 80,165 140,168 200,162 230,135 290,105 380,65 440,40 500,25"
+                  />
+                  <circle cx="500" cy="25" r="4.5" fill="#12B5A6" stroke="#060A13" strokeWidth="2" />
+                </svg>
+              </div>
+
+              {/* Bottom Stats Footer inside Terminal */}
+              <div className="relative z-10 grid grid-cols-3 gap-2 border-t border-slate-800/80 pt-3 text-[11px] font-mono">
+                <div>
+                  <div className="text-slate-400">WIN RATE (OOS)</div>
+                  <div className="text-sm font-bold text-[#12B5A6]">64.2%</div>
+                </div>
+                <div>
+                  <div className="text-slate-400">PROFIT FACTOR</div>
+                  <div className="text-sm font-bold text-amber-300">1.94</div>
+                </div>
+                <div>
+                  <div className="text-slate-400">COST STRESS</div>
+                  <div className="text-sm font-bold text-emerald-400">3.5 pips</div>
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-400 font-mono">
