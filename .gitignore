@@ -24,6 +24,9 @@ coverage/
 data/reports_private/
 data/reports_samples/
 tmp/
+backups/
+*.dump
+*.sql
 *.pdf
 !web/public/*.pdf
 !data/guides/*-preview.pdf
