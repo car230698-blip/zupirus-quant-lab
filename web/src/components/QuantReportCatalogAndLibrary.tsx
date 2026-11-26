@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { apiGet, apiPost } from '../api/client';
+import { api, apiGet, apiPost } from '../api/client';
 import { useLanguage } from '../i18n/LanguageContext';
 import {
   BookOpen,
@@ -260,26 +260,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
       const dlUrl =
         tokRes?.download_url ||
         `/api/v1/reports/${encodeURIComponent(reportId)}/download?version=${encodeURIComponent(version)}`;
-      const resp = await fetch(dlUrl, { credentials: 'include' });
-      if (!resp.ok) {
-        let errDetail = 'Không thể tải tệp PDF.';
-        try {
-          const errJson = await resp.json();
-          errDetail = errJson?.detail || errJson?.error?.message || errDetail;
-        } catch {
-          // ignore
-        }
-        throw new Error(errDetail);
-      }
-      const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${reportId}-${version}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      await api.downloadBlob(dlUrl, `${reportId}-${version}.pdf`);
       setStatusMessage({
         type: 'success',
         text:

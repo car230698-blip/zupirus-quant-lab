@@ -7,7 +7,7 @@ services:
     ports: !reset []
   api:
     environment:
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin_staging_secure_pass_2026}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-dev-only-not-for-production}
     ports: !override
       - "127.0.0.1:3101:8000"
 

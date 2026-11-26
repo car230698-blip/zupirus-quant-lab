@@ -891,32 +891,112 @@ def apply_migration_027(c, is_pg: bool):
 
 
 def apply_migration_028(c, is_pg: bool):
-    """Migration 028: Prune legacy MT5 copy-trading and execution tables.
-    ZUPIRUS Quant Lab operates exclusively as a quantitative research & PDF report platform.
+    """Migration 028: Retire customer auto-execution without deleting historical rows.
+
+    An earlier draft of this migration dropped trading tables. That is unsafe on the
+    production database, which still holds account and execution history. This version
+    only records that live copy-trading is retired. Tables are left in place.
     """
-    tables_to_drop = [
-        "metaapi_trade_executions",
-        "metaapi_cloud_accounts",
-        "trading_accounts",
-        "real_accounts",
-        "dispatches",
-        "account_symbol_map",
-        "signal_dispatch_locks",
-        "devices",
-        "pairings",
-    ]
+    c.execute(
+        "INSERT INTO kv (key, value) VALUES ('legacy_customer_execution', 'retired') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+    c.execute(
+        "INSERT INTO kv (key, value) VALUES ('product_mode', 'quant_library') "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
+
+
+def apply_migration_029(c, is_pg: bool):
+    """Migration 029: Additive quant studies and methodology documents.
+
+    Does not alter or delete existing orders, users, candles, or trading history.
+    """
     if is_pg:
-        for tbl in tables_to_drop:
-            try:
-                c.execute(f"DROP TABLE IF EXISTS {tbl} CASCADE;")
-            except Exception as e:
-                logger.warning(f"Migration 028 drop table {tbl} warning: {e}")
+        c.execute(
+            """
+            CREATE TABLE IF NOT EXISTS quant_studies (
+                id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                source TEXT NOT NULL,
+                params_json TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                candle_count INTEGER NOT NULL,
+                range_start DOUBLE PRECISION,
+                range_end DOUBLE PRECISION,
+                created_by TEXT,
+                created_at DOUBLE PRECISION NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_quant_studies_symbol ON quant_studies(symbol, timeframe, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS methodologies (
+                id TEXT PRIMARY KEY,
+                study_id TEXT,
+                report_id TEXT,
+                slug TEXT,
+                title_vi TEXT NOT NULL,
+                title_en TEXT NOT NULL,
+                version TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'DRAFT',
+                disclaimer_vi TEXT NOT NULL,
+                disclaimer_en TEXT NOT NULL,
+                document_json TEXT NOT NULL,
+                price_usd DOUBLE PRECISION NOT NULL,
+                watermark_enabled INTEGER NOT NULL DEFAULT 1,
+                created_at DOUBLE PRECISION NOT NULL,
+                updated_at DOUBLE PRECISION NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_methodologies_report ON methodologies(report_id, created_at DESC);
+
+            ALTER TABLE research_reports ADD COLUMN IF NOT EXISTS watermark_enabled INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS download_count INTEGER NOT NULL DEFAULT 0;
+            """
+        )
     else:
-        for tbl in tables_to_drop:
-            try:
-                c.execute(f"DROP TABLE IF EXISTS {tbl};")
-            except Exception as e:
-                logger.warning(f"Migration 028 drop table {tbl} warning: {e}")
+        c.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS quant_studies (
+                id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                timeframe TEXT NOT NULL,
+                source TEXT NOT NULL,
+                params_json TEXT NOT NULL,
+                result_json TEXT NOT NULL,
+                candle_count INTEGER NOT NULL,
+                range_start REAL,
+                range_end REAL,
+                created_by TEXT,
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_quant_studies_symbol ON quant_studies(symbol, timeframe, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS methodologies (
+                id TEXT PRIMARY KEY,
+                study_id TEXT,
+                report_id TEXT,
+                slug TEXT,
+                title_vi TEXT NOT NULL,
+                title_en TEXT NOT NULL,
+                version TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'DRAFT',
+                disclaimer_vi TEXT NOT NULL,
+                disclaimer_en TEXT NOT NULL,
+                document_json TEXT NOT NULL,
+                price_usd REAL NOT NULL,
+                watermark_enabled INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_methodologies_report ON methodologies(report_id, created_at DESC);
+            """
+        )
+        cols = [row[1] for row in c.execute("PRAGMA table_info(research_reports)").fetchall()]
+        if "watermark_enabled" not in cols:
+            c.execute("ALTER TABLE research_reports ADD COLUMN watermark_enabled INTEGER NOT NULL DEFAULT 0")
+        ent_cols = [row[1] for row in c.execute("PRAGMA table_info(report_entitlements)").fetchall()]
+        if ent_cols and "download_count" not in ent_cols:
+            c.execute("ALTER TABLE report_entitlements ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
 
 
 

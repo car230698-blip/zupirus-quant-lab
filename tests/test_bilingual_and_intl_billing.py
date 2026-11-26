@@ -159,7 +159,7 @@ def test_gateways_endpoint(client):
     res1 = client.get("/api/v1/billing/gateways")
     assert res1.status_code == 200
     data1 = res1.json()
-    assert data1["sepay"] is True
+    assert data1["sepay"] is False
     assert data1["usdt"] is True
     assert data1["usdt_trc20"] is True
     assert data1["usdt_bep20"] is True
@@ -230,20 +230,20 @@ def test_english_seo_pages(client):
     assert r_en.status_code == 200
     assert 'lang="en"' in r_en.text
     assert 'hreflang="en"' in r_en.text
-    assert "ZUPIRUS — Institutional Gold" in r_en.text
-    assert "4-Layer Fail-Closed Shield" in r_en.text
+    assert "ZUPIRUS — Statistical Studies" in r_en.text
+    assert "No automated execution" in r_en.text
 
     # 2. English guides list
     r_guides = client.get("/en/guides")
     assert r_guides.status_code == 200
     assert 'lang="en"' in r_guides.text
-    assert "Quantitative Trading &amp; Prop Firm Risk Management Guides" in r_guides.text
+    assert "How to read a quantitative study" in r_guides.text
 
     # 3. English guide detail
-    r_detail = client.get("/en/guides/ftmo-the5ers-automated-pass-guide")
+    r_detail = client.get("/en/guides/how-to-read-a-statistical-market-study")
     assert r_detail.status_code == 200
     assert 'lang="en"' in r_detail.text
-    assert "How to Pass FTMO, The5ers &amp; FundedNext" in r_detail.text
+    assert "How to Read a ZUPIRUS Statistical Study" in r_detail.text
     assert "Article" in r_detail.text
 
 

@@ -27,47 +27,47 @@ export interface LandingPricingAndFaqSectionProps {
 
 const FAQ_ITEMS_VI = [
   {
-    q: 'ZUPIRUS có giữ tiền nạp của tôi không?',
-    a: 'Tuyệt đối không. Toàn bộ tiền giao dịch nằm 100% trong tài khoản MT5 tại sàn của bạn (Exness, ICMarkets, FTMO...). ZUPIRUS chỉ là hạ tầng đám mây kết nối MetaApi để truyền tín hiệu và kiểm soát rủi ro.',
+    q: 'ZUPIRUS có vào lệnh giúp tôi không?',
+    a: 'Không. ZUPIRUS xuất bản nghiên cứu thống kê dưới dạng PDF. Bạn tự đọc, tự quyết định và tự chịu rủi ro trên tài khoản của mình nếu bạn giao dịch.',
   },
   {
-    q: 'Mật khẩu MT5 của tôi có an toàn không?',
-    a: 'Mật khẩu giao dịch MT5 được mã hóa AES-256 hai chiều ở tầng bảo mật cao nhất trước khi lưu và không bao giờ hiển thị ở dạng văn bản thuần trên giao diện hay log.',
+    q: 'Số liệu trong PDF có phải lợi nhuận tôi sẽ nhận không?',
+    a: 'Không. Mọi bảng là mô tả một mẫu dữ liệu quá khứ với tham số được ghi lại. Đổi mẫu hoặc đổi chi phí là số sẽ đổi. Không có cam kết lợi nhuận.',
   },
   {
-    q: 'Tôi dùng tài khoản Cent ($50-$100) có chạy được không?',
-    a: 'Có. Hệ thống tự động nhận diện tài khoản Cent để quy đổi contract size (1.0 vs 100.0) và tính Lot chuẩn xác theo đúng rủi ro phần trăm số dư.',
+    q: 'Bản đọc thử và bản đầy đủ khác nhau thế nào?',
+    a: 'Bản đọc thử nêu dữ liệu, phạm vi và tuyên bố rủi ro. Bản đầy đủ có bảng, biểu đồ và đường đi lịch sử của quy tắc minh họa.',
   },
   {
-    q: 'Nếu gặp biến động mạnh hoặc mất kết nối sàn thì sao?',
-    a: 'Mọi lệnh mở đều kèm sẵn Stop Loss cứng đặt trực tiếp trên máy chủ sàn. Nếu sụt giảm chạm ngưỡng ngày (4% Quỹ / 5% TK thường), hệ thống tự động đóng lệnh và ngắt nhận lệnh mới trong ngày.',
+    q: 'Thanh toán bằng gì?',
+    a: 'Ấn phẩm đã xuất bản thanh toán bằng USDT trên BEP20 hoặc TRC20 tới ví do quản trị viên cấu hình. Sau khi giao dịch được đối soát, thư viện mở liên kết tải có thời hạn.',
   },
   {
-    q: 'Kích hoạt gói qua SePay VietQR hoạt động ra sao?',
-    a: 'Khi bạn quét mã VietQR và hoàn tất chuyển khoản, SePay webhook thông báo về hệ thống trong 3 giây. Hạn mức Cloud MT5 được kích hoạt hoàn toàn tự động 24/7 mà không cần chờ duyệt tay.',
+    q: 'File tải về có gắn tên người mua không?',
+    a: 'Với ấn phẩm bật watermark, bản tải thêm một trang ghi email người mua và phiên bản đã mua. Trang đó dành cho người mua, không dùng để phát tán lại.',
   },
 ];
 
 const FAQ_ITEMS_EN = [
   {
-    q: 'Does ZUPIRUS take custody of my deposit funds?',
-    a: 'Never. 100% of your trading capital remains in your own regulated MT5 broker account (Exness, ICMarkets, FTMO, etc.). ZUPIRUS operates solely as low-latency London G2 cloud automation and risk firewall.',
+    q: 'Does ZUPIRUS place trades for me?',
+    a: 'No. ZUPIRUS publishes statistical studies as PDFs. You read them, you decide, and you carry the risk if you trade on your own account.',
   },
   {
-    q: 'Are my MT5 trading credentials secure?',
-    a: 'Your broker passwords are encrypted via AES-256 before storage and are never exposed in plain text within the UI or system logs.',
+    q: 'Are the figures in a PDF the profit I will make?',
+    a: 'No. Every table describes one historical sample under the parameters that are written down. Change the sample or the cost and the figures change. There is no profit promise.',
   },
   {
-    q: 'Can I trade with a Cent account ($50-$100 balance)?',
-    a: 'Yes. The system automatically detects Cent accounts, normalizes contract size (1.0 vs 100.0), and accurately computes lots according to your balance risk percentage.',
+    q: 'What is the difference between the preview and the full note?',
+    a: 'The preview states the data, the scope, and the risk disclaimer. The full note adds the tables, the charts, and the historical path of the illustrative rule.',
   },
   {
-    q: 'What happens during extreme volatility or broker disconnections?',
-    a: 'Every executed order is submitted with a broker-enforced hard Stop Loss. If daily drawdown reaches your threshold (4% Prop / 5% Standard), the system automatically liquidates and halts new orders for the day.',
+    q: 'How do I pay?',
+    a: 'A published guide is paid in USDT on BEP20 or TRC20 to the wallet the administrator configured. After the transfer is matched, the library opens a time-limited download.',
   },
   {
-    q: 'How does instant payment activation work?',
-    a: 'Once you scan VietQR (VND) or complete USDT transfer, the automated webhook credits your account within 3 seconds. Cloud MT5 slots are provisioned 24/7 without manual intervention.',
+    q: 'Is the download marked with my name?',
+    a: 'When watermarking is on, the file you download adds a page with your email and the version you bought. That copy is for you, not for redistribution.',
   },
 ];
 
@@ -93,12 +93,12 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
             {lang === 'en' ? 'TRANSPARENT PRICING · NO HIDDEN FEES' : 'BẢNG PHÍ MINH BẠCH · KHÔNG ẨN PHÍ'}
           </span>
           <h2 className="text-3xl lg:text-4xl font-bold text-white tracking-tight">
-            {lang === 'en' ? 'Cloud MT5 Infrastructure Pricing' : 'Biểu Phí Hạ Tầng Đám Mây Cloud MT5'}
+            {lang === 'en' ? 'PDF guides, priced one at a time' : 'Ấn phẩm PDF, tính giá từng cuốn'}
           </h2>
           <p className="text-xs sm:text-sm text-[#94A3B8] max-w-xl">
             {lang === 'en'
-              ? 'Instant 3-second activation via VietQR or USDT. Scale or adjust tiers flexibly as your trading grows.'
-              : 'Tự động kích hoạt sau 3 giây quét mã SePay VietQR. Nâng/hạ gói linh hoạt theo nhu cầu quy mô tài khoản.'}
+              ? 'Prices below are examples until the owner publishes a guide. Payment is USDT on BEP20 or TRC20. Nothing here is a profit promise.'
+              : 'Mức giá bên dưới là ví dụ cho đến khi chủ sở hữu xuất bản một ấn phẩm. Thanh toán bằng USDT trên BEP20 hoặc TRC20. Không có cam kết lợi nhuận.'}
           </p>
 
           {/* Billing Cycle & Currency Switcher */}
@@ -149,6 +149,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 items-stretch">
           {tiers.map((tier) => {
             const pricing = calculateSubscriptionPricing(tier.baseUsd, tier.slots, billingCycle, usdVndRate);
+            void pricing;
             const isPopular = tier.popular;
             return (
               <SpotlightBento
@@ -178,10 +179,10 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                     <h3 className="text-xl font-bold text-white">{tier.name}</h3>
                     <div className="mt-3 font-mono text-3xl font-extrabold text-white tabular-nums">
                       {currencyMode === 'VND'
-                        ? `${pricing.totalVnd.toLocaleString('vi-VN')} ₫`
-                        : `$${pricing.totalUsd.toFixed(2)}`}
+                        ? `${Math.round(tier.baseUsd * usdVndRate).toLocaleString('vi-VN')} ₫`
+                        : `$${tier.baseUsd.toFixed(2)}`}
                       <span className="ml-2 text-xs font-normal text-slate-400">
-                        / {pricing.months} {lang === 'en' ? (pricing.months > 1 ? 'months' : 'month') : 'tháng'}
+                        / {lang === 'en' ? 'guide' : 'ấn phẩm'}
                       </span>
                     </div>
                   </div>
@@ -202,7 +203,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                     onClick={() => setQrPreviewTier(tier)}
                     className="rounded-xl border border-slate-700 hover:border-slate-500 bg-[#080E1A] py-2.5 text-xs font-medium text-slate-300 hover:text-white transition cursor-pointer"
                   >
-                    {lang === 'en' ? 'Payment Preview' : 'Xem VietQR'}
+                    {lang === 'en' ? 'See the library' : 'Xem thư viện'}
                   </button>
                   <button
                     type="button"
@@ -213,7 +214,7 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
                         : 'border border-[#12B5A6]/50 bg-[#12B5A6]/10 text-[#12B5A6] hover:bg-[#12B5A6]/20'
                     }`}
                   >
-                    {lang === 'en' ? 'Activate Now →' : 'Kích Hoạt →'}
+                    {lang === 'en' ? 'Open library →' : 'Mở thư viện →'}
                   </button>
                 </div>
               </SpotlightBento>
@@ -233,8 +234,8 @@ export const LandingPricingAndFaqSection: React.FC<LandingPricingAndFaqSectionPr
           </h2>
           <p className="text-xs text-slate-400">
             {lang === 'en'
-              ? 'Your funds remain 100% inside your own broker MT5 account.'
-              : 'Tiền luôn nằm trên sàn MT5 của riêng bạn.'}
+              ? 'Studies describe the past. They do not promise a future result.'
+              : 'Nghiên cứu mô tả quá khứ. Không hứa một kết quả trong tương lai.'}
           </p>
         </div>
 

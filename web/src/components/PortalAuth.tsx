@@ -172,8 +172,8 @@ export function PortalAuth({
                       : 'Nhập email để nhận mã OTP khôi phục mật khẩu bảo mật.')
                   : register
                   ? (lang === 'en'
-                      ? 'Verify email via 6-digit OTP to provision your Cloud MT5 workspace.'
-                      : 'Xác thực email qua OTP 6 số để kích hoạt không gian quản lý Cloud MT5.')
+                      ? 'Verify email via a 6-digit code to open your PDF library.'
+                      : 'Xác thực email qua mã 6 số để mở thư viện PDF.')
                   : (lang === 'en'
                       ? 'Access MT5 terminal portfolio, risk configuration, and cloud execution ledger.'
                       : 'Truy cập danh mục tài khoản MT5, cấu hình rủi ro và sổ lệnh đám mây.')}
@@ -378,7 +378,7 @@ export function PortalAuth({
         {/* Right Column (50%): Fintech Trust Panel */}
         <div className="hidden lg:flex flex-col justify-between p-12 lg:p-16 bg-[#10192B] relative overflow-hidden">
           <div className="font-mono text-xs text-slate-400">
-            METATRADER 5 CLOUD INTEGRATION
+            PDF RESEARCH LIBRARY
           </div>
 
           <div className="space-y-8 max-w-lg">
@@ -388,13 +388,13 @@ export function PortalAuth({
               </span>
               <h2 className="mt-2 text-3xl font-bold text-white tracking-tight leading-snug">
                 {lang === 'en'
-                  ? 'Institutional-grade quant infrastructure with disciplined capital preservation.'
-                  : 'Hạ tầng định lượng chuẩn tổ chức, bảo vệ nguồn vốn kỷ luật.'}
+                  ? 'Statistical studies you can read, recompute, and keep as PDFs.'
+                  : 'Nghiên cứu thống kê để đọc, tính lại, và giữ dưới dạng PDF.'}
               </h2>
               <p className="mt-2 text-sm text-[#94A3B8] leading-relaxed">
                 {lang === 'en'
-                  ? 'Engineered for retail quants and funded prop firm traders. Eliminates VPS crashes and emotional drawdown.'
-                  : 'Được thiết kế cho nhà giao dịch cá nhân và quỹ cấp vốn Prop Firm. Loại bỏ hoàn toàn sự cố treo máy VPS và gồng lỗ cảm tính.'}
+                  ? 'Educational notes on gold, forex, and indices. No automated orders and no profit promise.'
+                  : 'Tài liệu giáo dục về vàng, ngoại hối và chỉ số. Không có lệnh tự động và không cam kết lợi nhuận.'}
               </p>
             </div>
 
@@ -405,11 +405,13 @@ export function PortalAuth({
                   <IconBolt className="w-4 h-4 text-[#12B5A6]" />
                 </div>
                 <div>
-                  <div className="text-sm font-bold text-white">100% Zero EA · Zero VPS</div>
+                  <div className="text-sm font-bold text-white">
+                    {lang === 'en' ? 'A document, not a terminal' : 'Là tài liệu, không phải phần mềm vào lệnh'}
+                  </div>
                   <div className="mt-0.5 text-xs text-[#94A3B8] leading-relaxed">
                     {lang === 'en'
-                      ? 'Direct connection to London G2 cloud engine with 24ms latency. No local software or VPS rental required.'
-                      : 'Đấu nối trực tiếp máy chủ London G2 với độ trễ 24ms, không cần cài đặt phần mềm ngoài vào máy tính.'}
+                      ? 'You browse a library, read a free preview, and download the PDF you bought.'
+                      : 'Bạn xem thư viện, đọc bản xem thử, và tải PDF đã mua.'}
                   </div>
                 </div>
               </div>
@@ -420,7 +422,7 @@ export function PortalAuth({
                 </div>
                 <div>
                   <div className="text-sm font-bold text-white">
-                    {lang === 'en' ? 'AES-256 MT5 Credential Encryption' : 'Mã hóa mật khẩu MT5 AES-256'}
+                    {lang === 'en' ? 'Account password hashing' : 'Mật khẩu tài khoản được băm'}
                   </div>
                   <div className="mt-0.5 text-xs text-[#94A3B8] leading-relaxed">
                     {lang === 'en'

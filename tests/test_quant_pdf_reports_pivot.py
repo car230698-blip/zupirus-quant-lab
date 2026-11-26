@@ -178,6 +178,12 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
 
     # Enable commercial sale to test full purchase, idempotent webhook, and library fulfillment
     monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "true")
+    from app.domains.billing.crypto_direct import save_crypto_wallets_config
+    save_crypto_wallets_config(
+        enabled=True,
+        bep20_address="0x1111111111111111111111111111111111111111",
+        admin_id="test",
+    )
 
     # Buyer A creates checkout order for rep_xauusd_london_ny_v1 (v1.0)
     co_res = client.post(

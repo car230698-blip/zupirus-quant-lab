@@ -93,13 +93,13 @@ def test_admin_billing_settings_and_qr_preview(client: TestClient):
     assert "supported_banks" in settings
     assert len(settings["supported_banks"]) >= 5
 
-    # 2. Update settings to VietinBank 105887054819 LE NGUYEN NHU THUY
+    # 2. Update settings to VietinBank 000123456789 TEST ACCOUNT HOLDER
     r_post = client.post(
         "/api/admin/billing/settings",
         json={
             "bank_name": "VietinBank",
-            "account_number": "105887054819",
-            "account_holder": "LE NGUYEN NHU THUY",
+            "account_number": "000123456789",
+            "account_holder": "TEST ACCOUNT HOLDER",
             "content_prefix": "ZP",
             "fx_mode": "AUTO",
             "manual_fx_rate": 25700.0
@@ -108,15 +108,15 @@ def test_admin_billing_settings_and_qr_preview(client: TestClient):
     )
     assert r_post.status_code == 200
     assert r_post.json()["settings"]["bank_name"] == "VietinBank"
-    assert r_post.json()["settings"]["account_number"] == "105887054819"
+    assert r_post.json()["settings"]["account_number"] == "000123456789"
 
     # 3. Preview QR code
     r_qr = client.post(
         "/api/admin/billing/preview-qr",
         json={
             "bank_name": "VietinBank",
-            "account_number": "105887054819",
-            "account_holder": "LE NGUYEN NHU THUY",
+            "account_number": "000123456789",
+            "account_holder": "TEST ACCOUNT HOLDER",
             "amount_vnd": 772000,
             "content_memo": "ZP TESTQR"
         },
@@ -125,6 +125,6 @@ def test_admin_billing_settings_and_qr_preview(client: TestClient):
     assert r_qr.status_code == 200
     qr_data = r_qr.json()
     assert "sepay_qr_url" in qr_data
-    assert "105887054819" in qr_data["sepay_qr_url"]
+    assert "000123456789" in qr_data["sepay_qr_url"]
     assert "VietinBank" in qr_data["sepay_qr_url"]
     assert "ZP%20TESTQR" in qr_data["sepay_qr_url"]

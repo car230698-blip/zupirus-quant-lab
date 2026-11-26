@@ -122,16 +122,7 @@ export const AdminReportsPublisherSection: React.FC = () => {
       if (fullFile) fd.append('full_pdf', fullFile);
       if (sampleFile) fd.append('sample_pdf', sampleFile);
 
-      const resp = await fetch(`/api/v1/admin/reports/${encodeURIComponent(uploadReportId)}/upload-pdf`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'x-zupirus': '1' },
-        body: fd,
-      });
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData?.detail || 'Tải tệp PDF thất bại.');
-      }
+      await api.post(`/api/v1/admin/reports/${encodeURIComponent(uploadReportId)}/upload-pdf`, fd);
       setMsg(`Đã tải lên và gán tệp PDF cho báo cáo #${uploadReportId} (${uploadVersion}).`);
       setFullFile(null);
       setSampleFile(null);

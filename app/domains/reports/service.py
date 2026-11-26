@@ -621,7 +621,7 @@ def create_report_checkout_order(
 
     wallet_address = crypto_cfg.get("trc20_address") if network == "TRC20" else crypto_cfg.get("bep20_address")
     if not wallet_address:
-        wallet_address = "0x55d398326f99059fF775485246999027B3197955"
+        fail(400, "Chưa cấu hình ví nhận USDT. Quản trị viên cần lưu địa chỉ BEP20 hoặc TRC20 trước khi mở đơn.")
 
     gateway = f"USDT_{network}"
     currency = "USDT"
@@ -929,8 +929,13 @@ def verify_user_report_download_access(
 
 
 def _signing_secret() -> bytes:
-    raw = os.getenv("SECRET_KEY") or os.getenv("ZUPIRUS_SECRET") or "zupirus-quant-lab-report-download-secret"
-    return raw.encode("utf-8")
+    raw = os.getenv("REPORT_DOWNLOAD_SECRET") or os.getenv("ENCRYPTION_KEY") or os.getenv("SECRET_KEY") or os.getenv("ZUPIRUS_SECRET")
+    if raw:
+        return raw.encode("utf-8")
+    app_env = os.getenv("APP_ENV", "dev").strip().lower()
+    if app_env in ("production", "prod") and not os.getenv("PYTEST_CURRENT_TEST"):
+        raise RuntimeError("REPORT_DOWNLOAD_SECRET or ENCRYPTION_KEY is required in production")
+    return b"dev-only-report-download-secret"
 
 
 def issue_signed_report_download_token(user_id: str, report_id: str, version: str, ttl_sec: int = 300) -> str:

@@ -32,6 +32,7 @@ from app.routers import (
     telemetry_admin_router,
     webhooks_router,
 )
+from app.routers.quant import router as quant_router
 from app.routers.growth import router as growth_router
 from app.routers.seo_pages import router as seo_pages_router
 from app.routers.auth import _client_ip, resolve_ip_country
@@ -248,6 +249,7 @@ for _router in (
     notifications_router,
     realtime_router,
     reports_router,
+    quant_router,
     billing_router,
     webhooks_router,
     signals_router,

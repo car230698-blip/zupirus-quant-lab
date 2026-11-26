@@ -58,3 +58,5 @@ xxhash==4.1.0
 zstandard==0.25.0
 pypdf==7.1.1
 python-multipart==0.0.20
+reportlab==4.4.4
+pillow==13.0.0

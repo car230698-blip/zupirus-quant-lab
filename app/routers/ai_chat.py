@@ -138,7 +138,7 @@ def chat_assistant(payload: ChatPayload, u=Depends(get_current_user)):
     elif any(k in q_low for k in ('kết nối', 'mt5', 'tài khoản', 'cấu hình', 'broker')):
         advisor_hint = (
             "Hướng dẫn kết nối MT5 Cloud:\n"
-            "Đăng ký tài khoản MT5 tại mục 'Tài khoản Cloud MT5' với thông tin Server Broker, Login ID và Mật khẩu. "
+            "Mở thư viện PDF để đọc bản xem thử. ZUPIRUS không kết nối tài khoản MT5 và không vào lệnh. "
             "Cầu nối Cloud Bridge sẽ duy trì heartbeat và kiểm soát khối lượng lot theo đúng cấu hình rủi ro của bạn."
         )
     else:

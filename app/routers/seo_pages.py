@@ -18,307 +18,7 @@ router = APIRouter(tags=["SEO Pages"])
 
 PUBLISHED_DATE = "2026-11-19"
 
-GUIDES: List[Dict[str, object]] = [
-    {
-        "slug": "bot-trade-vang-xauusd-cloud-mt5",
-        "title": "Bot Trade Vàng XAU/USD Cloud MT5 Không Cần VPS | ZUPIRUS",
-        "meta_description": "Tìm hiểu cách bot trade vàng XAU/USD chạy trên Cloud MT5 Zero-VPS với 4 lớp giáp Fail-Closed, Auto-SL ATR(14) và News Shield ±15 phút.",
-        "keywords": "bot trade vàng XAUUSD, bot giao dịch vàng tự động, cloud MT5 không cần VPS, ZUPIRUS",
-        "h1": "Bot Trade Vàng XAU/USD Trên Cloud MT5 Không Cần VPS Hoạt Động Như Thế Nào?",
-        "read_time": "6 phút đọc",
-        "badge": "CLOUD MT5 · XAU/USD",
-        "sections": [
-            (
-                "1. Tại sao giao dịch XAU/USD thủ công hoặc treo VPS truyền thống dễ gặp rủi ro?",
-                "Vàng (XAU/USD) có biên độ biến động trung bình 150–350 pips mỗi phiên Âu–Mỹ. Khi trader tự vào lệnh bằng tay hoặc chạy EA trên VPS Windows giá rẻ, 3 lỗi phổ biến nhất gây cháy tài khoản là: (1) quên đặt Stop Loss cứng hoặc dời SL theo cảm xúc, (2) VPS treo/mất kết nối đúng lúc ra tin CPI/NFP/FOMC, và (3) trượt giá (slippage) khiến khối lượng lot vượt quá giới hạn rủi ro."
-            ),
-            (
-                "2. Kiến trúc Cloud MT5 Zero-VPS của ZUPIRUS Quant Lab",
-                "Thay vì bắt người dùng thuê VPS và cài file .ex5 phức tạp, ZUPIRUS kết nối trực tiếp tới máy chủ sàn MT5 (Exness, ICMarkets, FTMO, The5ers, FundedNext...) thông qua cụm Cloud MT5 London G2 với độ trễ khớp lệnh trung bình ~10ms. Mật khẩu giao dịch được mã hóa AES-256 trước khi lưu và tiền của bạn luôn nằm 100% tại sàn."
-            ),
-            (
-                "3. Bốn lớp giáp Fail-Closed bảo vệ mọi lệnh XAU/USD",
-                "Mọi tín hiệu XAU/USD khung M15 trước khi đẩy xuống tài khoản đều phải vượt qua 4 lớp kiểm duyệt bắt buộc: L1 Idempotency Lock (chống lặp lệnh tuyệt đối qua Redis + DB), L2 Bắt buộc Stop Loss cứng theo biên độ ATR(14) & kiểm soát Spread, L3 News Shield tự động chặn vào lệnh trước/sau tin đỏ USD ±15 phút, và L4 Slippage Guard từ chối khớp nếu giá trượt quá 20 pips."
-            ),
-        ],
-    },
-    {
-        "slug": "cach-pass-quy-ftmo-the5ers-fundednext",
-        "title": "Cách Pass Quỹ FTMO, The5ers & FundedNext An Toàn | ZUPIRUS",
-        "meta_description": "Chiến lược pass quỹ FTMO, The5ers, FundedNext bền vững với Prop Firm Guard: khóa Daily DD 4.0%, HWM 8.0% và chia lot chuẩn 0.75%-1.0%.",
-        "keywords": "cách pass quỹ FTMO, pass quỹ The5ers, FundedNext, Prop Firm Guard, tài khoản quỹ live",
-        "h1": "Cách Pass Quỹ FTMO, The5ers & FundedNext Bền Vững Với Prop Firm Guard",
-        "read_time": "7 phút đọc",
-        "badge": "PROP FIRM · PASS QUỸ",
-        "sections": [
-            (
-                "1. Hai nguyên nhân chính khiến 90% trader trượt vòng thi quỹ Prop Firm",
-                "Phần lớn trader thi FTMO, The5ers hay FundedNext không trượt vì thiếu tín hiệu đẹp, mà trượt vì vi phạm luật Daily Drawdown (5%/ngày) hoặc Max Overall Drawdown (10%) chỉ trong 1 phiên biến động mạnh. Khi tâm lý gỡ lỗ xuất hiện, việc tăng gấp đôi khối lượng lot sẽ phá vỡ toàn bộ tài khoản quỹ trong chưa đầy 30 phút."
-            ),
-            (
-                "2. Cơ chế Prop Firm Guard 3 tầng trên ZUPIRUS",
-                "ZUPIRUS tích hợp chế độ Prop Firm Guard riêng biệt cho 2 giai đoạn CHALLENGE (đang thi) và LIVE (đã cấp vốn): (1) Ngắt mạch Daily DD tự động tại ngưỡng an toàn 4.0% (thấp hơn mức 5.0% của sàn để dự phòng trượt giá), (2) Khóa HWM Trailing Drawdown tại 8.0% từ đỉnh Equity cao nhất, và (3) Tự động giảm 50% rủi ro khi đã đạt từ 80% mục tiêu lợi nhuận vòng thi để bảo toàn thành quả."
-            ),
-            (
-                "3. Quy tắc vàng khi đã cầm tài khoản Quỹ LIVE (Funded)",
-                "Khi tài khoản chuyển sang giai đoạn LIVE Funded, ZUPIRUS tự động kích hoạt trần rủi ro tối đa 1.0% cho mỗi ý tưởng lệnh (Idea Risk Cap) và giữ kỷ luật R:R >= 1.8. Kết quả thực tế trên hệ thống cho thấy danh mục 3 quỹ LIVE ($100K FTMO, $100K The5ers, $200K FundedNext) duy trì Max Drawdown dưới 1.5% trong khi vẫn đạt lợi nhuận ổn định."
-            ),
-        ],
-    },
-    {
-        "slug": "quan-tri-rui-ro-drawdown-prop-firm",
-        "title": "Công Thức Tính Lot XAU/USD & Quản Trị Daily Drawdown Chuẩn Quỹ Prop Firm",
-        "meta_description": "Công thức tính khối lượng Lot XAU/USD chuẩn xác cho tài khoản Standard, Cent (USC) và Prop Firm. Cách kiểm soát Daily Drawdown dưới 4% và tối ưu Profit Factor.",
-        "keywords": "công thức tính lot XAUUSD, quản trị rủi ro drawdown, tài khoản cent MT5, profit factor",
-        "h1": "Công Thức Tính Lot XAU/USD & Quản Trị Daily Drawdown Chuẩn Định Lượng",
-        "read_time": "5 phút đọc",
-        "badge": "QUẢN TRỊ VỐN · LOT SIZING",
-        "sections": [
-            (
-                "1. Công thức tính Lot chuẩn hóa theo khoảng cách Stop Loss",
-                "Thay vì đánh một mức lot cố định (ví dụ lúc nào cũng 0.5 lot dù SL là 30 pips hay 100 pips), thuật toán định lượng tính khối lượng dựa trên ngân sách rủi ro cố định theo % Equity: Lot = (Equity × Risk%) / (SL_Points × Point_Size × Contract_Size). Nhờ đó, dù thị trường biến động mạnh hay nhẹ, mỗi lệnh thua luôn được kiểm soát chính xác đúng số USD cho phép."
-            ),
-            (
-                "2. Xử lý chuẩn xác cho tài khoản Cent (USC) và Standard",
-                "Trên các tài khoản Cent (Exness Standard Cent, v.v.), số dư hiển thị theo đơn vị USC (1 USD = 100 USC) và Contract Size khác tài khoản Standard. ZUPIRUS tự động nhận diện loại tài khoản CENT / STANDARD / PROP để quy đổi chính xác, đồng thời áp dụng nguyên tắc Fail-Closed (từ chối vào lệnh nếu min lot 0.01 vẫn vượt quá ngân sách rủi ro cho phép)."
-            ),
-            (
-                "3. Kết hợp Auto Break-Even & kiểm soát chuỗi thua liên tiếp",
-                "Với rủi ro 0.75% mỗi lệnh và trần lỗ ngày 4.0%, tài khoản quỹ có thể chịu được tới 5 lệnh thua liên tiếp trong ngày mà vẫn chưa chạm ngưỡng vi phạm của sàn. Kết hợp dời SL về hòa vốn (Auto Break-Even) tại +1.0R giúp bảo vệ lợi nhuận và nâng cao Profit Factor dài hạn."
-            ),
-        ],
-    },
-    {
-        "slug": "ket-noi-mt5-cloud-zero-vps",
-        "title": "Hướng Dẫn Kết Nối Cloud MT5 Không Cần VPS Trong 3 Phút (Exness, ICMarkets, FTMO)",
-        "meta_description": "Hướng dẫn chi tiết 3 bước kết nối tài khoản MT5 Exness, ICMarkets, FTMO lên Cloud MT5 Zero-VPS của ZUPIRUS: không cần thuê VPS, không cần cài EA, kích hoạt SePay 24/7.",
-        "keywords": "kết nối MT5 cloud, copy trade MT5 không cần VPS, MetaApi Cloud MT5, Exness ICMarkets MT5",
-        "h1": "Hướng Dẫn Kết Nối Tài Khoản MT5 Lên Đám Mây Zero-VPS Trong 3 Phút",
-        "read_time": "4 phút đọc",
-        "badge": "HƯỚNG DẪN · ZERO-VPS",
-        "sections": [
-            (
-                "Bước 1: Đăng ký tài khoản & xác thực bảo mật OTP",
-                "Truy cập https://app.zupirus.com, đăng ký bằng email cá nhân và nhập mã xác thực OTP 6 chữ số được gửi tức thì về hộp thư. Toàn bộ phiên làm việc được bảo vệ bằng cookie HttpOnly và mã hóa mật khẩu chuẩn scrypt."
-            ),
-            (
-                "Bước 2: Chọn gói hạ tầng Cloud MT5 & kích hoạt SePay VietQR 24/7",
-                "Chọn gói phù hợp với số lượng tài khoản MT5 bạn muốn chạy: Starter ($25/tháng — 1 tài khoản), Growth ($39/tháng — tối đa 3 tài khoản) hoặc Alpha ($59/tháng — tối đa 5 tài khoản kèm Prop Firm Guard). Quét mã SePay VietQR để hệ thống tự động đối soát và mở slot trong vài giây."
-            ),
-            (
-                "Bước 3: Đấu nối MT5 Login & cấu hình lớp giáp rủi ro",
-                "Tại tab Tài khoản Cloud MT5, nhập MT5 Login, Master Password và chọn Broker Server (Exness, ICMarkets, FTMO, The5ers, FundedNext...). Hệ thống tự động triển khai node trên cụm London G2, đồng bộ Balance/Equity và sổ lệnh theo thời gian thực qua SSE mà bạn không cần bật máy tính hay thuê VPS."
-            ),
-        ],
-    },
-    {
-        "slug": "so-sanh-ftmo-the5ers-fundednext",
-        "title": "So Sánh FTMO vs The5ers vs FundedNext 2026: Quỹ Nào Dễ Pass Bằng Bot XAU/USD?",
-        "meta_description": "So sánh chi tiết luật Daily Drawdown, Max Drawdown, spread vàng XAU/USD và chính sách dùng Bot/EA trên 3 quỹ lớn nhất: FTMO, The5ers và FundedNext năm 2026.",
-        "keywords": "so sánh FTMO The5ers FundedNext, quỹ prop firm tốt nhất 2026, thi quỹ bằng bot trade vàng, prop firm Việt Nam",
-        "h1": "So Sánh FTMO vs The5ers vs FundedNext 2026: Quỹ Nào Phù Hợp Nhất Cho Bot XAU/USD?",
-        "read_time": "8 phút đọc",
-        "badge": "SO SÁNH QUỸ · PROP FIRM",
-        "sections": [
-            (
-                "1. Bảng so sánh luật Drawdown & mục tiêu lợi nhuận (2-Step Standard)",
-                "Cả 3 quỹ lớn đều có khung luật khá chuẩn mực nhưng khác biệt ở điểm tính Daily Loss: FTMO áp dụng Daily Loss 5% tính trên Equity đầu ngày và Max Loss 10% (Static), mục tiêu Phase 1 là 10%, Phase 2 là 5%. The5ers (High Stakes) yêu cầu mục tiêu Phase 1 chỉ 8% và Phase 2 là 5% với Daily Pause 5% và Max Loss 10%. FundedNext (Stellar 2-Step) nổi bật với chia lợi nhuận ngay từ giai đoạn thi (15% Profit Share) cùng Daily Loss 5% và Max Loss 10%."
-            ),
-            (
-                "2. Khả năng tương thích với Bot Trade Vàng XAU/USD & News Trading",
-                "Cả FTMO, The5ers và FundedNext đều cho phép sử dụng hệ thống giao dịch tự động (EA/Bot) nếu không lạm dụng HFT/Tick Scalping hay Copy Trade chéo giữa các người dùng lạ. Tuy nhiên, tài khoản LIVE của FTMO và The5ers có quy định chặt quanh tin đỏ USD (CPI, NFP, FOMC ±2 đến ±5 phút). Vì vậy lớp giáp News Shield ±15 phút của ZUPIRUS là yếu tố bắt buộc để tránh bị hủy lợi nhuận do vi phạm luật tin tức."
-            ),
-            (
-                "3. Khuyến nghị phân bổ danh mục quỹ cho trader định lượng",
-                "Thay vì dồn toàn bộ vốn mua 1 tài khoản lớn ở một quỹ duy nhất, trader chuyên nghiệp thường chia đều 3 quỹ (ví dụ: FTMO $100K + The5ers $100K + FundedNext $200K) và đồng bộ qua gói Alpha (tối đa 5 tài khoản MT5) với mức rủi ro 0.75%/lệnh. Cách này vừa phân tán rủi ro đối tác quỹ, vừa tận dụng tối đa nguồn vốn cấp lên tới $400,000+."
-            ),
-        ],
-    },
-    {
-        "slug": "ea-bot-trade-vang-co-bi-cam-prop-firm-khong",
-        "title": "Dùng Bot/EA Trade Vàng Trên Prop Firm Có Bị Cấm Không? 5 Luật Bắt Buộc Phải Tránh",
-        "meta_description": "Giải đáp chi tiết quy định dùng EA/Bot giao dịch vàng XAU/USD trên FTMO, The5ers, FundedNext: 5 hành vi bị cấm tuyệt đối (HFT, Martingale, tin đỏ) và cách cấu hình hợp lệ.",
-        "keywords": "dùng bot trade quỹ có bị cấm không, EA pass quỹ FTMO, luật cấm prop firm, Martingale prop firm",
-        "h1": "Dùng Bot/EA Trade Vàng Trên Quỹ Prop Firm Có Bị Cấm Không? 5 Luật Phải Tránh",
-        "read_time": "6 phút đọc",
-        "badge": "LUẬT QUỸ · COMPLIANCE",
-        "sections": [
-            (
-                "1. Các quỹ Prop Firm uy tín CÓ cho phép dùng Bot/EA hợp lệ",
-                "FTMO, The5ers, FundedNext và hầu hết quỹ uy tín đều cho phép dùng hệ thống giao dịch tự động (Algorithmic Trading / EA / Cloud API). Điều các quỹ cấm không phải là việc tự động hóa lệnh, mà là các kỹ thuật khai thác lỗi máy chủ demo hoặc đánh bạc rủi ro cực đoan."
-            ),
-            (
-                "2. 5 hành vi khiến tài khoản quỹ bị khóa ngay lập tức",
-                "Bạn tuyệt đối phải tránh: (1) High-Frequency Trading / Latency Arbitrage giữ lệnh dưới 30–60 giây, (2) Martingale / Grid gồng lỗ nhồi lot gấp thếp (vi phạm quy tắc Gambling / Risk Management), (3) Giao dịch sát giờ tin đỏ USD (CPI, NFP, FOMC) trên tài khoản Funded, (4) Đánh quá lớn một lệnh (>2% rủi ro) gọi là One-Sided Betting, và (5) Mở lệnh không có Stop Loss bảo vệ."
-            ),
-            (
-                "3. Tại sao kiến trúc ZUPIRUS an toàn 100% trước bài kiểm tra của Quỹ",
-                "ZUPIRUS không dùng Martingale, không dùng Grid và không đánh Tick Scalping. Mỗi lệnh XAU/USD khung M15 đều có Stop Loss cứng tính theo ATR(14), tỷ lệ R:R >= 1.8, trần rủi ro Idea Risk Cap <= 1.0% ở chế độ Prop LIVE, tự động chặn giao dịch ±15 phút quanh tin đỏ USD và ngắt mạch Daily DD tại 4.0% trước khi chạm luật 5.0% của sàn."
-            ),
-        ],
-    },
-    {
-        "slug": "so-sanh-cloud-mt5-va-vps-forex",
-        "title": "So Sánh Cloud MT5 Zero-VPS vs Thuê VPS Forex Truyền Thống (Chi Phí & Độ Trễ)",
-        "meta_description": "Phân tích ưu nhược điểm giữa hạ tầng Cloud MT5 Zero-VPS (London G2) và thuê VPS Windows Forex truyền thống: độ trễ khớp lệnh, rủi ro treo MT5 và tổng chi phí hàng tháng.",
-        "keywords": "so sánh Cloud MT5 và VPS Forex, thuê VPS chạy EA MT5, Cloud MT5 không cần VPS, độ trễ khớp lệnh MT5",
-        "h1": "So Sánh Cloud MT5 Zero-VPS vs Thuê VPS Forex Truyền Thống: Nên Chọn Gì?",
-        "read_time": "5 phút đọc",
-        "badge": "HẠ TẦNG · CLOUD VS VPS",
-        "sections": [
-            (
-                "1. Ba điểm yếu chí mạng của VPS Windows chạy MT5 truyền thống",
-                "Khi thuê VPS Windows giá $15–$35/tháng để cài phần mềm MT5 và kéo file .ex5 vào biểu đồ, trader thường gặp 3 sự cố nghiêm trọng: (1) Windows tự khởi động lại cập nhật làm tắt MT5 mà chủ tài khoản không hay biết, (2) Tràn RAM/CPU khi mở nhiều biểu đồ khiến lệnh cắt lỗ hoặc dời Break-Even bị treo, và (3) Độ trễ mạng cao (80–250ms) nếu chọn nhầm vị trí máy chủ xa broker."
-            ),
-            (
-                "2. Lợi thế của hạ tầng Cloud MT5 Zero-VPS London G2",
-                "Cloud MT5 loại bỏ hoàn toàn giao diện Windows nặng nề: kết nối trực tiếp tới máy chủ broker qua API độ trễ thấp (~10–25ms tại cụm London G2), tự động giám sát trạng thái kết nối 24/7, đẩy log thực thi real-time qua SSE lên điện thoại/web và kích hoạt Idempotency Lock để không bao giờ xảy ra lỗi vào đúp lệnh khi mạng chập chờn."
-            ),
-            (
-                "3. So sánh tổng chi phí sở hữu (TCO)",
-                "Với VPS truyền thống, bạn phải trả tiền thuê VPS riêng ($20–$40/tháng) cộng thêm tiền mua hoặc thuê EA ($50–$200/tháng) và tự chịu rủi ro bảo trì kỹ thuật. Với ZUPIRUS, gói Starter ($25/tháng) đã bao gồm trọn gói cả hạ tầng Cloud MT5 Zero-VPS, chiến lược định lượng XAU/USD và 4 lớp giáp bảo vệ vốn."
-            ),
-        ],
-    },
-    {
-        "slug": "cach-doc-profit-factor-sharpe-drawdown",
-        "title": "Cách Kiểm Tra Bot Trade Vàng Thật Hay Lừa Đảo Qua Profit Factor, Sharpe & Drawdown",
-        "meta_description": "Hướng dẫn 4 chỉ số định lượng bắt buộc để thẩm định Bot Trade Vàng XAU/USD: Profit Factor, Max Drawdown, Winrate vs R:R và cách phát hiện ảnh lợi nhuận ảo hoặc bot gồng lỗ.",
-        "keywords": "kiểm tra bot trade thật hay ảo, profit factor là gì, max drawdown là gì, đánh giá bot trade vàng",
-        "h1": "Cách Kiểm Tra Bot Trade Vàng Thật Hay Lừa Đảo Qua 4 Chỉ Số Định Lượng",
-        "read_time": "6 phút đọc",
-        "badge": "THẨM ĐỊNH · QUANT METRICS",
-        "sections": [
-            (
-                "1. Cạm bẫy lớn nhất: Winrate 95% nhưng không có Stop Loss",
-                "Rất nhiều nhóm bán bot trade vàng khoe lịch sử xanh 100% với Winrate 90–98%. Tuy nhiên, nếu kiểm tra sâu sẽ thấy họ KHÔNG đặt Stop Loss cứng hoặc dùng chiến thuật Martingale/Grid gồng âm trạng thái (Floating Drawdown) tới 40–70% tài khoản. Chỉ cần vàng chạy 1 chiều 400 pips trong phiên FOMC là toàn bộ lợi nhuận cả năm bốc hơi trong 1 đêm."
-            ),
-            (
-                "2. Bốn chỉ số vàng để thẩm định hệ thống định lượng chuẩn",
-                "Một hệ thống giao dịch XAU/USD đáng tin cậy cần đáp ứng đồng thời: (1) Profit Factor (Tổng lãi / Tổng lỗ) từ 1.5 đến 4.5 trên mẫu lệnh đủ lớn, (2) Max Drawdown thực tế dưới 5–10% (không giấu lệnh âm đang thả nổi), (3) Tỷ lệ Risk:Reward trung bình >= 1.5 để không phải gồng lỗ, và (4) Mọi lệnh đều có Stop Loss cứng ngay thời điểm khớp lệnh."
-            ),
-            (
-                "3. Kiểm chứng minh bạch sổ lệnh thực tế trên ZUPIRUS",
-                "ZUPIRUS cung cấp nhật ký kiểm toán tín hiệu (Signal Audit Logs) và sổ lệnh thực thi (Execution Ledger) trực tiếp trong cổng khách hàng https://app.zupirus.com với đầy đủ Winrate, Profit Factor, Max Drawdown, lợi nhuận ròng và lý do đóng/mở lệnh từ cơ sở dữ liệu thực, giúp trader kiểm chứng bằng con số thay vì lời hứa hẹn."
-            ),
-        ],
-    },
-    {
-        "slug": "bot-pass-quy-ftmo-the5ers-tu-dong",
-        "title": "Bot Pass Quỹ FTMO, The5ers & FundedNext Tự Động 2026 | ZUPIRUS",
-        "meta_description": "Giải pháp bot pass quỹ FTMO, The5ers, FundedNext tự động trên Cloud MT5. Tự động chốt lời bảo vệ chỉ tiêu, khóa rủi ro Daily Drawdown 4.0% và chống vi phạm tin đỏ.",
-        "keywords": "bot pass quỹ ftmo, bot pass quỹ the5ers, bot pass quỹ fundednext, ea pass quỹ tự động, pass quỹ prop firm bằng bot, bot trade vàng chuẩn quỹ",
-        "h1": "Bot Pass Quỹ FTMO, The5ers & FundedNext Tự Động: Giải Pháp Định Lượng Chuẩn Quỹ 2026",
-        "read_time": "9 phút đọc",
-        "badge": "PASS QUỸ · PROP AUTOMATION",
-        "sections": [
-            (
-                "1. Nghịch lý của việc tự trade tay khi thi quỹ Prop Firm",
-                "Hơn 90% trader trượt vòng Challenge của FTMO, The5ers hay FundedNext không phải do thiếu kiến thức phân tích kỹ thuật, mà do rào cản tâm lý khi đối diện với các giới hạn khắc nghiệt: Daily Drawdown 5.0%, Max Drawdown 10.0% và áp lực thời gian/chỉ tiêu lợi nhuận 8-10%. Sau 2 lệnh thua liên tiếp, trader thường mất bình tĩnh, tăng khối lượng lot (revenge trading) và làm bốc hơi tài khoản chỉ trong một phiên Âu hoặc Mỹ. Sử dụng bot định lượng loại bỏ 100% cảm xúc, thực thi kỷ luật cơ học từng pip."
-            ),
-            (
-                "2. Cơ chế bảo vệ 3 giai đoạn: Challenge, Verification và Cấp Vốn LIVE",
-                "Hệ thống ZUPIRUS phân định rạch ròi 3 trạng thái vận hành: (1) Tại Phase 1 (Mục tiêu 8-10%), bot duy trì rủi ro 0.75%/lệnh với tỷ lệ R:R >= 1.5; khi đạt 80% chỉ tiêu, hệ thống tự động giảm rủi ro về 0.35%/lệnh để về đích an toàn nhất mà không bị kéo ngược. (2) Tại Phase 2 (Mục tiêu 5%), rủi ro giữ ở 0.50%/lệnh. (3) Khi tài khoản lên LIVE (Funded), ZUPIRUS kích hoạt trần rủi ro nghiêm ngặt tối đa 1.0%/ngày nhằm mục tiêu bảo toàn tài khoản và rút lợi nhuận đều đặn hàng kỳ."
-            ),
-            (
-                "3. Lớp khóa cứng Daily Drawdown 4.0% và News Shield ±15 Phút",
-                "Luật các quỹ thường đánh rớt tài khoản nếu lỗ trong ngày chạm 5.0% Equity đầu ngày. ZUPIRUS đặt chốt chặn an toàn tại 4.0% (trước khi sàn kịp can thiệp). Khi chạm mức này, cụm máy chủ London G2 lập tức đóng toàn bộ lệnh mở, hủy lệnh chờ và ngắt quyền giao dịch của trạm cho tới hết ngày. Đồng thời, bộ lọc tin tức News Shield tự động đóng băng giao dịch trước và sau 15 phút quanh các sự kiện kinh tế đỏ USD (CPI, NFP, FOMC), đảm bảo tài khoản không bao giờ dính trượt giá hay vi phạm chính sách giao dịch tin."
-            ),
-        ],
-    },
-    {
-        "slug": "copy-trade-vang-mt5-exness-khong-can-vps",
-        "title": "Copy Trade Vàng XAU/USD Trên MT5 Exness Không Cần VPS | ZUPIRUS",
-        "meta_description": "Hướng dẫn copy trade vàng XAU/USD tự động trên MT5 Exness bằng hạ tầng Cloud London G2. Không cần máy tính, không tốn tiền thuê VPS, khớp lệnh độ trễ cực thấp.",
-        "keywords": "copy trade vàng exness, bot trade vàng exness không cần vps, copy trade xauusd mt5, bot tự động exness, ea vàng exness",
-        "h1": "Copy Trade Vàng XAU/USD Trên MT5 Exness Không Cần VPS: Kết Nối Siêu Tốc London G2",
-        "read_time": "7 phút đọc",
-        "badge": "COPY TRADE · EXNESS CLOUD",
-        "sections": [
-            (
-                "1. Tại sao không nên chạy Copy Trade qua VPS Windows truyền thống?",
-                "Chạy EA hoặc bot copy trade thủ công bằng VPS Windows thường phát sinh chi phí từ $10-$25 mỗi tháng, cấu hình RAM/CPU yếu dẫn tới đơ máy, mất kết nối mạng đột ngột hoặc tự khởi động lại khi cập nhật Windows đúng lúc thị trường biến động mạnh. Với ZUPIRUS, người dùng không cần thuê VPS riêng: tài khoản MT5 Exness của bạn được kết nối trực tiếp lên cụm Cloud Container tại trung tâm dữ liệu London G2, chỉ cách máy chủ Exness dưới 3ms."
-            ),
-            (
-                "2. Tương thích hoàn hảo với tài khoản Exness Standard, Raw Spread và Cent (USC)",
-                "ZUPIRUS tự động nhận diện loại tài khoản Exness và điều chỉnh logic khớp lệnh. Nếu bạn dùng tài khoản Standard hoặc Raw Spread, hệ thống khớp lệnh theo đơn vị Lot chuẩn. Nếu bạn dùng tài khoản Cent (USC) với số vốn nhỏ $50-$100, hệ thống tự động quy đổi tỷ lệ khối lượng 1:100, đảm bảo mỗi lệnh chỉ chịu rủi ro vài chục cent tiền thật, an toàn tuyệt đối cho người mới bắt đầu trải nghiệm."
-            ),
-            (
-                "3. Ba bước kích hoạt kết nối Exness chỉ trong 60 giây",
-                "Bước 1: Đăng nhập vào ZUPIRUS Hub tại https://app.zupirus.com/. Bước 2: Chọn 'Thêm Tài Khoản MT5', nhập số tài khoản MT5 Exness, mật khẩu Master/Investor và chọn Server (ví dụ: Exness-MT5Real, Exness-MT5Real9...). Bước 3: Bật công tắc Auto-Trade. Toàn bộ tín hiệu định lượng XAU/USD từ mô hình Alpha Quant sẽ được đồng bộ theo thời gian thực 24/5."
-            ),
-        ],
-    },
-    {
-        "slug": "kinh-nghiem-thi-quy-fundednext-stellar",
-        "title": "Kinh Nghiệm Thi Quỹ FundedNext Stellar 2-Step Bằng Bot XAU/USD | ZUPIRUS",
-        "meta_description": "Bí quyết vượt qua gói FundedNext Stellar 2-Step và nhận 15% chia sẻ lợi nhuận ngay từ vòng thi. Quy tắc giao dịch tin tức, quản lý drawdown và tối ưu lot size.",
-        "keywords": "thi quỹ fundednext stellar, kinh nghiệm thi fundednext, bot trade fundednext, quỹ fundednext việt nam, fundednext stellar 2 step xauusd",
-        "h1": "Kinh Nghiệm Thi Quỹ FundedNext Stellar 2-Step: Tận Dụng Bot Định Lượng & Nhận 15% Profit Share",
-        "read_time": "8 phút đọc",
-        "badge": "FUNDEDNEXT · STELLAR STRATEGY",
-        "sections": [
-            (
-                "1. Điểm đặc sắc nhất của gói FundedNext Stellar 2-Step",
-                "Trong số các quỹ Prop Firm hiện nay, gói Stellar của FundedNext có ưu thế vượt trội: Không giới hạn thời gian thi (No Time Limit), chia sẻ 15% lợi nhuận ngay từ giai đoạn Challenge và Verification khi bạn vượt qua các vòng, đồng thời đòn bẩy lên tới 1:100. Mục tiêu Phase 1 là 8% và Phase 2 là 5%, Daily Drawdown tối đa 5% và Max Drawdown 10% (dựa trên Balance)."
-            ),
-            (
-                "2. Cấu hình rủi ro và khối lượng Lot tối ưu cho FundedNext Stellar",
-                "Do luật Daily Drawdown tính trên Balance đầu ngày (hoặc Equity nếu Equity cao hơn Balance), chiến lược an toàn nhất trên cặp XAU/USD là đặt Stop Loss cố định 35-50 pips với rủi ro 0.6% mỗi lệnh. Với tài khoản $50,000, 0.6% rủi ro tương ứng $300. Nếu Stop Loss là 40 pips ($4/oz), khối lượng vào lệnh chuẩn là 0.75 lot. Nếu thua 2 lệnh liên tiếp trong ngày (-1.2%), hệ thống tự ngắt giao dịch để bảo toàn 3.8% Daily DD còn lại."
-            ),
-            (
-                "3. Xử lý quy định tin tức và giữ lệnh qua đêm (Overnight/Weekend)",
-                "FundedNext Stellar cho phép giữ lệnh qua đêm và qua tuần, tuy nhiên tài khoản LIVE có kiểm soát việc khớp lệnh trong cửa sổ tin tức kinh tế quan trọng. ZUPIRUS tự động kích hoạt News Shield để tránh vào lệnh mới trong khoảng ±15 phút quanh tin CPI/NFP. Nhờ đó, tài khoản của bạn luôn giữ được lịch sử sạch và đủ điều kiện rút tiền nhanh chóng qua cổng Crypto hoặc chuyển khoản ngân hàng."
-            ),
-        ],
-    },
-    {
-        "slug": "top-5-sai-lam-chay-tai-khoan-quy-prop-firm",
-        "title": "Top 5 Sai Lầm Khiến 90% Trader Cháy Quỹ Prop Firm & Cách Khắc Phục",
-        "meta_description": "Phân tích 5 nguyên nhân phổ biến khiến trader mất tài khoản FTMO, The5ers: nhồi lệnh Martingale, không cắt lỗ, giao dịch tin NFP/CPI và vượt Daily Loss.",
-        "keywords": "sai lầm thi quỹ prop firm, tại sao cháy quỹ ftmo, kinh nghiệm giữ quỹ the5ers, mẹo pass quỹ prop firm, quản lý vốn prop firm",
-        "h1": "Top 5 Sai Lầm Khiến 90% Trader Cháy Tài Khoản Quỹ Prop Firm & Cách Khắc Phục Triệt Để",
-        "read_time": "8 phút đọc",
-        "badge": "CẢNH BÁO · RISK MANAGEMENT",
-        "sections": [
-            (
-                "1. Sai lầm #1: Nhồi lệnh âm (Martingale) và không đặt Stop Loss cứng",
-                "Nhiều trader có thói quen khi lệnh vàng đi ngược hướng 50 pips sẽ mở thêm lệnh gấp đôi lot với hy vọng giá hồi lại hòa vốn. Trên tài khoản quỹ với mức sụt giảm tối đa chỉ 10%, chỉ một cú giật 150-200 pips là tài khoản bị đóng băng ngay lập tức. Quy tắc bất biến: Mọi lệnh phải có Stop Loss ngay thời điểm mở lệnh và tuyệt đối không bao giờ nhồi lệnh âm."
-            ),
-            (
-                "2. Sai lầm #2: Đánh cược tài sản vào giờ tin tức lớn (Gambling News)",
-                "Các khung giờ công bố Non-Farm Payrolls (NFP) hay CPI của Mỹ thường có spread vàng giãn từ 1.5 pip lên 15-20 pips và trượt giá (slippage) nghiêm trọng. Nhiều trader hy vọng 'ăn đậm' bằng lệnh lớn trước tin, dẫn tới việc bị quét Stop Loss ở cả hai đầu hoặc vi phạm quy định cấm giao dịch tin tức của quỹ FTMO/The5ers. Giải pháp của ZUPIRUS là cơ chế News Shield tự động ngắt lệnh trước tin 15 phút."
-            ),
-            (
-                "3. Sai lầm #3: Giao dịch quá mức (Overtrading) sau chuỗi thua & Không tính Daily DD",
-                "Khi bị lỗ 2% trong ngày, tâm lý gỡ gạc khiến trader mở 5-10 lệnh tiếp theo liên tục trong trạng thái ức chế. Đến khi nhận thông báo từ quỹ thì tài khoản đã chạm ngưỡng Daily Drawdown 5.0%. Để khắc phục, hệ thống ZUPIRUS áp dụng khóa cơ học tại 4.0% Daily Loss — một khi đã chạm, máy tính sẽ cắt toàn bộ quyền can thiệp cho đến 00:00 GMT ngày hôm sau, bảo vệ 100% tài khoản sống sót đường dài."
-            ),
-        ],
-    },
-    {
-        "slug": "chay-bot-vang-tai-khoan-cent-exness",
-        "title": "Chạy Bot Vàng XAU/USD Trên Tài Khoản Cent Exness Vốn $50 - $100 | ZUPIRUS",
-        "meta_description": "Cách chạy bot giao dịch vàng XAU/USD an toàn trên tài khoản Cent (USC) Exness chỉ từ $50-$100 vốn thực. Chia nhỏ rủi ro 100 lần, học tập và kiểm nghiệm an toàn.",
-        "keywords": "bot vàng tài khoản cent exness, chạy ea tài khoản cent, bot xauusd vốn nhỏ, trade vàng cent exness, copy trade tài khoản cent",
-        "h1": "Hướng Dẫn Chạy Bot Vàng XAU/USD Trên Tài Khoản Cent Exness: Vốn $50 Vẫn Chạy Chuẩn Định Lượng",
-        "read_time": "7 phút đọc",
-        "badge": "VỐN NHỎ · EXNESS CENT (USC)",
-        "sections": [
-            (
-                "1. Tài khoản Cent (USC) là gì và vì sao là bước đệm lý tưởng?",
-                "Tài khoản Standard Cent của Exness quy đổi 1 USD = 100 USC (Cent). Khi bạn nạp $50 vốn thật, số dư hiển thị trên MT5 là 5,000 USC. Điều này cho phép bạn giao dịch khối lượng siêu nhỏ: 1.00 Lot Cent tương đương 1 oz vàng (thay vì 100 oz như Standard), tức là biến động $1 trên giá vàng chỉ tương ứng $0.10 rủi ro thực tế. Đây là môi trường hoàn hảo để kiểm chứng độ ổn định của bot định lượng mà không lo áp lực tài chính."
-            ),
-            (
-                "2. Thuật toán ZUPIRUS tự động nhận diện Contract Size tài khoản Cent",
-                "Khi kết nối tài khoản MT5 Exness vào ZUPIRUS, hệ thống tự động đọc thông số Contract Size của mã vàng (XAUUSDm hoặc XAUUSDc). Nếu phát hiện tài khoản Cent, thuật toán Fanout Engine tự động điều chỉnh hệ số tính Lot để rủi ro trên mỗi lệnh đúng bằng 0.5% - 1.0% của 5,000 USC ($0.25 - $0.50 tiền thật). Bạn được trải nghiệm hệ thống quản trị rủi ro chuyên nghiệp như tài khoản quỹ $100,000."
-            ),
-            (
-                "3. Lộ trình từ $50 Cent đến tài khoản Quỹ $100,000",
-                "Lộ trình tối ưu cho mọi nhà đầu tư: Tháng 1 chạy tài khoản Cent với $50-$100 để quan sát cách bot xử lý phiên London, phiên New York và tự động khóa lệnh khi có tin tức. Khi đã hiểu rõ cách vận hành của hệ thống và thấy hiệu suất thực tế tăng trưởng ổn định, bạn có thể tự tin đầu tư gói thi quỹ FTMO/The5ers $50,000 - $100,000 để gia tăng thu nhập quy mô lớn."
-            ),
-        ],
-    },
-]
+from app.domains.quant.public_copy import ENGLISH_GUIDES, GUIDES
 
 GUIDE_BY_SLUG = {str(g["slug"]): g for g in GUIDES}
 
@@ -346,16 +46,24 @@ def _render_shell(
     nav_lot = "XAU/USD Lot Calculator" if is_en else "Tính Lot XAU/USD"
     nav_dd = "Prop Firm Drawdown" if is_en else "Tính Drawdown Quỹ"
     nav_guide = "Guides & Documentation" if is_en else "Kiến Thức & Hướng Dẫn"
-    nav_cta = "Launch Portal →" if is_en else "Mở Cổng Giao Dịch →"
+    nav_cta = "Open the library →" if is_en else "Mở thư viện PDF →"
 
     footer_home = "Home" if is_en else "Trang Chủ"
     footer_guides = "Guides" if is_en else "Hướng Dẫn"
     footer_login = "Login" if is_en else "Đăng Nhập"
     footer_tagline = (
-        "Zero-VPS Cloud MT5 Infrastructure & Prop Firm Guard"
+        "Educational statistical studies as PDF guides. No automated execution."
         if is_en
-        else "Hạ tầng Cloud MT5 XAU/USD Zero-VPS & Prop Firm Guard"
+        else "Nghiên cứu thống kê dạng PDF. Không thực thi lệnh tự động."
     )
+    banner = (
+        "<p class=\"card\"><strong>ZUPIRUS Quant Lab</strong> publishes educational market studies as PDF guides. "
+        "It does not place orders, copy trades, host cloud MT5, or rent a VPS. Past statistics are not a promise of profit.</p>"
+        if is_en
+        else "<p class=\"card\"><strong>ZUPIRUS Quant Lab</strong> xuất bản nghiên cứu thống kê thị trường dưới dạng PDF. "
+        "Không đặt lệnh, không copy-trade, không cung cấp Cloud MT5 hay VPS. Thống kê quá khứ không phải cam kết lợi nhuận.</p>"
+    )
+    body_html = banner + body_html
 
     return f"""<!doctype html>
 <html lang="{html_lang}">
@@ -635,7 +343,7 @@ def seo_lot_calculator_page(request: Request, lang: Optional[str] = Query(None))
 
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">Để hệ thống Cloud MT5 tự tính Lot &amp; khóa Daily DD 4.0% cho bạn 24/7</strong>
+          <strong style="color:#fff;font-size:17px">Công thức này chỉ để tự tính. ZUPIRUS không vào lệnh giúp bạn.</strong>
           <p style="margin:4px 0 0;font-size:13.5px">Không cần tính tay, không cần thuê VPS · 4 lớp giáp Fail-Closed tự động trên cụm London G2.</p>
         </div>
         <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
@@ -928,7 +636,7 @@ def seo_drawdown_calculator_page(request: Request, lang: Optional[str] = Query(N
 
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">Kích hoạt bảo vệ 4 lớp giáp Fail-Closed trên Cloud MT5 ngay hôm nay</strong>
+          <strong style="color:#fff;font-size:17px">Đọc nghiên cứu trong thư viện PDF. Không có lệnh tự động.</strong>
           <p style="margin:4px 0 0;font-size:13.5px">Không cần tự canh lệnh, không lo chạm Daily Drawdown · Kết nối 60 giây.</p>
         </div>
         <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
@@ -953,14 +661,14 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
     effective_lang = _resolve_lang(request, lang)
     canonical = "https://zupirus.com/huong-dan"
     title = (
-        "Gold Bot Trading XAU/USD & Prop Firm Pass Knowledge Hub | ZUPIRUS"
+        "How to read a ZUPIRUS study | ZUPIRUS Quant Lab"
         if effective_lang == "en"
-        else "Kiến Thức Bot Trade Vàng XAU/USD & Pass Quỹ | ZUPIRUS"
+        else "Cách đọc nghiên cứu ZUPIRUS | ZUPIRUS Quant Lab"
     )
     desc = (
-        "Comprehensive technical guide on XAU/USD gold bot trading on Zero-VPS Cloud MT5, lot size formulas, and passing FTMO, The5ers, FundedNext."
+        "Notes on reading a statistical study of XAU/USD. Educational PDFs only, with no automated orders."
         if effective_lang == "en"
-        else "Tổng hợp hướng dẫn bot trade vàng XAU/USD trên Cloud MT5 Zero-VPS, công thức tính lot chuẩn quỹ và cách pass FTMO, The5ers, FundedNext."
+        else "Ghi chú cách đọc một nghiên cứu thống kê XAU/USD. Chỉ là PDF giáo dục, không có lệnh tự động."
     )
     json_ld = {
         "@context": "https://schema.org",
@@ -983,17 +691,17 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
     crumb_home = "Home" if effective_lang == "en" else "Trang chủ"
     crumb_guides = "Guides & Knowledge" if effective_lang == "en" else "Kiến Thức &amp; Hướng Dẫn"
     h1_text = (
-        "XAU/USD Quantitative Trading, Cloud MT5 & Prop Firm Knowledge Hub"
+        "How to read a ZUPIRUS quantitative study"
         if effective_lang == "en"
-        else "Kiến Thức Giao Dịch Định Lượng XAU/USD, Cloud MT5 &amp; Pass Quỹ Prop Firm"
+        else "Cách đọc một nghiên cứu định lượng của ZUPIRUS"
     )
     sub_text = (
-        "Technical documentation helping traders deploy automated XAU/USD infrastructure without VPS and pass prop firm challenges with 4 Fail-Closed Shields."
+        "Notes on samples, session clocks, and what a historical table does not claim."
         if effective_lang == "en"
-        else "Hệ thống tài liệu kỹ thuật giúp trader triển khai hạ tầng tự động hóa XAU/USD không cần VPS và bảo vệ tài khoản quỹ FTMO, The5ers, FundedNext bằng 4 lớp giáp Fail-Closed."
+        else "Ghi chú về mẫu dữ liệu, múi giờ phiên, và những gì một bảng lịch sử không khẳng định."
     )
-    cta_title = "Ready to connect your MT5 account to London G2 Cloud?" if effective_lang == "en" else "Sẵn sàng kết nối tài khoản MT5 lên Cloud London G2?"
-    cta_sub = "4-Layer Fail-Closed Capital Shield · Instant activation 24/7." if effective_lang == "en" else " Bảo vệ vốn 4 lớp giáp Fail-Closed · Kích hoạt ngay qua SePay VietQR 24/7."
+    cta_title = "Open the PDF library" if effective_lang == "en" else "Mở thư viện PDF"
+    cta_sub = "Free preview, then USDT (BEP20/TRC20) if you want the full note." if effective_lang == "en" else "Đọc thử miễn phí, rồi thanh toán USDT (BEP20/TRC20) nếu bạn muốn bản đầy đủ."
     cta_btn = "Get Started Now →" if effective_lang == "en" else "Bắt Đầu Ngay →"
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">{crumb_home}</a> / {crumb_guides}</div>
@@ -1009,7 +717,7 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
         <a class="cta" href="https://app.zupirus.com/">{cta_btn}</a>
       </div>
     """
-    return HTMLResponse(_render_shell(title, desc, canonical, "bot trade vàng XAUUSD, pass quỹ FTMO, Cloud MT5 Zero-VPS, ZUPIRUS", json_ld, body, lang=effective_lang))
+    return HTMLResponse(_render_shell(title, desc, canonical, "nghiên cứu định lượng XAUUSD, PDF phương pháp, ZUPIRUS Quant Lab", json_ld, body, lang=effective_lang))
 
 
 @router.get("/huong-dan/{slug}", response_class=HTMLResponse)
@@ -1066,7 +774,7 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
       </div>
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">Trải nghiệm hạ tầng Cloud MT5 Zero-VPS &amp; Prop Firm Guard</strong>
+          <strong style="color:#fff;font-size:17px">Mở thư viện PDF và đọc bản xem thử</strong>
           <p style="margin:4px 0 0;font-size:13.5px">Hiệu suất XAU/USD xác thực minh bạch · Kích hoạt tự động SePay 24/7.</p>
         </div>
         <a class="cta" href="https://app.zupirus.com/">Mở Cổng Giao Dịch →</a>
@@ -1085,94 +793,23 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
     )
 
 
-ENGLISH_GUIDES: List[Dict[str, object]] = [
-    {
-        "slug": "ftmo-the5ers-automated-pass-guide",
-        "title": "Automated FTMO & The5ers Challenge Pass Guide | ZUPIRUS Quant Lab",
-        "meta_description": "Comprehensive guide to passing FTMO, The5ers, and FundedNext evaluations with automated Prop Firm Guard. 4.0% daily DD cap, 8.0% HWM lock, and 0.75% risk sizing.",
-        "keywords": "pass FTMO challenge automated, FTMO trading bot, The5ers pass bot, FundedNext bot, prop firm risk management bot",
-        "h1": "How to Pass FTMO, The5ers & FundedNext Prop Firm Challenges with Automated Quant Systems",
-        "read_time": "6 min read",
-        "badge": "PROP FIRM · CHALLENGE PASS",
-        "sections": [
-            (
-                "1. Why 90% of Traders Fail Prop Firm Evaluations",
-                "Traders rarely fail prop firm challenges due to lack of profitable setups. The overwhelming majority fail because of emotional overleveraging and violating the Daily Drawdown (5%/day) or Max Trailing Drawdown (10%) rule during high-volatility sessions (NFP, CPI, FOMC). When emotional revenge trading occurs, doubling down lot sizes breaches challenge rules within minutes."
-            ),
-            (
-                "2. Three-Tier Prop Firm Guard Architecture on ZUPIRUS",
-                "ZUPIRUS enforces institutional risk architecture designed specifically for CHALLENGE and FUNDED stages: (1) Hard Daily Drawdown Circuit-Breaker at 4.0% (safely below the 5.0% prop firm threshold to absorb broker spread spikes and slippage), (2) High-Water Mark Trailing Drawdown Lock at 8.0% from peak equity, and (3) Dynamic Risk De-escalation (50% lot reduction once 80% of the target profit is secured)."
-            ),
-            (
-                "3. Disciplined Rules for Funded Live Accounts",
-                "Once funded, ZUPIRUS locks risk at a maximum 1.0% per trading idea with a strict minimum R:R of 1.8. Live system audits across multiple prop accounts ($100K FTMO, $100K The5ers, $200K FundedNext) demonstrate consistent low drawdown under 1.5% while achieving steady, repeatable capital growth."
-            ),
-        ],
-    },
-    {
-        "slug": "cloud-mt5-gold-trading-bot-zero-vps",
-        "title": "Cloud MT5 Gold Trading Bot (XAU/USD) Zero-VPS Architecture | ZUPIRUS",
-        "meta_description": "Discover how the ZUPIRUS Cloud MT5 quantitative bot executes XAU/USD trades with zero VPS, 4-layer Fail-Closed capital shield, ATR(14) stop loss, and news filters.",
-        "keywords": "gold trading bot XAUUSD, cloud MT5 trading bot, zero VPS forex bot, automated gold trading MT5",
-        "h1": "How Cloud MT5 Gold (XAU/USD) Trading Bots Operate Without a VPS",
-        "read_time": "5 min read",
-        "badge": "CLOUD MT5 · XAU/USD",
-        "sections": [
-            (
-                "1. The Hidden Risks of Manual Gold Trading and Traditional Windows VPS",
-                "Gold (XAU/USD) has an average daily range of 150–350 pips. When quants trade manually or host .ex5 Expert Advisors on cheap virtual private servers (VPS), the three most common causes of catastrophic account loss are: (1) emotional stop-loss manipulation, (2) unexpected VPS freezes or reboots during high-impact news releases, and (3) broker slippage during liquidity gaps."
-            ),
-            (
-                "2. ZUPIRUS Zero-VPS London G2 Cloud Infrastructure",
-                "Instead of requiring traders to install complex software or maintain Windows VPS instances, ZUPIRUS connects directly to broker MT5 server bridges via a dedicated London G2 Cloud cluster with ~10ms execution latency. Trading credentials are encrypted at rest with deep AES-256 keys, and funds remain 100% under your direct broker custody."
-            ),
-            (
-                "3. Four-Layer Fail-Closed Capital Protection Shield",
-                "Every M15 signal passes through 4 mandatory automated checkpoints before execution: L1 Idempotency Lock (prevents duplicate orders via Redis + DB), L2 Enforced Hard Stop Loss calculated from ATR(14) with strict spread filtering, L3 High-Impact News Filter (blocks new positions ±15 minutes around red-folder USD events), and L4 Slippage Guard (rejects fills if slippage exceeds 20 pips)."
-            ),
-        ],
-    },
-    {
-        "slug": "prop-firm-risk-management-drawdown",
-        "title": "Quant Lot Sizing Formula & Daily Drawdown Management for Prop Firms | ZUPIRUS",
-        "meta_description": "Accurate lot sizing formula for Standard, Cent, and Prop firm accounts. Maintain daily drawdown below 4.0% and maximize risk-adjusted returns.",
-        "keywords": "lot size formula gold, prop firm daily drawdown management, MT5 lot calculator, FTMO drawdown rules",
-        "h1": "Dynamic Lot Sizing & Prop Firm Daily Drawdown Control for Quantitative Traders",
-        "read_time": "5 min read",
-        "badge": "CAPITAL RISK · LOT SIZING",
-        "sections": [
-            (
-                "1. Formula-Driven Lot Sizing Based on Stop-Loss Distance",
-                "Rather than trading fixed lot sizes regardless of volatility, quantitative execution sizes every trade based on a fixed percentage risk budget: Lot = (Equity × Risk%) / (SL_Points × Point_Size × Contract_Size). This guarantees that regardless of whether the stop loss is 35 pips or 70 pips, the dollar risk is strictly capped."
-            ),
-            (
-                "2. Handling Standard vs. Cent (USC) Accounts Seamlessly",
-                "On Cent accounts, contract sizes differ significantly from Standard accounts (100 oz vs. 1 oz). ZUPIRUS automatically recognizes account denominations and contract specifications, preventing devastating decimal order errors."
-            ),
-            (
-                "3. Auto Break-Even and Multi-Trade Loss Streak Resilience",
-                "With 0.75% risk per idea and a 4.0% daily loss limit, a prop firm portfolio can absorb more than 5 consecutive losses in a single day without breaching the firm's daily drawdown ceiling. Automated break-even adjustment at +1.0R further protects unrealized profits."
-            ),
-        ],
-    },
-]
 ENGLISH_GUIDE_BY_SLUG: Dict[str, Dict[str, object]] = {g["slug"]: g for g in ENGLISH_GUIDES}  # type: ignore[misc]
 
 
 @router.get("/en", response_class=HTMLResponse)
 def seo_english_landing(request: Request) -> HTMLResponse:
     canonical = "https://zupirus.com/en"
-    title = "ZUPIRUS — Institutional Gold (XAU/USD) & Forex Cloud MT5 Quant Trading OS"
-    desc = "Zero-VPS Cloud MT5 quantitative trading system for Gold (XAU/USD) & Forex. 4-layer Fail-Closed capital shield engineered for FTMO, The5ers & FundedNext prop firms."
-    keywords = "gold trading bot XAUUSD, automated forex trading, cloud MT5 zero VPS, pass FTMO challenge, The5ers, FundedNext, prop firm capital shield, quantitative gold trading"
+    title = "ZUPIRUS — Statistical Studies of Gold (XAU/USD) and Forex"
+    desc = "Educational quantitative studies of gold, forex, and indices, published as PDF guides with a free preview. No automated execution and no profit promise."
+    keywords = "ZUPIRUS Quant Lab, XAUUSD statistical study, forex research PDF, quantitative methodology"
     json_ld = {
         "@context": "https://schema.org",
         "@graph": [
             {
                 "@type": "SoftwareApplication",
-                "name": "ZUPIRUS Cloud MT5 Quant OS",
-                "applicationCategory": "FinanceApplication",
-                "operatingSystem": "Web, Cloud MT5",
+                "name": "ZUPIRUS Quant Lab PDF guides",
+                "applicationCategory": "EducationalApplication",
+                "operatingSystem": "Web",
                 "url": "https://zupirus.com/en",
                 "description": desc,
                 "offers": {"@type": "AggregateOffer", "priceCurrency": "USD", "lowPrice": "25", "highPrice": "59", "offerCount": "3"}
@@ -1197,25 +834,25 @@ def seo_english_landing(request: Request) -> HTMLResponse:
     )
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">Home</a> / Global English Overview</div>
-      <span class="badge">INSTITUTIONAL QUANT OS · ZERO VPS</span>
-      <h1>Institutional Gold (XAU/USD) &amp; Forex Quantitative Trading on Cloud MT5</h1>
-      <p>Direct broker bridge to London G2 cloud servers. Zero Expert Advisors to configure, zero Windows VPS to rent. 4-layer Fail-Closed capital protection engineered specifically for FTMO, The5ers, and funded prop firm portfolios.</p>
+      <span class="badge">QUANT LAB · PDF STUDIES</span>
+      <h1>Statistical studies of gold, forex, and indices</h1>
+      <p>Read a free preview, then buy the full methodology as a PDF. The figures describe a named historical sample. They are not a forecast and not a promise of profit.</p>
 
       <div class="grid">
         <div class="card">
-          <span class="badge">RISK ARCHITECTURE</span>
-          <h2>4-Layer Fail-Closed Shield</h2>
-          <p>Every trade order is strictly audited before execution: Idempotency locks, mandatory ATR(14) Stop Loss, ±15m high-impact news filter, and slippage rejection.</p>
+          <span class="badge">WHAT YOU GET</span>
+          <h2>Documented methodology</h2>
+          <p>Session behaviour, volatility regimes, seasonality, and the historical path of one rule, with the parameters written down so the study can be recomputed.</p>
         </div>
         <div class="card">
-          <span class="badge">PROP FIRM DISCIPLINE</span>
-          <h2>Hard 1.0% Risk Cap &amp; Daily DD Shield</h2>
-          <p>Automated circuit breaker cuts exposure at 4.0% daily drawdown and caps risk to 1.0% per idea to guarantee 100% compliance with prop firm rules.</p>
+          <span class="badge">WHAT THIS IS NOT</span>
+          <h2>No automated execution</h2>
+          <p>ZUPIRUS does not connect an MT5 account, copy trades, or host a trading server. You keep your own broker account, if you have one.</p>
         </div>
         <div class="card">
-          <span class="badge">ZERO-CUSTODY SECURITY</span>
-          <h2>100% Direct Broker Custody</h2>
-          <p>ZUPIRUS never takes custody of investor funds. Deposits and withdrawals occur directly through your MT5 broker (FTMO, Exness, ICMarkets).</p>
+          <span class="badge">PAYMENT</span>
+          <h2>USDT on BEP20 or TRC20</h2>
+          <p>A published guide can be bought with on-chain USDT. After payment clears, the library gives you a time-limited download of the version you bought.</p>
         </div>
       </div>
 
@@ -1224,10 +861,10 @@ def seo_english_landing(request: Request) -> HTMLResponse:
 
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:18px">Launch Your Cloud MT5 Quant Terminal</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Connect your MT5 account in under 3 minutes. Instant USDT (TRC20/BEP20) activation.</p>
+          <strong style="color:#fff;font-size:18px">Browse the PDF library</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Preview a study, then pay with USDT (TRC20/BEP20) if you want the full note.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Launch Terminal →</a>
+        <a class="cta" href="https://app.zupirus.com/">Open the library →</a>
       </div>
     """
     return HTMLResponse(_render_shell(title, desc, canonical, keywords, json_ld, body, lang="en"))
@@ -1237,7 +874,7 @@ def seo_english_landing(request: Request) -> HTMLResponse:
 def seo_english_guides(request: Request) -> HTMLResponse:
     canonical = "https://zupirus.com/en/guides"
     title = "Quantitative Trading & Prop Firm Knowledge Hub | ZUPIRUS"
-    desc = "Explore in-depth research, quantitative trading architecture, and prop firm risk management guides for FTMO, The5ers, and Cloud MT5."
+    desc = "Notes on how to read a ZUPIRUS statistical study. Educational PDFs only."
     keywords = "prop firm trading guides, pass FTMO challenge automated, gold trading bot XAUUSD, cloud MT5 guides"
     json_ld = {
         "@context": "https://schema.org",
@@ -1270,15 +907,15 @@ def seo_english_guides(request: Request) -> HTMLResponse:
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">Home</a> / <a href="/en">Global English</a> / Guides</div>
       <span class="badge">QUANT KNOWLEDGE HUB</span>
-      <h1>Quantitative Trading &amp; Prop Firm Risk Management Guides</h1>
-      <p>Institutional analysis, algorithmic architectures, and disciplined risk guidelines for systematic gold (XAU/USD) traders.</p>
+      <h1>How to read a quantitative study</h1>
+      <p>Notes on samples, session clocks, and what a historical table does not claim.</p>
       <div class="grid">{cards}</div>
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">Ready to automate your trading with disciplined risk?</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Connect your MetaTrader 5 account to ZUPIRUS Cloud engine in 3 minutes.</p>
+          <strong style="color:#fff;font-size:17px">The library is on the website</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">No terminal to install. A purchase unlocks the PDF you bought.</p>
         </div>
-        <a class="cta" href="https://app.zupirus.com/">Launch Terminal →</a>
+        <a class="cta" href="https://app.zupirus.com/">Open the library →</a>
       </div>
     """
     return HTMLResponse(_render_shell(title, desc, canonical, keywords, json_ld, body, lang="en"))
@@ -1337,7 +974,7 @@ def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
       </div>
       <div class="cta-box">
         <div>
-          <strong style="color:#fff;font-size:17px">Experience Zero-VPS Cloud MT5 &amp; Prop Firm Guard</strong>
+          <strong style="color:#fff;font-size:17px">Open the PDF library and read a free preview</strong>
           <p style="margin:4px 0 0;font-size:13.5px">4-Layer Fail-Closed Risk Shield · Instant USDT activation.</p>
         </div>
         <a class="cta" href="https://app.zupirus.com/">Launch Terminal →</a>

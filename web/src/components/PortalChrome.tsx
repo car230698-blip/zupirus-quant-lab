@@ -563,7 +563,7 @@ export function PortalShell({
               <div className="flex flex-wrap items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.18em] text-amber-300">
                 <span>{portal === 'admin' ? 'QUANTUM OS // EXECUTIVE COMMAND' : 'QUANTUM OS // PORTFOLIO COCKPIT'}</span>
                 <span aria-hidden="true" className="text-slate-600">·</span>
-                <span className="text-cyan-300">ZERO-VPS METAAPI G2</span>
+                <span className="text-cyan-300">PDF RESEARCH LIBRARY</span>
               </div>
               <h1>{pageTitles[portal][page]}</h1>
               <p className="text-sm text-slate-300/90 max-w-3xl leading-relaxed m-0">

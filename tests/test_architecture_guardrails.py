@@ -57,11 +57,15 @@ def test_guardrail_strict_csp_no_inline_scripts():
 
 
 def test_guardrail_lot_calculation_standardization():
-    """Verify direct signal execution calls normalized lot size in domain."""
+    """Customer order fan-out is retired. The module must not be importable."""
     fanout_py = ROOT / "app" / "domains" / "execution" / "fanout.py"
-    assert fanout_py.exists(), "Domain fanout.py must exist"
-    content = fanout_py.read_text(encoding="utf-8")
-    assert "calculate_normalized_lot_size" in content, "Fanout must use calculate_normalized_lot_size"
+    assert not fanout_py.exists(), "Customer order fan-out must stay removed"
+    import importlib
+    try:
+        importlib.import_module("app.domains.execution.fanout")
+    except ImportError:
+        return
+    raise AssertionError("app.domains.execution.fanout must not import")
 
 
 def test_guardrail_no_duplicate_admin_payments_router():

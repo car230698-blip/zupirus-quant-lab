@@ -124,7 +124,7 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
               {lang === 'en' ? 'AFFILIATE REFERRAL PROGRAM' : 'CHƯƠNG TRÌNH GIỚI THIỆU (AFFILIATE)'}
             </span>
             <h3 className="mt-0.5 text-base font-bold text-white">
-              {lang === 'en' ? 'Invite Traders — Earn +7 Days Cloud MT5' : 'Mời Bạn Bè — Nhận +7 Ngày Cloud MT5'}
+              {lang === 'en' ? 'Share the library' : 'Chia sẻ thư viện'}
             </h3>
           </div>
           <span className="rounded-lg border border-emerald-400/35 bg-emerald-500/15 px-2.5 py-1 font-mono text-xs font-bold text-emerald-300">
@@ -133,7 +133,7 @@ export const UserReferralAndInvoicesSection: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-300">
-          {refInfo?.reward_rule || (lang === 'en' ? 'Earn +7 days Cloud MT5 for each referred friend, plus +3 welcome bonus days for them.' : 'Tặng +7 ngày Cloud MT5 cho người giới thiệu và +3 ngày chào mừng cho người được mời.')}
+          {refInfo?.reward_rule || (lang === 'en' ? 'Referral rewards, if any, are set by the owner and are not trading profits.' : 'Phần thưởng giới thiệu, nếu có, do chủ sở hữu đặt và không phải lợi nhuận giao dịch.')}
         </p>
 
         {refInfo && (

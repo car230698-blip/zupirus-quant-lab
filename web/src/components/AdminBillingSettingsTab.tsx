@@ -4,8 +4,8 @@ import { api } from '../api/client';
 export const AdminBillingSettingsTab: React.FC = () => {
   const [settings, setSettings] = useState({
     sepay_bank_name: 'VietinBank',
-    sepay_account_number: '105887054819',
-    sepay_account_holder: 'LE NGUYEN NHU THUY',
+    sepay_account_number: '',
+    sepay_account_holder: '',
     sepay_webhook_secret_masked: '',
     fallback_usd_vnd_rate: 25600,
     fx_rate_provider_url: 'https://open.er-api.com/v6/latest/USD',
@@ -43,8 +43,8 @@ export const AdminBillingSettingsTab: React.FC = () => {
           ...prev,
           ...data,
           sepay_bank_name: bank || prev.sepay_bank_name || 'VietinBank',
-          sepay_account_number: acc || prev.sepay_account_number || '105887054819',
-          sepay_account_holder: holder || prev.sepay_account_holder || 'LE NGUYEN NHU THUY',
+          sepay_account_number: acc || prev.sepay_account_number || '',
+          sepay_account_holder: holder || prev.sepay_account_holder || '',
         }));
       }
 
@@ -111,8 +111,8 @@ export const AdminBillingSettingsTab: React.FC = () => {
     try {
       const payload: any = {
         sepay_bank_name: (settings.sepay_bank_name || 'VietinBank').trim(),
-        sepay_account_number: (settings.sepay_account_number || '105887054819').trim(),
-        sepay_account_holder: (settings.sepay_account_holder || 'LE NGUYEN NHU THUY').trim().toUpperCase(),
+        sepay_account_number: (settings.sepay_account_number || '').trim(),
+        sepay_account_holder: (settings.sepay_account_holder || '').trim().toUpperCase(),
         fallback_usd_vnd_rate: Number(settings.fallback_usd_vnd_rate) || 25600,
         fx_rate_provider_url: settings.fx_rate_provider_url || 'https://open.er-api.com/v6/latest/USD',
         fx_rate_cache_ttl_seconds: Number(settings.fx_rate_cache_ttl_seconds) || 1800,
@@ -132,8 +132,8 @@ export const AdminBillingSettingsTab: React.FC = () => {
           ...prev,
           ...s,
           sepay_bank_name: bank || prev.sepay_bank_name || 'VietinBank',
-          sepay_account_number: acc || prev.sepay_account_number || '105887054819',
-          sepay_account_holder: holder || prev.sepay_account_holder || 'LE NGUYEN NHU THUY',
+          sepay_account_number: acc || prev.sepay_account_number || '',
+          sepay_account_holder: holder || prev.sepay_account_holder || '',
         }));
       }
     } catch (e: any) {
@@ -165,8 +165,8 @@ export const AdminBillingSettingsTab: React.FC = () => {
   };
 
   const currentBank = (settings.sepay_bank_name || (settings as any).bank_name || 'VietinBank').trim();
-  const currentAcc = (settings.sepay_account_number || (settings as any).account_number || '105887054819').trim();
-  const currentHolder = (settings.sepay_account_holder || (settings as any).account_holder || 'LE NGUYEN NHU THUY').trim().toUpperCase();
+  const currentAcc = (settings.sepay_account_number || (settings as any).account_number || '').trim();
+  const currentHolder = (settings.sepay_account_holder || (settings as any).account_holder || '').trim().toUpperCase();
   const previewVnd = Math.round(((previewUsd * (settings.current_live_rate || 25600)) / 1000)) * 1000;
   const isVietin = currentBank.toLowerCase().includes('vietin') || currentBank.toLowerCase() === 'icb';
   const testMemo = isVietin ? 'SEVQR ZPTEST999' : 'ZPTEST999';

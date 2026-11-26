@@ -45,7 +45,7 @@ services:
     restart: unless-stopped
     environment:
       PORT: "45876"
-      KEY: "${BESZEL_KEY:-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHGQnrI8yDFgI8WEQsxKOhoGZrFCsiDrpCTFyMZQfm/Y}"
+      KEY: "${BESZEL_KEY:-}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
