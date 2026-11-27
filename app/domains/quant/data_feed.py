@@ -11,7 +11,9 @@ import logging
 import math
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+import hashlib
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from app.core.db import insert_timescale_candle, is_postgres, tx
 from app.domains.quant.candles import Candle, CandleValidationError, normalize_candles
@@ -41,6 +43,143 @@ TIMEFRAME_MAP = {
     "D1": "1d",
     "M5": "5m",
 }
+
+
+@dataclass
+class DatasetIdentity:
+    """Explicit identity and audit trail for a market dataset."""
+    asset_class: str
+    symbol: str
+    symbol_display: str
+    provider: str
+    timeframe: str
+    timezone: str
+    bars_count: int
+    start_time_utc: str
+    end_time_utc: str
+    cutoff_date: str
+    data_version_id: str
+    data_sha256: str
+    is_spot_confirmed: bool
+    limitations: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "asset_class": self.asset_class,
+            "symbol": self.symbol,
+            "symbol_display": self.symbol_display,
+            "provider": self.provider,
+            "timeframe": self.timeframe,
+            "timezone": self.timezone,
+            "bars_count": self.bars_count,
+            "start_time_utc": self.start_time_utc,
+            "end_time_utc": self.end_time_utc,
+            "cutoff_date": self.cutoff_date,
+            "data_version_id": self.data_version_id,
+            "data_sha256": self.data_sha256,
+            "is_spot_confirmed": self.is_spot_confirmed,
+            "limitations": self.limitations,
+        }
+
+
+def compute_candles_sha256(candles: Sequence[Candle]) -> str:
+    """Compute deterministic cryptographic SHA-256 fingerprint over candle stream."""
+    if not candles:
+        return "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"  # SHA-256 of empty string
+    hasher = hashlib.sha256()
+    for c in candles:
+        row_str = f"{int(c.time)}:{c.open:.4f}:{c.high:.4f}:{c.low:.4f}:{c.close:.4f}:{c.volume:.2f}\n"
+        hasher.update(row_str.encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def build_dataset_identity(symbol: str, timeframe: str, candles: Sequence[Candle]) -> DatasetIdentity:
+    """Build verifiable dataset identity conforming to institutional provenance standards."""
+    sym_u = symbol.strip().upper()
+    tf_u = timeframe.strip().upper()
+    bars_n = len(candles)
+
+    start_iso = datetime.fromtimestamp(candles[0].time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if bars_n > 0 else "N/A"
+    end_iso = datetime.fromtimestamp(candles[-1].time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC") if bars_n > 0 else "N/A"
+    cutoff = datetime.fromtimestamp(candles[-1].time, tz=timezone.utc).strftime("%Y-%m-%d") if bars_n > 0 else "N/A"
+
+    data_hash = compute_candles_sha256(candles)
+    canonical_sym = SYMBOL_MAP.get(sym_u, sym_u).replace("=", "_").replace("^", "").replace("-", "_")
+    version_id = f"ds_{canonical_sym}_{tf_u}_{data_hash[:8]}"
+
+    if sym_u in ("XAUUSD", "GOLD", "XAU/USD", "GC=F"):
+        return DatasetIdentity(
+            asset_class="COMEX_GOLD_FUTURES",
+            symbol="GC=F",
+            symbol_display="Hợp đồng tương lai vàng COMEX (COMEX Gold Futures - GC=F)",
+            provider="Yahoo Finance / COMEX",
+            timeframe=tf_u,
+            timezone="UTC",
+            bars_count=bars_n,
+            start_time_utc=start_iso,
+            end_time_utc=end_iso,
+            cutoff_date=cutoff,
+            data_version_id=version_id,
+            data_sha256=data_hash,
+            is_spot_confirmed=False,
+            limitations=(
+                "Dữ liệu nguồn được thu thập từ hợp đồng tương lai vàng COMEX (GC=F), không phải giá giao ngay "
+                "XAU/USD Spot OTC hay CFD. Giá tương lai có chênh lệch basis, chi phí rollover và đặc tính thanh khoản riêng. "
+                "Nghiên cứu mang tính thăm dò cấu trúc giá vàng tương lai, không công bố hay bảo đảm lợi thế thực nghiệm "
+                "trên thị trường Spot khi chưa có dữ liệu tick Spot trực tiếp."
+            ),
+        )
+    elif sym_u in ("EURUSD", "EUR/USD", "EURUSD=X"):
+        return DatasetIdentity(
+            asset_class="FOREX_SPOT",
+            symbol="EURUSD=X",
+            symbol_display="Tỷ giá EUR/USD Spot Benchmark",
+            provider="Yahoo Finance / FX Benchmark",
+            timeframe=tf_u,
+            timezone="UTC",
+            bars_count=bars_n,
+            start_time_utc=start_iso,
+            end_time_utc=end_iso,
+            cutoff_date=cutoff,
+            data_version_id=version_id,
+            data_sha256=data_hash,
+            is_spot_confirmed=True,
+            limitations="Dữ liệu tham chiếu OTC tổng hợp, không bao gồm độ giãn spread trong thời điểm tin tức kinh tế quan trọng.",
+        )
+    elif sym_u in ("BTCUSD", "BTC/USD", "BTCUSDT", "BTC-USD"):
+        return DatasetIdentity(
+            asset_class="CRYPTO_SPOT",
+            symbol="BTC-USD",
+            symbol_display="Bitcoin Spot (BTC/USD)",
+            provider="Yahoo Finance / Crypto Aggregator",
+            timeframe=tf_u,
+            timezone="UTC",
+            bars_count=bars_n,
+            start_time_utc=start_iso,
+            end_time_utc=end_iso,
+            cutoff_date=cutoff,
+            data_version_id=version_id,
+            data_sha256=data_hash,
+            is_spot_confirmed=True,
+            limitations="Dữ liệu giá tổng hợp từ các sàn giao dịch giao ngay, có thể chênh lệch vi mô giữa các sàn thanh khoản khác nhau.",
+        )
+    else:
+        return DatasetIdentity(
+            asset_class="SYNTHETIC_OR_CUSTOM",
+            symbol=sym_u,
+            symbol_display=f"{sym_u} ({tf_u})",
+            provider="Local / Custom Feed",
+            timeframe=tf_u,
+            timezone="UTC",
+            bars_count=bars_n,
+            start_time_utc=start_iso,
+            end_time_utc=end_iso,
+            cutoff_date=cutoff,
+            data_version_id=version_id,
+            data_sha256=data_hash,
+            is_spot_confirmed=False,
+            limitations="Dữ liệu tùy chỉnh hoặc thử nghiệm cục bộ, không dùng để công bố khuyến nghị thương mại.",
+        )
 
 
 def _resolve_yahoo_symbol_and_interval(symbol: str, timeframe: str) -> Tuple[str, str]:

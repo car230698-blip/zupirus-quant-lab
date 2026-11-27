@@ -40,31 +40,70 @@ def evaluate_institutional_gate(bundle: Dict[str, Any]) -> GateEvaluationResult:
         return GateEvaluationResult(
             passed=False,
             score=0.0,
-            status="REJECT",
+            status="INSUFFICIENT_EVIDENCE",
             failed_checks=["Không tìm thấy nghiên cứu quy tắc giao dịch (rule_backtest) trong bundle."],
-            summary_vi="Bác bỏ: Dữ liệu nghiên cứu không chứa mô đun backtest quy tắc thực nghiệm.",
+            summary_vi="BÁC BỎ (INSUFFICIENT_EVIDENCE): Dữ liệu nghiên cứu không chứa mô đun backtest quy tắc thực nghiệm.",
         )
 
-    # Extract metrics from table rows
+    # Check Dataset Identity & Candle Coverage
+    ds_id = bundle.get("dataset_identity") or {}
+    bars_count = int(ds_id.get("bars_count") or bundle.get("candle_count") or 0)
+    if bars_count < 50:
+        return GateEvaluationResult(
+            passed=False,
+            score=0.0,
+            status="INSUFFICIENT_EVIDENCE",
+            failed_checks=[f"Mẫu dữ liệu nến không đủ độ sâu ({bars_count} nến, tối thiểu yêu cầu 50 nến)."],
+            summary_vi="BÁC BỎ (INSUFFICIENT_EVIDENCE): Độ phủ mẫu nến không đủ để tiến hành kiểm định định lượng.",
+        )
+
+    # Extract metrics from table rows with safe zero handling
     raw_rows = rule_study.get("table", {}).get("rows", [])
     m: Dict[str, Any] = {row[0]: row[1] for row in raw_rows if len(row) >= 2}
 
-    trades = int(m.get("trades") or 0)
-    win_rate = float(m.get("win_rate") or 0.0)
-    profit_factor = float(m.get("profit_factor") or 0.0)
-    expectancy_r = float(m.get("expectancy_r") or 0.0)
-    max_dd_r = abs(float(m.get("max_drawdown_r") or 0.0))
-    sharpe = float(m.get("sharpe_ratio") or 0.0)
-    t_stat = float(m.get("t_statistic") or 0.0)
-    p_val = float(m.get("p_value") or 1.0)
+    def _get_val(key: str, default: float) -> float:
+        v = m.get(key)
+        if v is not None:
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                pass
+        return default
+
+    trades = int(_get_val("trades", 0))
+    if trades < 20:
+        return GateEvaluationResult(
+            passed=False,
+            score=0.0,
+            status="INSUFFICIENT_EVIDENCE",
+            failed_checks=[f"Mẫu lệnh quá ít ({trades} lệnh, yêu cầu tối thiểu 20 lệnh để đánh giá thống kê)."],
+            summary_vi=f"BÁC BỎ (INSUFFICIENT_EVIDENCE): Số lượng giao dịch thực nghiệm ({trades} lệnh) không đủ để kết luận về mặt thống kê.",
+            metrics_summary={"trades": trades},
+        )
+
+    win_rate = _get_val("win_rate", 0.0)
+    profit_factor = _get_val("profit_factor", 0.0)
+    expectancy_r = _get_val("expectancy_r", 0.0)
+    max_dd_r = abs(_get_val("max_drawdown_r", 0.0))
+    sharpe = _get_val("sharpe_ratio", 0.0)
+    t_stat = _get_val("t_statistic", 0.0)
+    p_val = _get_val("p_value", 1.0)
 
     # Monte Carlo & Cost Stress
-    mc = bundle.get("monte_carlo") or {}
+    mc = rule_study.get("monte_carlo_risk") or bundle.get("monte_carlo") or {}
     p95_dd = abs(float(mc.get("p95_max_dd") or max_dd_r * 1.3))
     prob_s7 = float(mc.get("prob_loss_streak_7") or 0.0)
 
-    cost_matrix = bundle.get("cost_stress_matrix") or {}
-    med_cost_exp = float(cost_matrix.get("med", {}).get("expectancy_r") or (expectancy_r - 0.05))
+    cost_matrix = rule_study.get("cost_stress_matrix") or bundle.get("cost_stress_matrix") or {}
+    med_cost_exp = expectancy_r - 0.035
+    if isinstance(cost_matrix, dict) and "rows" in cost_matrix:
+        for r in cost_matrix["rows"]:
+            if len(r) >= 5 and "0.050R" in str(r[0]):
+                try:
+                    med_cost_exp = float(r[4])
+                except Exception:
+                    pass
+                break
 
     passed_checks: List[str] = []
     failed_checks: List[str] = []
@@ -120,18 +159,41 @@ def evaluate_institutional_gate(bundle: Dict[str, Any]) -> GateEvaluationResult:
     else:
         failed_checks.append(f"Kỳ vọng âm hoặc bị triệt tiêu sau chi phí ma sát: exp={expectancy_r:+.3f}R")
 
-    # Final Verdict: Must score >= 70 and have NO critical failures
-    critical_failed = (trades < 20) or (profit_factor < 1.20) or (max_dd_r > 16.0) or (expectancy_r <= 0)
-    passed = (score >= 70.0) and not critical_failed
-
-    status = "PASS" if passed else "REJECT"
-
-    summary_vi = (
-        f"KẾT QUẢ ĐÁNH GIÁ TỔ CHỨC: {'ĐẠT (PASS)' if passed else 'BÁC BỎ (REJECT)'} ({score:.0f}/100 điểm).\n"
-        f"Chiến lược ghi nhận PF={profit_factor:.2f}, Win Rate={win_rate*100:.1f}%, DD tối đa={max_dd_r:.1f}R, "
-        f"t-stat={t_stat:.2f} (p={p_val:.4f}). "
-        f"{'Đủ điều kiện xuất bản độc lập lên thư viện nghiên cứu công khai.' if passed else 'Không đủ điều kiện xuất bản tự động do chưa vượt qua kiểm định rủi ro.'}"
+    # Final Verdict Classification:
+    # 1. QUALIFIED_EDGE: score >= 70 and passes all 5 criteria
+    # 2. VALID_METHODOLOGY_NEGATIVE_EDGE: methodologically valid backtest (trades >= 20), but edge is negative or sub-hurdle
+    is_subpar = (
+        expectancy_r <= 0
+        or profit_factor < 1.25
+        or t_stat < 1.96
+        or p_val >= 0.05
+        or max_dd_r > 15.0
+        or med_cost_exp <= 0
+        or score < 70.0
     )
+
+    if is_subpar:
+        status = "VALID_METHODOLOGY_NEGATIVE_EDGE"
+        passed = False
+        summary_vi = (
+            f"KẾT QUẢ ĐÁNH GIÁ TỔ CHỨC: BÁC BỎ - PHƯƠNG PHÁP HỢP LỆ NHƯNG LỢI THẾ ÂM HOẶC DƯỚI CHUẨN "
+            f"(VALID_METHODOLOGY_NEGATIVE_EDGE) ({score:.0f}/100 điểm).\n"
+            f"Chiến lược ghi nhận: {trades} lệnh, Win Rate={win_rate*100:.1f}%, PF={profit_factor:.2f}, "
+            f"Kỳ vọng={expectancy_r:+.3f}R (sau phí stress={med_cost_exp:+.3f}R), DD tối đa={max_dd_r:.1f}R, "
+            f"t-stat={t_stat:.2f} (p={p_val:.4f}).\n"
+            f"Phương pháp kiểm định chặt chẽ và có thể tái hiện độc lập, nhưng kết quả chưa đủ bằng chứng "
+            f"để xác nhận lợi thế đầu tư thực nghiệm."
+        )
+    else:
+        status = "QUALIFIED_EDGE"
+        passed = True
+        summary_vi = (
+            f"KẾT QUẢ ĐÁNH GIÁ TỔ CHỨC: ĐẠT CHUẨN ĐẦU TƯ (QUALIFIED_EDGE) ({score:.0f}/100 điểm).\n"
+            f"Chiến lược ghi nhận: {trades} lệnh, Win Rate={win_rate*100:.1f}%, PF={profit_factor:.2f}, "
+            f"Kỳ vọng={expectancy_r:+.3f}R (sau phí stress={med_cost_exp:+.3f}R), DD tối đa={max_dd_r:.1f}R, "
+            f"t-stat={t_stat:.2f} (p={p_val:.4f}).\n"
+            f"Chiến lược vượt qua toàn bộ 5 tiêu chuẩn khắt khe, đủ điều kiện lưu nháp và trình Admin xem xét xuất bản."
+        )
 
     metrics_summary = {
         "trades": trades,
@@ -150,7 +212,7 @@ def evaluate_institutional_gate(bundle: Dict[str, Any]) -> GateEvaluationResult:
         "score": score,
         "passed_checks": passed_checks,
         "failed_checks": failed_checks,
-        "critical_failed": critical_failed,
+        "critical_failed": is_subpar,
     }
 
     return GateEvaluationResult(

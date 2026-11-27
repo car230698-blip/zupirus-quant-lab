@@ -104,7 +104,7 @@ def create_checkout_order(
     from app.core.config import is_commercial_reports_sale_enabled, is_usdt_payment_enabled
 
     method_u = str(payment_method or "USDT").strip().upper()
-    if method_u in ("SEPAY", "VIETQR", "VND"):
+    if method_u in ("SEPAY", "VIETQR", "VND", "BANK", "BANK_TRANSFER"):
         fail(400, "Cổng thanh toán SePay / VietQR đã ngừng hoạt động. Vui lòng thanh toán mặc định bằng USDT.")
 
     if not is_usdt_payment_enabled():

@@ -14,21 +14,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
   const { lang, t } = useLanguage();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [heroImgFailed, setHeroImgFailed] = useState(false);
-  const [totalSamplesCount, setTotalSamplesCount] = useState<number>(142);
+  const [totalSamplesCount, setTotalSamplesCount] = useState<number>(0);
+  const [reportsLoaded, setReportsLoaded] = useState<boolean>(false);
 
   React.useEffect(() => {
-    api.get<{ items?: any[] }>('/api/v1/reports')
+    api.get<{ items?: any[]; count?: number }>('/api/v1/reports')
       .then((res) => {
-        const items = res?.data?.items;
+        const items = res?.items;
         if (items && Array.isArray(items)) {
           let sumSamples = 0;
           for (const rep of items) {
-            sumSamples += rep.wfo_metrics?.sample_size || 180;
+            const sz = Number(rep?.wfo_metrics?.sample_size || 0);
+            if (Number.isFinite(sz) && sz > 0) {
+              sumSamples += sz;
+            }
           }
-          if (sumSamples > 142) setTotalSamplesCount(sumSamples);
+          setTotalSamplesCount(sumSamples);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setReportsLoaded(true));
   }, []);
 
   const methodSteps =
@@ -155,7 +160,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-800/80">
               <div>
                 <div className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">
-                  {totalSamplesCount}+
+                  {totalSamplesCount > 0 ? `${totalSamplesCount.toLocaleString()}+` : (reportsLoaded ? '0' : '—')}
                 </div>
                 <div className="mt-0.5 text-xs text-slate-400">{t.hero.statAum}</div>
               </div>

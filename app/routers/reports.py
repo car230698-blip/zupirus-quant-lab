@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from app.db import tx
+from app.db import tx, audit
 from app.routers.deps import fail, get_current_admin, get_current_user
 from app.security import verify
 from app.domains.reports.service import (
@@ -15,6 +15,7 @@ from app.domains.reports.service import (
     create_report_checkout_order,
     discontinue_admin_report,
     get_public_report_detail,
+    grant_report_entitlement_tx,
     issue_signed_report_download_token,
     list_admin_reports,
     list_public_reports,
@@ -25,6 +26,7 @@ from app.domains.reports.service import (
     verify_signed_report_download_token,
     verify_user_report_download_access,
 )
+from app.domains.reports.pdf_builder import ensure_gold_research_suite_v1_seeded
 
 router = APIRouter(tags=["reports"])
 
@@ -583,4 +585,86 @@ def api_admin_refund_report_order(
         "order_id": ord_dict["id"],
         "status": "REFUNDED",
         "entitlement_revoked": revoked,
+    }
+
+
+class AdminGrantTrialRequest(BaseModel):
+    user_id: Optional[str] = None
+    email: Optional[str] = None
+    version: Optional[str] = "v1.0"
+    notes: Optional[str] = "Institutional Evaluation Trial License"
+
+
+@router.post("/api/v1/admin/reports/{report_id}/entitlements/grant-trial")
+@router.post("/api/admin/reports/{report_id}/entitlements/grant-trial")
+def api_admin_grant_trial_entitlement(
+    report_id: str,
+    body: AdminGrantTrialRequest,
+    admin: dict = Depends(get_current_admin),
+):
+    """Admin: Grant a complimentary trial entitlement for institutional team evaluation under license."""
+    import secrets
+    import time
+    target_user_id = body.user_id
+    if not target_user_id and body.email:
+        with tx() as c:
+            u_row = c.execute("SELECT id FROM users WHERE email = ? LIMIT 1", (body.email.strip().lower(),)).fetchone()
+            if u_row:
+                target_user_id = str(u_row[0])
+            else:
+                fail(404, f"Không tìm thấy người dùng với email '{body.email}'.")
+
+    if not target_user_id:
+        fail(400, "Vui lòng cung cấp 'user_id' hoặc 'email' của tài khoản được cấp quyền dùng thử.")
+
+    now = time.time()
+    trial_order_id = f"trial_{secrets.token_hex(6)}"
+    with tx() as c:
+        ensure_gold_research_suite_v1_seeded(c)
+        rep_row = c.execute("SELECT id, title, version FROM research_reports WHERE id = ? OR slug = ?", (report_id, report_id)).fetchone()
+        if not rep_row:
+            fail(404, f"Không tìm thấy báo cáo '{report_id}'.")
+        real_rep_id = str(rep_row[0])
+
+        order_stub = {
+            "id": trial_order_id,
+            "user_id": target_user_id,
+            "report_id": real_rep_id,
+            "report_version": body.version or "v1.0",
+            "notes": body.notes,
+        }
+
+        c.execute(
+            """
+            INSERT INTO orders (
+                id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
+                plan_tier, cloud_slots_count, status, payment_status, entitlement_status,
+                payment_gateway, created_at, expires_at, paid_at,
+                currency, expected_amount_usdt, product_type, report_id, report_version
+            ) VALUES (?, ?, 0.0, 1.0, 0, ?, 1, 'COMPLETED', 'FREE_TRIAL', 'GRANTED', 'DIRECT_USDT', ?, ?, ?, 'USDT', 0.0, 'PDF_REPORT', ?, ?)
+            """,
+            (
+                trial_order_id,
+                target_user_id,
+                f"report:{real_rep_id}",
+                now,
+                now + 86400 * 30,
+                now,
+                real_rep_id,
+                body.version or "v1.0",
+            ),
+        )
+        ent = grant_report_entitlement_tx(c, order=order_stub, now_ts=now)
+        audit(c, str(admin["id"]), "report_trial_entitlement_granted", {
+            "report_id": real_rep_id,
+            "target_user_id": target_user_id,
+            "version": body.version,
+            "trial_order_id": trial_order_id,
+        })
+
+    return {
+        "ok": True,
+        "message": f"Đã cấp quyền dùng thử thành công cho người dùng '{target_user_id}' phiên bản {body.version}.",
+        "trial_order_id": trial_order_id,
+        "entitlement": ent,
     }

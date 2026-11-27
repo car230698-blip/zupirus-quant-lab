@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -510,34 +511,130 @@ def seasonality(candles: Sequence[Candle]) -> Dict[str, Any]:
     }
 
 
-def _walk_exit(bars: Sequence[Candle], side: str, entry: float, stop: float, target: float) -> Optional[float]:
+@dataclass
+class TradeExitResult:
+    exit_bar: Candle
+    exit_price: float
+    exit_reason: str  # "TAKE_PROFIT", "STOP_LOSS", "TIME_STOP", "SESSION_CLOSE", "SAMPLE_END"
+    gross_r: float
+    bars_held: int
+
+
+def _walk_trade_exit(
+    bars: Sequence[Candle],
+    side: str,
+    entry: float,
+    stop: float,
+    target: float,
+    max_bars: int = 32,
+) -> Optional[TradeExitResult]:
+    """Walk forward bar by bar to evaluate trade exit with point-in-time conservative rules.
+    - If bar opens gapped past SL or TP, exit at open.
+    - If bar touches both SL and TP in the same bar, assume STOP LOSS hit first (conservative).
+    - If bar touches SL: exit at stop.
+    - If bar touches TP: exit at target.
+    - Time stop at max_bars (default 32 M15 bars = 8 hours) or session close (21:00 UTC).
+    """
     risk = (entry - stop) if side == "long" else (stop - entry)
-    if risk <= 0:
+    if risk <= 0 or not bars:
         return None
-    for bar in bars:
+
+    for idx, bar in enumerate(bars):
+        bars_held = idx + 1
         if side == "long":
+            # Gap handling
+            if bar.open <= stop:
+                exit_price = bar.open
+                gross_r = (exit_price - entry) / risk
+                return TradeExitResult(bar, exit_price, "STOP_LOSS", gross_r, bars_held)
+            if bar.open >= target:
+                exit_price = bar.open
+                gross_r = (exit_price - entry) / risk
+                return TradeExitResult(bar, exit_price, "TAKE_PROFIT", gross_r, bars_held)
+
             hit_stop = bar.low <= stop
             hit_target = bar.high >= target
             if hit_stop and hit_target:
-                return -1.0
+                # Same-bar conservative rule: SL hit first
+                return TradeExitResult(bar, stop, "STOP_LOSS", -1.0, bars_held)
             if hit_stop:
-                return -1.0
+                return TradeExitResult(bar, stop, "STOP_LOSS", -1.0, bars_held)
             if hit_target:
-                return 1.0
+                return TradeExitResult(bar, target, "TAKE_PROFIT", 1.0, bars_held)
         else:
+            # Short gap handling
+            if bar.open >= stop:
+                exit_price = bar.open
+                gross_r = (entry - exit_price) / risk
+                return TradeExitResult(bar, exit_price, "STOP_LOSS", gross_r, bars_held)
+            if bar.open <= target:
+                exit_price = bar.open
+                gross_r = (entry - exit_price) / risk
+                return TradeExitResult(bar, exit_price, "TAKE_PROFIT", gross_r, bars_held)
+
             hit_stop = bar.high >= stop
             hit_target = bar.low <= target
             if hit_stop and hit_target:
-                return -1.0
+                # Same-bar conservative rule: SL hit first
+                return TradeExitResult(bar, stop, "STOP_LOSS", -1.0, bars_held)
             if hit_stop:
-                return -1.0
+                return TradeExitResult(bar, stop, "STOP_LOSS", -1.0, bars_held)
             if hit_target:
-                return 1.0
-    if not bars:
-        return None
-    last = bars[-1].close
-    raw = (last - entry) / risk if side == "long" else (entry - last) / risk
-    return raw
+                return TradeExitResult(bar, target, "TAKE_PROFIT", 1.0, bars_held)
+
+        # Time stop or Session close (21:00 UTC)
+        is_session_close = (bar.utc.hour >= 21)
+        if bars_held >= max_bars or is_session_close or idx == len(bars) - 1:
+            exit_price = bar.close
+            gross_r = ((exit_price - entry) / risk) if side == "long" else ((entry - exit_price) / risk)
+            reason = "SESSION_CLOSE" if is_session_close else ("TIME_STOP" if bars_held >= max_bars else "SAMPLE_END")
+            return TradeExitResult(bar, exit_price, reason, gross_r, bars_held)
+
+    return None
+
+
+def _walk_exit(bars: Sequence[Candle], side: str, entry: float, stop: float, target: float) -> Optional[float]:
+    res = _walk_trade_exit(bars, side, entry, stop, target)
+    return res.gross_r if res else None
+
+
+def generate_ledger_csv(trades: Sequence[Dict[str, Any]]) -> str:
+    """Generate RFC 4180 compliant CSV string of the entire transaction ledger."""
+    headers = [
+        "trade_id", "day", "split_set", "side", "session",
+        "entry_time_utc", "entry_datetime", "exit_time_utc", "exit_datetime",
+        "entry_price", "exit_price", "sl_price", "tp_price",
+        "cost_pips", "cost_r", "exit_reason",
+        "gross_r", "net_r", "gross_pnl", "net_pnl", "is_win", "bars_held"
+    ]
+    lines = [",".join(headers)]
+    for t in trades:
+        row = [
+            str(t.get("trade_id", "")),
+            str(t.get("day", "")),
+            str(t.get("split_set", "")),
+            str(t.get("side", "")),
+            str(t.get("session", "")),
+            str(t.get("entry_time_utc", "")),
+            str(t.get("entry_datetime", "")),
+            str(t.get("exit_time_utc", "")),
+            str(t.get("exit_datetime", "")),
+            f"{float(t.get('entry_price', 0.0)):.4f}",
+            f"{float(t.get('exit_price', 0.0)):.4f}",
+            f"{float(t.get('sl_price', 0.0)):.4f}",
+            f"{float(t.get('tp_price', 0.0)):.4f}",
+            f"{float(t.get('cost_pips', 3.5)):.1f}",
+            f"{float(t.get('cost_r', 0.0)):.4f}",
+            str(t.get("exit_reason", "")),
+            f"{float(t.get('gross_r', 0.0)):.4f}",
+            f"{float(t.get('net_r', 0.0)):.4f}",
+            f"{float(t.get('gross_pnl', 0.0)):.4f}",
+            f"{float(t.get('net_pnl', 0.0)):.4f}",
+            "TRUE" if t.get("is_win") else "FALSE",
+            str(t.get("bars_held", 0)),
+        ]
+        lines.append(",".join(row))
+    return "\n".join(lines)
 
 
 def _compile_rule_study_result(
@@ -577,13 +674,49 @@ def _compile_rule_study_result(
         })
     gross_win = sum(wins)
     gross_loss = abs(sum(losses))
-    profit_factor = None if gross_loss == 0 else gross_win / gross_loss
+    if gross_loss == 0:
+        profit_factor = None
+        profit_factor_label = f"Không xác định (0 lệnh lỗ / {len(trades)} lệnh)"
+    else:
+        profit_factor = _round(gross_win / gross_loss, 4)
+        profit_factor_label = f"{profit_factor:.2f}"
+
+    # Split breakdown (TRAIN, WALK_FORWARD, HOLDOUT)
+    splits = ["TRAIN", "WALK_FORWARD", "HOLDOUT"]
+    split_breakdown = {}
+    for s_name in splits:
+        s_trades = [t for t in trades if t.get("split_set") == s_name]
+        s_rs = [float(t["r_multiple"]) for t in s_trades]
+        s_wins = [r for r in s_rs if r > 0]
+        s_losses = [r for r in s_rs if r < 0]
+        s_gw = sum(s_wins)
+        s_gl = abs(sum(s_losses))
+        split_breakdown[s_name] = {
+            "trades": len(s_trades),
+            "win_rate": _round(len(s_wins) / len(s_rs), 4) if s_rs else 0.0,
+            "sum_r": _round(sum(s_rs), 4) if s_rs else 0.0,
+            "expectancy_r": _round(_mean(s_rs), 4) if s_rs else 0.0,
+            "profit_factor": _round(s_gw / s_gl, 4) if s_gl > 0 else (None if s_gw == 0 else 99.0),
+        }
+
+    # Session breakdown
+    session_breakdown = {}
+    for sess_name in ("london", "new_york", "asia"):
+        sess_trades = [t for t in trades if t.get("session") == sess_name]
+        sess_rs = [float(t["r_multiple"]) for t in sess_trades]
+        sess_wins = [r for r in sess_rs if r > 0]
+        session_breakdown[sess_name] = {
+            "trades": len(sess_trades),
+            "win_rate": _round(len(sess_wins) / len(sess_rs), 4) if sess_rs else 0.0,
+            "sum_r": _round(sum(sess_rs), 4) if sess_rs else 0.0,
+            "expectancy_r": _round(_mean(sess_rs), 4) if sess_rs else 0.0,
+        }
 
     t_stat, p_val = _t_stat_and_p_value(rs)
     sharpe = _sharpe_ratio(rs)
     sortino = _sortino_ratio(rs)
     calmar = _calmar_ratio(sum(rs), max_dd)
-    mc_risk = _monte_carlo_simulation(rs, num_simulations=1000)
+    mc_risk = _monte_carlo_simulation(rs, num_simulations=1000, seed=42)
     cost_matrix = _cost_stress_matrix(raw_rs)
 
     return {
@@ -596,7 +729,8 @@ def _compile_rule_study_result(
                 ["trades", len(trades)],
                 ["win_rate", _round(len(wins) / len(rs), 4) if rs else None],
                 ["expectancy_r", _round(_mean(rs), 4) if rs else None],
-                ["profit_factor", _round(profit_factor, 4) if profit_factor is not None else None],
+                ["profit_factor", profit_factor if profit_factor is not None else 0.0],
+                ["profit_factor_label", profit_factor_label],
                 ["max_drawdown_r", _round(max_dd, 4)],
                 ["sum_r", _round(sum(rs), 4) if rs else 0.0],
                 ["sharpe_ratio", sharpe],
@@ -604,9 +738,14 @@ def _compile_rule_study_result(
                 ["calmar_ratio", calmar],
                 ["t_statistic", t_stat],
                 ["p_value", p_val],
+                ["cost_assumed_pips", parameters.get("cost_assumed_pips", 3.5)],
+                ["cost_measured_status", "ASSUMED (3.5 pips spread & slippage assumption)"],
             ],
         ),
         "trades": trades,
+        "ledger_csv": generate_ledger_csv(trades),
+        "split_breakdown": split_breakdown,
+        "session_breakdown": session_breakdown,
         "equity_series": equity_series,
         "drawdown_series": drawdown_series,
         "cost_stress_matrix": cost_matrix,
@@ -623,14 +762,32 @@ def _compile_rule_study_result(
 
 
 def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> Dict[str, Any]:
-    """Historical R-multiples of one published rule: London break of the Asia range."""
+    """Historical R-multiples of locked Breakout & Retest of Asia Range M15 strategy.
+    Point-in-time logic:
+    - Asia range: 00:00 to 05:00 UTC (first 20 M15 bars).
+    - Breakout: first bar closing beyond Asia range in London/New York.
+    - Retest: price retests broken level within subsequent bars.
+    - Entry: at open of the bar immediately after confirmation.
+    - SL: opposite side of range. Target: 1.0R.
+    - Conservative same-bar SL/TP & Gap handling.
+    - Time stop: 32 bars or 21:00 UTC session close.
+    """
     by_day: Dict[str, List[Candle]] = defaultdict(list)
     for candle in candles:
         by_day[utc_date_key(candle.time)].append(candle)
+
+    days_sorted = sorted(by_day.keys())
+    total_days = len(days_sorted)
+    train_cutoff = int(total_days * 0.50)
+    wf_cutoff = int(total_days * 0.80)
+    train_days = set(days_sorted[:train_cutoff])
+    wf_days = set(days_sorted[train_cutoff:wf_cutoff])
+
     trades: List[Dict[str, Any]] = []
     skipped_ambiguous = 0
     skipped_incomplete = 0
-    for day in sorted(by_day):
+
+    for day in days_sorted:
         bars = by_day[day]
         asia = [c for c in bars if c.session == "asia"]
         later = [c for c in bars if session_name(c.time) in ("london", "new_york")]
@@ -642,6 +799,9 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
         if asia_high <= asia_low:
             skipped_incomplete += 1
             continue
+
+        split_set = "TRAIN" if day in train_days else ("WALK_FORWARD" if day in wf_days else "HOLDOUT")
+
         chosen = None
         for index, bar in enumerate(later):
             up = bar.high > asia_high
@@ -661,6 +821,7 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
                 side = "long" if up else "short"
             else:
                 continue
+
             pure_gap = (
                 (side == "long" and bar.open > asia_high and bar.low > asia_high)
                 or (side == "short" and bar.open < asia_low and bar.high < asia_low)
@@ -686,21 +847,56 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
                     (side == "long" and bar.low <= stop)
                     or (side == "short" and bar.high >= stop)
                 )
-                result = -1.0 if stopped_on_fill else _walk_exit(later[index + 1 :], side, entry, stop, target)
+                if stopped_on_fill:
+                    exit_res = TradeExitResult(
+                        exit_bar=bar,
+                        exit_price=stop,
+                        exit_reason="STOP_LOSS",
+                        gross_r=-1.0,
+                        bars_held=1,
+                    )
+                else:
+                    exit_res = _walk_trade_exit(later[index + 1 :], side, entry, stop, target, max_bars=32)
             else:
-                result = _walk_exit(later[index:], side, entry, stop, target)
-            if result is None:
+                exit_res = _walk_trade_exit(later[index:], side, entry, stop, target, max_bars=32)
+
+            if exit_res is None:
                 skipped_incomplete += 1
             else:
+                result = exit_res.gross_r
                 net = result - float(round_trip_cost_r)
+                trade_idx = len(trades) + 1
+                entry_dt_str = datetime.fromtimestamp(bar.time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                exit_dt_str = datetime.fromtimestamp(exit_res.exit_bar.time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
                 trades.append({
+                    "trade_id": f"tr_{trade_idx:03d}",
                     "day": day,
+                    "split_set": split_set,
+                    "session": session_name(bar.time),
                     "side": side,
-                    "entry": _round(entry, 6),
-                    "stop": _round(stop, 6),
-                    "target": _round(target, 6),
-                    "raw_r": _round(result, 6),
-                    "r_multiple": _round(net, 6),
+                    "entry_time_utc": int(bar.time),
+                    "entry_datetime": entry_dt_str,
+                    "exit_time_utc": int(exit_res.exit_bar.time),
+                    "exit_datetime": exit_dt_str,
+                    "entry": _round(entry, 4),
+                    "entry_price": _round(entry, 4),
+                    "exit_price": _round(exit_res.exit_price, 4),
+                    "stop": _round(stop, 4),
+                    "sl_price": _round(stop, 4),
+                    "target": _round(target, 4),
+                    "tp_price": _round(target, 4),
+                    "cost_pips": 3.5,
+                    "cost_r": _round(round_trip_cost_r, 4),
+                    "exit_reason": exit_res.exit_reason,
+                    "raw_r": _round(result, 4),
+                    "gross_r": _round(result, 4),
+                    "r_multiple": _round(net, 4),
+                    "net_r": _round(net, 4),
+                    "gross_pnl": _round(result * risk, 4),
+                    "net_pnl": _round(net * risk, 4),
+                    "is_win": (net > 0),
+                    "bars_held": exit_res.bars_held,
                 })
             chosen = side
             break
@@ -716,9 +912,13 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
             "rule": "first London/New York break of same-day Asia high or low",
             "stop": "opposite side of Asia range",
             "target_r": 1.0,
+            "cost_assumed_pips": 3.5,
             "round_trip_cost_r": float(round_trip_cost_r),
             "skipped_ambiguous_days": skipped_ambiguous,
             "skipped_incomplete_days": skipped_incomplete,
+            "train_days_count": len(train_days),
+            "wf_days_count": len(wf_days),
+            "holdout_days_count": total_days - len(train_days) - len(wf_days),
         },
         notes_en="Expectancy, statistical significance, and tail risk describe this historical sample path. They are not a promise of future profit. The empirical edge varies across session times and market regimes.",
         notes_vi="Kỳ vọng, ý nghĩa thống kê (t-stat/p-value) và rủi ro đuôi mô tả mẫu dữ liệu lịch sử này. Chúng không phải cam kết lợi nhuận tương lai. Lợi thế định lượng thay đổi theo khung giờ phiên và cơ chế biến động.",
@@ -980,6 +1180,9 @@ def run_studies(
     else:
         rule_eval = rule_backtest(candles, round_trip_cost_r=round_trip_cost_r)
 
+    from app.domains.quant.data_feed import build_dataset_identity
+    ds_id = build_dataset_identity(symbol, timeframe, candles)
+
     studies = [
         session_profile(candles),
         volatility_regimes(candles, atr_period=atr_period),
@@ -992,8 +1195,12 @@ def run_studies(
         "symbol": str(symbol or "XAUUSD").upper().replace("/", ""),
         "timeframe": str(timeframe or "M15").upper(),
         "candle_count": len(candles),
-        "range_start": candles[0].time,
-        "range_end": candles[-1].time,
+        "range_start": candles[0].time if candles else 0,
+        "range_end": candles[-1].time if candles else 0,
+        "dataset_identity": ds_id.to_dict(),
+        "monte_carlo": rule_eval.get("monte_carlo_risk") or {},
+        "cost_stress_matrix": rule_eval.get("cost_stress_matrix") or {},
+        "ledger_csv": rule_eval.get("ledger_csv") or "",
         "parameters": {
             "round_trip_cost_r": float(round_trip_cost_r),
             "atr_period": int(atr_period),

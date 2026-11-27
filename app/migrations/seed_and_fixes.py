@@ -807,6 +807,8 @@ def apply_migration_027(c, is_pg: bool):
             sample_pdf_path TEXT,
             changelog TEXT,
             wfo_metrics_json TEXT,
+            manifest_json TEXT,
+            file_hashes_json TEXT,
             published_at DOUBLE PRECISION NOT NULL,
             created_at DOUBLE PRECISION NOT NULL,
             UNIQUE(report_id, version)
@@ -867,6 +869,8 @@ def apply_migration_027(c, is_pg: bool):
             sample_pdf_path TEXT,
             changelog TEXT,
             wfo_metrics_json TEXT,
+            manifest_json TEXT,
+            file_hashes_json TEXT,
             published_at REAL NOT NULL,
             created_at REAL NOT NULL,
             UNIQUE(report_id, version)
@@ -981,6 +985,12 @@ def apply_migration_029(c, is_pg: bool):
         c.execute(
             "ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS download_count INTEGER NOT NULL DEFAULT 0"
         )
+        c.execute(
+            "ALTER TABLE report_versions ADD COLUMN IF NOT EXISTS manifest_json TEXT"
+        )
+        c.execute(
+            "ALTER TABLE report_versions ADD COLUMN IF NOT EXISTS file_hashes_json TEXT"
+        )
     else:
         c.executescript(
             """
@@ -1025,6 +1035,12 @@ def apply_migration_029(c, is_pg: bool):
         ent_cols = [row[1] for row in c.execute("PRAGMA table_info(report_entitlements)").fetchall()]
         if ent_cols and "download_count" not in ent_cols:
             c.execute("ALTER TABLE report_entitlements ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
+        ver_cols = [row[1] for row in c.execute("PRAGMA table_info(report_versions)").fetchall()]
+        if ver_cols:
+            if "manifest_json" not in ver_cols:
+                c.execute("ALTER TABLE report_versions ADD COLUMN manifest_json TEXT")
+            if "file_hashes_json" not in ver_cols:
+                c.execute("ALTER TABLE report_versions ADD COLUMN file_hashes_json TEXT")
 
     # First real product: EURUSD H1 Asia/London methodology as DRAFT (admin publish toggle).
     c.execute("SAVEPOINT sp_mig029_launch_guide")

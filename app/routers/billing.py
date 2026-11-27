@@ -84,15 +84,8 @@ def get_my_subscription(u=Depends(get_current_user)):
 
 @router.post("/checkout", response_model=OrderResponse)
 def checkout(p: CreateOrderRequest, u=Depends(get_current_user)):
-    """Create checkout order with default Direct USDT (TRC20/BEP20)."""
-    order_data = create_checkout_order(
-        user_id=u["id"],
-        plan_tier=p.plan_tier,
-        cloud_slots=p.cloud_slots,
-        billing_cycle=p.billing_cycle or "MONTHLY",
-        payment_method=p.payment_method or "USDT",
-    )
-    return OrderResponse(**order_data)
+    """Legacy subscription checkout endpoint - disabled in favor of per-report quantitative research purchasing."""
+    fail(400, "Đăng ký thuê bao và slot cloud đã ngừng hoạt động. ZUPIRUS Quant Lab là phòng nghiên cứu định lượng phân phối ấn phẩm PDF độc lập. Vui lòng đặt mua báo cáo tại danh mục /reports.")
 
 
 @router.get("/orders/{order_id}", response_model=OrderResponse)

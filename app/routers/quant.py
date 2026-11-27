@@ -298,3 +298,41 @@ def api_get_autonomous_status(admin: dict = Depends(get_current_admin)):
         fail(500, f"Lỗi truy vấn trạng thái tiến trình tự hành: {exc}")
 
 
+class ReplayRequest(BaseModel):
+    symbol: str = "GC=F"
+    timeframe: str = "M15"
+    spread_pips: float = 3.5
+    slippage_pips: float = 1.0
+    candles: Optional[List[CandleIn]] = None
+    use_sample_candles: bool = False
+
+
+@router.post("/api/v1/admin/quant/replay")
+@router.post("/api/admin/quant/replay")
+def api_admin_replay_study(body: ReplayRequest, admin: dict = Depends(get_current_admin)):
+    """Run local quantitative replay on supplied or sample candles and return deterministic ledger."""
+    from cli.replay import parse_candle_file, run_standalone_replay
+    from pathlib import Path
+
+    if body.use_sample_candles or not body.candles:
+        sample_path = Path("data/samples/comex_gold_m15_sample.csv")
+        if not sample_path.exists():
+            fail(404, "Không tìm thấy tệp nến mẫu comex_gold_m15_sample.csv.")
+        candles, meta = parse_candle_file(sample_path)
+    else:
+        rows = [item.model_dump() for item in body.candles]
+        candles = normalize_candles(rows)
+
+    if len(candles) < 20:
+        fail(400, "Cần tối thiểu 20 nến để thực hiện replay.")
+
+    res = run_standalone_replay(
+        candles=candles,
+        symbol=body.symbol,
+        timeframe=body.timeframe,
+        spread_pips=body.spread_pips,
+        slippage_pips=body.slippage_pips,
+    )
+    return res
+
+

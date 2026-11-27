@@ -2,6 +2,7 @@
 from .pdf_builder import (
     build_pdf_bytes,
     ensure_flagship_sample_report_seeded,
+    ensure_gold_research_suite_v1_seeded,
     get_private_reports_dir,
     get_public_samples_dir,
 )

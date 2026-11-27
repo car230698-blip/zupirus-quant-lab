@@ -19,6 +19,7 @@ from app.db import audit, tx
 from app.domains.reports.pdf_builder import (
     build_pdf_bytes,
     ensure_flagship_sample_report_seeded,
+    ensure_gold_research_suite_v1_seeded,
     get_private_reports_dir,
     get_public_samples_dir,
 )
@@ -36,6 +37,47 @@ def _slugify(text: str) -> str:
     ascii_str = ascii_str.replace("đ", "d").replace("Đ", "D").lower()
     slug = re.sub(r"[^a-z0-9]+", "-", ascii_str).strip("-")
     return slug or f"report-{secrets.token_hex(4)}"
+
+
+def _compute_sha256(filepath: str | Path | None) -> str:
+    """Compute deterministic SHA-256 hash of a file on disk."""
+    if not filepath:
+        return ""
+    p = Path(filepath)
+    if not p.is_file():
+        return ""
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_report_purchase_eligibility(status: Optional[str]) -> Tuple[bool, Optional[str]]:
+    """Determine if a report is currently eligible for online purchase.
+    Strictly synchronizes:
+    - Report status must be PUBLISHED
+    - Commercial sales flag must be ON
+    - Direct USDT flag must be ON
+    - Valid receiving wallet (TRC20 or BEP20) must be configured
+    """
+    if str(status or "").upper() != "PUBLISHED":
+        return False, "Báo cáo chưa được xuất bản công khai."
+    if not is_commercial_reports_sale_enabled():
+        return False, "Cổng mở bán thương mại đang tạm tắt để kiểm định."
+
+    from app.core.config import is_usdt_payment_enabled
+    if not is_usdt_payment_enabled():
+        return False, "Phương thức thanh toán USDT hiện chưa được kích hoạt."
+
+    from app.domains.billing.crypto_direct import get_crypto_wallets_config, validate_trc20_address, validate_bep20_address
+    cfg = get_crypto_wallets_config()
+    trc20_valid = bool(cfg.get("has_trc20") and validate_trc20_address(cfg.get("trc20_address", "")))
+    bep20_valid = bool(cfg.get("has_bep20") and validate_bep20_address(cfg.get("bep20_address", "")))
+    if not (trc20_valid or bep20_valid):
+        return False, "Chưa cấu hình địa chỉ ví USDT hợp lệ (TRC20 hoặc BEP20) để nhận thanh toán."
+
+    return True, None
 
 
 def _format_report_row(row: Any, include_private_paths: bool = False) -> Dict[str, Any]:
@@ -59,6 +101,7 @@ def _format_report_row(row: Any, include_private_paths: bool = False) -> Dict[st
     has_full = bool(d.get("full_pdf_path") and Path(str(d["full_pdf_path"])).is_file())
 
     ver_str = d.get("version") or "v1.0"
+    can_purchase, _ = check_report_purchase_eligibility(d.get("status"))
     out = {
         "id": rep_id,
         "slug": slug,
@@ -81,7 +124,7 @@ def _format_report_row(row: Any, include_private_paths: bool = False) -> Dict[st
         "has_sample_pdf": has_sample,
         "has_full_pdf": has_full,
         "sample_pdf_url": f"/api/v1/reports/{rep_id}/sample-pdf" if has_sample else None,
-        "can_purchase": is_commercial_reports_sale_enabled() and (str(d.get("status") or "").upper() == "PUBLISHED"),
+        "can_purchase": can_purchase,
         "commercial_sale_enabled": is_commercial_reports_sale_enabled(),
         "published_at": float(d["published_at"]) if d.get("published_at") else None,
         "created_at": float(d.get("created_at") or time.time()),
@@ -97,6 +140,7 @@ def list_public_reports() -> List[Dict[str, Any]]:
     """Return strictly PUBLISHED research reports for public catalog browsing."""
     with tx() as c:
         ensure_flagship_sample_report_seeded(c)
+        ensure_gold_research_suite_v1_seeded(c)
         c.execute("SAVEPOINT sp_launch_guide_seed")
         try:
             from app.domains.quant.launch_guide import ensure_launch_guide_seeded
@@ -125,6 +169,7 @@ def get_public_report_detail(report_id_or_slug: str, user_id: Optional[str] = No
         return None
     with tx() as c:
         ensure_flagship_sample_report_seeded(c)
+        ensure_gold_research_suite_v1_seeded(c)
         row = c.execute(
             "SELECT * FROM research_reports WHERE id = ? OR slug = ? LIMIT 1",
             (key, key),
@@ -158,6 +203,7 @@ def list_admin_reports() -> List[Dict[str, Any]]:
     """Admin: List all reports across DRAFT, READY_FOR_REVIEW, APPROVED, PUBLISHED, DISCONTINUED."""
     with tx() as c:
         ensure_flagship_sample_report_seeded(c)
+        ensure_gold_research_suite_v1_seeded(c)
         rows = c.execute(
             "SELECT * FROM research_reports ORDER BY updated_at DESC, created_at DESC"
         ).fetchall()
@@ -381,6 +427,12 @@ def update_admin_report(
         if new_status not in VALID_REPORT_STATUSES:
             new_status = cur["status"]
 
+        # Human Admin Gatekeeper: Prevent automated pipeline / agent from promoting directly to PUBLISHED
+        if new_status == "PUBLISHED" and cur.get("status") != "PUBLISHED":
+            is_agent = str(admin_id or "").startswith(("autonomous_", "agent_", "system_"))
+            if is_agent:
+                raise PermissionError("Tiến trình tự động/Agent không được phép xuất bản trực tiếp. Bắt buộc cần Admin phê duyệt.")
+
         sample_path = cur.get("sample_pdf_path")
         full_path = cur.get("full_pdf_path")
         # If version bumped without new uploaded file yet, create a dedicated versioned PDF file so previous version file is never overwritten
@@ -402,6 +454,8 @@ def update_admin_report(
 
         pub_at = cur.get("published_at")
         if new_status == "PUBLISHED" and not pub_at:
+            if not full_path or not Path(str(full_path)).is_file():
+                raise ValueError("Không thể chuyển trạng thái sang PUBLISHED khi chưa có file PDF đầy đủ hợp lệ.")
             pub_at = now
 
         c.execute(
@@ -424,28 +478,18 @@ def update_admin_report(
         )
 
         if new_status == "PUBLISHED" and full_path:
-            c.execute(
-                """
-                INSERT INTO report_versions (
-                    id, report_id, version, full_pdf_path, sample_pdf_path, changelog, wfo_metrics_json, published_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(report_id, version) DO UPDATE SET
-                    full_pdf_path = excluded.full_pdf_path,
-                    sample_pdf_path = excluded.sample_pdf_path,
-                    wfo_metrics_json = excluded.wfo_metrics_json
-                """,
-                (
-                    f"ver_{real_id}_{_slugify(new_version)}",
-                    real_id,
-                    new_version,
-                    full_path,
-                    sample_path,
-                    updates.get("changelog") or f"Updated {new_version}",
-                    wfo_json,
-                    now,
-                    now,
-                ),
-            )
+            existing_ver = c.execute("SELECT id FROM report_versions WHERE report_id = ? AND version = ?", (real_id, new_version)).fetchone()
+            if existing_ver:
+                c.execute(
+                    """
+                    UPDATE report_versions SET
+                        full_pdf_path = ?,
+                        sample_pdf_path = ?,
+                        wfo_metrics_json = ?
+                    WHERE report_id = ? AND version = ?
+                    """,
+                    (full_path, sample_path, wfo_json, real_id, new_version),
+                )
 
         audit(c, admin_id, "research_report_updated", {"report_id": real_id, "version": new_version, "status": new_status})
         updated = c.execute("SELECT * FROM research_reports WHERE id = ?", (real_id,)).fetchone()
@@ -475,6 +519,17 @@ def attach_report_pdf_files(
         real_id = cur["id"]
         eff_ver = (version_override or cur.get("version") or "v1.0").strip()
         safe_ver = _slugify(eff_ver)
+
+        # IMMUTABILITY LOCK: If this specific version is already published, reject file overwrite
+        ver_row = c.execute(
+            "SELECT published_at FROM report_versions WHERE report_id = ? AND version = ?",
+            (real_id, eff_ver),
+        ).fetchone()
+        if ver_row and ver_row[0]:
+            raise ValueError(
+                f"Phiên bản '{eff_ver}' của báo cáo '{real_id}' đã được phát hành công khai và bị khóa bất biến (immutable). "
+                "Để cập nhật nội dung mới, quản trị viên bắt buộc phải tạo một phiên bản mới (ví dụ v1.1 hoặc v2.0) thay vì ghi đè lên phiên bản cũ."
+            )
 
         full_path = cur.get("full_pdf_path")
         sample_path = cur.get("sample_pdf_path")
@@ -529,9 +584,19 @@ def attach_report_pdf_files(
         return _format_report_row(updated, include_private_paths=True)
 
 
-def publish_admin_report(report_id: str, version: Optional[str] = None, changelog: Optional[str] = None, admin_id: str = "admin") -> Dict[str, Any]:
+def publish_admin_report(
+    report_id: str,
+    version: Optional[str] = None,
+    changelog: Optional[str] = None,
+    admin_id: str = "admin",
+    is_human_admin: bool = True,
+) -> Dict[str, Any]:
     """Admin: Approve and publish a report (or a new version of a report).
-    Requires a valid full PDF file to exist before publishing."""
+    Requires a valid full PDF file to exist before publishing.
+    Strictly forbids automated agents or workers from auto-publishing."""
+    if not is_human_admin or str(admin_id or "").startswith(("autonomous_", "agent_", "system_")):
+        raise PermissionError("Tiến trình tự động/Agent không được phép xuất bản trực tiếp. Bắt buộc cần Admin con người phê duyệt.")
+
     now = time.time()
     with tx() as c:
         row = c.execute("SELECT * FROM research_reports WHERE id = ? OR slug = ?", (report_id, report_id)).fetchone()
@@ -552,6 +617,38 @@ def publish_admin_report(report_id: str, version: Optional[str] = None, changelo
                 expected_priv_file.write_bytes(Path(str(full_path)).read_bytes())
             full_path = str(expected_priv_file)
 
+        # Compute cryptographic hashes and package manifest for immutability auditing
+        full_hash = _compute_sha256(full_path)
+        sample_path_str = str(cur.get("sample_pdf_path") or "")
+        sample_hash = _compute_sha256(sample_path_str) if sample_path_str else ""
+
+        full_size = Path(str(full_path)).stat().st_size if Path(str(full_path)).is_file() else 0
+        sample_size = Path(sample_path_str).stat().st_size if sample_path_str and Path(sample_path_str).is_file() else 0
+
+        manifest = {
+            "report_id": real_id,
+            "version": eff_ver,
+            "published_at": now,
+            "publisher_admin_id": admin_id,
+            "files": {
+                "full_pdf": {
+                    "path": str(full_path),
+                    "sha256": full_hash,
+                    "size_bytes": full_size,
+                },
+                "sample_pdf": {
+                    "path": sample_path_str,
+                    "sha256": sample_hash,
+                    "size_bytes": sample_size,
+                },
+            },
+        }
+        manifest_json = json.dumps(manifest, ensure_ascii=False)
+        file_hashes_json = json.dumps({
+            "full_pdf": full_hash,
+            "sample_pdf": sample_hash,
+        }, ensure_ascii=False)
+
         c.execute(
             """
             UPDATE research_reports
@@ -560,6 +657,16 @@ def publish_admin_report(report_id: str, version: Optional[str] = None, changelo
             """,
             (eff_ver, full_path, now, now, real_id),
         )
+
+        try:
+            cols = _column_names(c, "report_versions")
+            if "manifest_json" not in cols:
+                c.execute("ALTER TABLE report_versions ADD COLUMN manifest_json TEXT")
+            if "file_hashes_json" not in cols:
+                c.execute("ALTER TABLE report_versions ADD COLUMN file_hashes_json TEXT")
+        except Exception:
+            pass
+
         c.execute(
             """
             INSERT INTO report_versions (
@@ -583,9 +690,26 @@ def publish_admin_report(report_id: str, version: Optional[str] = None, changelo
                 now,
             ),
         )
-        audit(c, admin_id, "research_report_published", {"report_id": real_id, "version": eff_ver})
+        try:
+            c.execute(
+                "UPDATE report_versions SET manifest_json = ?, file_hashes_json = ? WHERE report_id = ? AND version = ?",
+                (manifest_json, file_hashes_json, real_id, eff_ver),
+            )
+        except Exception:
+            pass
+        audit(c, admin_id, "research_report_published", {
+            "report_id": real_id,
+            "version": eff_ver,
+            "full_pdf_sha256": full_hash,
+        })
         updated = c.execute("SELECT * FROM research_reports WHERE id = ?", (real_id,)).fetchone()
-        return _format_report_row(updated, include_private_paths=True)
+        out = _format_report_row(updated, include_private_paths=True)
+        out["file_hashes"] = {
+            "full_pdf_sha256": full_hash,
+            "sample_pdf_sha256": sample_hash,
+        }
+        out["manifest"] = manifest
+        return out
 
 
 def discontinue_admin_report(report_id: str, admin_id: str = "admin") -> Dict[str, Any]:
@@ -631,16 +755,34 @@ def create_report_checkout_order(
     from app.domains.billing.crypto_direct import (
         allocate_unique_usdt_amount,
         get_crypto_wallets_config,
+        validate_trc20_address,
+        validate_bep20_address,
     )
     crypto_cfg = get_crypto_wallets_config()
-    if "TRC20" in method_u:
-        network = "TRC20"
-    else:
-        network = "BEP20" if crypto_cfg.get("bep20_address") or not crypto_cfg.get("trc20_address") else "TRC20"
+    trc20_addr = str(crypto_cfg.get("trc20_address") or "").strip()
+    bep20_addr = str(crypto_cfg.get("bep20_address") or "").strip()
+    trc20_valid = validate_trc20_address(trc20_addr)
+    bep20_valid = validate_bep20_address(bep20_addr)
 
-    wallet_address = crypto_cfg.get("trc20_address") if network == "TRC20" else crypto_cfg.get("bep20_address")
-    if not wallet_address:
-        fail(400, "Chưa cấu hình ví nhận USDT. Quản trị viên cần lưu địa chỉ BEP20 hoặc TRC20 trước khi mở đơn.")
+    if "TRC20" in method_u:
+        if not trc20_valid:
+            fail(400, "Địa chỉ ví USDT mạng TRC20 chưa được cấu hình hợp lệ trên hệ thống.")
+        network = "TRC20"
+        wallet_address = trc20_addr
+    elif "BEP20" in method_u:
+        if not bep20_valid:
+            fail(400, "Địa chỉ ví USDT mạng BEP20 chưa được cấu hình hợp lệ trên hệ thống.")
+        network = "BEP20"
+        wallet_address = bep20_addr
+    else:
+        if bep20_valid:
+            network = "BEP20"
+            wallet_address = bep20_addr
+        elif trc20_valid:
+            network = "TRC20"
+            wallet_address = trc20_addr
+        else:
+            fail(400, "Chưa cấu hình ví nhận USDT. Quản trị viên cần lưu địa chỉ BEP20 hoặc TRC20 hợp lệ trước khi mở đơn.")
 
     gateway = f"USDT_{network}"
     currency = "USDT"
@@ -656,10 +798,10 @@ def create_report_checkout_order(
         rep = dict(rep_row)
         real_rep_id = rep["id"]
         rep_status = str(rep.get("status") or "DRAFT").upper()
-        if rep_status == "DISCONTINUED":
-            fail(400, "Báo cáo này đã ngừng phát hành đơn mới.")
-        if rep_status != "PUBLISHED":
-            fail(400, "Báo cáo này chưa được xuất bản công khai.")
+
+        can_buy, unavail_reason = check_report_purchase_eligibility(rep_status)
+        if not can_buy:
+            fail(400, unavail_reason or "Báo cáo hiện không trong trạng thái có thể đặt mua.")
 
         rep_version = str(rep.get("version") or "v1.0").strip()
         existing_ent = c.execute(
