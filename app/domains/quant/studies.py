@@ -560,7 +560,8 @@ def _walk_trade_exit(
             if hit_stop:
                 return TradeExitResult(bar, stop, "STOP_LOSS", -1.0, bars_held)
             if hit_target:
-                return TradeExitResult(bar, target, "TAKE_PROFIT", 1.0, bars_held)
+                target_r = (target - entry) / risk
+                return TradeExitResult(bar, target, "TAKE_PROFIT", target_r, bars_held)
         else:
             # Short gap handling
             if bar.open >= stop:
@@ -580,7 +581,8 @@ def _walk_trade_exit(
             if hit_stop:
                 return TradeExitResult(bar, stop, "STOP_LOSS", -1.0, bars_held)
             if hit_target:
-                return TradeExitResult(bar, target, "TAKE_PROFIT", 1.0, bars_held)
+                target_r = (entry - target) / risk
+                return TradeExitResult(bar, target, "TAKE_PROFIT", target_r, bars_held)
 
         # Time stop or Session close (21:00 UTC)
         is_session_close = (bar.utc.hour >= 21)
@@ -681,11 +683,13 @@ def _compile_rule_study_result(
         profit_factor = _round(gross_win / gross_loss, 4)
         profit_factor_label = f"{profit_factor:.2f}"
 
-    # Split breakdown (TRAIN, WALK_FORWARD, HOLDOUT)
-    splits = ["TRAIN", "WALK_FORWARD", "HOLDOUT"]
+    # Split breakdown (TRAIN, VALIDATION, TEST, WALK_FORWARD, HOLDOUT)
+    splits = ["TRAIN", "VALIDATION", "TEST", "WALK_FORWARD", "HOLDOUT"]
     split_breakdown = {}
     for s_name in splits:
         s_trades = [t for t in trades if t.get("split_set") == s_name]
+        if not s_trades and s_name in ("WALK_FORWARD", "HOLDOUT"):
+            continue
         s_rs = [float(t["r_multiple"]) for t in s_trades]
         s_wins = [r for r in s_rs if r > 0]
         s_losses = [r for r in s_rs if r < 0]
@@ -761,16 +765,22 @@ def _compile_rule_study_result(
     }
 
 
-def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> Dict[str, Any]:
+def rule_backtest(
+    candles: Sequence[Candle],
+    round_trip_cost_r: float = 0.0,
+    spread_pips: float = 3.5,
+    slippage_pips: float = 1.0,
+) -> Dict[str, Any]:
     """Historical R-multiples of locked Breakout & Retest of Asia Range M15 strategy.
-    Point-in-time logic:
-    - Asia range: 00:00 to 05:00 UTC (first 20 M15 bars).
-    - Breakout: first bar closing beyond Asia range in London/New York.
-    - Retest: price retests broken level within subsequent bars.
-    - Entry: at open of the bar immediately after confirmation.
-    - SL: opposite side of range. Target: 1.0R.
-    - Conservative same-bar SL/TP & Gap handling.
-    - Time stop: 32 bars or 21:00 UTC session close.
+    Published specification:
+    - Asia range: strictly 00:00 to before 05:00 UTC (exact 20 M15 bars; validated by timestamp continuity).
+    - Breakout: first bar after 05:00 UTC whose close is beyond the Asia range (close > high or close < low).
+    - Retest: price touches the broken level within the subsequent 1 to 8 bars without violating the opposite boundary.
+    - Entry: at open of the bar immediately following the confirmed retest bar.
+    - SL: at opposite boundary of the Asia range. Target: 1.5R.
+    - Safeguards: same-bar SL/TP collision assumes SL hit first (-1.0R); open gap handling.
+    - Time stop: max 32 bars held or 21:00 UTC session close.
+    - Transaction friction: COMEX 1 tick = $0.10/oz. Dynamic cost_r = (spread + slippage) * 0.10 / risk.
     """
     by_day: Dict[str, List[Candle]] = defaultdict(list)
     for candle in candles:
@@ -779,146 +789,199 @@ def rule_backtest(candles: Sequence[Candle], round_trip_cost_r: float = 0.0) -> 
     days_sorted = sorted(by_day.keys())
     total_days = len(days_sorted)
     train_cutoff = int(total_days * 0.50)
-    wf_cutoff = int(total_days * 0.80)
+    val_cutoff = int(total_days * 0.80)
     train_days = set(days_sorted[:train_cutoff])
-    wf_days = set(days_sorted[train_cutoff:wf_cutoff])
+    val_days = set(days_sorted[train_cutoff:val_cutoff])
+    test_days = set(days_sorted[val_cutoff:])
 
     trades: List[Dict[str, Any]] = []
+    skipped_incomplete_asia_bars = 0
+    skipped_no_breakout = 0
+    skipped_no_retest = 0
+    skipped_invalid_risk = 0
     skipped_ambiguous = 0
     skipped_incomplete = 0
 
+    comex_tick_usd = 0.10  # 1 COMEX Gold tick/pip = $0.10/oz
+    total_friction_pips = float(spread_pips) + float(slippage_pips)
+    friction_price_usd = total_friction_pips * comex_tick_usd  # e.g., 4.5 pips = $0.45/oz
+
     for day in days_sorted:
         bars = by_day[day]
-        asia = [c for c in bars if c.session == "asia"]
-        later = [c for c in bars if session_name(c.time) in ("london", "new_york")]
-        if not asia or not later:
-            skipped_incomplete += 1
-            continue
-        asia_high = max(c.high for c in asia)
-        asia_low = min(c.low for c in asia)
-        if asia_high <= asia_low:
-            skipped_incomplete += 1
+        # 1. Strictly 00:00 to before 05:00 UTC
+        asia_bars = [c for c in bars if 0 <= c.utc.hour < 5]
+        # Expected exactly 20 M15 bars (00:00 to 04:45 inclusive)
+        if len(asia_bars) != 20:
+            skipped_incomplete_asia_bars += 1
             continue
 
-        split_set = "TRAIN" if day in train_days else ("WALK_FORWARD" if day in wf_days else "HOLDOUT")
-
-        chosen = None
-        for index, bar in enumerate(later):
-            up = bar.high > asia_high
-            down = bar.low < asia_low
-            open_up = bar.open > asia_high
-            open_down = bar.open < asia_low
-            if up and down:
-                if open_up and not open_down:
-                    side = "long"
-                elif open_down and not open_up:
-                    side = "short"
-                else:
-                    skipped_ambiguous += 1
-                    chosen = "ambiguous"
-                    break
-            elif up or down:
-                side = "long" if up else "short"
-            else:
-                continue
-
-            pure_gap = (
-                (side == "long" and bar.open > asia_high and bar.low > asia_high)
-                or (side == "short" and bar.open < asia_low and bar.high < asia_low)
-            )
-            if side == "long":
-                entry = bar.open if pure_gap else asia_high
-                stop = asia_low
-            else:
-                entry = bar.open if pure_gap else asia_low
-                stop = asia_high
-            risk = abs(entry - stop)
-            if risk <= 0:
-                skipped_incomplete += 1
-                chosen = "invalid_risk"
+        # Validate timestamp continuity (900s interval starting at 00:00 UTC)
+        start_ts = asia_bars[0].time
+        if asia_bars[0].utc.hour != 0 or asia_bars[0].utc.minute != 0:
+            skipped_incomplete_asia_bars += 1
+            continue
+        ts_valid = True
+        for i, ab in enumerate(asia_bars):
+            if ab.time != start_ts + i * 900 or ab.utc.hour >= 5:
+                ts_valid = False
                 break
-            target = entry + risk if side == "long" else entry - risk
-            retracing_fill = (
-                (side == "long" and bar.open > asia_high and not pure_gap)
-                or (side == "short" and bar.open < asia_low and not pure_gap)
-            )
-            if retracing_fill:
-                stopped_on_fill = (
-                    (side == "long" and bar.low <= stop)
-                    or (side == "short" and bar.high >= stop)
-                )
-                if stopped_on_fill:
-                    exit_res = TradeExitResult(
-                        exit_bar=bar,
-                        exit_price=stop,
-                        exit_reason="STOP_LOSS",
-                        gross_r=-1.0,
-                        bars_held=1,
-                    )
-                else:
-                    exit_res = _walk_trade_exit(later[index + 1 :], side, entry, stop, target, max_bars=32)
-            else:
-                exit_res = _walk_trade_exit(later[index:], side, entry, stop, target, max_bars=32)
+        if not ts_valid:
+            skipped_incomplete_asia_bars += 1
+            continue
 
-            if exit_res is None:
-                skipped_incomplete += 1
-            else:
-                result = exit_res.gross_r
-                net = result - float(round_trip_cost_r)
-                trade_idx = len(trades) + 1
-                entry_dt_str = datetime.fromtimestamp(bar.time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                exit_dt_str = datetime.fromtimestamp(exit_res.exit_bar.time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        asia_high = max(c.high for c in asia_bars)
+        asia_low = min(c.low for c in asia_bars)
+        if asia_high <= asia_low:
+            skipped_incomplete_asia_bars += 1
+            continue
 
-                trades.append({
-                    "trade_id": f"tr_{trade_idx:03d}",
-                    "day": day,
-                    "split_set": split_set,
-                    "session": session_name(bar.time),
-                    "side": side,
-                    "entry_time_utc": int(bar.time),
-                    "entry_datetime": entry_dt_str,
-                    "exit_time_utc": int(exit_res.exit_bar.time),
-                    "exit_datetime": exit_dt_str,
-                    "entry": _round(entry, 4),
-                    "entry_price": _round(entry, 4),
-                    "exit_price": _round(exit_res.exit_price, 4),
-                    "stop": _round(stop, 4),
-                    "sl_price": _round(stop, 4),
-                    "target": _round(target, 4),
-                    "tp_price": _round(target, 4),
-                    "cost_pips": 3.5,
-                    "cost_r": _round(round_trip_cost_r, 4),
-                    "exit_reason": exit_res.exit_reason,
-                    "raw_r": _round(result, 4),
-                    "gross_r": _round(result, 4),
-                    "r_multiple": _round(net, 4),
-                    "net_r": _round(net, 4),
-                    "gross_pnl": _round(result * risk, 4),
-                    "net_pnl": _round(net * risk, 4),
-                    "is_win": (net > 0),
-                    "bars_held": exit_res.bars_held,
-                })
-            chosen = side
-            break
-        if chosen is None:
+        later = [c for c in bars if c.utc.hour >= 5]
+        if not later:
             skipped_incomplete += 1
+            continue
+
+        split_set = "TRAIN" if day in train_days else ("VALIDATION" if day in val_days else "TEST")
+
+        # 2. Breakout: first bar closing outside Asia range
+        b_idx = None
+        side = None
+        for idx, bar in enumerate(later):
+            if bar.close > asia_high:
+                b_idx = idx
+                side = "long"
+                break
+            elif bar.close < asia_low:
+                b_idx = idx
+                side = "short"
+                break
+
+        if b_idx is None or side is None:
+            skipped_no_breakout += 1
+            continue
+
+        # 3. Retest: within 1 to 8 bars after breakout bar
+        retest_window = later[b_idx + 1 : min(b_idx + 9, len(later))]
+        retest_idx = None
+        for r_offset, rc in enumerate(retest_window):
+            actual_idx = b_idx + 1 + r_offset
+            if side == "long":
+                # Invalidation: low touched opposite boundary
+                if rc.low <= asia_low:
+                    break
+                # Retest touched broken resistance
+                if rc.low <= asia_high:
+                    retest_idx = actual_idx
+                    break
+            else:
+                # Invalidation: high touched opposite boundary
+                if rc.high >= asia_high:
+                    break
+                # Retest touched broken support
+                if rc.high >= asia_low:
+                    retest_idx = actual_idx
+                    break
+
+        if retest_idx is None:
+            skipped_no_retest += 1
+            continue
+
+        # 4. Entry: at Open of the bar immediately following retest
+        enter_idx = retest_idx + 1
+        if enter_idx >= len(later):
+            skipped_incomplete += 1
+            continue
+
+        enter_bar = later[enter_idx]
+        entry = enter_bar.open
+        if side == "long":
+            stop = asia_low
+            risk = entry - stop
+            if risk <= 0:
+                skipped_invalid_risk += 1
+                continue
+            target = entry + 1.5 * risk
+        else:
+            stop = asia_high
+            risk = stop - entry
+            if risk <= 0:
+                skipped_invalid_risk += 1
+                continue
+            target = entry - 1.5 * risk
+
+        # 5. Trade Exit Walk
+        walk_bars = later[enter_idx :]
+        exit_res = _walk_trade_exit(walk_bars, side, entry, stop, target, max_bars=32)
+        if exit_res is None:
+            skipped_incomplete += 1
+            continue
+
+        # Friction calculation
+        if round_trip_cost_r > 0.0:
+            trade_cost_r = float(round_trip_cost_r)
+        else:
+            trade_cost_r = friction_price_usd / risk
+
+        result = exit_res.gross_r
+        net = result - trade_cost_r
+        trade_idx = len(trades) + 1
+        entry_dt_str = datetime.fromtimestamp(enter_bar.time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        exit_dt_str = datetime.fromtimestamp(exit_res.exit_bar.time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        trades.append({
+            "trade_id": f"tr_{trade_idx:03d}",
+            "day": day,
+            "split_set": split_set,
+            "session": session_name(enter_bar.time),
+            "side": side,
+            "entry_time_utc": int(enter_bar.time),
+            "entry_datetime": entry_dt_str,
+            "exit_time_utc": int(exit_res.exit_bar.time),
+            "exit_datetime": exit_dt_str,
+            "entry": _round(entry, 4),
+            "entry_price": _round(entry, 4),
+            "exit_price": _round(exit_res.exit_price, 4),
+            "stop": _round(stop, 4),
+            "sl_price": _round(stop, 4),
+            "target": _round(target, 4),
+            "tp_price": _round(target, 4),
+            "cost_pips": _round(total_friction_pips, 1),
+            "cost_r": _round(trade_cost_r, 4),
+            "exit_reason": exit_res.exit_reason,
+            "raw_r": _round(result, 4),
+            "gross_r": _round(result, 4),
+            "r_multiple": _round(net, 4),
+            "net_r": _round(net, 4),
+            "gross_pnl": _round(result * risk, 4),
+            "net_pnl": _round(net * risk, 4),
+            "is_win": (net > 0),
+            "bars_held": exit_res.bars_held,
+        })
 
     return _compile_rule_study_result(
         study_id="rule_backtest_asia_break",
         trades=trades,
         round_trip_cost_r=round_trip_cost_r,
         parameters={
-            "strategy": "Breakout & Retest of Asia Range in London",
-            "rule": "first London/New York break of same-day Asia high or low",
+            "strategy": "Breakout & Retest of Asia Range M15",
+            "rule": "Asia 00:00-05:00 UTC range (20 bars), breakout on candle close, retest within 1-8 bars, open entry next bar, TP 1.5R, SL opposite side",
             "stop": "opposite side of Asia range",
-            "target_r": 1.0,
-            "cost_assumed_pips": 3.5,
+            "target_r": 1.5,
+            "spread_pips": float(spread_pips),
+            "slippage_pips": float(slippage_pips),
+            "cost_assumed_pips": float(total_friction_pips),
+            "comex_tick_size_usd": comex_tick_usd,
+            "friction_price_usd": float(friction_price_usd),
             "round_trip_cost_r": float(round_trip_cost_r),
+            "evaluation_mode": "Fixed-Rule Sub-Period Evaluation (Train/Validation/Test)",
+            "skipped_incomplete_asia_bars": skipped_incomplete_asia_bars,
+            "skipped_no_breakout": skipped_no_breakout,
+            "skipped_no_retest": skipped_no_retest,
+            "skipped_invalid_risk": skipped_invalid_risk,
             "skipped_ambiguous_days": skipped_ambiguous,
             "skipped_incomplete_days": skipped_incomplete,
             "train_days_count": len(train_days),
-            "wf_days_count": len(wf_days),
-            "holdout_days_count": total_days - len(train_days) - len(wf_days),
+            "validation_days_count": len(val_days),
+            "test_days_count": len(test_days),
         },
         notes_en="Expectancy, statistical significance, and tail risk describe this historical sample path. They are not a promise of future profit. The empirical edge varies across session times and market regimes.",
         notes_vi="Kỳ vọng, ý nghĩa thống kê (t-stat/p-value) và rủi ro đuôi mô tả mẫu dữ liệu lịch sử này. Chúng không phải cam kết lợi nhuận tương lai. Lợi thế định lượng thay đổi theo khung giờ phiên và cơ chế biến động.",
@@ -1137,6 +1200,8 @@ def run_studies(
     timeframe: str = "M15",
     strategy_name: str = "breakout_retest",
     round_trip_cost_r: float = 0.0,
+    spread_pips: float = 3.5,
+    slippage_pips: float = 1.0,
     atr_period: int = 14,
 ) -> Dict[str, Any]:
     """Run the full study set. Output depends only on the candles and parameters."""
@@ -1149,7 +1214,7 @@ def run_studies(
         rule_eval = rule_backtest_london_liquidity_sweep(candles, round_trip_cost_r=round_trip_cost_r)
     elif strat in ("all", "multi"):
         # Include all 3 backtests
-        r1 = rule_backtest(candles, round_trip_cost_r=round_trip_cost_r)
+        r1 = rule_backtest(candles, round_trip_cost_r=round_trip_cost_r, spread_pips=spread_pips, slippage_pips=slippage_pips)
         r2 = rule_backtest_asian_mean_reversion(candles, round_trip_cost_r=round_trip_cost_r)
         r3 = rule_backtest_london_liquidity_sweep(candles, round_trip_cost_r=round_trip_cost_r)
         studies = [
@@ -1167,18 +1232,20 @@ def run_studies(
             "timeframe": str(timeframe or "M15").upper(),
             "strategy": strat,
             "candle_count": len(candles),
-            "range_start": candles[0].time,
-            "range_end": candles[-1].time,
+            "range_start": candles[0].time if candles else 0,
+            "range_end": candles[-1].time if candles else 0,
             "parameters": {
                 "strategy": strat,
                 "round_trip_cost_r": float(round_trip_cost_r),
+                "spread_pips": float(spread_pips),
+                "slippage_pips": float(slippage_pips),
                 "atr_period": int(atr_period),
                 "timezone": "UTC",
             },
             "studies": studies,
         }
     else:
-        rule_eval = rule_backtest(candles, round_trip_cost_r=round_trip_cost_r)
+        rule_eval = rule_backtest(candles, round_trip_cost_r=round_trip_cost_r, spread_pips=spread_pips, slippage_pips=slippage_pips)
 
     from app.domains.quant.data_feed import build_dataset_identity
     ds_id = build_dataset_identity(symbol, timeframe, candles)

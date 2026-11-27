@@ -1,5 +1,6 @@
 """Quantitative Research PDF Reports Catalog, Library, Checkout, Download & Admin Publisher Router."""
 import json
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
@@ -8,9 +9,10 @@ from pydantic import BaseModel
 
 from app.db import tx, audit
 from app.routers.deps import fail, get_current_admin, get_current_user
-from app.security import verify
+from app.security import digest
 from app.domains.reports.service import (
     attach_report_pdf_files,
+    build_or_get_report_bundle_zip,
     create_admin_report_draft,
     create_report_checkout_order,
     discontinue_admin_report,
@@ -32,27 +34,27 @@ router = APIRouter(tags=["reports"])
 
 
 def _get_optional_user(request: Request) -> Optional[Dict[str, Any]]:
-    tok = request.cookies.get("session")
+    tok = request.cookies.get("session") or request.cookies.get("token")
     if not tok:
         auth = request.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             tok = auth[7:].strip()
     if not tok:
         return None
-    data = verify(tok)
-    if not data or not data.get("uid"):
+    try:
+        with tx() as c:
+            row = c.execute(
+                "SELECT u.id, u.email, u.role, u.status FROM users u JOIN sessions s ON s.user_id = u.id WHERE s.token = ? AND s.expires > ?",
+                (digest(tok), time.time()),
+            ).fetchone()
+            if not row:
+                return None
+            u = dict(row)
+            if str(u.get("status") or "").lower() == "suspended":
+                return None
+            return u
+    except Exception:
         return None
-    with tx() as c:
-        row = c.execute(
-            "SELECT id, email, role, status FROM users WHERE id = ?",
-            (data["uid"],),
-        ).fetchone()
-        if not row:
-            return None
-        u = dict(row)
-        if str(u.get("status") or "").lower() != "active":
-            return None
-        return u
 
 
 class ReportCheckoutRequest(BaseModel):
@@ -121,6 +123,7 @@ def api_list_public_reports(market: Optional[str] = Query(default=None)):
 
 
 @router.get("/api/v1/reports/my/library")
+@router.get("/api/v1/reports/my-library")
 @router.get("/api/v1/library/reports")
 @router.get("/api/reports/my/library")
 def api_get_my_report_library(current_user: dict = Depends(get_current_user)):
@@ -251,8 +254,62 @@ def api_issue_report_download_token(
         "report_id": canonical_rep_id,
         "version": ver,
         "download_url": f"/api/v1/reports/{canonical_rep_id}/download?version={ver}&token={tok}",
+        "bundle_download_url": f"/api/v1/reports/{canonical_rep_id}/download-bundle?version={ver}&token={tok}",
         "expires_in": 300,
     }
+
+
+@router.get("/api/v1/reports/{report_id}/download-bundle")
+@router.get("/api/reports/{report_id}/download-bundle")
+def api_download_report_bundle(
+    report_id: str,
+    version: Optional[str] = Query(default=None),
+    token: Optional[str] = Query(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Protected endpoint to download the full research suite bundle ZIP (PDF, ledger CSV, metrics JSON, config, replay CLI).
+    Strictly verifies ownership, trial expiration, and version entitlement."""
+    uid_str = str(current_user["id"])
+    role_str = str(current_user.get("role") or "customer")
+    effective_version = version
+
+    with tx() as c:
+        rep_row = c.execute(
+            "SELECT id, slug FROM research_reports WHERE id = ? OR slug = ?",
+            (report_id, report_id),
+        ).fetchone()
+        if not rep_row:
+            fail(404, "Không tìm thấy báo cáo.")
+        canonical_rep_id = str(rep_row["id"])
+
+    if token:
+        verified = verify_signed_report_download_token(token, current_user_id=uid_str)
+        if not verified:
+            fail(403, "Liên kết tải không hợp lệ, đã hết hạn hoặc thuộc về tài khoản khác.")
+        tok_rep_id, tok_ver = verified
+        if tok_rep_id != canonical_rep_id:
+            fail(403, "Token tải không khớp với mã báo cáo.")
+        effective_version = tok_ver
+
+    try:
+        # Strictly verify entitlement and trial expiration!
+        _, _, dl_ver = verify_user_report_download_access(
+            user_id=uid_str,
+            user_role=role_str,
+            report_id=canonical_rep_id,
+            version=effective_version,
+        )
+        bundle_path, dl_filename, _ = build_or_get_report_bundle_zip(canonical_rep_id, dl_ver)
+    except PermissionError as exc:
+        fail(403, str(exc))
+    except FileNotFoundError as exc:
+        fail(404, str(exc))
+
+    return FileResponse(
+        path=str(bundle_path),
+        filename=dl_filename,
+        media_type="application/zip",
+    )
 
 
 @router.get("/api/v1/reports/{report_id}/download")
@@ -592,6 +649,7 @@ class AdminGrantTrialRequest(BaseModel):
     user_id: Optional[str] = None
     email: Optional[str] = None
     version: Optional[str] = "v1.0"
+    trial_days: int = 30
     notes: Optional[str] = "Institutional Evaluation Trial License"
 
 
@@ -618,7 +676,10 @@ def api_admin_grant_trial_entitlement(
         fail(400, "Vui lòng cung cấp 'user_id' hoặc 'email' của tài khoản được cấp quyền dùng thử.")
 
     now = time.time()
+    trial_duration_sec = max(1, int(body.trial_days or 30)) * 86400
+    trial_expires_at = now + trial_duration_sec
     trial_order_id = f"trial_{secrets.token_hex(6)}"
+
     with tx() as c:
         ensure_gold_research_suite_v1_seeded(c)
         rep_row = c.execute("SELECT id, title, version FROM research_reports WHERE id = ? OR slug = ?", (report_id, report_id)).fetchone()
@@ -632,6 +693,8 @@ def api_admin_grant_trial_entitlement(
             "report_id": real_rep_id,
             "report_version": body.version or "v1.0",
             "notes": body.notes,
+            "expires_at": trial_expires_at,
+            "is_trial": 1,
         }
 
         c.execute(
@@ -648,18 +711,19 @@ def api_admin_grant_trial_entitlement(
                 target_user_id,
                 f"report:{real_rep_id}",
                 now,
-                now + 86400 * 30,
+                trial_expires_at,
                 now,
                 real_rep_id,
                 body.version or "v1.0",
             ),
         )
-        ent = grant_report_entitlement_tx(c, order=order_stub, now_ts=now)
+        ent = grant_report_entitlement_tx(c, order=order_stub, now_ts=now, is_trial=1, expires_at=trial_expires_at)
         audit(c, str(admin["id"]), "report_trial_entitlement_granted", {
             "report_id": real_rep_id,
             "target_user_id": target_user_id,
             "version": body.version,
             "trial_order_id": trial_order_id,
+            "expires_at": trial_expires_at,
         })
 
     return {

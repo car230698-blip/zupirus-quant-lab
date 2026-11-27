@@ -139,16 +139,16 @@ def run_standalone_replay(
     slippage_pips: float = 1.0,
 ) -> Dict[str, Any]:
     """Execute the locked Breakout & Retest quantitative study on candles and generate verifiable ledger."""
-    # Convert pips into R-cost assumption
-    # On Gold M15, average risk is ~100 pips ($10.0/oz). 3.5 pips spread + 1.0 pip slippage = 4.5 pips = 0.045R
-    total_cost_pips = spread_pips + slippage_pips
-    cost_r = round(total_cost_pips / 100.0, 4)
+    # On COMEX Gold Futures (GC=F), 1 pip = 1 tick = $0.10/oz.
+    # Total friction in price = (spread_pips + slippage_pips) * $0.10/oz
+    total_cost_pips = float(spread_pips) + float(slippage_pips)
+    cost_price_usd = total_cost_pips * 0.10
 
     # Build dataset identity
     ds_identity = build_dataset_identity(symbol=symbol, timeframe=timeframe, candles=candles)
 
     # Run deterministic study
-    study_res = rule_backtest(candles, round_trip_cost_r=cost_r)
+    study_res = rule_backtest(candles, spread_pips=spread_pips, slippage_pips=slippage_pips)
 
     # Extract metrics from table
     t_rows = dict(study_res.get("table", {}).get("rows", []))
@@ -163,7 +163,8 @@ def run_standalone_replay(
             "spread_pips": spread_pips,
             "slippage_pips": slippage_pips,
             "total_friction_pips": total_cost_pips,
-            "friction_cost_r": cost_r,
+            "friction_price_usd": cost_price_usd,
+            "comex_tick_usd": 0.10,
             "conservative_same_bar_sl": True,
             "time_stop_bars": 32,
             "session_close_exit_utc": "21:00 UTC",
@@ -212,7 +213,7 @@ def print_cli_report(res: Dict[str, Any], validation_meta: Dict[str, Any]) -> No
     print(f" Dataset SHA-256   : {ds['data_sha256']}")
     print("-" * 78)
     print(f" Execution Model   : Point-in-time Open Entry after Retest Confirmation")
-    print(f" Assumptions       : Spread {p['spread_pips']} pips | Slippage {p['slippage_pips']} pips | Cost {p['friction_cost_r']}R")
+    print(f" Assumptions       : Spread {p['spread_pips']} pips | Slippage {p['slippage_pips']} pips | Friction ${p.get('friction_price_usd', 0.45):.2f}/oz (${p.get('comex_tick_usd', 0.10):.2f}/tick)")
     print(f" Safeguards        : Same-bar SL/TP conservative (SL first) | Time stop 32 bars / 21:00 UTC")
     print("=" * 78)
     print("  EXECUTIVE QUANTITATIVE PERFORMANCE SUMMARY")

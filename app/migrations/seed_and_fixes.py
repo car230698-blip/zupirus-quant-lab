@@ -823,12 +823,19 @@ def apply_migration_027(c, is_pg: bool):
             full_pdf_path TEXT NOT NULL,
             order_id TEXT NOT NULL UNIQUE,
             status TEXT NOT NULL DEFAULT 'ACTIVE',
+            expires_at DOUBLE PRECISION,
+            is_trial INTEGER NOT NULL DEFAULT 0,
+            download_count INTEGER NOT NULL DEFAULT 0,
             granted_at DOUBLE PRECISION NOT NULL,
             revoked_at DOUBLE PRECISION,
             UNIQUE(user_id, report_id, purchased_version)
         );
         CREATE INDEX IF NOT EXISTS idx_report_entitlements_user ON report_entitlements(user_id, status);
         CREATE INDEX IF NOT EXISTS idx_report_entitlements_report ON report_entitlements(report_id);
+
+        ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS expires_at DOUBLE PRECISION;
+        ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS is_trial INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS download_count INTEGER NOT NULL DEFAULT 0;
 
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS product_type TEXT NOT NULL DEFAULT 'SUBSCRIPTION';
         ALTER TABLE orders ADD COLUMN IF NOT EXISTS report_id TEXT;
@@ -885,6 +892,9 @@ def apply_migration_027(c, is_pg: bool):
             full_pdf_path TEXT NOT NULL,
             order_id TEXT NOT NULL UNIQUE,
             status TEXT NOT NULL DEFAULT 'ACTIVE',
+            expires_at REAL,
+            is_trial INTEGER NOT NULL DEFAULT 0,
+            download_count INTEGER NOT NULL DEFAULT 0,
             granted_at REAL NOT NULL,
             revoked_at REAL,
             UNIQUE(user_id, report_id, purchased_version)
@@ -1033,8 +1043,13 @@ def apply_migration_029(c, is_pg: bool):
         if "watermark_enabled" not in cols:
             c.execute("ALTER TABLE research_reports ADD COLUMN watermark_enabled INTEGER NOT NULL DEFAULT 0")
         ent_cols = [row[1] for row in c.execute("PRAGMA table_info(report_entitlements)").fetchall()]
-        if ent_cols and "download_count" not in ent_cols:
-            c.execute("ALTER TABLE report_entitlements ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
+        if ent_cols:
+            if "download_count" not in ent_cols:
+                c.execute("ALTER TABLE report_entitlements ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
+            if "expires_at" not in ent_cols:
+                c.execute("ALTER TABLE report_entitlements ADD COLUMN expires_at REAL")
+            if "is_trial" not in ent_cols:
+                c.execute("ALTER TABLE report_entitlements ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0")
         ver_cols = [row[1] for row in c.execute("PRAGMA table_info(report_versions)").fetchall()]
         if ver_cols:
             if "manifest_json" not in ver_cols:

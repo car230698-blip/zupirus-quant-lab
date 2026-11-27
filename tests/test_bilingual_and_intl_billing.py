@@ -181,6 +181,31 @@ def test_gateways_endpoint(client):
 
 def test_geoip_language_detection(client, monkeypatch):
     """Test IP and GeoIP based language detection for foreign visitors."""
+    # Mock external GeoIP lookup to ensure offline reliability and avoid rate limiting
+    import io
+    import urllib.request
+
+    class MockResponse:
+        def __init__(self, data: bytes):
+            self._data = io.BytesIO(data)
+
+        def read(self):
+            return self._data.read()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    def mock_urlopen(req, timeout=1.5):
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "51.158.254.166" in url or "country" in url:
+            return MockResponse(b'{"status":"success","countryCode":"NL"}')
+        return MockResponse(b'{"status":"fail"}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
     # 1. Cloudflare header for foreign country
     r_cf_nl = client.get("/api/v1/auth/geo", headers={"cf-ipcountry": "NL"})
     assert r_cf_nl.status_code == 200

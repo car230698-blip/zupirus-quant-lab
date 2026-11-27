@@ -18,14 +18,22 @@ def _bar(day, hour, open_, high, low, close, minute=0):
 
 
 def _sample_day():
-    """Asia range 90-110, then a London break that reaches the 1R target."""
-    bars = [
-        _bar(2, 1, 100, 110, 90, 100),
-        _bar(2, 3, 100, 108, 92, 101),
-        _bar(2, 8, 100, 120, 99, 115),
-        _bar(2, 9, 115, 135, 112, 132),
-        _bar(2, 14, 132, 133, 120, 125),
-    ]
+    """Asia range 2000-2010 (20 M15 bars), then London breakout, retest, entry and TP."""
+    bars = []
+    # 20 M15 bars for Asia (00:00 to 04:45 UTC)
+    for i in range(20):
+        h = i // 4
+        m = (i % 4) * 15
+        bars.append(_bar(2, h, 2005.0, 2010.0 if i == 5 else 2008.0, 2000.0 if i == 10 else 2002.0, 2005.0, minute=m))
+
+    # Bar 20 at 05:00 UTC: Breakout long! Close at 2016 (> 2010)
+    bars.append(_bar(2, 5, 2005.0, 2018.0, 2004.0, 2016.0, minute=0))
+    # Bar 21 at 05:15 UTC: Retest! Low reaches 2009 (<= 2010 and > 2000)
+    bars.append(_bar(2, 5, 2016.0, 2017.0, 2009.0, 2012.0, minute=15))
+    # Bar 22 at 05:30 UTC: Entry at open 2012. Risk = 12.0. Target = 2012 + 18 = 2030. High reaches 2035 -> TP!
+    bars.append(_bar(2, 5, 2012.0, 2035.0, 2011.0, 2032.0, minute=30))
+    # Bar 23 at 05:45 UTC
+    bars.append(_bar(2, 5, 2032.0, 2034.0, 2028.0, 2030.0, minute=45))
     return bars
 
 
@@ -51,11 +59,11 @@ def test_duplicate_timestamp_keeps_the_last_row():
 
 
 def test_studies_are_reproducible_and_do_not_promise_profit():
-    bundle = run_studies(_sample_day(), symbol="xau/usd", timeframe="h1", round_trip_cost_r=0)
-    again = run_studies(_sample_day(), symbol="XAUUSD", timeframe="H1", round_trip_cost_r=0)
+    bundle = run_studies(_sample_day(), symbol="xau/usd", timeframe="M15", round_trip_cost_r=0)
+    again = run_studies(_sample_day(), symbol="XAUUSD", timeframe="M15", round_trip_cost_r=0)
     assert bundle == again
     assert bundle["symbol"] == "XAUUSD"
-    assert bundle["candle_count"] == 5
+    assert bundle["candle_count"] == len(_sample_day())
     by_id = {item["id"]: item for item in bundle["studies"]}
     session = by_id["session_profile"]
     assert session["table"]["rows"][0][0] == "asia"
@@ -63,7 +71,7 @@ def test_studies_are_reproducible_and_do_not_promise_profit():
     assert rule["sample_size"] == 1
     metrics = {row[0]: row[1] for row in rule["table"]["rows"]}
     assert metrics["win_rate"] == 1.0
-    assert metrics["expectancy_r"] == 1.0
+    assert metrics["expectancy_r"] == 1.4625
     assert metrics["max_drawdown_r"] == 0.0
     assert "promise" in rule["notes_en"]
     assert "cam kết" in rule["notes_vi"]
@@ -72,7 +80,7 @@ def test_studies_are_reproducible_and_do_not_promise_profit():
 def test_cost_reduces_the_recorded_r_multiple():
     bundle = run_studies(_sample_day(), round_trip_cost_r=0.25)
     rule = next(item for item in bundle["studies"] if item["id"] == "rule_backtest_asia_break")
-    assert rule["trades"][0]["r_multiple"] == 0.75
+    assert rule["trades"][0]["r_multiple"] == 1.25
 
 
 def test_directional_persistence_is_one_when_every_step_continues():
@@ -117,34 +125,49 @@ def test_license_page_names_the_buyer():
 def test_gap_open_beyond_asia_boundary_enters_at_open():
     from app.domains.quant.studies import rule_backtest
 
-    # Pure gap: never trades back to 110 → fill at open 123.
-    bars = [
-        _bar(2, 1, 100, 110, 100, 105),
-        _bar(2, 3, 105, 108, 100, 102),
-        _bar(2, 8, 123, 124, 121, 122),
-        _bar(2, 9, 122, 122, 120, 120),
-    ]
+    # 20 Asia bars + breakout + retest + entry bar opening with gap beyond broken level
+    bars = []
+    for i in range(20):
+        h = i // 4
+        m = (i % 4) * 15
+        bars.append(_bar(2, h, 2005.0, 2010.0 if i == 5 else 2008.0, 2000.0 if i == 10 else 2002.0, 2005.0, minute=m))
+
+    # Breakout at 05:00 UTC (close 2015 > 2010)
+    bars.append(_bar(2, 5, 2005.0, 2018.0, 2004.0, 2015.0, minute=0))
+    # Retest at 05:15 UTC (touches 2009 <= 2010)
+    bars.append(_bar(2, 5, 2015.0, 2016.0, 2009.0, 2012.0, minute=15))
+    # Next bar at 05:30 UTC opens with gap at 2023.0 -> entry fills at open 2023.0
+    bars.append(_bar(2, 5, 2023.0, 2024.0, 2021.0, 2022.0, minute=30))
+    bars.append(_bar(2, 5, 2022.0, 2022.0, 2020.0, 2020.0, minute=45))
+
     out = rule_backtest(normalize_candles(bars), round_trip_cost_r=0.0)
     assert out["trades"]
-    assert out["trades"][0]["entry"] == 123.0
+    assert out["trades"][0]["entry"] == 2023.0
 
 
 def test_gap_open_then_trade_through_boundary_fills_at_boundary():
     from app.domains.quant.studies import rule_backtest
 
-    # Opens at 112 but trades down through 110 → boundary fill at 110.
-    # Entry-bar high 121 is before the fill path is knowable → do not credit +1R
-    # on that bar; next bar hits target at 120.
-    bars = [
-        _bar(2, 1, 100, 110, 100, 105),
-        _bar(2, 3, 105, 108, 100, 102),
-        _bar(2, 8, 112, 121, 108, 109),
-        _bar(2, 9, 109, 121, 108, 119),
-    ]
+    # Retest confirmed, entry at bar open following retest
+    bars = []
+    for i in range(20):
+        h = i // 4
+        m = (i % 4) * 15
+        bars.append(_bar(2, h, 2005.0, 2010.0 if i == 5 else 2008.0, 2000.0 if i == 10 else 2002.0, 2005.0, minute=m))
+
+    # Breakout at 05:00 UTC
+    bars.append(_bar(2, 5, 2005.0, 2018.0, 2004.0, 2015.0, minute=0))
+    # Retest at 05:15 UTC
+    bars.append(_bar(2, 5, 2015.0, 2016.0, 2009.0, 2012.0, minute=15))
+    # Entry bar at 05:30 UTC opens at 2012.0
+    bars.append(_bar(2, 5, 2012.0, 2035.0, 2011.0, 2030.0, minute=30))
+    bars.append(_bar(2, 5, 2030.0, 2032.0, 2025.0, 2028.0, minute=45))
+
     out = rule_backtest(normalize_candles(bars), round_trip_cost_r=0.0)
     assert out["trades"]
-    assert out["trades"][0]["entry"] == 110.0
-    assert out["trades"][0]["r_multiple"] == 1.0
+    assert out["trades"][0]["entry"] == 2012.0
+    assert out["trades"][0]["gross_r"] == 1.5
+    assert out["trades"][0]["r_multiple"] == 1.4625
 
 
 def test_rejects_non_finite_and_overflow_prices():

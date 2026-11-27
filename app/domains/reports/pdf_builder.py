@@ -313,6 +313,11 @@ def ensure_flagship_sample_report_seeded(c) -> Optional[str]:
 def ensure_gold_research_suite_v1_seeded(c) -> Optional[str]:
     """Ensure ZUPIRUS Gold Research Suite v1 is seeded as a draft package in research_reports
     with complete sample and full PDF files on disk, strictly in DRAFT status awaiting admin review."""
+    from cli.replay import parse_candle_file
+    from app.domains.quant.studies import run_studies
+    from app.domains.quant.methodology import build_methodology
+    from app.domains.quant.pdf_doc import build_methodology_pdf
+
     pub_dir = get_public_samples_dir()
     priv_dir = get_private_reports_dir()
 
@@ -320,6 +325,27 @@ def ensure_gold_research_suite_v1_seeded(c) -> Optional[str]:
     slug = "zupirus-gold-research-suite-v1"
     sample_file = pub_dir / f"{rep_id}-v1.0-sample.pdf"
     full_file = priv_dir / f"{rep_id}-v1.0-full.pdf"
+
+    # Always generate real verifiable PDFs and ledger from single empirical execution
+    sample_csv_path = Path("data/samples/comex_gold_m15_sample.csv")
+    bundle = {}
+    if sample_csv_path.exists():
+        try:
+            candles, _ = parse_candle_file(sample_csv_path)
+            bundle = run_studies(candles, symbol="GC=F", timeframe="M15", strategy_name="breakout_retest")
+            doc = build_methodology(
+                bundle,
+                title_vi="ZUPIRUS Gold Research Suite v1: Breakout & Retest Vàng COMEX M15",
+                title_en="ZUPIRUS Gold Research Suite v1: Breakout & Retest COMEX Gold Futures M15",
+                version="v1.0",
+                author="ZUPIRUS Quant Lab",
+            )
+            sample_bytes = build_methodology_pdf(doc, preview=True, lang="vi")
+            full_bytes = build_methodology_pdf(doc, preview=False, lang="vi")
+            sample_file.write_bytes(sample_bytes)
+            full_file.write_bytes(full_bytes)
+        except Exception as e:
+            logger.warning("Could not run quantitative studies on sample CSV: %s", e)
 
     if not sample_file.exists():
         sample_bytes = build_pdf_bytes(
@@ -330,26 +356,6 @@ def ensure_gold_research_suite_v1_seeded(c) -> Optional[str]:
                     "# 1. Ban Doc Thu: ZUPIRUS Gold Research Suite v1",
                     "San pham nghien cuu dinh luong cao cap duoc ZUPIRUS Quant Lab chu dong lua chon,",
                     "nghien cuu va phat trien truoc de ban mot phien ban dong nhat cho nhieu doi to chuc.",
-                    "Phien ban dau tien tap trung vao Breakout & Retest khung M15 tren Hop dong tuong lai",
-                    "vang COMEX (GC=F).",
-                    " ",
-                    "# 2. Pham Vi San Pham & Giay Phep (Scope & License)",
-                    "- Goi san pham bao gom: Bao cao PDF toan dien, Nhat ky giao dich (Ledger CSV),",
-                    "  Bo bang chung thong ke (Monte Carlo & Stress Ma Sat), va Cong cu Replay doc lap.",
-                    "- Giay phep: Giay phep dung thu cap cho mot doi khach hang to chuc (Single-Team Trial).",
-                    "- Gia chao muc tieu: 10.000 USD (Advisory target price - hien tai dang o che do khao sat).",
-                    "- Luu y quan trong: Du lieu nguon la Hop dong tuong lai vang COMEX (GC=F), khong phai",
-                    "  gia giao ngay XAU/USD Spot OTC. Khong su dung de tuyen bo loi the tren thi truong Spot.",
-                ],
-                [
-                    "# 3. Quy Tac Dinh Luong Breakout & Retest M15",
-                    "1. Bien do phien A (00:00 - 05:00 UTC): Xac dinh Asia High va Asia Low 20 nen dau ngay.",
-                    "2. Xac nhan Breakout: Nen phien London dong cua hoan toan ngoai bien do phien A.",
-                    "3. Xac nhan Retest: Gia hoi quy cham lai muc da pha vo trong vong 1 - 8 nen tiep theo.",
-                    "4. Diem vao lenh: Gia Mo Cua (Open) cua cay nen ngay sau khi xac nhan Retest thanh cong.",
-                    "5. Cat lo (SL): Phia doi dien cua bien do; Chot loi (TP): 1.5R.",
-                    "6. Bao ve bao toan: Xu ly cung nen (SL first), xu ly chenh gia mo cua (Gap Open),",
-                    "   Dong lenh het thoi gian (Time Stop sau 32 nen M15 hoac 21:00 UTC phien My).",
                 ]
             ],
         )
@@ -362,59 +368,50 @@ def ensure_gold_research_suite_v1_seeded(c) -> Optional[str]:
             pages_lines=[
                 [
                     "# 1. Executive Summary & Problem Framing",
-                    "ZUPIRUS Gold Research Suite v1 la bo tai lieu nghien cuu dinh luong doc lap,",
-                    "cung cap he thong bang chung toan dien ve dac tinh bien dong, thanh khoan va hanh vi",
-                    "pha vo - hoi quy (Breakout & Retest) tren Hop dong tuong lai vang COMEX (GC=F).",
-                    " ",
-                    "# 2. Verifiable Evidence & Split-Sample Testing",
-                    "- Tap du lieu duoc phan tach nghiem ngat: In-Sample (Train 50%), Walk-Forward (30%),",
-                    "  va Final Holdout (20% Out-of-Sample).",
-                    "- Toan bo chi so duoc truy xuat dong nhat tu mot Nhat Ky Giao Dich duy nhat (Ledger CSV).",
-                    "- Ma tran nhay chi phan tich o 3 muc do: 0.0 pips (Gross), 3.5 pips (Standard Broker),",
-                    "  va 5.0 pips (Heavy Friction Stress).",
-                    "- Mo phong Monte Carlo 1,000 vong voi seed 42 xac nhan rui ro duoi P95 Drawdown.",
-                ],
-                [
-                    "# 3. Conditions Causing Strategy Degradation (Dieu Kien Suy Yeu)",
-                    "1. Tin tuc kinh te vi mo lon (CPI, NFP, FOMC): Do gian spread dot bien > 5.0 pips khien",
-                    "   ky vong bien tro nen bat loi.",
-                    "2. Giai doan bien do phien A bat thuong (< 20 pips hoac > 120 pips): Tang nguy co bay thanh khoan.",
-                    "3. Truot gia giao dich thuc te vuot 1.5 pips: Lam suy giam Profit Factor tren tap holdout.",
-                    " ",
-                    "# 4. Handover & Replay Verification Instructions",
-                    "- Khach hang to chuc co the su dung CLI Replay doc lap ('python -m cli.replay')",
-                    "  hoac Replay Sandbox tren website de tai chay tren du lieu mau hoac du lieu rieng.",
-                    "- Khong yeu cau tai khoan broker hay ket noi API ben ngoai.",
-                ],
+                    "ZUPIRUS Gold Research Suite v1 la bo tai lieu nghien cuu dinh luong doc lap.",
+                ]
             ],
         )
         full_file.write_bytes(full_bytes)
 
     now = time.time()
-    existing = c.execute("SELECT id FROM research_reports WHERE id = ? OR slug = ?", (rep_id, slug)).fetchone()
-    
+    existing = c.execute("SELECT id, status FROM research_reports WHERE id = ? OR slug = ?", (rep_id, slug)).fetchone()
+
+    rule_study = next((s for s in bundle.get("studies", []) if str(s.get("id", "")).startswith("rule_backtest")), {})
+    t_rows = dict(rule_study.get("table", {}).get("rows", []))
+
     wfo_metrics = {
         "suite_name": "ZUPIRUS Gold Research Suite v1",
         "asset_class": "COMEX_GOLD_FUTURES",
         "symbol": "GC=F",
         "strategy": "breakout_retest",
         "timeframe": "M15",
-        "dataset_hash": "fe1c3d5a9f2d54c9c083b11cff4e2db668f93d2d2afeb5e9870d0b4156fbf53b",
-        "evidence_type": "SPLIT_SAMPLE_WALK_FORWARD",
-        "train_share": 0.50,
-        "wf_share": 0.30,
-        "holdout_share": 0.20,
-        "cost_model_pips": 3.5,
+        "dataset_hash": bundle.get("dataset_identity", {}).get("data_sha256", "fe1c3d5a9f2d54c9c083b11cff4e2db668f93d2d2afeb5e9870d0b4156fbf53b"),
+        "evidence_type": "FIXED_RULE_SUB_PERIOD_EVALUATION",
+        "evaluation_mode": "Fixed-Rule Sub-Period Evaluation (Train/Validation/Test)",
+        "trades_count": len(rule_study.get("trades", [])),
+        "win_rate": t_rows.get("win_rate"),
+        "profit_factor": t_rows.get("profit_factor"),
+        "profit_factor_label": t_rows.get("profit_factor_label"),
+        "max_drawdown_r": t_rows.get("max_drawdown_r"),
+        "sum_r": t_rows.get("sum_r"),
+        "sharpe_ratio": t_rows.get("sharpe_ratio"),
+        "sortino_ratio": t_rows.get("sortino_ratio"),
+        "t_statistic": t_rows.get("t_statistic"),
+        "p_value": t_rows.get("p_value"),
+        "cost_model_pips": 4.5,
         "cost_model_is_assumed": True,
+        "comex_tick_usd": 0.10,
         "conservative_sl_tp": True,
         "time_stop_bars": 32,
         "license_scope": "Single-Team Institutional Evaluation License",
         "advisory_target_price_usd": 10000.0,
+        "split_breakdown": rule_study.get("split_breakdown", {}),
     }
     highlights = [
         "Sản phẩm nghiên cứu định lượng độc quyền về Breakout & Retest vàng COMEX M15.",
         "Bộ tài liệu bàn giao đầy đủ: Báo cáo PDF, Nhật ký Ledger CSV, Cấu hình và Công cụ Replay độc lập.",
-        "Kiểm định phân tách dữ liệu 3 pha: Khám phá (Train), Walk-Forward và Kiểm định độc lập (Holdout).",
+        "Kiểm định phân tách dữ liệu theo các giai đoạn thời gian: Train, Validation và Test.",
         "Không phụ thuộc tài khoản sàn, cho phép khách hàng tự kiểm tra với dữ liệu OHLCV nội bộ.",
         "Giấy phép dùng thử chuyên biệt cho một đội ngũ nghiên cứu tổ chức.",
     ]
@@ -433,7 +430,7 @@ def ensure_gold_research_suite_v1_seeded(c) -> Optional[str]:
                 rep_id,
                 slug,
                 "ZUPIRUS Gold Research Suite v1: Breakout & Retest Vàng COMEX M15",
-                "Bộ sản phẩm nghiên cứu định lượng độc quyền chuyên sâu về chiến lược Breakout & Retest khung M15 trên Hợp đồng tương lai vàng COMEX (GC=F). Bao gồm báo cáo PDF toàn diện, bộ bằng chứng Walk-Forward / Monte Carlo, nhật ký giao dịch (Ledger CSV), cấu hình mã nguồn và công cụ Replay độc lập.",
+                "Bộ sản phẩm nghiên cứu định lượng độc quyền chuyên sâu về chiến lược Breakout & Retest khung M15 trên Hợp đồng tương lai vàng COMEX (GC=F). Bao gồm báo cáo PDF toàn diện, bộ bằng chứng thống kê, nhật ký giao dịch (Ledger CSV), cấu hình mã nguồn và công cụ Replay độc lập.",
                 "ZUPIRUS Gold Research Suite v1 là sản phẩm nghiên cứu định lượng được ZUPIRUS tự chọn đề tài, tự nghiên cứu và phát triển trước để bán cùng một phiên bản cho nhiều đội tổ chức. Sản phẩm đầu tiên tập trung vào Breakout & Retest vàng M15, bàn giao kèm công cụ replay độc lập, nhật ký lệnh chi tiết và hướng dẫn tái lập kết quả.",
                 10000.0,
                 str(sample_file),
@@ -444,4 +441,15 @@ def ensure_gold_research_suite_v1_seeded(c) -> Optional[str]:
                 now,
             ),
         )
+    else:
+        # If still in DRAFT, refresh PDF paths and metrics from single execution
+        if str(existing[1]).upper() == "DRAFT":
+            c.execute(
+                """
+                UPDATE research_reports
+                SET sample_pdf_path = ?, full_pdf_path = ?, wfo_metrics_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (str(sample_file), str(full_file), json.dumps(wfo_metrics, ensure_ascii=False), now, rep_id),
+            )
     return rep_id

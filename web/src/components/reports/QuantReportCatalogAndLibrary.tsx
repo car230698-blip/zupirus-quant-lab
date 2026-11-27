@@ -90,6 +90,10 @@ export interface LibraryEntitlementItem {
   page_count?: number;
   download_url: string;
   sample_pdf_url: string;
+  is_trial?: boolean;
+  expires_at?: number | null;
+  is_expired?: boolean;
+  bundle_download_url?: string;
 }
 
 export const DEFAULT_FALLBACK_REPORTS: ResearchReportItem[] = [
@@ -162,6 +166,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
   const [checkoutBusy, setCheckoutBusy] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'info' | 'error' | 'success'; text: string } | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadingBundleId, setDownloadingBundleId] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveView(initialSection);
@@ -344,6 +349,40 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
     }
   };
 
+  const handleDownloadBundle = async (reportId: string, version: string, title?: string) => {
+    setDownloadingBundleId(`${reportId}:${version}`);
+    setStatusMessage(null);
+    try {
+      const tokRes = await apiPost<any>(
+        `/api/v1/reports/${encodeURIComponent(reportId)}/download-token?version=${encodeURIComponent(version)}`,
+        {}
+      );
+      const dlUrl =
+        tokRes?.bundle_download_url ||
+        `/api/v1/reports/${encodeURIComponent(reportId)}/download-bundle?version=${encodeURIComponent(version)}`;
+      await api.downloadBlob(dlUrl, `${reportId}-${version}-suite.zip`);
+      setStatusMessage({
+        type: 'success',
+        text:
+          lang === 'en'
+            ? `Downloaded research suite bundle for "${title || reportId}" (${version}) successfully.`
+            : `Đã tải xuống trọn bộ nghiên cứu "${title || reportId}" (${version}) thành công.`,
+      });
+      await loadData();
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text:
+          err?.message ||
+          (lang === 'en'
+            ? 'Error downloading research bundle. Please verify your library entitlement or trial expiration.'
+            : 'Lỗi tải bộ nghiên cứu. Vui lòng kiểm tra lại quyền truy cập hoặc thời hạn dùng thử.'),
+      });
+    } finally {
+      setDownloadingBundleId(null);
+    }
+  };
+
   return (
     <section id="reports-catalog" className="space-y-6">
       {/* Section Header */}
@@ -487,19 +526,38 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
             <div className="grid gap-5 md:grid-cols-2">
               {libraryItems.map((item) => {
                 const isDownloading = downloadingId === `${item.report_id}:${item.purchased_version}`;
+                const isDownloadingBundle = downloadingBundleId === `${item.report_id}:${item.purchased_version}`;
                 const grantedDate = item.granted_at
                   ? new Date(item.granted_at * 1000).toLocaleDateString('vi-VN')
                   : '—';
+                const isExpired = Boolean(item.is_expired);
+                const expiryDate = item.expires_at
+                  ? new Date(item.expires_at * 1000).toLocaleDateString('vi-VN')
+                  : null;
+
                 return (
                   <div
                     key={item.entitlement_id}
-                    className="quant-card-interactive p-6 flex flex-col justify-between gap-4"
+                    className={`quant-card-interactive p-6 flex flex-col justify-between gap-4 ${
+                      isExpired ? 'opacity-85 border-rose-900/40' : ''
+                    }`}
                   >
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <StatusBadge tone="success">
-                          {lang === 'en' ? 'OWNED' : 'ĐÃ SỞ HỮU'} · {item.purchased_version}
-                        </StatusBadge>
+                        {isExpired ? (
+                          <StatusBadge tone="danger">
+                            {lang === 'en' ? 'TRIAL EXPIRED' : 'HẾT HẠN DÙNG THỬ'} · {item.purchased_version}
+                          </StatusBadge>
+                        ) : item.is_trial ? (
+                          <StatusBadge tone="warning">
+                            {lang === 'en' ? 'TRIAL ACCESS' : 'BẢN DÙNG THỬ'} · {item.purchased_version}
+                            {expiryDate ? ` (${lang === 'en' ? 'Exp:' : 'Hạn:'} ${expiryDate})` : ''}
+                          </StatusBadge>
+                        ) : (
+                          <StatusBadge tone="success">
+                            {lang === 'en' ? 'OWNED' : 'ĐÃ SỞ HỮU'} · {item.purchased_version}
+                          </StatusBadge>
+                        )}
                         <span className="font-mono text-xs text-slate-400 tabular-nums">
                           {item.market} · {item.timeframe} · {grantedDate}
                         </span>
@@ -508,6 +566,17 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                       <h3 className="text-lg font-bold text-white leading-snug">{item.title}</h3>
                       {item.subtitle && <p className="text-xs font-medium text-amber-300/90">{item.subtitle}</p>}
                       <p className="text-xs text-slate-300 leading-relaxed">{item.summary}</p>
+
+                      {isExpired && (
+                        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+                          <span>
+                            {lang === 'en'
+                              ? `Trial access expired on ${expiryDate || 'N/A'}. Full deliverables are locked.`
+                              : `Quyền dùng thử đã hết hạn vào ngày ${expiryDate || 'N/A'}. Tài liệu đầy đủ đã bị khóa.`}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="pt-3 border-t border-slate-800/80 space-y-3">
@@ -521,37 +590,88 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                         </span>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2.5">
-                        <button
-                          type="button"
-                          disabled={isDownloading}
-                          onClick={() =>
-                            handleDownloadPurchasedPdf(item.report_id, item.purchased_version, item.title)
-                          }
-                          className="quant-btn-primary flex-1 text-xs"
-                        >
-                          <Download className="h-4 w-4" />
-                          <span>
-                            {isDownloading
-                              ? lang === 'en'
-                                ? 'Preparing PDF...'
-                                : 'Đang xác thực & tải PDF...'
-                              : lang === 'en'
-                              ? `Download Full PDF (${item.purchased_version})`
-                              : `Tải PDF Đầy Đủ (${item.purchased_version})`}
-                          </span>
-                        </button>
+                      {isExpired ? (
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <button
+                            type="button"
+                            disabled
+                            className="quant-btn-secondary opacity-50 cursor-not-allowed flex-1 text-xs"
+                          >
+                            <Clock className="h-4 w-4 text-slate-500" />
+                            <span>
+                              {lang === 'en'
+                                ? 'Trial Expired — Contact Admin'
+                                : 'Hết hạn dùng thử — Liên hệ Admin'}
+                            </span>
+                          </button>
+                          <a
+                            href={item.sample_pdf_url || `/api/v1/reports/${item.report_id}/sample-pdf`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="quant-btn-secondary text-xs"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
+                          </a>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <button
+                            type="button"
+                            disabled={isDownloading || isDownloadingBundle}
+                            onClick={() =>
+                              handleDownloadPurchasedPdf(item.report_id, item.purchased_version, item.title)
+                            }
+                            className="quant-btn-primary flex-1 text-xs"
+                          >
+                            <Download className="h-4 w-4" />
+                            <span>
+                              {isDownloading
+                                ? lang === 'en'
+                                  ? 'Preparing PDF...'
+                                  : 'Đang xác thực & tải PDF...'
+                                : lang === 'en'
+                                ? `Full PDF (${item.purchased_version})`
+                                : `Tải PDF Đầy Đủ (${item.purchased_version})`}
+                            </span>
+                          </button>
 
-                        <a
-                          href={item.sample_pdf_url || `/api/v1/reports/${item.report_id}/sample-pdf`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="quant-btn-secondary text-xs"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
-                        </a>
-                      </div>
+                          <button
+                            type="button"
+                            disabled={isDownloading || isDownloadingBundle}
+                            onClick={() =>
+                              handleDownloadBundle(item.report_id, item.purchased_version, item.title)
+                            }
+                            className="quant-btn-secondary text-xs"
+                            title={
+                              lang === 'en'
+                                ? 'Download complete research suite (ZIP: PDF, CSV ledger, metrics, CLI replay, quickstart, manifests)'
+                                : 'Tải trọn bộ nghiên cứu (ZIP: PDF, nhật ký CSV, metrics, CLI replay, hướng dẫn nhanh, mã băm SHA-256)'
+                            }
+                          >
+                            <Layers className="h-3.5 w-3.5" />
+                            <span>
+                              {isDownloadingBundle
+                                ? lang === 'en'
+                                  ? 'Packaging...'
+                                  : 'Đang đóng gói...'
+                                : lang === 'en'
+                                ? 'Research Suite (ZIP)'
+                                : 'Bộ nghiên cứu (ZIP)'}
+                            </span>
+                          </button>
+
+                          <a
+                            href={item.sample_pdf_url || `/api/v1/reports/${item.report_id}/sample-pdf`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="quant-btn-secondary text-xs"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

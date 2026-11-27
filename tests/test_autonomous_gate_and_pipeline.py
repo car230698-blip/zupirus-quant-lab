@@ -37,7 +37,13 @@ def test_autonomous_gate_evaluation():
     assert res is not None
     assert isinstance(res.passed, bool)
     assert isinstance(res.score, float)
-    assert res.status in ("PASS", "REJECT")
+    assert res.status in (
+        "PASS",
+        "REJECT",
+        "INSUFFICIENT_EVIDENCE",
+        "VALID_METHODOLOGY_NEGATIVE_EDGE",
+        "QUALIFIED_EDGE",
+    )
     assert isinstance(res.passed_checks, list)
     assert isinstance(res.failed_checks, list)
     assert len(res.summary_vi) > 20
