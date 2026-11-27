@@ -53,16 +53,19 @@ def _compute_sha256(filepath: str | Path | None) -> str:
     return h.hexdigest()
 
 
-def check_report_purchase_eligibility(status: Optional[str]) -> Tuple[bool, Optional[str]]:
+def check_report_purchase_eligibility(status: Optional[str], is_for_sale: bool = True) -> Tuple[bool, Optional[str]]:
     """Determine if a report is currently eligible for online purchase.
     Strictly synchronizes:
     - Report status must be PUBLISHED
+    - Report is_for_sale flag must be True
     - Commercial sales flag must be ON
     - Direct USDT flag must be ON
     - Valid receiving wallet (TRC20 or BEP20) must be configured
     """
     if str(status or "").upper() != "PUBLISHED":
         return False, "Báo cáo chưa được xuất bản công khai."
+    if not is_for_sale:
+        return False, "Ấn phẩm hiện chưa được bật cờ mở bán thương mại."
     if not is_commercial_reports_sale_enabled():
         return False, "Cổng mở bán thương mại đang tạm tắt để kiểm định."
 
@@ -99,9 +102,19 @@ def _format_report_row(row: Any, include_private_paths: bool = False) -> Dict[st
 
     has_sample = bool(d.get("sample_pdf_path") and Path(str(d["sample_pdf_path"])).is_file())
     has_full = bool(d.get("full_pdf_path") and Path(str(d["full_pdf_path"])).is_file())
+    is_for_sale = bool(d.get("is_for_sale", 0))
+    st_upper = str(d.get("status") or "DRAFT").upper()
+    if st_upper == "PUBLISHED":
+        review_status = "PUBLISHED"
+    elif st_upper == "DISCONTINUED":
+        review_status = "DISCONTINUED"
+    elif has_full:
+        review_status = "READY_FOR_REVIEW"
+    else:
+        review_status = "DRAFT_NO_FILE"
 
     ver_str = d.get("version") or "v1.0"
-    can_purchase, _ = check_report_purchase_eligibility(d.get("status"))
+    can_purchase, _ = check_report_purchase_eligibility(d.get("status"), is_for_sale)
     out = {
         "id": rep_id,
         "slug": slug,
@@ -113,7 +126,9 @@ def _format_report_row(row: Any, include_private_paths: bool = False) -> Dict[st
         "timeframe": d.get("timeframe") or "M15 / H1",
         "version": ver_str,
         "current_version": ver_str,
-        "status": str(d.get("status") or "DRAFT").upper(),
+        "status": st_upper,
+        "review_status": review_status,
+        "is_for_sale": is_for_sale,
         "price_usd": round(float(d.get("price_usd") or 29.0), 2),
         "price_vnd": int(d.get("price_vnd") or 750000),
         "currency": d.get("currency") or "VND",
@@ -195,7 +210,7 @@ def get_public_report_detail(report_id_or_slug: str, user_id: Optional[str] = No
 
         rep["owned"] = len(owned_versions) > 0
         rep["owned_versions"] = owned_versions
-        rep["can_purchase"] = is_commercial_reports_sale_enabled() and (st == "PUBLISHED")
+        rep["can_purchase"] = rep.get("can_purchase", False)
         return rep
 
 
@@ -311,11 +326,11 @@ def create_admin_report_draft(
         sample_path.write_bytes(sample_bytes)
 
         full_bytes = build_pdf_bytes(
-            title=f"ZUPIRUS QUANT LAB - FULL RESEARCH REPORT ({version})",
+            title=f"ZUPIRUS QUANT LAB - FULL RESEARCH REPORT ({version}) [Bố cục mẫu tự động]",
             subtitle=f"{title} | Market: {market} ({timeframe})",
             pages_lines=[
                 [
-                    "# 1. Research Summary & Hypothesis",
+                    "# 1. Research Summary & Hypothesis (Bố cục mẫu tự động / Placeholder Layout)",
                     summary,
                     " ",
                     "# 2. Detailed Quantitative Analysis",
@@ -427,11 +442,12 @@ def update_admin_report(
         if new_status not in VALID_REPORT_STATUSES:
             new_status = cur["status"]
 
-        # Human Admin Gatekeeper: Prevent automated pipeline / agent from promoting directly to PUBLISHED
+        # Human Admin Gatekeeper: Prevent modifying status to PUBLISHED via metadata update API or automated agents
+        is_agent_caller = any(str(admin_id).lower().startswith(p) for p in ("agent", "autonomous_", "worker", "system", "force"))
+        if is_agent_caller and new_status == "PUBLISHED":
+            raise PermissionError("Tiến trình tự động/Agent không được phép xuất bản trực tiếp. Yêu cầu admin phê duyệt.")
         if new_status == "PUBLISHED" and cur.get("status") != "PUBLISHED":
-            is_agent = str(admin_id or "").startswith(("autonomous_", "agent_", "system_"))
-            if is_agent:
-                raise PermissionError("Tiến trình tự động/Agent không được phép xuất bản trực tiếp. Bắt buộc cần Admin phê duyệt.")
+            raise ValueError("API sửa metadata không được phép đổi trạng thái sang PUBLISHED thay cho luồng xuất bản chính thức. Vui lòng sử dụng chức năng Xuất bản & Phê duyệt (Publish).")
 
         sample_path = cur.get("sample_pdf_path")
         full_path = cur.get("full_pdf_path")
@@ -617,6 +633,22 @@ def publish_admin_report(
                 expected_priv_file.write_bytes(Path(str(full_path)).read_bytes())
             full_path = str(expected_priv_file)
 
+        # Ensure full PDF is not an auto-generated placeholder layout
+        full_content = Path(str(full_path)).read_bytes()
+        if (
+            b"Placeholder Layout" in full_content
+            or b"B\xe1\xbb\x91 c\xe1\xbb\xa5c m\xe1\xba\xabu t\xe1\xbb\xb1 \xc4\x91\xe1\xbb\x99ng" in full_content
+            or (b"# 1. Research Summary" in full_content and len(full_content) < 3500)
+        ):
+            raise ValueError("Tệp PDF hiện tại chỉ là bản bố cục mẫu tự động. Backend từ chối xuất bản khi phiên bản chưa có tệp nghiên cứu thực được phê duyệt.")
+
+        # Gold Suite specific validation: require verified bundle zip & manifest
+        if "gold" in real_id.lower():
+            try:
+                build_or_get_report_bundle_zip(real_id, eff_ver)
+            except Exception as exc:
+                raise ValueError(f"Không thể xuất bản Gold Research Suite do thiếu gói bằng chứng hoặc manifest: {exc}")
+
         # Compute cryptographic hashes and package manifest for immutability auditing
         full_hash = _compute_sha256(full_path)
         sample_path_str = str(cur.get("sample_pdf_path") or "")
@@ -799,7 +831,7 @@ def create_report_checkout_order(
         real_rep_id = rep["id"]
         rep_status = str(rep.get("status") or "DRAFT").upper()
 
-        can_buy, unavail_reason = check_report_purchase_eligibility(rep_status)
+        can_buy, unavail_reason = check_report_purchase_eligibility(rep_status, bool(rep.get("is_for_sale", 0)))
         if not can_buy:
             fail(400, unavail_reason or "Báo cáo hiện không trong trạng thái có thể đặt mua.")
 
@@ -813,6 +845,40 @@ def create_report_checkout_order(
         ).fetchone()
         if existing_ent:
             fail(409, f"Bạn đã sở hữu báo cáo này (phiên bản {rep_version}) trong Thư viện của tôi.")
+
+        # Check for existing valid pending order to prevent duplicate creation on rapid clicks/tabs
+        existing_order = c.execute(
+            """
+            SELECT * FROM orders
+            WHERE user_id = ? AND report_id = ? AND report_version = ?
+              AND status = 'PENDING' AND expires_at > ?
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (user_id, real_rep_id, rep_version, now_ts),
+        ).fetchone()
+        if existing_order:
+            eo = dict(existing_order)
+            cur_gw = str(eo.get("payment_gateway") or gateway)
+            cur_net = cur_gw.replace("USDT_", "") or network
+            cur_wallet = trc20_addr if "TRC20" in cur_gw else bep20_addr
+            return {
+                "order_id": eo["id"],
+                "order_code": eo["id"],
+                "report_id": real_rep_id,
+                "report_title": rep.get("title", ""),
+                "report_version": rep_version,
+                "amount_usd": float(eo.get("amount_usd") or 0.0),
+                "expected_amount_usdt": float(eo.get("expected_amount_usdt") or eo.get("amount_usd") or 0.0),
+                "amount": float(eo.get("expected_amount_usdt") or eo.get("amount_usd") or 0.0),
+                "currency": "USDT",
+                "payment_gateway": cur_gw,
+                "network": cur_net,
+                "wallet_address": cur_wallet,
+                "status": "PENDING",
+                "expires_at": float(eo.get("expires_at") or 0.0),
+                "created_at": float(eo.get("created_at") or 0.0),
+                "already_exists": True,
+            }
 
         total_usd = round(float(rep.get("price_usd") or 29.0), 2)
         rate, _, _ = get_usd_vnd_rate()

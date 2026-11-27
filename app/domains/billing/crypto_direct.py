@@ -117,10 +117,17 @@ def get_crypto_wallets_config(db_cursor: Optional[Any] = None) -> Dict[str, Any]
                     bep20 = str(data.get("usdt_bep20_address") or data.get("bep20_address") or "").strip()
                     has_wallets = bool(trc20 or bep20)
                     env_on = os.getenv("PAYMENT_USDT_ENABLED", "").strip().lower() in ("1", "true", "yes")
+                    env_sales_on = os.getenv("COMMERCIAL_REPORTS_SALE_ENABLED", "false").strip().lower() in ("1", "true", "yes")
                     saved_on = bool(data.get("enabled", False))
                     is_enabled = (env_on or saved_on) and has_wallets
+                    checkout_locked = not (env_sales_on and is_enabled)
                     return {
                         "enabled": is_enabled,
+                        "db_saved_enabled": saved_on,
+                        "env_payment_usdt_enabled": env_on,
+                        "env_commercial_sales_enabled": env_sales_on,
+                        "checkout_locked": checkout_locked,
+                        "checkout_status": "MỞ BÁN THỰC TẾ" if not checkout_locked else "ĐÃ KHÓA TRÊN PRODUCTION (COMMERCIAL_REPORTS_SALE_ENABLED=false)",
                         "trc20_address": trc20,
                         "bep20_address": bep20,
                         "usdt_trc20_address": trc20,
@@ -132,8 +139,16 @@ def get_crypto_wallets_config(db_cursor: Optional[Any] = None) -> Dict[str, Any]
                 logger.warning(f"Failed parsing crypto_wallets config: {e}")
         has_default_wallets = bool(DEFAULT_TRC20_WALLET or DEFAULT_BEP20_WALLET)
         env_on = os.getenv("PAYMENT_USDT_ENABLED", "").strip().lower() in ("1", "true", "yes")
+        env_sales_on = os.getenv("COMMERCIAL_REPORTS_SALE_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+        is_def_enabled = env_on and has_default_wallets
+        checkout_locked = not (env_sales_on and is_def_enabled)
         return {
-            "enabled": env_on and has_default_wallets,
+            "enabled": is_def_enabled,
+            "db_saved_enabled": False,
+            "env_payment_usdt_enabled": env_on,
+            "env_commercial_sales_enabled": env_sales_on,
+            "checkout_locked": checkout_locked,
+            "checkout_status": "MỞ BÁN THỰC TẾ" if not checkout_locked else "ĐÃ KHÓA TRÊN PRODUCTION (COMMERCIAL_REPORTS_SALE_ENABLED=false)",
             "trc20_address": DEFAULT_TRC20_WALLET,
             "bep20_address": DEFAULT_BEP20_WALLET,
             "usdt_trc20_address": DEFAULT_TRC20_WALLET,

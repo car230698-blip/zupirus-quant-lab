@@ -80,8 +80,8 @@ test('LandingPage renders separated public landing layout, catalog, methodology,
   );
 
   assert.match(html, /ZUPIRUS/);
-  assert.match(html, /XAUUSD/);
-  assert.match(html, /Walk-Forward/);
+  assert.match(html, /COMEX|GC=F|Gold/);
+  assert.match(html, /M15/);
   assert.doesNotMatch(html, /ADMIN OPERATIONS CONSOLE/);
 });
 
@@ -156,7 +156,7 @@ test('UserLayout and AdminLayout render strictly separated navigation shells', (
   assert.match(adminShellHtml, /Admin Body/);
 });
 
-test('QuantReportCatalogAndLibrary renders published XAU/USD PDF research catalog cleanly', () => {
+test('QuantReportCatalogAndLibrary renders research catalog without fake fallback reports', () => {
   const html = renderToStaticMarkup(
     withLang(
       React.createElement(QuantReportCatalogAndLibrary, {
@@ -164,9 +164,8 @@ test('QuantReportCatalogAndLibrary renders published XAU/USD PDF research catalo
       })
     )
   );
-  assert.match(html, /XAUUSD/);
-  assert.match(html, /v1\.0/);
-  assert.match(html, /Sample PDF|Bản Đọc Thử PDF|sample-pdf/);
+  assert.match(html, /reports-catalog/);
+  assert.match(html, /No published reports currently listed|Hiện chưa có báo cáo/);
 });
 
 test('UserBillingSection and AdminOverviewPage render without crashes or legacy globals', () => {

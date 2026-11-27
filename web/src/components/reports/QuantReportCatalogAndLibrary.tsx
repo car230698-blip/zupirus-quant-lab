@@ -33,6 +33,8 @@ export interface ResearchReportItem {
   price_usd: number;
   page_count?: number;
   sample_pdf_url?: string;
+  has_sample_pdf?: boolean;
+  has_full_pdf?: boolean;
   methodology?: {
     framework?: string;
     cost_model_pips?: number;
@@ -96,45 +98,6 @@ export interface LibraryEntitlementItem {
   bundle_download_url?: string;
 }
 
-export const DEFAULT_FALLBACK_REPORTS: ResearchReportItem[] = [
-  {
-    id: 'rep_xauusd_london_ny_v1',
-    slug: 'xauusd-london-ny-liquidity-sweep-wfo-2026',
-    title:
-      'Nghiên Cứu Định Lượng XAU/USD: Cấu Trúc Quét Thanh Khoản Phiên London - New York & Kiểm Định Walk-Forward',
-    subtitle:
-      'Phân tích vi cấu trúc M15/H1, phân rã kỳ vọng theo phiên và mô hình chi phí thực chiến cho thị trường Vàng',
-    summary:
-      'Báo cáo định lượng chuyên sâu phân tích hiện tượng quét thanh khoản 20 nến kết hợp xu hướng H1 trên thị trường Vàng (XAU/USD). Toàn bộ quy tắc được kiểm định ngoài mẫu (Walk-Forward 120/60) với giả định chi phí khứ hồi 3.5 pips minh bạch.',
-    market: 'XAUUSD',
-    timeframe: 'M15 / H1',
-    status: 'PUBLISHED',
-    current_version: 'v1.0',
-    price_vnd: 790000,
-    price_usd: 32.0,
-    page_count: 18,
-    sample_pdf_url: '/api/v1/reports/rep_xauusd_london_ny_v1/sample-pdf',
-    highlights: [
-      'Phân rã hiệu suất theo từng phiên: Asia, London, London/NY Overlap và Late NY',
-      'Kiểm định Walk-Forward 120 nến huấn luyện / 60 nến ngoài mẫu chống nhìn trước tương lai',
-      'Bộ lọc Hazard Guard loại bỏ các vùng nhiễu thanh khoản khi thiếu xác nhận xu hướng H1',
-      'Bảng tham chiếu quy mô vị thế và ngưỡng chịu đựng sụt giảm (Drawdown) theo ATR(14)',
-    ],
-    wfo_metrics: {
-      sample_size: 142,
-      oos_trades: 64,
-      win_rate: 0.61,
-      expectancy_R: 0.48,
-      profit_factor: 1.74,
-      max_drawdown_pct: 4.2,
-      sharpe_ratio: 1.85,
-      cost_model_pips: 3.5,
-      cost_model_is_assumed: true,
-    },
-    published_at: 1795000000,
-  },
-];
-
 export interface QuantReportCatalogAndLibraryProps {
   mode: 'public' | 'portal';
   initialSection?: 'catalog' | 'library';
@@ -152,10 +115,14 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
 }) => {
   const { lang } = useLanguage();
   const [activeView, setActiveView] = useState<'catalog' | 'library'>(initialSection);
-  const [reports, setReports] = useState<ResearchReportItem[]>(DEFAULT_FALLBACK_REPORTS);
+  const [reports, setReports] = useState<ResearchReportItem[]>([]);
   const [libraryItems, setLibraryItems] = useState<LibraryEntitlementItem[]>([]);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [catalogLoading, setCatalogLoading] = useState<boolean>(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [libraryLoading, setLibraryLoading] = useState<boolean>(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   const [selectedReport, setSelectedReport] = useState<ResearchReportItem | null>(null);
   const [checkoutReport, setCheckoutReport] = useState<ResearchReportItem | null>(null);
   const [checkoutOrder, setCheckoutOrder] = useState<any | null>(null);
@@ -172,34 +139,72 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
     setActiveView(initialSection);
   }, [initialSection]);
 
+  // Keyboard navigation: Escape key closes active modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedReport(null);
+        setCheckoutReport(null);
+        setCheckoutOrder(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
+    setCatalogLoading(true);
+    setCatalogError(null);
+
     try {
       const catRes = await apiGet<any>('/api/v1/reports');
-      if (catRes?.items && Array.isArray(catRes.items) && catRes.items.length > 0) {
+      if (catRes?.items && Array.isArray(catRes.items)) {
         setReports(catRes.items);
-      } else if (catRes?.items && Array.isArray(catRes.items)) {
-        setReports(catRes.items);
+      } else {
+        setReports([]);
       }
-      if (mode === 'portal') {
-        try {
-          const libRes = await apiGet<any>('/api/v1/reports/my/library');
-          if (libRes?.items && Array.isArray(libRes.items)) {
-            setLibraryItems(libRes.items);
-          }
-          if (libRes?.pending_orders && Array.isArray(libRes.pending_orders)) {
-            setPendingOrders(libRes.pending_orders);
-          }
-        } catch {
-          // ignore if unauthenticated
-        }
-      }
-    } catch {
-      // keep fallback
+    } catch (err: any) {
+      setCatalogError(
+        lang === 'en'
+          ? 'Unable to load research report catalog. Please check your connection and try again.'
+          : 'Không thể tải danh mục ấn phẩm nghiên cứu. Vui lòng kiểm tra kết nối và thử lại.'
+      );
+      setReports([]);
     } finally {
-      setLoading(false);
+      setCatalogLoading(false);
     }
-  }, [mode]);
+
+    if (mode === 'portal') {
+      setLibraryLoading(true);
+      setLibraryError(null);
+      try {
+        const libRes = await apiGet<any>('/api/v1/reports/my/library');
+        if (libRes?.items && Array.isArray(libRes.items)) {
+          setLibraryItems(libRes.items);
+        } else {
+          setLibraryItems([]);
+        }
+        if (libRes?.pending_orders && Array.isArray(libRes.pending_orders)) {
+          setPendingOrders(libRes.pending_orders);
+        } else {
+          setPendingOrders([]);
+        }
+      } catch (err: any) {
+        if (err?.status !== 401) {
+          setLibraryError(
+            lang === 'en'
+              ? 'Unable to load your PDF library (503 Service Unavailable). Please try again.'
+              : 'Không thể tải dữ liệu thư viện báo cáo PDF (Lỗi dịch vụ 503). Vui lòng thử lại.'
+          );
+        }
+      } finally {
+        setLibraryLoading(false);
+      }
+    }
+
+    setLoading(false);
+  }, [lang, mode]);
 
   useEffect(() => {
     loadData();
@@ -247,6 +252,33 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
 
   const ownedSet = new Set(libraryItems.map((i) => `${i.report_id}:${i.purchased_version}`));
   const ownedReportIds = new Set(libraryItems.map((i) => i.report_id));
+
+  const handleResumePayment = (po: any) => {
+    const matchedRep = reports.find((r) => r.id === po.report_id) || {
+      id: po.report_id,
+      slug: po.report_id,
+      title: po.title || 'ZUPIRUS Gold Research Suite',
+      summary: '',
+      market: 'GC=F',
+      timeframe: 'M15',
+      status: 'PUBLISHED',
+      current_version: po.report_version || 'v1.0',
+      price_vnd: 0,
+      price_usd: Number(po.amount_usd || po.amount || 19.0),
+    };
+    setCheckoutReport(matchedRep);
+    setCheckoutOrder({
+      ...po,
+      order_id: po.order_id || po.id,
+      order_code: po.order_code || po.id,
+      amount: po.expected_amount_usdt || po.amount || po.amount_usd,
+      network: po.network || (po.payment_gateway ? po.payment_gateway.replace('USDT_', '') : 'BEP20'),
+      wallet_address: po.wallet_address || '',
+      expires_at: po.expires_at,
+    });
+    setTxHashInput(po.tx_hash || '');
+    setStatusMessage(null);
+  };
 
   const handleStartBuy = (rep: ResearchReportItem) => {
     if (mode === 'public') {
@@ -488,7 +520,16 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                     {po.order_code || po.id} · {po.report_version || 'v1.0'} · ${Number(po.amount || 0).toFixed(2)} USDT
                   </div>
                 </div>
-                <StatusBadge tone="warning">{lang === 'en' ? 'PENDING' : 'CHỜ THANH TOÁN'}</StatusBadge>
+                <div className="flex items-center gap-2 shrink-0">
+                  <StatusBadge tone="warning">{lang === 'en' ? 'PENDING' : 'CHỜ THANH TOÁN'}</StatusBadge>
+                  <button
+                    type="button"
+                    onClick={() => handleResumePayment(po)}
+                    className="quant-btn-primary text-[11px] py-1 px-2.5"
+                  >
+                    <span>{lang === 'en' ? 'Resume' : 'Tiếp tục'}</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -498,9 +539,21 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
       {/* VIEW 1: MY LIBRARY (PORTAL) */}
       {mode === 'portal' && activeView === 'library' ? (
         <div className="space-y-4">
-          {loading && libraryItems.length === 0 ? (
+          {libraryLoading && libraryItems.length === 0 ? (
             <div className="quant-panel p-10 text-center text-sm text-slate-400">
               {lang === 'en' ? 'Loading your PDF report library...' : 'Đang tải dữ liệu thư viện báo cáo PDF...'}
+            </div>
+          ) : libraryError ? (
+            <div className="quant-panel p-6 border-rose-500/30 bg-rose-500/10 text-center space-y-3">
+              <AlertTriangle className="h-6 w-6 text-rose-400 mx-auto" />
+              <div className="text-sm font-semibold text-rose-200">{libraryError}</div>
+              <button
+                type="button"
+                onClick={() => loadData()}
+                className="quant-btn-secondary text-xs mx-auto"
+              >
+                {lang === 'en' ? 'Retry' : 'Thử lại'}
+              </button>
             </div>
           ) : libraryItems.length === 0 ? (
             <EmptyState
@@ -530,6 +583,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                 const grantedDate = item.granted_at
                   ? new Date(item.granted_at * 1000).toLocaleDateString('vi-VN')
                   : '—';
+                const isRevoked = String(item.status || '').toUpperCase() === 'REVOKED';
                 const isExpired = Boolean(item.is_expired);
                 const expiryDate = item.expires_at
                   ? new Date(item.expires_at * 1000).toLocaleDateString('vi-VN')
@@ -539,12 +593,16 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                   <div
                     key={item.entitlement_id}
                     className={`quant-card-interactive p-6 flex flex-col justify-between gap-4 ${
-                      isExpired ? 'opacity-85 border-rose-900/40' : ''
+                      isRevoked || isExpired ? 'opacity-85 border-rose-900/40' : ''
                     }`}
                   >
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        {isExpired ? (
+                        {isRevoked ? (
+                          <StatusBadge tone="danger">
+                            {lang === 'en' ? 'REVOKED' : 'ĐÃ THU HỒI'} · {item.purchased_version}
+                          </StatusBadge>
+                        ) : isExpired ? (
                           <StatusBadge tone="danger">
                             {lang === 'en' ? 'TRIAL EXPIRED' : 'HẾT HẠN DÙNG THỬ'} · {item.purchased_version}
                           </StatusBadge>
@@ -567,7 +625,16 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                       {item.subtitle && <p className="text-xs font-medium text-amber-300/90">{item.subtitle}</p>}
                       <p className="text-xs text-slate-300 leading-relaxed">{item.summary}</p>
 
-                      {isExpired && (
+                      {isRevoked ? (
+                        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+                          <span>
+                            {lang === 'en'
+                              ? 'Access to this research report version has been revoked by admin.'
+                              : 'Quyền truy cập phiên bản báo cáo này đã bị quản trị viên thu hồi.'}
+                          </span>
+                        </div>
+                      ) : isExpired ? (
                         <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
                           <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
                           <span>
@@ -576,7 +643,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                               : `Quyền dùng thử đã hết hạn vào ngày ${expiryDate || 'N/A'}. Tài liệu đầy đủ đã bị khóa.`}
                           </span>
                         </div>
-                      )}
+                      ) : null}
                     </div>
 
                     <div className="pt-3 border-t border-slate-800/80 space-y-3">
@@ -590,7 +657,33 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                         </span>
                       </div>
 
-                      {isExpired ? (
+                      {isRevoked ? (
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <button
+                            type="button"
+                            disabled
+                            className="quant-btn-secondary opacity-50 cursor-not-allowed flex-1 text-xs text-rose-300 border-rose-500/30"
+                          >
+                            <AlertTriangle className="h-4 w-4 text-rose-400" />
+                            <span>
+                              {lang === 'en'
+                                ? 'Access Revoked'
+                                : 'Quyền truy cập đã bị thu hồi'}
+                            </span>
+                          </button>
+                          {item.sample_pdf_url && (
+                            <a
+                              href={item.sample_pdf_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="quant-btn-secondary text-xs"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
+                            </a>
+                          )}
+                        </div>
+                      ) : isExpired ? (
                         <div className="flex flex-wrap items-center gap-2.5">
                           <button
                             type="button"
@@ -604,15 +697,17 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                                 : 'Hết hạn dùng thử — Liên hệ Admin'}
                             </span>
                           </button>
-                          <a
-                            href={item.sample_pdf_url || `/api/v1/reports/${item.report_id}/sample-pdf`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="quant-btn-secondary text-xs"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
-                          </a>
+                          {item.sample_pdf_url && (
+                            <a
+                              href={item.sample_pdf_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="quant-btn-secondary text-xs"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
+                            </a>
+                          )}
                         </div>
                       ) : (
                         <div className="flex flex-wrap items-center gap-2.5">
@@ -661,15 +756,17 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                             </span>
                           </button>
 
-                          <a
-                            href={item.sample_pdf_url || `/api/v1/reports/${item.report_id}/sample-pdf`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="quant-btn-secondary text-xs"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
-                          </a>
+                          {item.sample_pdf_url && (
+                            <a
+                              href={item.sample_pdf_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="quant-btn-secondary text-xs"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
+                            </a>
+                          )}
                         </div>
                       )}
                     </div>
@@ -682,7 +779,23 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
       ) : (
         /* VIEW 2: RESEARCH REPORT CATALOG */
         <div className="grid gap-6">
-          {reports.length === 0 ? (
+          {catalogLoading && reports.length === 0 ? (
+            <div className="quant-panel p-10 text-center text-sm text-slate-400">
+              {lang === 'en' ? 'Loading research catalog...' : 'Đang tải danh mục báo cáo nghiên cứu...'}
+            </div>
+          ) : catalogError ? (
+            <div className="quant-panel p-6 border-rose-500/30 bg-rose-500/10 text-center space-y-3">
+              <AlertTriangle className="h-6 w-6 text-rose-400 mx-auto" />
+              <div className="text-sm font-semibold text-rose-200">{catalogError}</div>
+              <button
+                type="button"
+                onClick={() => loadData()}
+                className="quant-btn-secondary text-xs mx-auto"
+              >
+                {lang === 'en' ? 'Retry' : 'Thử lại'}
+              </button>
+            </div>
+          ) : reports.length === 0 ? (
             <EmptyState
               icon={<BookOpen className="h-5 w-5" />}
               title={
@@ -749,25 +862,33 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                         {lang === 'en' ? 'OOS Sample Size' : 'Số Mẫu Kiểm Định'}
                       </div>
                       <div className="mt-1 text-sm sm:text-base font-bold text-white">
-                        {wfo.sample_size || 142} ({wfo.oos_trades || 64} OOS)
+                        {wfo.sample_size !== undefined && wfo.sample_size !== null
+                          ? `${wfo.sample_size}${wfo.oos_trades !== undefined && wfo.oos_trades !== null ? ` (${wfo.oos_trades} OOS)` : ''}`
+                          : (lang === 'en' ? 'Chưa có dữ liệu' : 'Chưa có dữ liệu')}
                       </div>
                     </div>
                     <div>
                       <div className="text-[10px] uppercase text-slate-400">Win Rate (OOS)</div>
                       <div className="mt-1 text-sm sm:text-base font-bold text-[#12B5A6]">
-                        {Math.round(Number(wfo.win_rate || 0.61) * 100)}%
+                        {wfo.win_rate !== undefined && wfo.win_rate !== null
+                          ? `${Math.round(Number(wfo.win_rate) * 100)}%`
+                          : (lang === 'en' ? 'Chưa có dữ liệu' : 'Chưa có dữ liệu')}
                       </div>
                     </div>
                     <div>
                       <div className="text-[10px] uppercase text-slate-400">Profit Factor / Exp</div>
                       <div className="mt-1 text-sm sm:text-base font-bold text-amber-300">
-                        PF {Number(wfo.profit_factor || 1.74).toFixed(2)} (+{Number(wfo.expectancy_R || 0.48).toFixed(2)}R)
+                        {wfo.profit_factor !== undefined && wfo.profit_factor !== null
+                          ? `PF ${Number(wfo.profit_factor).toFixed(2)}${wfo.expectancy_R !== undefined && wfo.expectancy_R !== null ? ` (+${Number(wfo.expectancy_R).toFixed(2)}R)` : ''}`
+                          : (lang === 'en' ? 'Chưa có dữ liệu' : 'Chưa có dữ liệu')}
                       </div>
                     </div>
                     <div>
                       <div className="text-[10px] uppercase text-slate-400">Max Drawdown</div>
                       <div className="mt-1 text-sm sm:text-base font-bold text-emerald-300">
-                        {Number(wfo.max_drawdown_pct || 4.2).toFixed(1)}%
+                        {wfo.max_drawdown_pct !== undefined && wfo.max_drawdown_pct !== null
+                          ? `${Number(wfo.max_drawdown_pct).toFixed(1)}%`
+                          : (lang === 'en' ? 'Chưa có dữ liệu' : 'Chưa có dữ liệu')}
                       </div>
                     </div>
                     <div>
@@ -775,7 +896,9 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                         {lang === 'en' ? 'Assumed Cost Model' : 'Chi Phí Giả Định'}
                       </div>
                       <div className="mt-1 text-xs font-semibold text-slate-200">
-                        {Number(wfo.cost_model_pips || 3.5).toFixed(1)} pips/lệnh
+                        {wfo.cost_model_pips !== undefined && wfo.cost_model_pips !== null
+                          ? `${Number(wfo.cost_model_pips).toFixed(1)} pips/lệnh`
+                          : (lang === 'en' ? 'Chưa có dữ liệu' : 'Chưa có dữ liệu')}
                       </div>
                     </div>
                   </div>
@@ -795,15 +918,17 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                   {/* Actions */}
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800/80">
                     <div className="flex flex-wrap items-center gap-2.5">
-                      <a
-                        href={sampleUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="quant-btn-secondary text-xs border-amber-400/35 text-amber-200 hover:border-amber-400/60"
-                      >
-                        <FileText className="h-4 w-4" />
-                        <span>{lang === 'en' ? 'Read Free Sample PDF' : 'Xem Bản Đọc Thử PDF'}</span>
-                      </a>
+                      {rep.has_sample_pdf !== false && (
+                        <a
+                          href={sampleUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="quant-btn-secondary text-xs border-amber-400/35 text-amber-200 hover:border-amber-400/60"
+                        >
+                          <FileText className="h-4 w-4" />
+                          <span>{lang === 'en' ? 'Read Free Sample PDF' : 'Xem Bản Đọc Thử PDF'}</span>
+                        </a>
+                      )}
 
                       <button
                         type="button"
@@ -1111,6 +1236,29 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                     ? 'Generate USDT Payment Order →'
                     : 'Tạo Lệnh Thanh Toán USDT →'}
                 </button>
+              </div>
+            ) : checkoutOrder.status !== 'PAID' &&
+              checkoutOrder.expires_at &&
+              checkoutOrder.expires_at <= Math.floor(Date.now() / 1000) ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-4 text-xs space-y-2.5">
+                  <div className="flex items-center gap-2 font-bold text-rose-300">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+                    <span>{lang === 'en' ? 'Order Expired' : 'Đơn Hàng Đã Hết Hạn'}</span>
+                  </div>
+                  <p className="text-slate-300">
+                    {lang === 'en'
+                      ? 'This USDT payment order has expired (30-minute window exceeded). Please create a fresh order.'
+                      : 'Lệnh thanh toán USDT này đã quá thời gian hiệu lực (30 phút). Vui lòng tạo đơn mới để thanh toán.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setCheckoutOrder(null)}
+                    className="quant-btn-secondary text-xs"
+                  >
+                    {lang === 'en' ? 'Create New Order' : 'Tạo Đơn Thanh Toán Mới'}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">

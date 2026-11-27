@@ -147,6 +147,9 @@ def api_upload_csv(body: UploadCsvRequest, admin: dict = Depends(get_current_adm
     start_dt = datetime.fromtimestamp(candles[0].time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     end_dt = datetime.fromtimestamp(candles[-1].time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    from app.domains.quant.data_feed import build_dataset_identity
+    ds = build_dataset_identity(body.symbol, body.timeframe, candles)
+
     return {
         "success": True,
         "symbol": body.symbol.upper(),
@@ -156,6 +159,16 @@ def api_upload_csv(body: UploadCsvRequest, admin: dict = Depends(get_current_adm
         "end_time": candles[-1].time,
         "start_datetime": start_dt,
         "end_datetime": end_dt,
+        "dataset_identity": {
+            "asset_class": ds.asset_class,
+            "instrument_type": ds.instrument_type,
+            "canonical_symbol": ds.canonical_symbol,
+            "source_provenance": ds.source_provenance,
+            "data_sha256": ds.data_sha256,
+            "data_version_id": ds.data_version_id,
+            "timezone_utc": ds.timezone_utc,
+            "friction_assumed_pips": ds.friction_assumed_pips,
+        },
         "saved_to_db": body.save_to_db,
         "saved_count": saved_count,
         "sample_preview": cand_dicts[:10],

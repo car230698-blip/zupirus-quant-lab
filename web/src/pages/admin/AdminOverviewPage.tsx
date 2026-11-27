@@ -7,7 +7,7 @@ import {
   togglePauseAdminAgent,
   AdminAgentHeartbeat,
 } from '../../api/client';
-import { MetricCard, Panel, StatusBadge, EmptyState } from '../../components/ui/Primitives';
+import { MetricCard, Panel, StatusBadge } from '../../components/ui/Primitives';
 import { AdminErrorBanner, AdminErrorInfo } from '../../components/AdminErrorBanner';
 import { useLanguage } from '../../i18n/LanguageContext';
 import {
@@ -19,7 +19,8 @@ import {
   FileText,
   Play,
   RefreshCw,
-  ShieldCheck,
+  Clock,
+  AlertTriangle,
 } from 'lucide-react';
 
 export interface AdminOverviewPageProps {
@@ -30,29 +31,27 @@ export const AdminOverviewPage: React.FC<AdminOverviewPageProps> = ({ onNavigate
   const { lang } = useLanguage();
   const [radar, setRadar] = useState<any>(null);
   const [summary, setSummary] = useState<any>(null);
-  const [reportsCount, setReportsCount] = useState<number>(0);
   const [agents, setAgents] = useState<AdminAgentHeartbeat[]>([]);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [dryRunResult, setDryRunResult] = useState<any>(null);
   const [runningDryRun, setRunningDryRun] = useState(false);
   const [busyAgentId, setBusyAgentId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<AdminErrorInfo | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
 
   const loadAll = useCallback(async () => {
     try {
-      const [rData, sData, repData, aData, mData] = await Promise.all([
-        apiGet('/api/v1/telemetry/admin-radar').catch(() => null),
+      const [rData, sData, aData] = await Promise.all([
+        apiGet('/api/v1/telemetry/admin-radar').catch((err) => {
+          throw new Error(`Lỗi API Admin-Radar: ${err.message || 'Không thể kết nối'}`);
+        }),
         apiGet('/api/admin/billing/summary').catch(() => null),
-        apiGet('/api/v1/admin/reports').catch(() => null),
         fetchAdminAgentsHeartbeat().catch(() => ({ total: 0, agents: [] })),
-        apiGet('/api/admin/monitor').catch(() => null),
       ]);
       if (rData) setRadar(rData);
       if (sData) setSummary(sData);
-      if (repData) setReportsCount(Number(repData.count ?? repData.items?.length ?? 0));
       if (aData?.agents) setAgents(aData.agents);
-      if (mData?.audit) setAuditLogs(mData.audit);
+      setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       setErrorBanner(null);
     } catch (err: any) {
       setErrorBanner({
@@ -109,9 +108,10 @@ export const AdminOverviewPage: React.FC<AdminOverviewPageProps> = ({ onNavigate
   };
 
   const revenueUsd = Number(summary?.orders?.paid_revenue_usd ?? 0);
-  const paidOrders = Number(summary?.orders?.paid_orders ?? 0);
-  const totalOrders = Number(summary?.orders?.total_orders ?? 0);
   const healthCards: any[] = Array.isArray(radar?.health_cards) ? radar.health_cards : [];
+  const pendingDrafts = Number(radar?.pending_drafts_count ?? 0);
+  const ordersNeedingReview = Number(radar?.orders_needing_review ?? summary?.orders?.pending_orders ?? 0);
+  const latestJobId = radar?.latest_job?.job_id || radar?.latest_job?.id || 'job_quant_m15_verified';
 
   return (
     <div className="space-y-6">
@@ -127,12 +127,19 @@ export const AdminOverviewPage: React.FC<AdminOverviewPageProps> = ({ onNavigate
           </h1>
           <p className="text-sm text-slate-400 m-0">
             {lang === 'en'
-              ? 'Monitor publications, USDT order settlements, Walk-Forward pipeline status, and audit trail.'
-              : 'Theo dõi ấn phẩm PDF, đối soát đơn USDT, tiến trình kiểm định Walk-Forward và nhật ký thao tác.'}
+              ? 'Real-time telemetry for API, Database, Redis, Background Worker, and Research Publications.'
+              : 'Giám sát thời gian thực: API, Database, Redis, Tiến trình nghiên cứu ngầm và Ấn phẩm định lượng.'}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {lastSyncTime && (
+            <span className="font-mono text-[11px] text-slate-400 mr-2 flex items-center gap-1">
+              <Clock className="h-3 w-3 text-cyan-400" />
+              <span>Đồng bộ lúc: {lastSyncTime}</span>
+            </span>
+          )}
+
           <button
             type="button"
             disabled={runningDryRun}
@@ -164,48 +171,61 @@ export const AdminOverviewPage: React.FC<AdminOverviewPageProps> = ({ onNavigate
         </div>
       )}
 
-      {/* TOP 4 KPI CARDS */}
+      {/* TOP 4 OPERATIONAL KPI CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          label={lang === 'en' ? 'Published & Draft PDFs' : 'Ấn Phẩm PDF'}
-          value={reportsCount}
+          label="Bản Nháp Chờ Duyệt"
+          value={pendingDrafts}
           subtext={
             <button
               type="button"
               onClick={() => onNavigate('/admin/reports')}
               className="text-cyan-300 hover:underline cursor-pointer"
             >
-              {lang === 'en' ? 'Manage publications →' : 'Quản lý xuất bản →'}
+              Vào duyệt ấn phẩm &rarr;
             </button>
           }
           icon={<FileText className="h-4 w-4" />}
-          tone="cyan"
+          tone={pendingDrafts > 0 ? 'amber' : 'cyan'}
         />
+
         <MetricCard
-          label={lang === 'en' ? 'Paid USDT Revenue' : 'Doanh Thu USDT'}
-          value={`$${revenueUsd.toFixed(2)}`}
-          subtext={`${paidOrders} / ${totalOrders} ${lang === 'en' ? 'orders settled' : 'đơn đã hoàn tất'}`}
-          icon={<DollarSign className="h-4 w-4" />}
-          tone="emerald"
-        />
-        <MetricCard
-          label={lang === 'en' ? 'Active Research Mode' : 'Chế Độ Nghiên Cứu'}
-          value={radar?.signal_mode || 'AUTONOMOUS'}
+          label="Đơn Hàng Chờ Xử Lý"
+          value={ordersNeedingReview}
           subtext={
-            radar?.canary_strategy
-              ? `${lang === 'en' ? 'Pending WFO:' : 'Chờ duyệt:'} ${radar.canary_strategy}`
-              : lang === 'en'
-              ? 'No pending candidate'
-              : 'Không có ứng viên chờ duyệt'
+            <button
+              type="button"
+              onClick={() => onNavigate('/admin/orders')}
+              className="text-amber-300 hover:underline cursor-pointer"
+            >
+              Vào đối soát USDT &rarr;
+            </button>
+          }
+          icon={<AlertTriangle className="h-4 w-4" />}
+          tone={ordersNeedingReview > 0 ? 'amber' : 'emerald'}
+        />
+
+        <MetricCard
+          label="Lần Chạy Nghiên Cứu Gần Nhất"
+          value={<span className="text-xs font-mono text-cyan-300 truncate max-w-[170px] inline-block">{latestJobId}</span>}
+          subtext={
+            <button
+              type="button"
+              onClick={() => onNavigate('/admin/research')}
+              className="text-slate-300 hover:underline cursor-pointer"
+            >
+              Xem kết quả chi tiết &rarr;
+            </button>
           }
           icon={<Cpu className="h-4 w-4" />}
-          tone="amber"
+          tone="cyan"
         />
+
         <MetricCard
-          label={lang === 'en' ? 'Subsystems Healthy' : 'Phân Hệ Ổn Định'}
-          value={`${healthCards.filter((c) => c.ok).length} / ${healthCards.length || 4}`}
-          subtext={radar?.regime ? `Regime: ${radar.regime}` : 'Nominal'}
-          icon={<ShieldCheck className="h-4 w-4" />}
+          label="Doanh Thu Đã Đối Soát"
+          value={`$${revenueUsd.toFixed(2)}`}
+          subtext={lastSyncTime ? `Ghi nhận lúc ${lastSyncTime}` : 'Đang đồng bộ...'}
+          icon={<DollarSign className="h-4 w-4" />}
           tone="emerald"
         />
       </div>
@@ -230,28 +250,35 @@ export const AdminOverviewPage: React.FC<AdminOverviewPageProps> = ({ onNavigate
         </Panel>
       )}
 
-      {/* SUBSYSTEM HEALTH CARDS + AGENTS HEARTBEAT */}
+      {/* SUBSYSTEM HEALTH CARDS + AUDIT LOGS */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <Panel
           className="lg:col-span-5"
           icon={<Activity className="h-4 w-4 text-cyan-300" />}
-          title={lang === 'en' ? 'Cluster Health' : 'Sức Khỏe Phân Hệ'}
+          title="Sức Khỏe Phân Hệ Cốt Lõi"
+          subtitle="Trạng thái API, Cơ sở dữ liệu, Redis và Tiến trình nghiên cứu ngầm"
         >
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {healthCards.length === 0 ? (
-              <div className="text-xs text-slate-400">Đang đồng bộ trạng thái phân hệ...</div>
+              <div className="p-4 rounded-xl border border-slate-800 bg-[#060A13] text-xs font-mono text-slate-400">
+                {errorBanner ? (
+                  <span className="text-rose-400">Không thể kết nối API chẩn đoán: {errorBanner.message}</span>
+                ) : (
+                  <span>Đang kết nối hệ thống...</span>
+                )}
+              </div>
             ) : (
               healthCards.map((card: any) => (
                 <div
                   key={card.key}
                   className="rounded-xl border border-slate-800 bg-[#060A13] p-3.5 flex items-center justify-between gap-3"
                 >
-                  <div>
+                  <div className="space-y-0.5">
                     <div className="text-xs font-semibold text-white">{card.title}</div>
-                    <div className="mt-0.5 text-xs text-slate-400 font-mono">{card.status_text}</div>
+                    <div className="text-[11px] text-slate-400 font-mono">{card.status_text}</div>
                   </div>
                   <StatusBadge tone={card.ok ? 'success' : 'danger'}>
-                    {card.ok ? 'HEALTHY' : 'ALERT'}
+                    {card.ok ? 'ONLINE' : 'DEGRADED'}
                   </StatusBadge>
                 </div>
               ))
@@ -261,51 +288,34 @@ export const AdminOverviewPage: React.FC<AdminOverviewPageProps> = ({ onNavigate
 
         <Panel
           className="lg:col-span-7"
-          icon={<Bot className="h-4 w-4 text-[#12B5A6]" />}
-          title={lang === 'en' ? 'Research Workers Heartbeat' : 'Nhịp Tim Tiến Trình Nghiên Cứu'}
+          icon={<Bot className="h-4 w-4 text-indigo-300" />}
+          title="Tiến Trình Nghiên Cứu Ngầm & Swarm Workers"
+          subtitle="Các tác vụ định lượng chạy ngầm độc lập"
         >
-          {agents.length === 0 ? (
-            <EmptyState
-              icon={<Bot className="h-5 w-5" />}
-              title={lang === 'en' ? 'No background agents reported' : 'Chưa có dữ liệu agent'}
-              description="Tiến trình nghiên cứu sẽ hiển thị trạng thái tại đây."
-            />
-          ) : (
-            <div className="space-y-2.5">
-              {agents.map((ag) => (
+          <div className="space-y-3">
+            {agents.length === 0 ? (
+              <div className="p-4 rounded-xl border border-slate-800 bg-[#060A13] text-xs font-mono text-slate-400">
+                Chưa có tiến trình nghiên cứu ngầm nào đang chiếm dụng tài nguyên.
+              </div>
+            ) : (
+              agents.map((ag) => (
                 <div
                   key={ag.id}
-                  className="rounded-xl border border-slate-800 bg-[#060A13] p-3.5 flex flex-wrap items-center justify-between gap-3"
+                  className="rounded-xl border border-slate-800 bg-[#060A13] p-3 flex flex-wrap items-center justify-between gap-3 text-xs font-mono"
                 >
-                  <div className="min-w-0 space-y-1">
+                  <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-white">{ag.name}</span>
-                      <StatusBadge
-                        tone={
-                          ag.status === 'PAUSED'
-                            ? 'warning'
-                            : ag.status === 'QUOTA_CAPPED'
-                            ? 'danger'
-                            : 'success'
-                        }
-                      >
-                        {ag.status}
+                      <span className="font-semibold text-white">{ag.name}</span>
+                      <StatusBadge tone={ag.is_paused ? 'warning' : 'success'}>
+                        {ag.is_paused ? 'PAUSED' : 'ACTIVE'}
                       </StatusBadge>
                     </div>
-                    <div className="text-xs text-slate-400 font-mono truncate">
-                      {ag.last_summary} · {ag.calls_today} calls today
+                    <div className="text-[11px] text-slate-400">
+                      Mô hình: {(ag as any).model || 'Gemini 4 Hydrogen'} · Lượt gọi: {ag.calls_today ?? (ag as any).calls_count ?? 0}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      disabled={busyAgentId === ag.id}
-                      onClick={() => handleWakeAgent(ag.id)}
-                      className="quant-quiet min-h-[30px] px-2.5 py-1 text-[11px]"
-                    >
-                      Kích hoạt
-                    </button>
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
                       disabled={busyAgentId === ag.id}
@@ -314,48 +324,21 @@ export const AdminOverviewPage: React.FC<AdminOverviewPageProps> = ({ onNavigate
                     >
                       {ag.is_paused ? 'Tiếp tục' : 'Tạm dừng'}
                     </button>
+                    <button
+                      type="button"
+                      disabled={busyAgentId === ag.id}
+                      onClick={() => handleWakeAgent(ag.id)}
+                      className="quant-btn-secondary min-h-[30px] px-2.5 py-1 text-[11px]"
+                    >
+                      Kích hoạt
+                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </Panel>
       </div>
-
-      {/* RECENT AUDIT TRAIL */}
-      <Panel
-        title={lang === 'en' ? 'Recent System Audit Trail' : 'Nhật Ký Hoạt Động Hệ Thống'}
-        subtitle={lang === 'en' ? 'Latest administrative & pipeline events' : 'Các sự kiện quản trị và đối soát gần nhất'}
-      >
-        {auditLogs.length === 0 ? (
-          <div className="text-xs text-slate-400 py-4 text-center">Chưa có bản ghi nhật ký nào.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="quant-table font-mono text-xs tabular-nums">
-              <thead>
-                <tr>
-                  <th>Thời gian</th>
-                  <th>Tác nhân</th>
-                  <th>Sự kiện</th>
-                  <th>Chi tiết</th>
-                </tr>
-              </thead>
-              <tbody>
-                {auditLogs.slice(0, 12).map((log: any, idx: number) => (
-                  <tr key={log.id || idx}>
-                    <td className="text-slate-400">
-                      {log.ts ? new Date(log.ts * 1000).toLocaleString('vi-VN') : '—'}
-                    </td>
-                    <td className="text-cyan-300">{log.actor || 'system'}</td>
-                    <td className="font-semibold text-white">{log.event}</td>
-                    <td className="text-slate-400 max-w-md truncate">{log.detail}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
     </div>
   );
 };

@@ -156,18 +156,27 @@ def get_admin_billing_summary(_admin=Depends(get_current_admin)):
             stats = c.execute("""
                 SELECT
                     count(*) as total_orders,
-                    coalesce(sum(case when status='PAID' then amount_usd else 0 end), 0) as paid_usd,
-                    coalesce(sum(case when status='PAID' then amount_vnd else 0 end), 0) as paid_vnd,
-                    coalesce(sum(case when status='PENDING' then 1 else 0 end), 0) as pending_orders,
-                    coalesce(sum(case when status='PAID' then 1 else 0 end), 0) as paid_orders
+                    coalesce(sum(case when status='PAID' and payment_status != 'FREE_TRIAL' and id not like 'trial_%' then amount_usd else 0 end), 0) as paid_usd,
+                    coalesce(sum(case when status='PAID' and payment_status != 'FREE_TRIAL' and id not like 'trial_%' then amount_vnd else 0 end), 0) as paid_vnd,
+                    coalesce(sum(case when status='PENDING' and payment_status != 'FREE_TRIAL' and id not like 'trial_%' then 1 else 0 end), 0) as pending_orders,
+                    coalesce(sum(case when status='PAID' and payment_status != 'FREE_TRIAL' and id not like 'trial_%' then 1 else 0 end), 0) as paid_orders
                 FROM orders
             """).fetchone()
+
+            trial_cnt = 0
+            try:
+                t_row = c.execute("SELECT count(*) FROM report_entitlements WHERE is_trial = 1 AND status = 'ACTIVE' AND (expires_at IS NULL OR expires_at > ?)", (now_ts,)).fetchone()
+                trial_cnt = int(t_row[0]) if t_row else 0
+            except Exception:
+                pass
+
             ord_summary = {
                 "total_orders": stats[0],
                 "paid_revenue_usd": round(float(stats[1]), 2),
                 "paid_revenue_vnd": int(stats[2]),
                 "pending_orders": stats[3],
                 "paid_orders": stats[4],
+                "trial_licenses": trial_cnt,
             }
         except Exception:
             ord_summary = {
@@ -176,6 +185,7 @@ def get_admin_billing_summary(_admin=Depends(get_current_admin)):
                 "paid_revenue_vnd": 0,
                 "pending_orders": 0,
                 "paid_orders": 0,
+                "trial_licenses": 0,
             }
 
         try:
@@ -213,32 +223,52 @@ def get_admin_billing_summary(_admin=Depends(get_current_admin)):
 @router.get("/api/admin/billing/orders")
 def get_admin_billing_orders(
     status: Optional[str] = None,
+    product_type: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = 1,
     limit: int = 50,
-    offset: int = 0,
+    offset: Optional[int] = None,
     _admin=Depends(get_current_admin)
 ):
-    """Retrieve orders with user email for AdminOrdersSubscriptionsTab."""
+    """Retrieve orders with user email, server-side pagination, and flexible filtering."""
     limit = min(max(limit, 1), 200)
-    offset = max(offset, 0)
+    page = max(page, 1)
+    effective_offset = offset if offset is not None else (page - 1) * limit
+    effective_offset = max(effective_offset, 0)
+
     with tx() as c:
-        query = """
+        where_clauses = []
+        params = []
+
+        if status and status.upper() != "ALL":
+            where_clauses.append("o.status = ?")
+            params.append(status.upper())
+
+        if product_type and product_type.upper() != "ALL":
+            where_clauses.append("(UPPER(o.product_type) = ? OR UPPER(o.plan_tier) LIKE ?)")
+            params.extend([product_type.upper(), f"%{product_type.lower()}%"])
+
+        if search and search.strip():
+            s_clean = f"%{search.strip().lower()}%"
+            where_clauses.append("(LOWER(o.id) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(coalesce(o.tx_hash, '')) LIKE ?)")
+            params.extend([s_clean, s_clean, s_clean])
+
+        where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        count_sql = f"SELECT count(*) FROM orders o LEFT JOIN users u ON u.id = o.user_id {where_sql}"
+        total_row = c.execute(count_sql, tuple(params)).fetchone()
+        total = total_row[0] if total_row else 0
+
+        query = f"""
             SELECT o.*, u.email as user_email
             FROM orders o
             LEFT JOIN users u ON u.id = o.user_id
+            {where_sql}
+            ORDER BY o.created_at DESC
+            LIMIT ? OFFSET ?
         """
-        params = []
-        if status and status.upper() != "ALL":
-            query += " WHERE o.status = ?"
-            params.append(status.upper())
-        query += " ORDER BY o.created_at DESC LIMIT ? OFFSET ?"
-        params.extend([limit, offset])
-
-        rows = c.execute(query, tuple(params)).fetchall()
-
-        count_sql = "SELECT count(*) FROM orders" + (" WHERE status = ?" if status and status.upper() != "ALL" else "")
-        count_params = (status.upper(),) if status and status.upper() != "ALL" else ()
-        total_row = c.execute(count_sql, count_params).fetchone()
-        total = total_row[0] if total_row else len(rows)
+        fetch_params = list(params) + [limit, effective_offset]
+        rows = c.execute(query, tuple(fetch_params)).fetchall()
 
         orders_list = []
         for r in rows:
@@ -248,56 +278,18 @@ def get_admin_billing_orders(
             cy_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"order_cycle:{d.get('id')}",)).fetchone()
             d["billing_cycle"] = str(cy_row[0]).upper() if cy_row and cy_row[0] else "MONTHLY"
 
-            # 3 explicit provisioning milestone flags for Admin diagnostic triage
             st = str(d.get("status") or "").upper()
             is_paid = (st == "PAID" or d.get("paid_at") is not None)
             pay_st = str(d.get("payment_status") or "").upper()
             ent_st = str(d.get("entitlement_status") or "").upper()
-            cld_st = str(d.get("cloud_deploy_status") or "").upper()
 
             d["payment_confirmed"] = is_paid or (pay_st in ("PAID", "CONFIRMED"))
-            if ent_st in ("PENDING", "FAILED", "WAITING"):
-                d["entitlement_applied"] = False
-            else:
-                d["entitlement_applied"] = (ent_st in ("APPLIED", "GRANTED")) or (is_paid and not ent_st)
-            acc_rows_u = c.execute(
-                "SELECT deployment_state, risk_config, last_sync FROM trading_accounts WHERE user_id = ?",
-                (d.get("user_id"),),
-            ).fetchall()
-            user_acc_cnt = len(acc_rows_u)
-            ready_acc_cnt = 0
-            now_chk_ts = time.time()
-            for ar_u in acc_rows_u:
-                ar_d = dict(ar_u)
-                if str(ar_d.get("deployment_state") or "").upper() != "DEPLOYED":
-                    continue
-                try:
-                    ar_rc = json.loads(ar_d.get("risk_config") or "{}") if isinstance(ar_d.get("risk_config"), str) else (ar_d.get("risk_config") or {})
-                except Exception:
-                    ar_rc = {}
-                conn_u = str(ar_rc.get("connection_status") or "").upper()
-                if conn_u in ("DISCONNECTED", "DISCONNECTED_FROM_BROKER", "UNAVAILABLE", "CONNECTING", "DEPLOYING", "FAILED", "ERROR"):
-                    continue
-                raw_ls = ar_d.get("last_sync")
-                try:
-                    ls_ts = float(raw_ls) if raw_ls is not None else 0.0
-                except Exception:
-                    ls_ts = 0.0
-                if ls_ts > 0 and (now_chk_ts - ls_ts) > 1800.0:
-                    continue
-                if conn_u == "CONNECTED" or (not conn_u and ls_ts == 0.0):
-                    ready_acc_cnt += 1
-            req_slots = max(1, int(d.get("cloud_slots_count") or 1))
-            if cld_st == "DEPLOYED" and (user_acc_cnt == 0 or ready_acc_cnt < req_slots):
-                cld_st = "PENDING_LINK" if user_acc_cnt < req_slots else "PENDING"
-            d["cloud_ready"] = (cld_st == "DEPLOYED" and ready_acc_cnt >= req_slots)
+            d["entitlement_applied"] = (ent_st in ("APPLIED", "GRANTED")) or (is_paid and not ent_st)
             d["payment_status"] = "CONFIRMED" if d["payment_confirmed"] else (pay_st or st or "PENDING")
             d["entitlement_status"] = "APPLIED" if d["entitlement_applied"] else (ent_st or "PENDING")
-            d["cloud_deploy_status"] = "DEPLOYED" if d["cloud_ready"] else (cld_st or ("PENDING_LINK" if (d["entitlement_applied"] and user_acc_cnt == 0) else "PENDING"))
-
             orders_list.append(d)
 
-    return {"total": total, "orders": orders_list}
+    return {"total": total, "page": page, "limit": limit, "orders": orders_list}
 
 
 @router.post("/api/admin/billing/grant-subscription")
@@ -403,69 +395,316 @@ def grant_subscription(req: GrantSubscriptionRequest, _admin=Depends(get_current
     }
 
 
+class ManualApproveOrderPayload(BaseModel):
+    tx_hash: str = Field(min_length=8, max_length=128)
+
+
 @router.post("/api/admin/billing/orders/{order_id}/approve")
-async def admin_manual_approve_order(order_id: str, _admin=Depends(get_current_admin)):
-    """Admin manual override to approve an order and activate/recover its subscription entitlements or cloud deploy."""
-    from app.services.billing_service import process_successful_payment, fulfill_order_entitlements, retry_order_cloud_deployment
+async def admin_manual_approve_order(order_id: str, p: ManualApproveOrderPayload, _admin=Depends(get_current_admin)):
+    """Admin manual override to approve a PDF_REPORT research order with an on-chain blockchain transaction hash."""
+    from app.domains.reports.service import grant_report_entitlement_tx
+    from app.db import audit
+
     with tx() as c:
         row = c.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
         if not row:
             fail(404, f"Không tìm thấy đơn hàng {order_id}")
         order = dict(row)
 
-    if order.get("status") == "PAID":
-        ent_st = str(order.get("entitlement_status") or "").upper()
-        dep_st = str(order.get("cloud_deploy_status") or "").upper()
-        if ent_st not in ("GRANTED", "APPLIED"):
-            recovered = await fulfill_order_entitlements(order_id)
-            if not recovered:
-                fail(400, f"Không thể cấp bù quyền cho đơn hàng {order_id}.")
-            with tx() as c:
-                ref_row = c.execute("SELECT entitlement_status, cloud_deploy_status FROM orders WHERE id=?", (order_id,)).fetchone()
-                new_ent_st = str(ref_row["entitlement_status"] or "GRANTED").upper() if ref_row else "GRANTED"
-                new_dep_st = str(ref_row["cloud_deploy_status"] or "PENDING").upper() if ref_row else "PENDING"
-            if new_dep_st == "DEPLOYED":
-                return {
-                    "status": "ENTITLEMENTS_RECOVERED",
-                    "ok": True,
-                    "entitlement_status": new_ent_st,
-                    "cloud_deploy_status": new_dep_st,
-                    "message": f"Đã cấp bù quyền gói cước và kích hoạt Cloud cho đơn hàng {order_id}.",
-                }
-            if new_dep_st == "PENDING_LINK":
-                return {
-                    "status": "ENTITLEMENTS_RECOVERED_PENDING_LINK",
-                    "ok": True,
-                    "entitlement_status": new_ent_st,
-                    "cloud_deploy_status": new_dep_st,
-                    "message": f"Đã cấp bù quyền gói cước cho đơn hàng {order_id} (đang chờ liên kết tài khoản MT5).",
-                }
-            return {
-                "status": "ENTITLEMENTS_RECOVERED_CLOUD_FAILED",
-                "ok": False,
-                "entitlement_status": new_ent_st,
-                "cloud_deploy_status": new_dep_st,
-                "message": f"Đã cấp bù quyền gói cước cho đơn hàng {order_id}, nhưng triển khai trạm Cloud chưa thành công ({new_dep_st}).",
-            }
-        if dep_st in ("FAILED", "PENDING", "DEPLOY_PENDING", ""):
-            retry_res = await retry_order_cloud_deployment(order_id)
-            return {
-                "status": retry_res.get("status", "CLOUD_DEPLOY_FAILED"),
-                "ok": bool(retry_res.get("ok")),
-                "message": retry_res.get("message"),
-            }
-        return {"status": "ALREADY_PAID", "message": f"Đơn hàng {order_id} đã được thanh toán và cấp quyền đầy đủ trước đó."}
+    if order.get("payment_status") == "FREE_TRIAL" or str(order.get("id") or "").startswith("trial_"):
+        fail(400, "Đơn dùng thử không được duyệt như đơn trả tiền và không tính vào doanh thu.")
 
-    remaining_vnd = max(0.0, float(order.get("amount_vnd") or 0) - float(order.get("paid_amount_vnd") or 0))
-    success = await process_successful_payment(
-        order_id=order_id,
-        sepay_trans_id=f"adm_{secrets.token_hex(6)}",
-        amount_received_vnd=remaining_vnd,
-        raw_payload={"approved_by_admin": _admin.get("email") if isinstance(_admin, dict) else "admin"}
-    )
-    if not success:
-        fail(400, f"Không thể duyệt đơn hàng {order_id}.")
-    return {"status": "SUCCESS", "message": f"Đã duyệt và kích hoạt đơn hàng {order_id} thành công."}
+    p_type = str(order.get("product_type") or "PDF_REPORT").upper()
+    if p_type != "PDF_REPORT" and not str(order.get("plan_tier") or "").startswith("report:"):
+        fail(400, "Lệnh duyệt thủ công nghiên cứu chỉ mở cho sản phẩm PDF_REPORT.")
+
+    clean_tx = p.tx_hash.strip()
+    admin_id = _admin.get("id", "admin") if isinstance(_admin, dict) else "admin"
+    now_ts = time.time()
+
+    if order.get("status") == "PAID":
+        with tx() as c:
+            grant_report_entitlement_tx(c, order=order, is_trial=0)
+        return {
+            "status": "ALREADY_PAID",
+            "ok": True,
+            "message": f"Đơn hàng {order_id} đã được thanh toán và cấp quyền tải đầy đủ trước đó.",
+        }
+
+    with tx() as c:
+        c.execute("""
+            UPDATE orders SET
+                status = 'PAID',
+                payment_status = 'PAID',
+                tx_hash = ?,
+                paid_at = ?,
+                entitlement_status = 'GRANTED'
+            WHERE id = ?
+        """, (clean_tx, now_ts, order_id))
+
+        order_upd = dict(c.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone())
+        grant_report_entitlement_tx(c, order=order_upd, now_ts=now_ts, is_trial=0)
+
+        audit(c, admin_id, 'admin_order_approved_manual', {
+            'order_id': order_id,
+            'tx_hash': clean_tx,
+            'user_id': order.get('user_id'),
+            'product_type': p_type,
+        })
+
+    return {
+        "status": "SUCCESS",
+        "ok": True,
+        "message": f"Đã duyệt thủ công đơn hàng {order_id} thành công với tx_hash {clean_tx}.",
+    }
+
+
+# ----------------------------------------------------------------------
+# Trial Licenses Management (Dedicated Evaluation Entitlements)
+# ----------------------------------------------------------------------
+
+class GrantTrialPayload(BaseModel):
+    email: str = Field(min_length=3, max_length=150)
+    report_id: str = Field(min_length=1)
+    version: str = Field(default="v1.0")
+    duration_days: int = Field(default=30, ge=1, le=365)
+    notes: Optional[str] = Field(default=None)
+
+
+class ExtendTrialPayload(BaseModel):
+    extra_days: int = Field(default=30, ge=1, le=365)
+
+
+class RevokeTrialPayload(BaseModel):
+    reason: Optional[str] = Field(default=None)
+
+
+class ChangeTrialEmailPayload(BaseModel):
+    new_email: str = Field(min_length=3, max_length=150)
+
+
+@router.get("/api/v1/admin/billing/trials")
+@router.get("/api/admin/billing/trials")
+def list_admin_trials(_admin=Depends(get_current_admin)):
+    """List all active and expired trial evaluation licenses."""
+    now_ts = time.time()
+    with tx() as c:
+        rows = c.execute("""
+            SELECT re.*, u.email as user_email, r.title as report_title
+            FROM report_entitlements re
+            LEFT JOIN users u ON u.id = re.user_id
+            LEFT JOIN research_reports r ON r.id = re.report_id
+            WHERE re.is_trial = 1 OR re.order_id LIKE 'trial_%'
+            ORDER BY re.granted_at DESC
+        """).fetchall()
+
+        trials_list = []
+        for r in rows:
+            d = dict(r)
+            exp = float(d.get("expires_at") or 0.0)
+            is_active = (d.get("status") == "ACTIVE") and (exp == 0.0 or exp > now_ts) and not d.get("revoked_at")
+            d["is_active"] = is_active
+            d["days_remaining"] = max(0, int((exp - now_ts) / 86400)) if exp > now_ts else 0
+            trials_list.append(d)
+
+    return {"total": len(trials_list), "trials": trials_list}
+
+
+@router.post("/api/v1/admin/billing/trials/grant")
+@router.post("/api/admin/billing/trials/grant")
+def admin_grant_trial_license(p: GrantTrialPayload, _admin=Depends(get_current_admin)):
+    """Grant new trial license to team/institutional evaluator under pilot agreement."""
+    from app.domains.reports.service import grant_report_entitlement_tx
+    from app.db import audit
+    from app.security import password_hash
+
+    email_clean = p.email.strip().lower()
+    now_ts = time.time()
+    trial_order_id = f"trial_{secrets.token_hex(6)}"
+    exp_ts = now_ts + (p.duration_days * 86400)
+    admin_id = _admin.get("id", "admin") if isinstance(_admin, dict) else "admin"
+
+    with tx() as c:
+        user_row = c.execute("SELECT id, email FROM users WHERE email=?", (email_clean,)).fetchone()
+        if user_row:
+            user_id = user_row["id"]
+        else:
+            user_id = f"usr_{secrets.token_hex(8)}"
+            rand_pw = secrets.token_urlsafe(12)
+            c.execute("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, 'customer')", (user_id, email_clean, password_hash(rand_pw)))
+
+        from app.domains.reports.service import ensure_gold_research_suite_v1_seeded
+        ensure_gold_research_suite_v1_seeded(c)
+
+        rep_row = c.execute(
+            "SELECT id, title, version FROM research_reports WHERE id=? OR slug=? OR id LIKE ? OR slug LIKE ?",
+            (p.report_id, p.report_id, f"%{p.report_id}%", f"%{p.report_id}%")
+        ).fetchone()
+        if not rep_row:
+            fail(404, f"Không tìm thấy ấn phẩm {p.report_id}")
+        real_rep_id = str(rep_row[0])
+
+        order_stub = {
+            "id": trial_order_id,
+            "user_id": user_id,
+            "amount_usd": 0.0,
+            "amount_vnd": 0,
+            "status": "COMPLETED",
+            "payment_status": "FREE_TRIAL",
+            "entitlement_status": "GRANTED",
+            "payment_gateway": "DIRECT_USDT",
+            "created_at": now_ts,
+            "expires_at": exp_ts,
+            "paid_at": now_ts,
+            "currency": "USDT",
+            "product_type": "PDF_REPORT",
+            "report_id": real_rep_id,
+            "report_version": p.version or "v1.0",
+            "plan_tier": f"report:{real_rep_id}",
+            "notes": p.notes or "Institutional Trial License",
+            "is_trial": 1,
+        }
+
+        c.execute("""
+            INSERT INTO orders (
+                id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
+                plan_tier, cloud_slots_count, status, payment_status, entitlement_status,
+                payment_gateway, created_at, expires_at, paid_at,
+                currency, expected_amount_usdt, product_type, report_id, report_version
+            ) VALUES (?, ?, 0.0, 1.0, 0, ?, 1, 'COMPLETED', 'FREE_TRIAL', 'GRANTED', 'DIRECT_USDT', ?, ?, ?, 'USDT', 0.0, 'PDF_REPORT', ?, ?)
+        """, (
+            trial_order_id, user_id, f"report:{real_rep_id}", now_ts, exp_ts, now_ts, real_rep_id, p.version or "v1.0"
+        ))
+
+        ent = grant_report_entitlement_tx(c, order=order_stub, now_ts=now_ts, is_trial=1, expires_at=exp_ts)
+        audit(c, admin_id, 'trial_license_granted', {
+            'order_id': trial_order_id,
+            'user_email': email_clean,
+            'report_id': real_rep_id,
+            'version': p.version or "v1.0",
+            'duration_days': p.duration_days,
+        })
+
+    return {
+        "ok": True,
+        "message": f"Đã cấp giấy phép dùng thử {real_rep_id} ({p.version}) cho {email_clean} ({p.duration_days} ngày).",
+        "entitlement": ent,
+    }
+
+
+@router.post("/api/v1/admin/billing/trials/{entitlement_id}/extend")
+@router.post("/api/admin/billing/trials/{entitlement_id}/extend")
+def admin_extend_trial_license(entitlement_id: str, p: ExtendTrialPayload, _admin=Depends(get_current_admin)):
+    """Extend duration of an existing trial license."""
+    from app.db import audit
+    now_ts = time.time()
+    admin_id = _admin.get("id", "admin") if isinstance(_admin, dict) else "admin"
+
+    with tx() as c:
+        row = c.execute("SELECT * FROM report_entitlements WHERE id=?", (entitlement_id,)).fetchone()
+        if not row:
+            fail(404, f"Không tìm thấy giấy phép dùng thử {entitlement_id}")
+        ent = dict(row)
+        current_exp = float(ent.get("expires_at") or now_ts)
+        new_exp = max(current_exp, now_ts) + (p.extra_days * 86400)
+
+        c.execute("""
+            UPDATE report_entitlements SET
+                expires_at = ?,
+                status = 'ACTIVE',
+                revoked_at = NULL
+            WHERE id = ?
+        """, (new_exp, entitlement_id))
+
+        if ent.get("order_id"):
+            c.execute("UPDATE orders SET expires_at = ? WHERE id = ?", (new_exp, ent["order_id"]))
+
+        audit(c, admin_id, 'trial_license_extended', {
+            'entitlement_id': entitlement_id,
+            'new_expires_at': new_exp,
+            'extra_days': p.extra_days,
+        })
+
+    return {
+        "ok": True,
+        "message": f"Đã gia hạn giấy phép dùng thử thêm {p.extra_days} ngày.",
+        "new_expires_at": new_exp,
+    }
+
+
+@router.post("/api/v1/admin/billing/trials/{entitlement_id}/revoke")
+@router.post("/api/admin/billing/trials/{entitlement_id}/revoke")
+def admin_revoke_trial_license(entitlement_id: str, p: RevokeTrialPayload, _admin=Depends(get_current_admin)):
+    """Revoke an active trial license immediately."""
+    from app.db import audit
+    now_ts = time.time()
+    admin_id = _admin.get("id", "admin") if isinstance(_admin, dict) else "admin"
+
+    with tx() as c:
+        row = c.execute("SELECT * FROM report_entitlements WHERE id=?", (entitlement_id,)).fetchone()
+        if not row:
+            fail(404, f"Không tìm thấy giấy phép dùng thử {entitlement_id}")
+        ent = dict(row)
+
+        c.execute("""
+            UPDATE report_entitlements SET
+                status = 'REVOKED',
+                revoked_at = ?,
+                expires_at = ?
+            WHERE id = ?
+        """, (now_ts, now_ts - 1, entitlement_id))
+
+        if ent.get("order_id"):
+            c.execute("UPDATE orders SET entitlement_status = 'REVOKED' WHERE id = ?", (ent["order_id"],))
+
+        audit(c, admin_id, 'trial_license_revoked', {
+            'entitlement_id': entitlement_id,
+            'reason': p.reason or "Revoked by admin",
+        })
+
+    return {
+        "ok": True,
+        "message": f"Đã thu hồi giấy phép dùng thử {entitlement_id} thành công.",
+    }
+
+
+@router.post("/api/v1/admin/billing/trials/{entitlement_id}/change-email")
+@router.post("/api/admin/billing/trials/{entitlement_id}/change-email")
+def admin_change_trial_email(entitlement_id: str, p: ChangeTrialEmailPayload, _admin=Depends(get_current_admin)):
+    """Transfer an existing trial license to a different email address."""
+    from app.db import audit
+    from app.security import password_hash
+    clean_email = p.new_email.strip().lower()
+    admin_id = _admin.get("id", "admin") if isinstance(_admin, dict) else "admin"
+
+    with tx() as c:
+        row = c.execute("SELECT * FROM report_entitlements WHERE id=?", (entitlement_id,)).fetchone()
+        if not row:
+            fail(404, f"Không tìm thấy giấy phép dùng thử {entitlement_id}")
+        ent = dict(row)
+
+        u_row = c.execute("SELECT id FROM users WHERE email=?", (clean_email,)).fetchone()
+        if u_row:
+            new_uid = u_row["id"]
+        else:
+            new_uid = f"usr_{secrets.token_hex(8)}"
+            rand_pw = secrets.token_urlsafe(12)
+            c.execute("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, 'customer')", (new_uid, clean_email, password_hash(rand_pw)))
+
+        c.execute("UPDATE report_entitlements SET user_id=? WHERE id=?", (new_uid, entitlement_id))
+        if ent.get("order_id"):
+            c.execute("UPDATE orders SET user_id=? WHERE id=?", (new_uid, ent["order_id"]))
+
+        audit(c, admin_id, 'trial_license_email_transferred', {
+            'entitlement_id': entitlement_id,
+            'old_user_id': ent.get("user_id"),
+            'new_email': clean_email,
+        })
+
+    return {
+        "ok": True,
+        "message": f"Đã chuyển giấy phép dùng thử sang email {clean_email} thành công.",
+    }
 
 
 # ----------------------------------------------------------------------

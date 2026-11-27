@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import { Panel, StatusBadge } from '../ui/Primitives';
-import { Wallet, RefreshCw } from 'lucide-react';
+import { Wallet, RefreshCw, ShieldAlert, Lock, Unlock, Database, Cpu } from 'lucide-react';
 
 export const AdminBillingSettings: React.FC = () => {
   const [settings, setSettings] = useState({
@@ -18,16 +18,24 @@ export const AdminBillingSettings: React.FC = () => {
     enabled: boolean;
     trc20_address: string;
     bep20_address: string;
+    db_saved_enabled?: boolean;
+    env_payment_usdt_enabled?: boolean;
+    env_commercial_sales_enabled?: boolean;
+    checkout_locked?: boolean;
+    checkout_status?: string;
   }>({
     enabled: true,
     trc20_address: '',
     bep20_address: '',
   });
+
   const [cryptoBusy, setCryptoBusy] = useState(false);
   const [cryptoMsg, setCryptoMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+  const [cryptoLoadError, setCryptoLoadError] = useState<string | null>(null);
 
   const fetchSettings = async () => {
     setLoading(true);
+    setCryptoLoadError(null);
     try {
       const data = await api.get('/api/admin/billing/settings');
       if (data && typeof data === 'object') {
@@ -44,10 +52,15 @@ export const AdminBillingSettings: React.FC = () => {
             enabled: cData.enabled !== false,
             trc20_address: cData.trc20_address || '',
             bep20_address: cData.bep20_address || '',
+            db_saved_enabled: cData.db_saved_enabled,
+            env_payment_usdt_enabled: cData.env_payment_usdt_enabled,
+            env_commercial_sales_enabled: cData.env_commercial_sales_enabled,
+            checkout_locked: cData.checkout_locked,
+            checkout_status: cData.checkout_status,
           });
         }
-      } catch {
-        // ignore
+      } catch (err: any) {
+        setCryptoLoadError(err?.message || 'Không thể tải cấu hình ví USDT.');
       }
     } catch (e: any) {
       setMsg(`Lỗi tải cấu hình thanh toán: ${e?.message || 'Không thể kết nối API'}`);
@@ -62,6 +75,14 @@ export const AdminBillingSettings: React.FC = () => {
 
   const handleSaveCryptoWallets = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (cryptoLoadError) {
+      setCryptoMsg({
+        type: 'err',
+        text: 'Không thể lưu vì dữ liệu cấu hình ban đầu nạp thất bại. Vui lòng thử tải lại trang trước.',
+      });
+      return;
+    }
+
     setCryptoBusy(true);
     setCryptoMsg(null);
 
@@ -93,6 +114,7 @@ export const AdminBillingSettings: React.FC = () => {
         bep20_address: bep20,
       });
       setCryptoMsg({ type: 'ok', text: 'Đã lưu cấu hình ví nhận USDT on-chain thành công.' });
+      await fetchSettings();
     } catch (err: any) {
       setCryptoMsg({ type: 'err', text: `Lỗi lưu ví USDT: ${err?.message || 'Không thể kết nối API'}` });
     } finally {
@@ -167,6 +189,69 @@ export const AdminBillingSettings: React.FC = () => {
           </label>
         }
       >
+        {/* OPERATIONAL SAFETY DIAGNOSTIC STRIP */}
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-xs">
+          <div className="rounded-xl border border-slate-800 bg-[#060A13] p-3 space-y-1">
+            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              <Database className="h-3.5 w-3.5 text-cyan-400" />
+              <span>Trạng Thái Lưu Trong DB</span>
+            </div>
+            <div className="font-bold text-white">
+              {cryptoWallets.db_saved_enabled ? (
+                <span className="text-emerald-400">ENABLED (Đã bật trong KV)</span>
+              ) : (
+                <span className="text-slate-400">DISABLED (Chưa bật)</span>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-[#060A13] p-3 space-y-1">
+            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              <Cpu className="h-3.5 w-3.5 text-amber-400" />
+              <span>Biến Môi Trường (ENV)</span>
+            </div>
+            <div className="font-bold text-white">
+              USDT: {cryptoWallets.env_payment_usdt_enabled ? (
+                <strong className="text-emerald-400">ON</strong>
+              ) : (
+                <strong className="text-slate-400">OFF</strong>
+              )}{' '}
+              · Sale: {cryptoWallets.env_commercial_sales_enabled ? (
+                <strong className="text-emerald-400">ON</strong>
+              ) : (
+                <strong className="text-amber-400">LOCKED</strong>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-[#060A13] p-3 space-y-1">
+            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              {cryptoWallets.checkout_locked ? (
+                <Lock className="h-3.5 w-3.5 text-amber-400" />
+              ) : (
+                <Unlock className="h-3.5 w-3.5 text-emerald-400" />
+              )}
+              <span>Cổng Thanh Toán Production</span>
+            </div>
+            <div className="font-bold text-xs truncate">
+              {cryptoWallets.checkout_locked ? (
+                <span className="text-amber-400">ĐÃ KHÓA (An Toàn Tuyệt Đối)</span>
+              ) : (
+                <span className="text-emerald-400">MỞ BÁN THỰC TẾ</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {cryptoLoadError && (
+          <div className="mb-4 rounded-xl border border-rose-500/40 bg-rose-950/20 p-3.5 text-xs text-rose-200 flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0 text-rose-400" />
+            <span>
+              {cryptoLoadError}. Nút lưu cấu hình ví USDT đã bị khóa để bảo vệ hệ thống tránh ghi đè trắng.
+            </span>
+          </div>
+        )}
+
         {cryptoMsg && (
           <div
             className={`mb-4 rounded-xl border p-3.5 text-xs font-medium ${
@@ -224,7 +309,11 @@ export const AdminBillingSettings: React.FC = () => {
             <span className="text-xs text-slate-400">
               Hệ thống tự động gán số lẻ (VD: $32.01 – $32.99) để khớp giao dịch mua báo cáo.
             </span>
-            <button type="submit" disabled={cryptoBusy} className="quant-btn-primary text-xs">
+            <button
+              type="submit"
+              disabled={cryptoBusy || Boolean(cryptoLoadError)}
+              className="quant-btn-primary text-xs"
+            >
               {cryptoBusy ? 'Đang lưu ví USDT...' : 'Lưu Cài Đặt Ví USDT'}
             </button>
           </div>

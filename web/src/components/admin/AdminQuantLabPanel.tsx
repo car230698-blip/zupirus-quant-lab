@@ -34,19 +34,26 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
   const [exporting, setExporting] = useState(false);
   const [parsedData, setParsedData] = useState<any>(null);
   const [studyResult, setStudyResult] = useState<any>(null);
+  const [activeJob, setActiveJob] = useState<{ id: string; status: string; message: string; startedAt?: number } | null>(null);
 
   const handleTriggerAutonomous = async () => {
+    const jobId = `job_quant_${Date.now()}`;
+    setActiveJob({ id: jobId, status: 'RUNNING', message: 'Đang chạy pipeline nghiên cứu định lượng tự động và chuẩn bị bản nháp...', startedAt: Date.now() });
     setTriggeringAutonomous(true);
     setMsg('');
     try {
       const res: any = await api.post('/api/v1/admin/quant/autonomous/trigger', { force: false });
       if (res?.summary) {
-        setMsg(`Tiến trình tự hành hoàn tất: Đã kiểm tra ${res.summary.total_candidates} chiến lược, tự động xuất bản ${res.summary.published_count} báo cáo lên danh mục!`);
+        const draftId = res.summary.draft_report_id || 'N/A';
+        setActiveJob({ id: jobId, status: 'COMPLETED', message: `Hoàn tất nghiên cứu: Tạo bản nháp #${draftId} thành công (Chờ Admin duyệt phát hành).` });
+        setMsg(`Chu kỳ nghiên cứu hoàn tất: Đã kiểm định ${res.summary.total_candidates} chiến lược, tạo bản nháp #${draftId} lưu vào hàng đợi chờ Admin phê duyệt.`);
       } else {
-        setMsg('Đã kích hoạt tiến trình nghiên cứu và xuất bản tự hành 100%!');
+        setActiveJob({ id: jobId, status: 'COMPLETED', message: 'Pipeline nghiên cứu đã hoàn tất thành công.' });
+        setMsg('Đã hoàn thành chu kỳ nghiên cứu định lượng (Chờ Admin duyệt phát hành).');
       }
     } catch (err: any) {
-      setMsg(err?.message || 'Lỗi khi kích hoạt tiến trình tự hành.');
+      setActiveJob({ id: jobId, status: 'FAILED', message: err?.message || 'Tiến trình nghiên cứu gặp lỗi.' });
+      setMsg(err?.message || 'Lỗi khi kích hoạt tiến trình nghiên cứu.');
     } finally {
       setTriggeringAutonomous(false);
     }
@@ -193,6 +200,46 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
 
   return (
     <div className="space-y-6">
+      {/* ACTIVE JOB BANNER */}
+      {activeJob && (
+        <div className={`rounded-xl border p-4 space-y-1 text-xs font-mono transition ${
+          activeJob.status === 'RUNNING'
+            ? 'border-cyan-500/40 bg-cyan-950/20 text-cyan-200'
+            : activeJob.status === 'COMPLETED'
+            ? 'border-emerald-500/40 bg-emerald-950/20 text-emerald-200'
+            : 'border-rose-500/40 bg-rose-950/20 text-rose-200'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-semibold">
+              {activeJob.status === 'RUNNING' && <RefreshCw className="h-4 w-4 animate-spin text-cyan-400" />}
+              {activeJob.status === 'COMPLETED' && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
+              <span>TIẾN TRÌNH NGHIÊN CỨU: {activeJob.id}</span>
+            </div>
+            <span className="font-bold uppercase tracking-wider">{activeJob.status}</span>
+          </div>
+          <p className="text-[11px] text-slate-300 m-0">{activeJob.message}</p>
+        </div>
+      )}
+
+      {/* DATASET IDENTITY BANNER (When data parsed) */}
+      {parsedData?.dataset_identity && (
+        <div className="rounded-xl border border-slate-800 bg-[#060A13] p-4 text-xs font-mono space-y-2">
+          <div className="text-cyan-400 font-semibold flex items-center gap-1.5">
+            <CheckCircle2 className="h-4 w-4 text-[#12B5A6]" />
+            <span>ĐỊNH DANH BỘ DỮ LIỆU NGHIÊN CỨU (DATASET PROVENANCE)</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-[11px] text-slate-300">
+            <div>Tài sản / Công cụ: <strong className="text-white">{parsedData.dataset_identity.canonical_symbol} ({parsedData.dataset_identity.instrument_type})</strong></div>
+            <div>Nguồn gốc: <strong className="text-cyan-300">{parsedData.dataset_identity.source_provenance}</strong></div>
+            <div>Múi giờ: <strong className="text-amber-300">{parsedData.dataset_identity.timezone_utc}</strong></div>
+            <div>Chi phí giả định: <strong className="text-emerald-300">{parsedData.dataset_identity.friction_assumed_pips} pips</strong></div>
+          </div>
+          <div className="text-[10px] text-slate-500 truncate">
+            SHA-256: <span className="text-slate-400">{parsedData.dataset_identity.data_sha256}</span> · Mã phiên bản: <span className="text-slate-400">{parsedData.dataset_identity.data_version_id}</span>
+          </div>
+        </div>
+      )}
+
       {/* SECTION 1: CSV DATA INGESTION & PARAMETERS */}
       <div className="grid gap-6 lg:grid-cols-3">
         <Panel
@@ -225,10 +272,10 @@ export const AdminQuantLabPanel: React.FC<{ setMsg: (m: string) => void }> = ({ 
                   disabled={triggeringAutonomous}
                   onClick={handleTriggerAutonomous}
                   className="quant-btn-primary text-xs bg-indigo-600/80 hover:bg-indigo-600 text-white border-indigo-500/40 shadow-sm"
-                  title="Tự động thu thập dữ liệu, kiểm định tổ chức 5 tiêu chí, viết luận văn AI (Gemini 4 Hydrogen) và xuất bản 100% tự động"
+                  title="Chạy pipeline nghiên cứu tự động: thu thập dữ liệu, kiểm định và tạo bản nháp (Admin duyệt trước khi phát hành)"
                 >
                   <Sparkles className={`h-3.5 w-3.5 text-amber-300 ${triggeringAutonomous ? 'animate-spin' : ''}`} />
-                  <span>{triggeringAutonomous ? 'Đang chạy tự hành...' : (lang === 'en' ? 'Run 100% Autonomous Desk' : 'Chạy bàn nghiên cứu tự hành 100%')}</span>
+                  <span>{triggeringAutonomous ? 'Đang chạy pipeline...' : (lang === 'en' ? 'Run Research Pipeline (Draft)' : 'Chạy pipeline nghiên cứu (Tạo bản nháp)')}</span>
                 </button>
 
                 <button

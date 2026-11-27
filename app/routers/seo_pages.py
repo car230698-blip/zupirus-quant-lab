@@ -471,15 +471,8 @@ def get_dynamic_sitemap() -> Response:
   </url>"""
                     )
     except Exception:
-        # Fallback to active published report if DB query encounters any issue
-        url_entries.append(
-            f"""  <url>
-    <loc>https://zupirus.com/bao-cao/bao-cao-dinh-luong-xau-usd-cau-truc-breakout-retest-kiem-dinh-walk-forward</loc>
-    <lastmod>{PUBLISHED_DATE}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>"""
-        )
+        # If DB query encounters any issue, keep existing static entries without injecting unverified fake slugs
+        pass
 
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -913,30 +906,51 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
     vnd_price = int(report.get("price_vnd") or 750000)
     usd_price = float(report.get("price_usd") or 30.0)
 
-    # Parse WFO metrics
+    can_purchase = bool(report.get("can_purchase"))
+    has_sample = bool(report.get("has_sample_pdf"))
+    rep_id = str(report.get("id") or "")
+
+    # Parse quantitative metrics strictly from empirical run without inventing numbers
     wfo_data = report.get("wfo_metrics") or {}
-    wr = wfo_data.get("win_rate", "64.2%")
-    pf = wfo_data.get("profit_factor", "1.94")
-    samples = wfo_data.get("sample_size", 180)
-    max_dd = wfo_data.get("max_drawdown_pct", "4.8%")
+    wr_raw = wfo_data.get("win_rate")
+    if wr_raw is not None:
+        try:
+            wr_val = float(wr_raw)
+            wr = f"{wr_val * 100:.1f}%" if wr_val <= 1.0 else f"{wr_val:.1f}%"
+        except (ValueError, TypeError):
+            wr = str(wr_raw)
+    else:
+        wr = "Chưa có dữ liệu"
+
+    pf_raw = wfo_data.get("profit_factor") or wfo_data.get("profit_factor_label")
+    pf = str(pf_raw) if pf_raw is not None else "Chưa có dữ liệu"
+
+    samples_raw = wfo_data.get("sample_size") or wfo_data.get("trades_count") or wfo_data.get("oos_trades")
+    samples_str = f"{samples_raw} mẫu/lệnh" if samples_raw is not None else "Chưa có dữ liệu"
+
+    max_dd_raw = wfo_data.get("max_drawdown_pct") or wfo_data.get("max_drawdown_r")
+    max_dd = str(max_dd_raw) if max_dd_raw is not None else "Chưa có dữ liệu"
+
+    product_graph = {
+        "@type": "Product",
+        "name": rep_title,
+        "description": meta_desc,
+        "url": canonical,
+        "category": "Quantitative Research Report",
+    }
+    if can_purchase:
+        product_graph["offers"] = {
+            "@type": "Offer",
+            "price": str(vnd_price),
+            "priceCurrency": "VND",
+            "availability": "https://schema.org/InStock",
+            "url": canonical,
+        }
 
     json_ld = {
         "@context": "https://schema.org",
         "@graph": [
-            {
-                "@type": "Product",
-                "name": rep_title,
-                "description": meta_desc,
-                "url": canonical,
-                "category": "Quantitative Research Report",
-                "offers": {
-                    "@type": "Offer",
-                    "price": str(vnd_price),
-                    "priceCurrency": "VND",
-                    "availability": "https://schema.org/InStock",
-                    "url": canonical,
-                },
-            },
+            product_graph,
             {
                 "@type": "BreadcrumbList",
                 "itemListElement": [
@@ -948,6 +962,9 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
         ],
     }
 
+    sample_button = f'<a class="cta" href="/api/v1/reports/{rep_id}/sample-pdf" target="_blank" style="background:#0284c7">Đọc Bản Mẫu (PDF)</a>' if has_sample else ''
+    purchase_button = '<a class="cta" href="https://zupirus.com/portal">Mua tại Cổng Khách Hàng →</a>' if can_purchase else '<span style="font-size:12px;color:#94a3b8;align-self:center;padding:8px 12px;background:#1e293b;border-radius:8px">Chưa mở bán trực tuyến (Chỉ đọc thử)</span>'
+
     body = f"""
       <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / <a href="https://zupirus.com/#reports">Danh mục báo cáo</a> / {html.escape(rep_slug)}</div>
       <span class="badge">PUBLISHED RESEARCH REPORT · VERSION {html.escape(str(report.get('version') or 'v1.0'))}</span>
@@ -956,9 +973,9 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
 
       <div class="grid">
         <div class="card">
-          <span class="badge">OOS WIN RATE</span>
+          <span class="badge">WIN RATE</span>
           <div style="font-size:28px;font-weight:800;color:#10b981;margin-top:6px">{html.escape(str(wr))}</div>
-          <p style="font-size:13px;color:#94a3b8;margin:4px 0 0">Tỷ lệ thắng thực tế trên tập kiểm định ngoài mẫu.</p>
+          <p style="font-size:13px;color:#94a3b8;margin:4px 0 0">Tỷ lệ thắng thực nghiệm trên tập dữ liệu kiểm định.</p>
         </div>
         <div class="card">
           <span class="badge">PROFIT FACTOR</span>
@@ -966,32 +983,32 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
           <p style="font-size:13px;color:#94a3b8;margin:4px 0 0">Hệ số lợi nhuận sau khi trừ toàn bộ chi phí ma sát.</p>
         </div>
         <div class="card">
-          <span class="badge">SAMPLE SIZE</span>
-          <div style="font-size:28px;font-weight:800;color:#38bdf8;margin-top:6px">{html.escape(str(samples))} nến</div>
-          <p style="font-size:13px;color:#94a3b8;margin:4px 0 0">Số lượng mẫu nến tick kiểm định độc lập.</p>
+          <span class="badge">MẪU DỮ LIỆU / LỆNH</span>
+          <div style="font-size:28px;font-weight:800;color:#38bdf8;margin-top:6px">{html.escape(str(samples_str))}</div>
+          <p style="font-size:13px;color:#94a3b8;margin:4px 0 0">Số lượng mẫu hoặc lệnh thực hiện trong đợt nghiên cứu.</p>
         </div>
       </div>
 
       <div class="card" style="margin-top:24px">
         <h2>Nội Dung Nghiên Cứu Bao Gồm Trong Ấn Phẩm PDF</h2>
         <ul style="padding-left:20px;line-height:2;color:#cbd5e1">
-          <li>Cấu trúc vi mô thị trường vàng COMEX và phân tích hành vi thanh khoản phiên London - New York.</li>
-          <li>Quy trình Walk-Forward Optimization (WFO) đa cửa sổ cuốn với tập holdout được cô lập nghiêm ngặt.</li>
-          <li>Ma trận nhạy cảm chi phí ma sát (Stress Testing Matrix) ở các mức $1.5/oz, $2.5/oz và $4.0/oz.</li>
-          <li>Đường cong vốn ngoài mẫu (Equity Curve) và phân tích rủi ro sụt giảm cực đại ({html.escape(str(max_dd))}).</li>
-          <li>Định dạng PDF song ngữ, bảng biểu vector độ phân giải cao và hỗ trợ đầy đủ tiếng Việt có dấu.</li>
+          <li>Cấu trúc vi mô thị trường vàng COMEX và phân tích hành vi bứt phá phiên Á.</li>
+          <li>Quy trình kiểm định phân tách giai đoạn (Fixed-Rule Sub-Period Evaluation: Train / Validation / Test).</li>
+          <li>Mô hình chi phí ma sát và spread thực tế trên hợp đồng tương lai vàng GC=F.</li>
+          <li>Bảng phân rã chỉ số rủi ro cực đại (Drawdown: {html.escape(str(max_dd))}).</li>
+          <li>Bộ tài liệu bàn giao độc lập: Báo cáo PDF, Nhật ký Ledger CSV và công cụ Replay CLI.</li>
         </ul>
       </div>
 
       <div class="cta-box">
         <div>
-          <div style="font-size:12px;font-family:monospace;color:#fbbf24;font-weight:700">GIÁ NIÊM YẾT: {vnd_price:,.0f} VND ({usd_price:,.1f} USDT)</div>
-          <strong style="color:#fff;font-size:18px">Đọc Thử Bản Mẫu Hoặc Mua Bản Đầy Đủ</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Đăng nhập tài khoản ZUPIRUS để đọc thử bản mẫu miễn phí hoặc nhận bản quyền ấn phẩm PDF đầy đủ.</p>
+          <div style="font-size:12px;font-family:monospace;color:#fbbf24;font-weight:700">TÀI LIỆU NGHIÊN CỨU ĐỊNH LƯỢNG · COMEX GOLD (GC=F)</div>
+          <strong style="color:#fff;font-size:18px">Đọc Thử Bản Mẫu & Đăng Nhập Cổng Khách Hàng</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Đăng nhập tài khoản ZUPIRUS để đọc thử bản mẫu miễn phí hoặc nhận quyền dùng thử bộ công cụ nghiên cứu.</p>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <a class="cta" href="/api/v1/reports/{rep_slug}/sample-pdf" target="_blank" style="background:#0284c7">Đọc Bản Mẫu (PDF)</a>
-          <a class="cta" href="https://zupirus.com/portal">Vào Cổng Khách Hàng →</a>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          {sample_button}
+          {purchase_button}
         </div>
       </div>
     """

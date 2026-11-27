@@ -187,7 +187,7 @@ Or:
 
 Until you publish, the public catalog at `/api/v1/reports` does **not** list it.
 
-**Preview PDF** (committed for review): `artifacts/launch-guide/eurusd-h1-asia-london-preview.pdf`
+**Preview PDF** (committed for review): `data/guides/eurusd-h1-asia-london-preview.pdf`
 
 **Full PDF** is **not** in the public git tree. After migrate/boot, copy it from the API container’s private reports volume for review:
 

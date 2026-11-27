@@ -566,21 +566,95 @@ def api_admin_preview_report_pdf(
             "SELECT full_pdf_path, sample_pdf_path FROM report_versions WHERE report_id = ? AND version = ?",
             (rep["id"], ver),
         ).fetchone()
-        if kind.lower() == "sample":
-            rel = str((v_row["sample_pdf_path"] if v_row and v_row["sample_pdf_path"] else rep.get("sample_pdf_path")) or "").strip()
+        if version and not v_row and ver != rep.get("version"):
+            fail(404, f"Phiên bản '{version}' không tồn tại cho ấn phẩm này.")
+
+        if v_row:
+            rel = str((v_row["sample_pdf_path"] if kind.lower() == "sample" else v_row["full_pdf_path"]) or "").strip()
+        elif not version or ver == rep.get("version"):
+            rel = str((rep.get("sample_pdf_path") if kind.lower() == "sample" else rep.get("full_pdf_path")) or "").strip()
         else:
-            rel = str((v_row["full_pdf_path"] if v_row and v_row["full_pdf_path"] else rep.get("full_pdf_path")) or "").strip()
+            rel = ""
+
         if not rel:
-            fail(404, "Chưa có tệp PDF cho phiên bản này.")
+            fail(404, f"Chưa có tệp PDF cho phiên bản '{ver}'.")
         p = Path(rel)
         if not p.is_file():
-            fail(404, "Tệp PDF không tồn tại trên ổ đĩa.")
+            fail(404, f"Tệp PDF của phiên bản '{ver}' không tồn tại trên ổ đĩa.")
     return FileResponse(
         p,
         media_type="application/pdf",
         filename=f"{rep['slug']}-{ver}-{kind}.pdf",
         headers={"Cache-Control": "private, no-store"},
     )
+
+
+@router.get("/api/v1/admin/reports/{report_id}/preview-bundle")
+@router.get("/api/admin/reports/{report_id}/preview-bundle")
+def api_admin_preview_report_bundle(
+    report_id: str,
+    version: Optional[str] = Query(default=None),
+    admin: dict = Depends(get_current_admin),
+):
+    """Admin preview and download of the complete research suite bundle ZIP strictly by version."""
+    with tx() as c:
+        row = c.execute(
+            "SELECT id, slug, version FROM research_reports WHERE id = ? OR slug = ?",
+            (report_id, report_id),
+        ).fetchone()
+        if not row:
+            fail(404, "Không tìm thấy báo cáo.")
+        rep_id = str(row["id"])
+        rep_ver = str(row["version"] or "v1.0")
+        eff_ver = (version or rep_ver).strip()
+        if version:
+            v_row = c.execute(
+                "SELECT id FROM report_versions WHERE report_id = ? AND version = ?",
+                (rep_id, eff_ver),
+            ).fetchone()
+            if not v_row and eff_ver != rep_ver:
+                fail(404, f"Phiên bản '{version}' không tồn tại.")
+    try:
+        bundle_path, dl_filename, _ = build_or_get_report_bundle_zip(rep_id, eff_ver)
+    except FileNotFoundError as exc:
+        fail(404, str(exc))
+    except Exception as exc:
+        fail(400, f"Lỗi tạo gói bằng chứng: {exc}")
+
+    return FileResponse(
+        path=str(bundle_path),
+        filename=dl_filename,
+        media_type="application/zip",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.post("/api/v1/admin/reports/{report_id}/toggle-sale")
+@router.post("/api/admin/reports/{report_id}/toggle-sale")
+def api_admin_toggle_report_sale(
+    report_id: str,
+    admin: dict = Depends(get_current_admin),
+):
+    """Toggle commercial sale open/close for a published report, separate from publication status."""
+    with tx() as c:
+        row = c.execute(
+            "SELECT id, status, is_for_sale FROM research_reports WHERE id = ? OR slug = ?",
+            (report_id, report_id),
+        ).fetchone()
+        if not row:
+            fail(404, "Không tìm thấy báo cáo.")
+        rep_id = str(row["id"])
+        row_keys = row.keys() if hasattr(row, "keys") else []
+        current_sale = bool(row["is_for_sale"]) if "is_for_sale" in row_keys else False
+        new_sale = not current_sale
+        c.execute("UPDATE research_reports SET is_for_sale = ? WHERE id = ?", (1 if new_sale else 0, rep_id))
+        audit(c, admin["id"], "research_report_sale_toggled", {"report_id": rep_id, "is_for_sale": new_sale})
+    return {
+        "ok": True,
+        "report_id": rep_id,
+        "is_for_sale": new_sale,
+        "message": f"Đã {'mở bán' if new_sale else 'tạm dừng bán'} ấn phẩm thương mại.",
+    }
 
 
 @router.post("/api/v1/admin/reports/{report_id}/publish")

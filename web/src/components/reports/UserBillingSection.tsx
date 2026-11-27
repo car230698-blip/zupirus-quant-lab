@@ -235,6 +235,9 @@ export const UserBillingSection: React.FC = () => {
               <tbody>
                 {orders.map((ord) => {
                   const st = String(ord.status || '').toUpperCase();
+                  const isTrialOrder = Boolean((ord as any).is_trial || (ord as any).payment_status === 'FREE_TRIAL' || (ord.plan_tier && ord.plan_tier.includes('trial')));
+                  const isPaidOrder = (st === 'PAID' || st === 'COMPLETED' || (ord as any).payment_status === 'PAID') && !isTrialOrder;
+
                   return (
                     <tr key={ord.id}>
                       <td className="font-bold text-white">{ord.order_code || ord.payment_code || ord.id}</td>
@@ -243,28 +246,46 @@ export const UserBillingSection: React.FC = () => {
                       </td>
                       <td className="font-semibold text-emerald-400">{formatAmount(ord)}</td>
                       <td>
-                        <StatusBadge tone={st === 'PAID' ? 'success' : 'warning'}>{st}</StatusBadge>
+                        {isTrialOrder ? (
+                          <StatusBadge tone="info">{lang === 'en' ? 'TRIAL ACCESS' : 'DÙNG THỬ'}</StatusBadge>
+                        ) : isPaidOrder ? (
+                          <StatusBadge tone="success">{lang === 'en' ? 'PAID' : 'ĐÃ THANH TOÁN'}</StatusBadge>
+                        ) : st === 'EXPIRED' ? (
+                          <StatusBadge tone="danger">{lang === 'en' ? 'EXPIRED' : 'ĐÃ HẾT HẠN'}</StatusBadge>
+                        ) : (
+                          <StatusBadge tone="warning">{lang === 'en' ? 'PENDING' : 'CHỜ THANH TOÁN'}</StatusBadge>
+                        )}
                       </td>
                       <td className="text-right">
-                        <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setPreviewOrder(ord)}
-                            className="quant-quiet min-h-[30px] px-2.5 py-1 text-[11px]"
-                            title={lang === 'en' ? 'Preview receipt' : 'Xem trước biên lai'}
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            <span>{lang === 'en' ? 'View' : 'Xem'}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadReceipt(ord)}
-                            className="quant-quiet min-h-[30px] px-2.5 py-1 text-[11px]"
-                            title={lang === 'en' ? 'Download receipt' : 'Tải biên lai'}
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                        {isPaidOrder ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewOrder(ord)}
+                              className="quant-quiet min-h-[30px] px-2.5 py-1 text-[11px]"
+                              title={lang === 'en' ? 'Preview receipt' : 'Xem trước biên lai'}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              <span>{lang === 'en' ? 'View' : 'Xem'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadReceipt(ord)}
+                              className="quant-quiet min-h-[30px] px-2.5 py-1 text-[11px]"
+                              title={lang === 'en' ? 'Download receipt' : 'Tải biên lai'}
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : isTrialOrder ? (
+                          <span className="text-slate-500 text-[11px] font-mono italic">
+                            {lang === 'en' ? 'Free trial' : 'Dùng thử miễn phí'}
+                          </span>
+                        ) : (
+                          <span className="text-amber-400/80 text-[11px] font-mono">
+                            {lang === 'en' ? 'Awaiting payment' : 'Chưa thanh toán'}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );

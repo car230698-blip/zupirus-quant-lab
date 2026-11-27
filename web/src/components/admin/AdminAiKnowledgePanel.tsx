@@ -186,6 +186,18 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
     }
   };
 
+  const maskKeyDisplay = (k: any) => {
+    if (k.key_masked) return k.key_masked;
+    const str = String(k.id || '');
+    if (str.startsWith('gemini_')) {
+      return `AIzaSy****${str.slice(-4)}`;
+    }
+    if (str.length > 12) {
+      return `${str.slice(0, 6)}****${str.slice(-4)}`;
+    }
+    return 'AIzaSy****';
+  };
+
   const filteredLibrary = ingestedList.filter((item) => {
     if (libraryFilter === 'all') return true;
     const cat = item.category || 'general';
@@ -445,10 +457,10 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
           <div className="space-y-4">
             <div className="flex gap-2">
               <input
-                type="text"
+                type="password"
                 value={newKeyInput}
                 onChange={(e) => setNewKeyInput(e.target.value)}
-                placeholder="AIzaSy..."
+                placeholder="AIzaSy... (Ẩn mật khẩu khi nhập)"
                 className="quant-input flex-1 font-mono text-xs"
               />
               <button type="button" onClick={handleAddGeminiKey} className="quant-btn-secondary text-xs shrink-0">
@@ -471,7 +483,7 @@ export const AdminAiKnowledgePanel: React.FC<AdminAiKnowledgePanelProps> = ({
                     >
                       <div className="space-y-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-white truncate">{k.key_masked || k.id}</span>
+                          <span className="font-semibold text-white truncate">{maskKeyDisplay(k)}</span>
                           <StatusBadge tone={k.is_active ? 'success' : 'neutral'}>
                             {k.is_active ? 'ACTIVE' : 'PAUSED'}
                           </StatusBadge>

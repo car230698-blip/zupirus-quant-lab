@@ -276,6 +276,7 @@ def run_autonomous_research_cycle(
         # Record last run summary in database
         summary = {
             "success": True,
+            "status": "COMPLETED",
             "job_id": job_id,
             "trigger_type": trigger_type,
             "timestamp": now,

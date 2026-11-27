@@ -3,7 +3,6 @@ import { LandingLayout } from '../../layouts/LandingLayout';
 import { QuantReportCatalogAndLibrary } from '../../components/reports/QuantReportCatalogAndLibrary';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { LandingKnowledgeHub } from './LandingKnowledgeHub';
-import { api } from '../../api/client';
 import { ArrowRight, ChevronDown, FileText, ShieldCheck, CheckCircle2 } from 'lucide-react';
 
 export interface LandingPageProps {
@@ -14,72 +13,51 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
   const { lang, t } = useLanguage();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [heroImgFailed, setHeroImgFailed] = useState(false);
-  const [totalSamplesCount, setTotalSamplesCount] = useState<number>(0);
-  const [reportsLoaded, setReportsLoaded] = useState<boolean>(false);
-
-  React.useEffect(() => {
-    api.get<{ items?: any[]; count?: number }>('/api/v1/reports')
-      .then((res) => {
-        const items = res?.items;
-        if (items && Array.isArray(items)) {
-          let sumSamples = 0;
-          for (const rep of items) {
-            const sz = Number(rep?.wfo_metrics?.sample_size || 0);
-            if (Number.isFinite(sz) && sz > 0) {
-              sumSamples += sz;
-            }
-          }
-          setTotalSamplesCount(sumSamples);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setReportsLoaded(true));
-  }, []);
 
   const methodSteps =
     lang === 'en'
       ? [
           {
             step: '01',
-            title: 'Session Microstructure Profiling',
-            desc: 'Decompose XAU/USD liquidity sweeps and volatility across Asia, London, and New York overlaps on M15 and H1 bars.',
+            title: 'Asia Range Definition (00:00–05:00 UTC)',
+            desc: 'Calculate high/low boundaries across exactly 20 M15 bars on COMEX Gold Futures (GC=F) continuous contracts.',
           },
           {
             step: '02',
-            title: 'Rolling Walk-Forward Validation',
-            desc: 'Test parameters on strict out-of-sample 120/60 rolling blocks with explicit round-trip cost assumptions.',
+            title: 'Breakout & Retest Confirmation',
+            desc: 'Require bar close outside the Asia range, detect valid retest within 1–8 subsequent bars, and enter on the next open.',
           },
           {
             step: '03',
-            title: 'Audit-Ready PDF Publication',
-            desc: 'Package statistical tables, hazard filters, and drawdowns into versioned PDF publications with free public previews.',
+            title: 'Fixed-Rule Sub-Period Evaluation',
+            desc: 'Evaluate performance across independent time periods with 1.5R profit target, opposite-boundary SL, and 32-bar time stop.',
           },
           {
             step: '04',
-            title: 'Direct USDT Unlock & Library',
-            desc: 'Purchase individual issues via USDT BEP20 or TRC20 and keep permanent access to downloaded PDFs in your portal.',
+            title: 'Full Suite Delivery',
+            desc: 'Package comprehensive PDF documentation, empirical trade ledger CSV, and standalone CLI replay engine for local verification.',
           },
         ]
       : [
           {
             step: '01',
-            title: 'Phân Tích Vi Cấu Trúc Theo Phiên',
-            desc: 'Tách bạch đặc tính quét thanh khoản XAU/USD qua từng phiên Asia, London và London/New York trên dữ liệu M15/H1.',
+            title: 'Xác Định Biên Độ Phiên Á (00:00–05:00 UTC)',
+            desc: 'Đo khung biên độ dao động gồm đúng 20 nến M15 trên hợp đồng tương lai vàng COMEX (GC=F) theo giờ UTC.',
           },
           {
             step: '02',
-            title: 'Kiểm Định Cuốn Chiếu Walk-Forward',
-            desc: 'Thử nghiệm nghiêm ngặt ngoài mẫu (120 nến huấn luyện / 60 nến kiểm thử) kèm chi phí trượt giá giả định minh bạch.',
+            title: 'Xác Nhận Breakout & Retest',
+            desc: 'Chỉ xác nhận phá vỡ khi nến đóng ngoài biên, tìm nhịp retest trong 1–8 nến tiếp theo và vào lệnh tại giá mở nến sau retest.',
           },
           {
             step: '03',
-            title: 'Đóng Gói Ấn Phẩm PDF Chuẩn Mực',
-            desc: 'Tổng hợp bảng phân rã kỳ vọng, ngưỡng chịu drawdown và quy tắc lọc nhiễu thành ấn phẩm PDF có bản đọc thử miễn phí.',
+            title: 'Kiểm Định Phân Tách Giai Đoạn',
+            desc: 'Đánh giá khách quan theo các giai đoạn thời gian độc lập với TP 1,5R, cắt lỗ biên đối diện và giới hạn tối đa 32 nến.',
           },
           {
             step: '04',
-            title: 'Thanh Toán USDT & Lưu Thư Viện',
-            desc: 'Mua lẻ từng báo cáo bằng USDT BEP20 hoặc TRC20 và tải bản đầy đủ vĩnh viễn trong Cổng Khách Hàng.',
+            title: 'Bàn Giao Trọn Bộ Sản Phẩm',
+            desc: 'Đóng gói báo cáo PDF chuyên sâu, nhật ký giao dịch ledger CSV và công cụ CLI Replay độc lập để tự kiểm tra nội bộ.',
           },
         ];
 
@@ -87,38 +65,38 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
     lang === 'en'
       ? [
           {
-            q: 'What does ZUPIRUS Quant Lab deliver?',
-            a: 'ZUPIRUS Quant Lab publishes independent statistical research studies and PDF reports on XAU/USD market microstructure. We do not connect to broker accounts, manage funds, or execute trades.',
+            q: 'What is ZUPIRUS Gold Research Suite v1?',
+            a: 'It is an independent quantitative research package focused on the M15 Breakout & Retest strategy on COMEX Gold Futures (GC=F). It includes full research documentation in PDF, empirical trade ledger CSV, and an offline CLI replay engine. We do not connect to broker accounts, manage funds, or execute trades.',
           },
           {
-            q: 'Can I preview a report before purchasing?',
-            a: 'Yes. Every published report includes a free Sample PDF link and full out-of-sample Walk-Forward tables visible before purchase.',
+            q: 'How can I review the methodology before requesting trial access?',
+            a: 'You can read the free Sample PDF and inspect the dataset identity and performance metrics directly on our public portal. Qualified institutional teams can sign in or request evaluation access.',
           },
           {
-            q: 'Are there recurring monthly subscriptions?',
-            a: 'No. Reports are licensed individually per issue with a single one-time payment in USDT (BEP20 or TRC20).',
+            q: 'Are there recurring monthly subscription fees?',
+            a: 'No. ZUPIRUS does not charge recurring subscriptions or sell trading signal channels. The product is licensed as a single versioned research suite for an institutional research team.',
           },
           {
-            q: 'Where do I download my purchased PDFs?',
-            a: 'Sign in to the Customer Portal at /portal/library. Every verified order unlocks instant PDF downloads for that exact version.',
+            q: 'How does the standalone CLI Replay tool work?',
+            a: 'The Replay CLI runs locally with reproducible rules, realistic tick/pip friction models, and strict Asia candle validation. It enables teams to verify results on their internal data without sending proprietary feeds outside.',
           },
         ]
       : [
           {
-            q: 'ZUPIRUS Quant Lab là gì và cung cấp sản phẩm nào?',
-            a: 'ZUPIRUS Quant Lab là phòng nghiên cứu định lượng độc lập phát hành ấn phẩm báo cáo PDF chuyên sâu về cấu trúc thị trường Vàng (XAU/USD). Hệ thống không kết nối MT5, không giữ tiền và không đặt lệnh giao dịch thay khách hàng.',
+            q: 'ZUPIRUS Gold Research Suite v1 là gì và cung cấp những gì?',
+            a: 'Đây là bộ sản phẩm nghiên cứu định lượng độc lập chuyên sâu về Breakout & Retest vàng COMEX (GC=F) khung M15. Bàn giao gồm báo cáo nghiên cứu PDF, nhật ký giao dịch ledger CSV và bộ công cụ Replay CLI độc lập để tự kiểm định. ZUPIRUS không kết nối tài khoản sàn, không giữ tiền và không giao dịch thay.',
           },
           {
-            q: 'Tôi có thể đọc thử trước khi mua không?',
-            a: 'Có. Mỗi báo cáo đều có nút mở bản đọc thử PDF miễn phí và bảng phân rã Walk-Forward minh bạch để bạn kiểm tra phương pháp trước khi thanh toán.',
+            q: 'Tôi có thể đọc thử tài liệu trước không?',
+            a: 'Có. Mỗi ấn phẩm đều có bản đọc thử PDF miễn phí và dữ liệu nghiên cứu công khai. Khách hàng tổ chức có thể đăng nhập hoặc nhận quyền dùng thử độc lập để tự chạy kiểm tra.',
           },
           {
-            q: 'Có phải đóng phí duy trì hàng tháng không?',
-            a: 'Không. Bạn chỉ mua lẻ từng số báo cáo bạn cần qua USDT (BEP20 hoặc TRC20) và sở hữu vĩnh viễn phiên bản PDF đó.',
+            q: 'Có phải trả phí duy trì hàng tháng không?',
+            a: 'Không. ZUPIRUS không thu phí thuê bao định kỳ và không vận hành kênh tín hiệu. Sản phẩm được định vị chuyển giao theo giấy phép nghiên cứu trọn gói cho từng đội ngũ.',
           },
           {
-            q: 'Sau khi thanh toán xong, tôi tải báo cáo ở đâu?',
-            a: 'Ngay khi giao dịch USDT được xác nhận, bản PDF đầy đủ sẽ tự động mở khóa trong mục "Thư viện PDF của tôi" tại Cổng Khách Hàng (/portal/library).',
+            q: 'Bộ công cụ Replay CLI hoạt động như thế nào?',
+            a: 'Công cụ Replay CLI chạy hoàn toàn độc lập trên môi trường của khách hàng, tích hợp đầy đủ mô hình chi phí spread, trượt giá và kiểm tra 20 nến phiên Á. Khách hàng có thể tự do kiểm chứng trên dữ liệu nội bộ mà không cần truyền dữ liệu ra ngoài.',
           },
         ];
 
@@ -159,17 +137,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             {/* Clean Unboxed Stats Strip */}
             <div className="grid grid-cols-3 gap-4 pt-6 border-t border-slate-800/80">
               <div>
-                <div className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">
-                  {totalSamplesCount > 0 ? `${totalSamplesCount.toLocaleString()}+` : (reportsLoaded ? '0' : '—')}
-                </div>
+                <div className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">GC=F</div>
                 <div className="mt-0.5 text-xs text-slate-400">{t.hero.statAum}</div>
               </div>
               <div>
-                <div className="font-mono text-xl sm:text-2xl font-bold text-[#12B5A6] tabular-nums">M15 / H1</div>
+                <div className="font-mono text-xl sm:text-2xl font-bold text-[#12B5A6] tabular-nums">00:00–05:00 UTC</div>
                 <div className="mt-0.5 text-xs text-slate-400">{t.hero.statLatency}</div>
               </div>
               <div>
-                <div className="font-mono text-xl sm:text-2xl font-bold text-amber-300 tabular-nums">120 / 60</div>
+                <div className="font-mono text-xl sm:text-2xl font-bold text-amber-300 tabular-nums">1.5R / 32 Bars</div>
                 <div className="mt-0.5 text-xs text-slate-400">{t.hero.statShield}</div>
               </div>
             </div>
@@ -181,7 +157,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               {!heroImgFailed && (
                 <img
                   src="/images/quant-lab-hero.jpg"
-                  alt="ZUPIRUS Quant Lab XAU/USD Microstructure Research"
+                  alt="ZUPIRUS Quant Lab COMEX Gold Microstructure Research"
                   onError={() => setHeroImgFailed(true)}
                   className="absolute inset-0 h-full w-full object-cover opacity-25 mix-blend-luminosity pointer-events-none"
                 />
@@ -194,12 +170,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                   <span className="h-2.5 w-2.5 rounded-full bg-amber-500/80" />
                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
                   <span className="ml-2 font-mono text-[11px] font-semibold text-slate-300">
-                    XAUUSD · M15 · WALK-FORWARD (120/60)
+                    COMEX GC=F · M15 · BREAKOUT &amp; RETEST
                   </span>
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-mono text-[10px] font-medium text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  LIVE MODEL
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#12B5A6]/30 bg-[#12B5A6]/10 px-2.5 py-0.5 font-mono text-[10px] font-medium text-[#12B5A6]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#12B5A6] animate-pulse" />
+                  EVALUATION SUITE
                 </span>
               </div>
 
@@ -220,13 +196,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
 
                   {/* Session shading boxes */}
                   <rect x="30" y="50" width="120" height="90" fill="#F59E0B" fillOpacity="0.06" rx="4" />
-                  <text x="35" y="44" fill="#F59E0B" fontSize="9" fontFamily="monospace" fontWeight="600">ASIA ACCUMULATION</text>
+                  <text x="35" y="44" fill="#F59E0B" fontSize="9" fontFamily="monospace" fontWeight="600">00:00–05:00 UTC ASIA RANGE</text>
 
                   <rect x="170" y="30" width="160" height="110" fill="#0EA5E9" fillOpacity="0.07" rx="4" />
-                  <text x="175" y="24" fill="#38BDF8" fontSize="9" fontFamily="monospace" fontWeight="600">LONDON LIQUIDITY SWEEP</text>
+                  <text x="175" y="24" fill="#38BDF8" fontSize="9" fontFamily="monospace" fontWeight="600">BREAKOUT &amp; RETEST CONFIRMATION</text>
 
                   <rect x="350" y="20" width="160" height="120" fill="#12B5A6" fillOpacity="0.08" rx="4" />
-                  <text x="355" y="14" fill="#12B5A6" fontSize="9" fontFamily="monospace" fontWeight="600">NY OVERLAP EXPANSION</text>
+                  <text x="355" y="14" fill="#12B5A6" fontSize="9" fontFamily="monospace" fontWeight="600">1.5R TARGET / 32-BAR EXIT</text>
 
                   {/* Stylized candlesticks */}
                   <line x1="50" y1="70" x2="50" y2="110" stroke="#475569" strokeWidth="1" />
@@ -277,16 +253,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               {/* Bottom Stats Footer inside Terminal */}
               <div className="relative z-10 grid grid-cols-3 gap-2 border-t border-slate-800/80 pt-3 text-[11px] font-mono">
                 <div>
-                  <div className="text-slate-400">WIN RATE (OOS)</div>
-                  <div className="text-sm font-bold text-[#12B5A6]">64.2%</div>
+                  <div className="text-slate-400">TÀI SẢN</div>
+                  <div className="text-sm font-bold text-[#12B5A6]">COMEX Gold (GC=F)</div>
                 </div>
                 <div>
-                  <div className="text-slate-400">PROFIT FACTOR</div>
-                  <div className="text-sm font-bold text-amber-300">1.94</div>
+                  <div className="text-slate-400">KHUNG GIỜ</div>
+                  <div className="text-sm font-bold text-amber-300">M15 (20 Nến Á)</div>
                 </div>
                 <div>
-                  <div className="text-slate-400">COST STRESS</div>
-                  <div className="text-sm font-bold text-emerald-400">3.5 pips</div>
+                  <div className="text-slate-400">BÀN GIAO</div>
+                  <div className="text-sm font-bold text-emerald-400">PDF + Ledger + Replay</div>
                 </div>
               </div>
             </div>
@@ -294,9 +270,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-400 font-mono">
               <span className="inline-flex items-center gap-1.5 text-slate-300">
                 <ShieldCheck className="h-4 w-4 text-[#12B5A6]" />
-                {lang === 'en' ? 'Independent Web-Only PDF Delivery' : 'Phân phối tài liệu PDF độc lập'}
+                {lang === 'en' ? 'Independent Research Suite Delivery' : 'Bàn giao bộ nghiên cứu độc lập'}
               </span>
-              <span>No MT5 · No Automated Orders</span>
+              <span>No MT5 · Single-Team License</span>
             </div>
           </div>
         </div>

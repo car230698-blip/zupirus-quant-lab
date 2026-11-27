@@ -6,3 +6,6 @@ __pycache__
 *.png
 .venv
 docs
+artifacts
+node_modules
+*.db

@@ -78,20 +78,23 @@ def apply_referral_code(p: ApplyReferralPayload, u=Depends(get_current_user)) ->
         stats["bonus_days"] = int(stats.get("bonus_days", 0)) + 7
         setkv(c, f"ref_stats:{referrer_uid}", json.dumps(stats))
 
-        # Extend active subscriptions (+7d referrer, +3d referee) if they exist
+        # Extend active trial entitlements (+7d referrer, +3d referee) if they exist
         for target_uid, add_days in ((referrer_uid, 7), (uid, 3)):
-            sub = c.execute("SELECT id, service_expires_at FROM subscriptions WHERE user_id = ?", (target_uid,)).fetchone()
-            if sub:
-                cur_exp = float(sub["service_expires_at"] or 0)
+            trial_ent = c.execute(
+                "SELECT id, expires_at FROM report_entitlements WHERE user_id = ? AND is_trial = 1 AND status = 'ACTIVE' LIMIT 1",
+                (target_uid,),
+            ).fetchone()
+            if trial_ent:
+                cur_exp = float(trial_ent["expires_at"] or 0)
                 new_exp = max(cur_exp, now) + add_days * 86400
-                c.execute("UPDATE subscriptions SET service_expires_at = ?, updated_at = ? WHERE id = ?", (new_exp, now, sub["id"]))
+                c.execute("UPDATE report_entitlements SET expires_at = ? WHERE id = ?", (new_exp, trial_ent["id"]))
 
         audit(c, uid, "referral_applied", {"code": code, "referrer_uid": referrer_uid, "bonus_days_referrer": 7, "bonus_days_referee": 3})
 
     return {
         "ok": True,
         "code": code,
-        "message": "Áp dụng mã giới thiệu thành công! Bạn được cộng +3 ngày quyền truy cập Quant Lab và người giới thiệu nhận +7 ngày.",
+        "message": "Áp dụng mã giới thiệu thành công! Bạn được cộng +3 ngày quyền dùng thử nghiên cứu và người giới thiệu nhận +7 ngày.",
     }
 
 

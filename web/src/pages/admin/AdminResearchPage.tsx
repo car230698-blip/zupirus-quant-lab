@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   apiGet,
+  apiPost,
   fetchStrategyReviewQueue,
-  approveStrategy,
-  rejectStrategy,
   StrategyReviewQueueItem,
 } from '../../api/client';
 import { ToastNotification } from '../../components/ToastNotification';
@@ -54,11 +53,16 @@ export const AdminResearchPage: React.FC = () => {
     return () => clearInterval(timer);
   }, [loadAll]);
 
+  const [decisionReason, setDecisionReason] = useState<{ [candId: string]: string }>({});
+
   const handleDecision = async (candId: string, action: 'approve' | 'reject') => {
     setBusyCandId(candId);
     try {
-      const res = action === 'approve' ? await approveStrategy(candId) : await rejectStrategy(candId);
-      setMsg(res.message || `Đã ${action === 'approve' ? 'phê duyệt' : 'từ chối'} ứng viên #${candId}.`);
+      const reason = (decisionReason[candId] || '').trim();
+      const res = action === 'approve'
+        ? await apiPost(`/api/admin/strategies/candidates/${encodeURIComponent(candId)}/approve`, { reason })
+        : await apiPost(`/api/admin/strategies/candidates/${encodeURIComponent(candId)}/reject`, { reason });
+      setMsg(res.message || `Đã ${action === 'approve' ? 'phê duyệt bằng chứng' : 'từ chối'} ứng viên #${candId}.`);
       await loadAll();
     } catch (err: any) {
       setMsg(`Lỗi xử lý: ${err?.message || ''}`);
@@ -95,53 +99,77 @@ export const AdminResearchPage: React.FC = () => {
       <ToastNotification message={msg || null} type="info" onClose={() => setMsg('')} />
       <AdminErrorBanner error={errorBanner} onRetry={loadAll} onDismiss={() => setErrorBanner(null)} />
 
-      {/* WFO REVIEW QUEUE (Directly integrated on Research page) */}
+      {/* EVIDENCE REVIEW QUEUE (Directly integrated on Research page) */}
       {reviewQueue.length > 0 && (
         <Panel
           icon={<FlaskConical className="h-4 w-4 text-amber-300" />}
-          title={`Hàng Đợi Phê Duyệt WFO (${reviewQueue.length})`}
-          subtitle="So sánh chỉ số ngoài mẫu của ứng viên mới trước khi đưa vào xuất bản"
+          title={`Hàng Đợi Duyệt Bằng Chứng Nghiên Cứu Nội Bộ (${reviewQueue.length})`}
+          subtitle="Duyệt hoặc từ chối bằng chứng định lượng (VERIFIED_RESEARCH). Không thay đổi chế độ thực thi hay tự ý xuất bản."
         >
-          <div className="space-y-3">
+          <div className="space-y-4">
             {reviewQueue.map((item) => {
               const c = item.candidate;
               const isBusy = busyCandId === c.id;
+              const reasonVal = decisionReason[c.id] || '';
               return (
                 <div
                   key={c.id}
-                  className="rounded-xl border border-amber-500/30 bg-[#060A13] p-4 flex flex-wrap items-center justify-between gap-4"
+                  className="rounded-xl border border-amber-500/30 bg-[#060A13] p-4 space-y-3"
                 >
-                  <div className="space-y-1.5 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <StatusBadge tone="warning">WAITING_APPROVAL</StatusBadge>
-                      <span className="font-semibold text-white text-sm">{c.name}</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge tone="warning">CHỜ DUYỆT BẰNG CHỨNG</StatusBadge>
+                        <span className="font-semibold text-white text-sm">{c.name}</span>
+                        <span className="font-mono text-[11px] text-slate-500">#{c.id}</span>
+                      </div>
+                      <div className="font-mono text-xs text-slate-300 tabular-nums">
+                        Win Rate: <strong className="text-[#12B5A6]">{Math.round((c.win_rate || 0) * 100)}%</strong> · PF:{' '}
+                        <strong className="text-amber-300">{c.profit_factor}</strong> · Max DD:{' '}
+                        <strong className="text-rose-300">{c.max_drawdown_pct}%</strong> · Samples: {c.sample_size}
+                      </div>
                     </div>
-                    <div className="font-mono text-xs text-slate-300 tabular-nums">
-                      Win Rate: <strong className="text-[#12B5A6]">{Math.round((c.win_rate || 0) * 100)}%</strong> · PF:{' '}
-                      <strong className="text-amber-300">{c.profit_factor}</strong> · Max DD:{' '}
-                      <strong className="text-rose-300">{c.max_drawdown_pct}%</strong> · Samples: {c.sample_size}
+
+                    <div className="text-[11px] font-mono text-slate-400">
+                      Tác giả: <span className="text-cyan-300">{(c as any).author || (c as any).created_by || 'Autonomous Quant Desk'}</span>
+                      {(c as any).created_at && (
+                        <span> · {new Date(Number((c as any).created_at) * 1000).toLocaleString('vi-VN')}</span>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => handleDecision(c.id, 'reject')}
-                      className="quant-btn-danger min-h-[34px] px-3 py-1.5 text-xs"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                      <span>Từ chối</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => handleDecision(c.id, 'approve')}
-                      className="quant-btn-primary min-h-[34px] px-3.5 py-1.5 text-xs"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                      <span>Phê duyệt</span>
-                    </button>
+                  {/* Optional Reason and Action Buttons */}
+                  <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-slate-800/80">
+                    <input
+                      type="text"
+                      value={reasonVal}
+                      onChange={(e) =>
+                        setDecisionReason((prev) => ({ ...prev, [c.id]: e.target.value }))
+                      }
+                      placeholder="Lý do phê duyệt hoặc từ chối (Ghi vào audit log)..."
+                      className="quant-input flex-1 font-mono text-xs min-w-[240px]"
+                    />
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => handleDecision(c.id, 'reject')}
+                        className="quant-btn-danger min-h-[34px] px-3 py-1.5 text-xs"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        <span>Từ chối</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => handleDecision(c.id, 'approve')}
+                        className="quant-btn-primary min-h-[34px] px-3.5 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        <span>Duyệt Bằng Chứng</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

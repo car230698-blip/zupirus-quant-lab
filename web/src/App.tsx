@@ -97,15 +97,42 @@ const AppContent: React.FC = () => {
     }
   }, [zone]);
 
+  // Helper to validate and get safe portal redirect target (ensuring internal navigation)
+  const getSafePortalRedirect = useCallback((): string => {
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('zupirus_auth_redirect');
+      if (stored && stored.startsWith('/portal') && !stored.includes('//')) {
+        sessionStorage.removeItem('zupirus_auth_redirect');
+        return stored;
+      }
+      const current = window.location.pathname;
+      if (current && current.startsWith('/portal') && !current.includes('//')) {
+        return current;
+      }
+    }
+    return '/portal';
+  }, []);
+
+  // Save intended internal portal destination when visiting while unauthenticated
+  useEffect(() => {
+    if (typeof window !== 'undefined' && zone === 'user' && !currentUser && !isAuthRoute) {
+      const current = window.location.pathname;
+      if (current && current.startsWith('/portal') && !current.includes('//')) {
+        sessionStorage.setItem('zupirus_auth_redirect', current);
+      }
+    }
+  }, [zone, currentUser, isAuthRoute]);
+
   // Redirect away from /login or /admin/login once authenticated
   useEffect(() => {
     if (authChecking || !currentUser || !isAuthRoute) return;
     if (zone === 'admin' && currentUser.role === 'admin') {
       navigate('/admin', { replace: true });
     } else if (zone === 'user') {
-      navigate('/portal', { replace: true });
+      const dest = getSafePortalRedirect();
+      navigate(dest, { replace: true });
     }
-  }, [authChecking, currentUser, isAuthRoute, zone, navigate]);
+  }, [authChecking, currentUser, isAuthRoute, zone, navigate, getSafePortalRedirect]);
 
   const authenticate = async (email: string, password: string, register: boolean, otp?: string) => {
     setAuthLoading(true);
@@ -137,7 +164,8 @@ const AppContent: React.FC = () => {
           navigate('/admin', { replace: true });
         }
       } else {
-        navigate('/portal', { replace: true });
+        const dest = getSafePortalRedirect();
+        navigate(dest, { replace: true });
       }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Không thể kết nối máy chủ.');

@@ -153,7 +153,7 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
     now_pub = time.time()
     with db.tx() as c:
         c.execute(
-            "UPDATE research_reports SET status = 'PUBLISHED', published_at = ?, updated_at = ? WHERE id = ?",
+            "UPDATE research_reports SET status = 'PUBLISHED', is_for_sale = 1, published_at = ?, updated_at = ? WHERE id = ?",
             (now_pub, now_pub, rep_id),
         )
         # Prevent the product seeder from retiring this placeholder again mid-test.

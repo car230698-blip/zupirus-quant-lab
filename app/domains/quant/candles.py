@@ -197,7 +197,14 @@ def parse_csv_candles(csv_text: str) -> List[Dict[str, Any]]:
     elif ";" in sample and sample.count(";") > sample.count(","):
         delim = ";"
 
-    reader = csv.reader(io.StringIO(csv_text), delimiter=delim)
+    clean_lines = [
+        line for line in csv_text.splitlines()
+        if line.strip() and not line.strip().startswith("#") and not line.strip().startswith("//")
+    ]
+    if not clean_lines:
+        raise CandleValidationError("Không tìm thấy dòng dữ liệu nào trong CSV (chỉ có chú thích hoặc dòng trống).")
+
+    reader = csv.reader(io.StringIO("\n".join(clean_lines)), delimiter=delim)
     rows = [r for r in reader if r and any(cell.strip() for cell in r)]
     if not rows:
         raise CandleValidationError("Không tìm thấy dòng dữ liệu nào trong CSV.")

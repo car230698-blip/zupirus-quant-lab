@@ -35,14 +35,18 @@ def list_admin_users(u=Depends(get_current_admin)):
         """, (time.time(),)).fetchall()
         users_list = []
         for r in rows:
+            uid = r[0]
+            susp_row = c.execute("SELECT value FROM kv WHERE key = ?", (f"user_suspended:{uid}",)).fetchone()
+            is_susp = bool(susp_row and susp_row[0] in ("1", "true", "True"))
             users_list.append({
-                'id': r[0],
+                'id': uid,
                 'email': r[1],
                 'role': r[2],
                 'entitlements_count': r[3],
                 'accounts_count': r[3],
                 'active_sessions': r[4],
                 'orders_count': r[5],
+                'is_suspended': is_susp,
             })
     return {'users': users_list, 'total': len(users_list)}
 
@@ -89,6 +93,28 @@ def reset_user_password(target_uid: str, p: UpdateUserPassword, u=Depends(get_cu
             c.execute('DELETE FROM sessions WHERE user_id=?', (target_uid,))
         audit(c, u['id'], 'user_password_reset', {'target_user_id': target_uid, 'email': row[1]})
     return {'ok': True, 'message': f'Đã đặt lại mật khẩu cho {row[1]} thành công.'}
+
+@router.post('/api/admin/users/{target_uid}/toggle-suspend')
+def toggle_suspend_user(target_uid: str, u=Depends(get_current_admin)):
+    if target_uid == u['id']:
+        fail(400, 'Không thể tự đình chỉ tài khoản của chính mình')
+    with tx() as c:
+        row = c.execute('SELECT id, email FROM users WHERE id=?', (target_uid,)).fetchone()
+        if not row:
+            fail(404, 'Không tìm thấy người dùng')
+        key = f"user_suspended:{target_uid}"
+        curr = c.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
+        now_susp = not bool(curr and curr[0] in ("1", "true", "True"))
+        if now_susp:
+            c.execute("INSERT INTO kv (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = '1'", (key,))
+            c.execute("DELETE FROM sessions WHERE user_id = ?", (target_uid,))
+            audit(c, u['id'], 'user_suspended', {'target_user_id': target_uid, 'email': row[1]})
+            msg = f"Đã đình chỉ tài khoản {row[1]} và hủy các phiên đăng nhập."
+        else:
+            c.execute("DELETE FROM kv WHERE key = ?", (key,))
+            audit(c, u['id'], 'user_unsuspended', {'target_user_id': target_uid, 'email': row[1]})
+            msg = f"Đã mở khóa hoạt động cho tài khoản {row[1]}."
+    return {'ok': True, 'is_suspended': now_susp, 'message': msg}
 
 @router.delete('/api/admin/users/{target_uid}')
 async def delete_admin_user(target_uid: str, u=Depends(get_current_admin)):

@@ -80,6 +80,31 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         ensure_flagship_sample_report_seeded(c)
         report_cnt = c.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0]
 
+        # Check Redis connectivity
+        redis_ok = False
+        try:
+            from app.redis_client import get_redis_client
+            r = get_redis_client()
+            if r and r.ping():
+                redis_ok = True
+        except Exception:
+            redis_ok = False
+
+        from app.db import is_postgres
+        db_type = "PostgreSQL" if is_postgres() else "SQLite"
+
+        # Latest research job
+        job_row = c.execute("SELECT value FROM kv WHERE key LIKE 'last_autonomous_cycle%' OR key LIKE 'quant_last_run%' ORDER BY key DESC LIMIT 1").fetchone()
+        latest_job = None
+        if job_row and job_row[0]:
+            try:
+                latest_job = json.loads(job_row[0])
+            except Exception:
+                latest_job = {"raw": str(job_row[0])}
+
+        pending_drafts_count = c.execute("SELECT count(*) FROM research_reports WHERE status = 'DRAFT'").fetchone()[0]
+        orders_needing_review = c.execute("SELECT count(*) FROM orders WHERE status = 'PENDING'").fetchone()[0]
+
         # Recent AI Signal Audits -> Natural-language timeline
         sig_logs = c.execute(
             "SELECT * FROM signal_audit_logs ORDER BY created_at DESC LIMIT 12"
@@ -167,28 +192,28 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
 
     health_cards = [
         {
-            "key": "market_data",
-            "title": "Dữ liệu thị trường XAU/USD",
-            "ok": bool(quote.get("live")),
-            "status_text": f"Đang cập nhật ({quote.get('mid', 0)})" if quote.get("live") else "Mất kết nối / Dữ liệu cũ",
-        },
-        {
-            "key": "ai_swarm",
-            "title": "Bộ não AI Swarm & WFO",
-            "ok": ai_ready,
-            "status_text": f"Đang hoạt động ({active_gemini} Key)" if ai_ready else "Lỗi API Key / Worker",
-        },
-        {
-            "key": "reports_vault",
-            "title": "Kho Báo cáo & Kiểm định PDF",
+            "key": "api_backend",
+            "title": "API Backend Gateway",
             "ok": True,
-            "status_text": f"Sẵn sàng ({report_cnt} ấn phẩm)",
+            "status_text": "Hoạt động bình thường (HTTP 200)",
         },
         {
-            "key": "usdt",
-            "title": "Cổng thanh toán USDT on-chain",
+            "key": "database",
+            "title": f"Cơ Sở Dữ Liệu ({db_type})",
             "ok": True,
-            "status_text": "Mặc định (An toàn)",
+            "status_text": f"Kết nối ổn định · {db_type}",
+        },
+        {
+            "key": "redis",
+            "title": "Bộ Nhớ Đệm Redis",
+            "ok": redis_ok,
+            "status_text": "Đang kết nối (Ping OK)" if redis_ok else "Mất kết nối / Chạy Fallback In-Memory",
+        },
+        {
+            "key": "research_worker",
+            "title": "Tiến Trình Nghiên Cứu Ngầm",
+            "ok": res_ok,
+            "status_text": f"Đang hoạt động (Heartbeat {int(now_ts - float(res_hb))}s trước)" if res_ok and res_hb else "Chưa có tiến trình ngầm (Sẵn sàng)",
         },
     ]
 
@@ -208,6 +233,12 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
         "macro_degraded": macro_state.get("macro_degraded", False),
         "circuit_breaker_active": cb_active,
         "unverified_count": unver_cnt,
+        "db_type": db_type,
+        "redis_ok": redis_ok,
+        "research_worker_ok": res_ok,
+        "latest_job": latest_job,
+        "pending_drafts_count": pending_drafts_count,
+        "orders_needing_review": orders_needing_review,
     }
 
 

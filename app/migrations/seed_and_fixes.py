@@ -621,6 +621,13 @@ def apply_migration_024(c, is_pg: bool):
             except Exception:
                 pass
 
+        r_cols = [r[1] for r in c.execute("PRAGMA table_info(research_reports)").fetchall()]
+        if "is_for_sale" not in r_cols:
+            try:
+                c.execute("ALTER TABLE research_reports ADD COLUMN is_for_sale INTEGER DEFAULT 0")
+            except Exception:
+                pass
+
         o_cols = [r[1] for r in c.execute("PRAGMA table_info(orders)").fetchall()]
         if "currency" not in o_cols:
             try:
@@ -663,6 +670,13 @@ def apply_migration_025(c, is_pg: bool):
         CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_tx_hash_uniq ON payment_transactions(tx_hash) WHERE tx_hash IS NOT NULL;
         """)
     else:
+        r_cols = [r[1] for r in c.execute("PRAGMA table_info(research_reports)").fetchall()]
+        if "is_for_sale" not in r_cols:
+            try:
+                c.execute("ALTER TABLE research_reports ADD COLUMN is_for_sale INTEGER DEFAULT 0")
+            except Exception:
+                pass
+
         o_cols = [r[1] for r in c.execute("PRAGMA table_info(orders)").fetchall()]
         if "expected_amount_usdt" not in o_cols:
             try:
@@ -792,6 +806,7 @@ def apply_migration_027(c, is_pg: bool):
             preview_highlights_json TEXT,
             research_candidate_id TEXT,
             wfo_metrics_json TEXT,
+            is_for_sale INTEGER NOT NULL DEFAULT 0,
             published_at DOUBLE PRECISION,
             created_at DOUBLE PRECISION NOT NULL,
             updated_at DOUBLE PRECISION NOT NULL
@@ -861,6 +876,7 @@ def apply_migration_027(c, is_pg: bool):
             preview_highlights_json TEXT,
             research_candidate_id TEXT,
             wfo_metrics_json TEXT,
+            is_for_sale INTEGER NOT NULL DEFAULT 0,
             published_at REAL,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -902,6 +918,13 @@ def apply_migration_027(c, is_pg: bool):
         CREATE INDEX IF NOT EXISTS idx_report_entitlements_user ON report_entitlements(user_id, status);
         CREATE INDEX IF NOT EXISTS idx_report_entitlements_report ON report_entitlements(report_id);
         """)
+        r_cols = [r[1] for r in c.execute("PRAGMA table_info(research_reports)").fetchall()]
+        if "is_for_sale" not in r_cols:
+            try:
+                c.execute("ALTER TABLE research_reports ADD COLUMN is_for_sale INTEGER DEFAULT 0")
+            except Exception:
+                pass
+
         o_cols = [r[1] for r in c.execute("PRAGMA table_info(orders)").fetchall()]
         for col_name, col_def in [
             ("product_type", "TEXT NOT NULL DEFAULT 'SUBSCRIPTION'"),

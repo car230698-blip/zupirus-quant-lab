@@ -107,25 +107,25 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     {
       key: 'overview',
       to: '/admin',
-      label: lang === 'en' ? 'Overview & Health' : 'Tổng quan & Hệ thống',
+      label: lang === 'en' ? 'Overview' : 'Tổng quan',
       icon: <Activity className="h-4 w-4" />,
     },
     {
       key: 'reports',
       to: '/admin/reports',
-      label: lang === 'en' ? 'PDF Publisher' : 'Xuất bản Báo cáo PDF',
+      label: lang === 'en' ? 'Publications' : 'Ấn phẩm',
       icon: <FileCheck2 className="h-4 w-4" />,
     },
     {
       key: 'research',
       to: '/admin/research',
-      label: lang === 'en' ? 'WFO Research & AI' : 'Nghiên cứu WFO & AI',
+      label: lang === 'en' ? 'Research' : 'Nghiên cứu',
       icon: <FlaskConical className="h-4 w-4" />,
     },
     {
       key: 'orders',
       to: '/admin/orders',
-      label: lang === 'en' ? 'Orders & Users' : 'Đơn hàng & Người dùng',
+      label: lang === 'en' ? 'Orders & Licenses' : 'Đơn hàng & Giấy phép',
       icon: <CreditCard className="h-4 w-4" />,
     },
   ];

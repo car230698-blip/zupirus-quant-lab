@@ -626,41 +626,53 @@ def get_strategy_review_queue(_admin=Depends(get_current_admin)):
 
 
 @router.post('/api/admin/strategies/{candidate_id}/approve', tags=["admin-strategy"])
-def approve_strategy_candidate(candidate_id: str, u=Depends(get_current_admin)):
-    """Approves a strategy candidate to APPROVED_FOR_PROD, archiving any previous live strategy."""
+def approve_strategy_candidate(candidate_id: str, body: Optional[dict] = None, u=Depends(get_current_admin)):
+    """Approves a strategy research candidate as verified internal evidence without promoting to live copy-trading execution."""
     now = time.time()
+    admin_id = str(u.get("id") or "admin")
+    reason = str((body or {}).get("reason") or "Phê duyệt làm cơ sở dữ liệu ấn phẩm nghiên cứu").strip()
     with tx() as c:
         cand = c.execute("SELECT id, name FROM strategy_candidates WHERE id = ?", (candidate_id,)).fetchone()
         if not cand:
             fail(404, f"Không tìm thấy chiến lược: {candidate_id}")
         cand_name = cand["name"] if hasattr(cand, "keys") else cand[1]
 
-        # 1. Archive previous APPROVED_FOR_PROD
-        c.execute("UPDATE strategy_candidates SET status = 'ARCHIVED_PROD', updated_at = ? WHERE status = 'APPROVED_FOR_PROD'", (now,))
+        # Mark candidate verified for research evidence
+        c.execute("UPDATE strategy_candidates SET status = 'VERIFIED_RESEARCH', updated_at = ? WHERE id = ?", (now, candidate_id))
 
-        # 2. Promote candidate to APPROVED_FOR_PROD
-        c.execute("UPDATE strategy_candidates SET status = 'APPROVED_FOR_PROD', updated_at = ? WHERE id = ?", (now, candidate_id))
-
-        audit(c, u['id'], 'strategy_approved', {'candidate_id': candidate_id, 'name': cand_name})
+        audit(c, admin_id, 'evidence_approved', {
+            'candidate_id': candidate_id,
+            'name': cand_name,
+            'reviewer_admin_id': admin_id,
+            'reason': reason,
+            'reviewed_at': now,
+        })
         try:
             from app.domains.notifications.service import emit_notification
             emit_notification(
                 c,
                 role="admin",
                 severity="INFO",
-                title="Chiến Lược AI Đã Được Duyệt Chạy LIVE",
-                body=f"Chiến lược {cand_name} (#{candidate_id[:8]}) đã được thăng hạng lên APPROVED_FOR_PROD.",
+                title="Bằng Chứng Nghiên Cứu Đã Được Phê Duyệt",
+                body=f"Ứng viên nghiên cứu {cand_name} (#{candidate_id[:8]}) đã được duyệt làm bằng chứng định lượng nội bộ bởi {admin_id}.",
             )
         except Exception:
             pass
 
-    return {"ok": True, "message": f"Chiến lược {cand_name} đã được duyệt chạy LIVE."}
+    return {
+        "ok": True,
+        "message": f"Nghiên cứu '{cand_name}' đã được phê duyệt làm bằng chứng định lượng nội bộ.",
+        "reviewer": admin_id,
+        "reviewed_at": now,
+    }
 
 
 @router.post('/api/admin/strategies/{candidate_id}/reject', tags=["admin-strategy"])
-def reject_strategy_candidate(candidate_id: str, u=Depends(get_current_admin)):
-    """Rejects a strategy candidate."""
+def reject_strategy_candidate(candidate_id: str, body: Optional[dict] = None, u=Depends(get_current_admin)):
+    """Rejects a strategy candidate with audited reason."""
     now = time.time()
+    admin_id = str(u.get("id") or "admin")
+    reason = str((body or {}).get("reason") or "Không đạt tiêu chuẩn ý nghĩa thống kê hoặc kiểm định ngoài mẫu").strip()
     with tx() as c:
         cand = c.execute("SELECT id, name FROM strategy_candidates WHERE id = ?", (candidate_id,)).fetchone()
         if not cand:
@@ -668,9 +680,20 @@ def reject_strategy_candidate(candidate_id: str, u=Depends(get_current_admin)):
         cand_name = cand["name"] if hasattr(cand, "keys") else cand[1]
 
         c.execute("UPDATE strategy_candidates SET status = 'REJECTED', updated_at = ? WHERE id = ?", (now, candidate_id))
-        audit(c, u['id'], 'strategy_rejected', {'candidate_id': candidate_id, 'name': cand_name})
+        audit(c, admin_id, 'evidence_rejected', {
+            'candidate_id': candidate_id,
+            'name': cand_name,
+            'reviewer_admin_id': admin_id,
+            'reason': reason,
+            'reviewed_at': now,
+        })
 
-    return {"ok": True, "message": f"Đã từ chối chiến lược {cand_name}."}
+    return {
+        "ok": True,
+        "message": f"Đã từ chối ứng viên nghiên cứu '{cand_name}'.",
+        "reviewer": admin_id,
+        "reviewed_at": now,
+    }
 
 
 @router.get('/api/admin/strategies/history', tags=["admin-strategy"])
