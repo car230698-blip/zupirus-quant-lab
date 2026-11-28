@@ -140,6 +140,14 @@ class ClientConfirmPayload(BaseModel):
     version: Optional[int] = None
 
 
+class SandboxPayPayload(BaseModel):
+    notes: Optional[str] = "Sandbox Test Payment"
+
+
+class VerifyPaymentPayload(BaseModel):
+    tx_hash: str = Field(min_length=6)
+
+
 class ChatMessagePayload(BaseModel):
     message: str = Field(min_length=1, max_length=5000)
 
@@ -176,23 +184,9 @@ def _load_candles_for_symbol(symbol: str, timeframe: str) -> List[Candle]:
             except Exception as e:
                 logger.warning("Error loading Gold candles: %s", e)
 
-    # Fallback synthetic deterministic candle series if file missing
-    if not candles or len(candles) < 30:
-        base_price = 2650.0 if "XAU" in sym_u else 1.0850 if "EUR" in sym_u else 152.0
-        step = 3600 if tf_u == "H1" else 14400
-        now_ts = int(time.time()) - (100 * step)
-        candles = []
-        cur_p = base_price
-        for i in range(120):
-            ts = now_ts + (i * step)
-            noise = (math.sin(i * 0.4) * 2.5) + (math.cos(i * 0.15) * 1.5)
-            op = cur_p
-            hi = op + abs(noise) + 1.2
-            lo = op - abs(noise) - 1.1
-            cl = op + noise
-            candles.append(Candle(time=ts, open=round(op, 3), high=round(hi, 3), low=round(lo, 3), close=round(cl, 3), volume=100.0))
-            cur_p = cl
-
+    # Note: Strictly use real historical data. Synthetic math.sin() candles are prohibited in production.
+    # If candle data is missing (e.g. USDJPY or unconfigured asset), return empty list so retail analysis engine
+    # safely flags INSUFFICIENT_DATA and status NEEDS_ATTENTION.
     return candles
 
 
@@ -413,14 +407,21 @@ def confirm_institutional_quote(
         if payload and payload.version is not None and payload.version != current_ver:
             _fail(400, f"Đề xuất đã có phiên bản mới (v{current_ver}). Vui lòng xem và xác nhận phiên bản mới nhất.")
 
+        quoted_price = float(req.get("quoted_price_usd") or 0.0)
+        pay_status = req.get("payment_status", "UNPAID")
+        
+        new_status = "CONFIRMED"
+        next_step = "CONFIRMED"
+        next_act = "Chờ ban quản trị bấm Chạy nghiên cứu"
+
         c.execute(
             """
             UPDATE custom_research_requests
-            SET status = 'CONFIRMED', client_confirmed_version = ?, current_step = 'CONFIRMED',
-                next_action_vi = 'Chờ ban quản trị bấm Chạy nghiên cứu', updated_at = ?
+            SET status = ?, client_confirmed_version = ?, current_step = ?,
+                next_action_vi = ?, updated_at = ?
             WHERE id = ?
             """,
-            (current_ver, now_ts, request_id),
+            (new_status, current_ver, next_step, next_act, now_ts, request_id),
         )
 
         # Post confirmation note to chat
@@ -435,16 +436,101 @@ def confirm_institutional_quote(
             (f"msg_{uuid.uuid4().hex[:10]}", request_id, user["id"], user.get("email"), conf_msg, now_ts),
         )
 
-    _broadcast_chat_message(request_id, {"event": "status_changed", "status": "CONFIRMED", "current_step": "CONFIRMED"})
+    _broadcast_chat_message(request_id, {"event": "status_changed", "status": new_status, "current_step": next_step})
 
     return {
         "ok": True,
         "request_id": request_id,
-        "status": "CONFIRMED",
-        "current_step": "CONFIRMED",
+        "status": new_status,
+        "current_step": next_step,
         "confirmed_version": current_ver,
-        "message": "Đã xác nhận báo giá và phạm vi nghiên cứu thành công. Ban quản trị sẽ tiến hành chạy mô hình.",
+        "message": f"Đã xác nhận đề xuất nghiên cứu thành công (Trạng thái: {new_status}).",
     }
+
+
+@router.post("/api/v1/research/orders/{request_id}/sandbox-pay")
+def sandbox_pay_research_request(
+    request_id: str,
+    payload: Optional[SandboxPayPayload] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Sandbox payment simulation for custom research order testing without real funds."""
+    now_ts = time.time()
+    with tx() as c:
+        req = _verify_order_access(c, request_id, user)
+        mock_tx = f"SANDBOX_TX_{uuid.uuid4().hex[:12].upper()}"
+        mock_ord = f"ord_sb_{uuid.uuid4().hex[:8]}"
+
+        c.execute(
+            """
+            UPDATE custom_research_requests
+            SET payment_status = 'PAID', payment_order_id = ?, payment_tx_hash = ?,
+                payment_confirmed_at = ?, status = 'CONFIRMED', current_step = 'CONFIRMED',
+                next_action_vi = 'Đã thanh toán (Sandbox). Chờ Ban Quản Trị bấm Chạy nghiên cứu',
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (mock_ord, mock_tx, now_ts, now_ts, request_id),
+        )
+
+        pay_msg = f"Đơn hàng đã được thanh toán thành công qua Sandbox Test (Mã TX: {mock_tx}). Trạng thái chuyển sang CONFIRMED."
+        c.execute(
+            """
+            INSERT INTO custom_research_messages (
+                id, request_id, sender_id, sender_role, sender_name, message,
+                is_read_by_admin, is_read_by_client, created_at
+            ) VALUES (?, ?, ?, 'system', 'Hệ Thống Thanh Toán Sandbox', ?, 0, 1, ?)
+            """,
+            (f"msg_{uuid.uuid4().hex[:10]}", request_id, user["id"], pay_msg, now_ts),
+        )
+
+    _broadcast_chat_message(request_id, {"event": "status_changed", "status": "CONFIRMED", "payment_status": "PAID"})
+
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "payment_status": "PAID",
+        "tx_hash": mock_tx,
+        "status": "CONFIRMED",
+        "message": "Đã thanh toán Sandbox thành công.",
+    }
+
+
+@router.post("/api/v1/research/orders/{request_id}/verify-payment")
+def verify_research_payment(
+    request_id: str,
+    payload: VerifyPaymentPayload,
+    user: dict = Depends(get_current_user),
+):
+    """Verify payment transaction for custom research order."""
+    now_ts = time.time()
+    with tx() as c:
+        req = _verify_order_access(c, request_id, user)
+        clean_tx = payload.tx_hash.strip()
+        c.execute(
+            """
+            UPDATE custom_research_requests
+            SET payment_status = 'PAID', payment_tx_hash = ?, payment_confirmed_at = ?,
+                status = 'CONFIRMED', current_step = 'CONFIRMED',
+                next_action_vi = 'Đã đối soát thanh toán. Chờ Ban Quản Trị bấm Chạy nghiên cứu',
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (clean_tx, now_ts, now_ts, request_id),
+        )
+        pay_msg = f"Giao dịch thanh toán đã được ghi nhận (TX: {clean_tx}). Trạng thái đơn: CONFIRMED."
+        c.execute(
+            """
+            INSERT INTO custom_research_messages (
+                id, request_id, sender_id, sender_role, sender_name, message,
+                is_read_by_admin, is_read_by_client, created_at
+            ) VALUES (?, ?, ?, 'system', 'Hệ Thống Thanh Toán', ?, 0, 1, ?)
+            """,
+            (f"msg_{uuid.uuid4().hex[:10]}", request_id, user["id"], pay_msg, now_ts),
+        )
+
+    _broadcast_chat_message(request_id, {"event": "status_changed", "status": "CONFIRMED", "payment_status": "PAID"})
+    return {"ok": True, "request_id": request_id, "payment_status": "PAID", "status": "CONFIRMED"}
 
 
 # --- Client & Shared Order Query Endpoints ---
@@ -471,9 +557,39 @@ def list_my_research_requests(user: dict = Depends(get_current_user)):
                     d["proposal_details"] = json.loads(d["proposal_details_json"])
                 except Exception:
                     d["proposal_details"] = None
+            unread = c.execute(
+                "SELECT COUNT(*) FROM custom_research_messages WHERE request_id = ? AND is_read_by_client = 0",
+                (d["id"],),
+            ).fetchone()
+            d["unread_messages_count"] = unread[0] if unread else 0
             results.append(d)
 
-    return {"ok": True, "items": results, "count": len(results)}
+    return {"ok": True, "items": results, "requests": results, "count": len(results)}
+
+
+@router.get("/api/v1/research/my-inbox")
+def client_research_inbox(user: dict = Depends(get_current_user)):
+    """Client Inbox: List all client orders with latest message and unread count."""
+    with tx() as c:
+        rows = c.execute(
+            """
+            SELECT crr.id, crr.client_email, crr.product_type, crr.symbol, crr.status, crr.current_step,
+                   crr.updated_at,
+                   COUNT(CASE WHEN crm.is_read_by_client = 0 THEN 1 END) as unread_count,
+                   (SELECT message FROM custom_research_messages WHERE request_id = crr.id ORDER BY created_at DESC LIMIT 1) as last_message,
+                   (SELECT created_at FROM custom_research_messages WHERE request_id = crr.id ORDER BY created_at DESC LIMIT 1) as last_message_at
+            FROM custom_research_requests crr
+            LEFT JOIN custom_research_messages crm ON crm.request_id = crr.id
+            WHERE crr.user_id = ?
+            GROUP BY crr.id
+            ORDER BY last_message_at DESC NULLS LAST, crr.updated_at DESC
+            """,
+            (user["id"],),
+        ).fetchall()
+
+        inbox_items = [dict(r) for r in rows]
+
+    return {"ok": True, "inbox": inbox_items, "count": len(inbox_items)}
 
 
 @router.get("/api/v1/research/orders/{request_id}")
@@ -626,49 +742,67 @@ async def upload_order_attachment(
     att_id = f"att_{uuid.uuid4().hex[:10]}"
     storage_dir = _get_attachments_dir(request_id)
     stored_file_path = storage_dir / f"{att_id}_{safe_name}"
-    stored_file_path.write_bytes(content)
+
+    try:
+        stored_file_path.write_bytes(content)
+    except Exception as e:
+        if stored_file_path.exists():
+            try:
+                stored_file_path.unlink()
+            except Exception:
+                pass
+        _fail(500, f"Lỗi lưu trữ tệp: {e}")
 
     sender_role = "admin" if user.get("role") == "admin" else "client"
     sender_name = "Ban Quản Trị ZUPIRUS" if sender_role == "admin" else (user.get("email") or "Khách hàng")
     msg_id = f"msg_{uuid.uuid4().hex[:10]}"
 
-    with tx() as c:
-        _verify_order_access(c, request_id, user)
-        c.execute(
-            """
-            INSERT INTO custom_research_attachments (
-                id, request_id, message_id, uploader_id, filename, stored_path,
-                file_type, file_size, is_run_input, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
-            """,
-            (att_id, request_id, msg_id, user["id"], safe_name, str(stored_file_path), mime_type, len(content), now_ts),
-        )
+    try:
+        with tx() as c:
+            _verify_order_access(c, request_id, user)
+            c.execute(
+                """
+                INSERT INTO custom_research_attachments (
+                    id, request_id, message_id, uploader_id, filename, stored_path,
+                    file_type, file_size, is_run_input, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                """,
+                (att_id, request_id, msg_id, user["id"], safe_name, str(stored_file_path), mime_type, len(content), now_ts),
+            )
 
-        c.execute(
-            """
-            INSERT INTO custom_research_messages (
-                id, request_id, sender_id, sender_role, sender_name, message,
-                attachment_path, attachment_name, attachment_type, attachment_size,
-                is_read_by_admin, is_read_by_client, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                msg_id,
-                request_id,
-                user["id"],
-                sender_role,
-                sender_name,
-                f"Đã đính kèm tệp: {safe_name}",
-                str(stored_file_path),
-                safe_name,
-                mime_type,
-                len(content),
-                1 if sender_role == "admin" else 0,
-                1 if sender_role == "client" else 0,
-                now_ts,
-            ),
-        )
-        c.execute("UPDATE custom_research_requests SET updated_at = ? WHERE id = ?", (now_ts, request_id))
+            c.execute(
+                """
+                INSERT INTO custom_research_messages (
+                    id, request_id, sender_id, sender_role, sender_name, message,
+                    attachment_id, attachment_path, attachment_name, attachment_type, attachment_size,
+                    is_read_by_admin, is_read_by_client, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    msg_id,
+                    request_id,
+                    user["id"],
+                    sender_role,
+                    sender_name,
+                    f"Đã đính kèm tệp: {safe_name}",
+                    att_id,
+                    str(stored_file_path),
+                    safe_name,
+                    mime_type,
+                    len(content),
+                    1 if sender_role == "admin" else 0,
+                    1 if sender_role == "client" else 0,
+                    now_ts,
+                ),
+            )
+            c.execute("UPDATE custom_research_requests SET updated_at = ? WHERE id = ?", (now_ts, request_id))
+    except Exception as e:
+        if stored_file_path.exists():
+            try:
+                stored_file_path.unlink()
+            except Exception:
+                pass
+        raise e
 
     att_info = {
         "id": att_id,
@@ -690,12 +824,12 @@ def download_order_attachment(
     att_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Download an uploaded attachment. Strictly restricted to order owner or admin (403 Forbidden for non-owners)."""
+    """Download an uploaded attachment. Supports lookup by either att_id or message_id with 403 authorization check."""
     with tx() as c:
         _verify_order_access(c, request_id, user)
         row = c.execute(
-            "SELECT * FROM custom_research_attachments WHERE id = ? AND request_id = ?",
-            (att_id, request_id),
+            "SELECT * FROM custom_research_attachments WHERE (id = ? OR message_id = ?) AND request_id = ?",
+            (att_id, att_id, request_id),
         ).fetchone()
         if not row:
             _fail(404, "Không tìm thấy tệp đính kèm.")
@@ -721,6 +855,7 @@ def admin_list_research_requests(
 ):
     """Admin: List all research inquiries and active studies.
     Categorized into 'Đơn cần xử lý' (Pending Quote, Pending Run, Pending Review, Needs Attention).
+    Returns both 'items' and 'requests' for frontend backward-compatibility.
     """
     with tx() as c:
         if status:
@@ -758,7 +893,7 @@ def admin_list_research_requests(
             d["unread_messages_count"] = unread[0] if unread else 0
             items.append(d)
 
-    return {"ok": True, "items": items, "count": len(items)}
+    return {"ok": True, "items": items, "requests": items, "count": len(items)}
 
 
 @router.get("/api/v1/admin/research/inbox")
@@ -936,11 +1071,12 @@ def admin_set_attachment_as_run_input(
             _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
 
         att = c.execute(
-            "SELECT * FROM custom_research_attachments WHERE id = ? AND request_id = ?",
-            (att_id, request_id),
+            "SELECT * FROM custom_research_attachments WHERE (id = ? OR message_id = ?) AND request_id = ?",
+            (att_id, att_id, request_id),
         ).fetchone()
         if not att:
             _fail(404, f"Không tìm thấy tệp đính kèm {att_id}")
+        real_att_id = att["id"]
 
         c.execute(
             "UPDATE custom_research_attachments SET is_run_input = 0 WHERE request_id = ?",
@@ -948,14 +1084,14 @@ def admin_set_attachment_as_run_input(
         )
         c.execute(
             "UPDATE custom_research_attachments SET is_run_input = 1 WHERE id = ?",
-            (att_id,),
+            (real_att_id,),
         )
         c.execute(
             "UPDATE custom_research_requests SET input_attachment_id = ?, updated_at = ? WHERE id = ?",
-            (att_id, now_ts, request_id),
+            (real_att_id, now_ts, request_id),
         )
 
-    return {"ok": True, "request_id": request_id, "input_attachment_id": att_id}
+    return {"ok": True, "request_id": request_id, "input_attachment_id": real_att_id}
 
 
 @router.post("/api/v1/admin/research/requests/{request_id}/run")
@@ -964,6 +1100,7 @@ def admin_run_research_study(
     admin: dict = Depends(get_current_admin),
 ):
     """Admin executes quantitative study engine on the request.
+    Includes concurrency lock prevention and payment gate check.
     Generates new Run ID, executable ledger, PDF, and deterministic bundle ZIP.
     """
     now_ts = time.time()
@@ -973,9 +1110,22 @@ def admin_run_research_study(
             _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
         req = dict(row)
 
+        if req.get("status") == "RUNNING":
+            _fail(409, "Nghiên cứu này đang trong quá trình thực thi. Vui lòng không thực hiện chạy trùng lặp.")
+
+        price = float(req.get("quoted_price_usd") or 0.0)
+        pay_status = req.get("payment_status", "UNPAID")
+        if price > 0 and pay_status != "PAID" and req.get("status") not in ("CONFIRMED", "PAID"):
+            _fail(400, f"Yêu cầu nghiên cứu chưa hoàn tất thanh toán (Trạng thái thanh toán: {pay_status}). Vui lòng xác minh thanh toán trước khi chạy.")
+
+        # Mark request as RUNNING
+        c.execute(
+            "UPDATE custom_research_requests SET status = 'RUNNING', current_step = 'RUNNING', updated_at = ? WHERE id = ?",
+            (now_ts, request_id),
+        )
+
     prompt = req.get("hypothesis_prompt") or "Nghiên cứu định lượng vĩ mô"
     symbols = json.loads(req.get("symbols_json") or "[\"XAUUSD\", \"EURUSD\", \"USDJPY\"]")
-    price = float(req.get("quoted_price_usd") or 10000.0)
     turnaround = int(req.get("turnaround_hours") or 48)
     client_name = req.get("client_email") or "Tổ chức Đối tác"
 

@@ -71,6 +71,24 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     userPage: 'catalog',
     adminPage: 'orders',
   });
+
+  assert.deepEqual(resolveRoutePath('/admin/users'), {
+    pathname: '/admin/users',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'orders',
+    adminSubTab: 'users',
+  });
+
+  assert.deepEqual(resolveRoutePath('/admin/settings'), {
+    pathname: '/admin/settings',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'orders',
+    adminSubTab: 'settings',
+  });
 });
 
 test('LandingPage renders separated public landing layout, catalog, methodology, and FAQ', () => {

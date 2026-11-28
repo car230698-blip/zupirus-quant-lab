@@ -146,11 +146,12 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
   const [requestTab, setRequestTab] = useState<'retail' | 'institutional'>('retail');
   const [retailSymbol, setRetailSymbol] = useState('XAUUSD');
   const [retailTimeframe, setRetailTimeframe] = useState('H1');
-  const [instPrompt, setInstPrompt] = useState('Quỹ chúng tôi đang lo ngại lạm phát Mỹ dai dẳng và muốn biết giá vàng và tỷ giá EUR/USD phản ứng ra sao sau các nhịp CPI bất ngờ.');
+  const [instPrompt, setInstPrompt] = useState('');
   const [instTurnaround, setInstTurnaround] = useState(48);
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [activeChatOrder, setActiveChatOrder] = useState<any | null>(null);
   const [confirmingQuoteId, setConfirmingQuoteId] = useState<string | null>(null);
+  const [payingSandboxId, setPayingSandboxId] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveView(initialSection);
@@ -393,6 +394,25 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
       });
     } finally {
       setConfirmingQuoteId(null);
+    }
+  };
+
+  const handleSandboxPay = async (reqId: string) => {
+    try {
+      setPayingSandboxId(reqId);
+      await apiPost(`/api/v1/research/orders/${encodeURIComponent(reqId)}/sandbox-pay`, {});
+      setStatusMessage({
+        type: 'success',
+        text: 'Đã hoàn tất thanh toán thử nghiệm (Sandbox)! Đơn hàng đã chuyển sang trạng thái CONFIRMED để Ban Quản Trị thực thi.',
+      });
+      await loadData();
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Lỗi xử lý thanh toán Sandbox.',
+      });
+    } finally {
+      setPayingSandboxId(null);
     }
   };
 
@@ -801,6 +821,39 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                               <>
                                 <CheckCircle2 className="w-3.5 h-3.5" />
                                 <span>Xác Nhận Đề Xuất &amp; Báo Giá Này</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Waiting Payment Box */}
+                      {cr.status === 'WAITING_PAYMENT' && (
+                        <div className="p-3 rounded-lg bg-amber-950/30 border border-amber-800/40 space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-amber-300 font-semibold">Đơn hàng chờ thanh toán:</span>
+                            <span className="font-bold text-amber-200 font-mono text-sm">
+                              ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Đề xuất đã được xác nhận. Quý khách có thể thực hiện thanh toán thử nghiệm qua Sandbox Test để kích hoạt quy trình thực thi mô hình.
+                          </p>
+                          <button
+                            type="button"
+                            disabled={payingSandboxId === cr.id}
+                            onClick={() => handleSandboxPay(cr.id)}
+                            className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-500 to-teal-500 text-slate-950 font-bold"
+                          >
+                            {payingSandboxId === cr.id ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>Đang xử lý thanh toán Sandbox...</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Xác Nhận Thanh Toán Thử Nghiệm (Sandbox Pay)</span>
                               </>
                             )}
                           </button>
@@ -1804,7 +1857,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                     </div>
                     <div className="flex items-end">
                       <p className="text-[11px] text-slate-400 pb-1.5">
-                        Mức $10.000 USD là mục tiêu tham chiếu nội bộ. Giá và phạm vi chính thức sẽ do Admin báo theo từng đơn.
+                        Phạm vi kiểm định và chi phí thực hiện sẽ do Ban Quản Trị đề xuất sau khi rà soát yêu cầu.
                       </p>
                     </div>
                   </div>

@@ -113,14 +113,15 @@ async def perimeter(request: Request, call_next):
             return JSONResponse({'detail': 'Use adm.zupirus.com'}, 403)
 
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
-        is_large_pdf_upload = (
+        is_large_upload = (
             request.url.path == '/api/admin/skills/ingest-pdf'
             or (
                 (request.url.path.startswith('/api/v1/admin/reports/') or request.url.path.startswith('/api/admin/reports/'))
                 and request.url.path.endswith('/upload-pdf')
             )
+            or '/attachments' in request.url.path
         )
-        max_body_size = 35_000_000 if is_large_pdf_upload else 3_000_000
+        max_body_size = 35_000_000 if is_large_upload else 3_000_000
         raw_len = request.headers.get('content-length')
         if raw_len is not None:
             if not raw_len.isdigit() or int(raw_len) > max_body_size:
@@ -164,6 +165,38 @@ def healthz():
         'database_status': db_check['status'],
         'redis_stream': True,
         'langsmith_tracing': bool(os.getenv('LANGSMITH_API_KEY')),
+    }
+
+
+@app.get('/api/v1/version')
+def get_system_version():
+    """System version and Git SHA inspection endpoint."""
+    git_sha = os.getenv("GIT_SHA") or os.getenv("COMMIT_SHA")
+    if not git_sha:
+        try:
+            head_p = Path(".git/HEAD")
+            if head_p.exists():
+                ref = head_p.read_text().strip()
+                if ref.startswith("ref: "):
+                    ref_p = Path(".git") / ref.split(" ", 1)[1]
+                    if ref_p.exists():
+                        git_sha = ref_p.read_text().strip()[:10]
+                else:
+                    git_sha = ref[:10]
+        except Exception:
+            pass
+    return {
+        "version": "0.2.0",
+        "git_sha": git_sha or "476cf79",
+        "service": "zupirus-quant-lab",
+        "environment": os.getenv("ENV", "production"),
+        "commercial_reports_sale_enabled": os.getenv("COMMERCIAL_REPORTS_SALE_ENABLED", "false").lower() == "true",
+        "features": {
+            "retail_technical_analysis": True,
+            "institutional_bespoke_research": True,
+            "realtime_sse_chat": True,
+            "deterministic_packaging": True,
+        },
     }
 
 

@@ -16,17 +16,33 @@ import {
   MessageSquare,
   Play,
   RotateCcw,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 
-export const AdminOrdersUsersPage: React.FC = () => {
+export interface AdminOrdersUsersPageProps {
+  initialSubTab?: 'research_orders' | 'orders' | 'trials' | 'users' | 'settings';
+}
+
+export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ initialSubTab }) => {
   const [summary, setSummary] = useState<any>({ orders: { paid_revenue_usd: 0 } });
   const [orders, setOrders] = useState<any[]>([]);
   const [trials, setTrials] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [researchRequests, setResearchRequests] = useState<any[]>([]);
-  const [activeSubTab, setActiveSubTab] = useState<'research_orders' | 'orders' | 'trials' | 'users' | 'settings'>('research_orders');
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchError, setResearchError] = useState<string | null>(null);
+  const [activeSubTab, setActiveSubTab] = useState<'research_orders' | 'orders' | 'trials' | 'users' | 'settings'>(
+    initialSubTab || 'research_orders'
+  );
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
   const [researchStatusFilter, setResearchStatusFilter] = useState<
-    'ALL' | 'PENDING_QUOTE' | 'CONFIRMED' | 'READY_FOR_REVIEW' | 'NEEDS_ATTENTION' | 'DELIVERED'
+    'ALL' | 'PENDING_QUOTE' | 'WAITING_PAYMENT' | 'CONFIRMED' | 'READY_FOR_REVIEW' | 'NEEDS_ATTENTION' | 'DELIVERED'
   >('ALL');
   const [activeChatOrder, setActiveChatOrder] = useState<any | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'PAID'>('ALL');
@@ -80,20 +96,32 @@ export const AdminOrdersUsersPage: React.FC = () => {
   const [createRole, setCreateRole] = useState<'customer' | 'admin'>('customer');
   const [createSaving, setCreateSaving] = useState(false);
 
-  const loadData = useCallback(async () => {
+  const loadResearchRequests = useCallback(async () => {
+    setResearchLoading(true);
+    setResearchError(null);
     try {
-      const [sData, oData, tData, uData, rData] = await Promise.all([
+      const rData: any = await api.get('/api/v1/admin/research/requests');
+      const items = rData?.items || rData?.requests || [];
+      setResearchRequests(Array.isArray(items) ? items : []);
+    } catch (err: any) {
+      setResearchError(err?.message || 'Không thể đồng bộ danh sách đơn nghiên cứu.');
+    } finally {
+      setResearchLoading(false);
+    }
+  }, []);
+
+  const loadBillingAndUsers = useCallback(async () => {
+    try {
+      const [sData, oData, tData, uData] = await Promise.all([
         api.get('/api/admin/billing/summary'),
         api.get('/api/admin/billing/orders'),
         api.get('/api/v1/admin/billing/trials').catch(() => ({ trials: [] })),
         api.get('/api/admin/users'),
-        api.get('/api/v1/admin/research/requests').catch(() => ({ requests: [] })),
       ]);
       if (sData) setSummary(sData);
       if (oData) setOrders(oData.orders || oData || []);
       if (tData) setTrials(tData.trials || []);
       if (uData) setUsers(uData.users || uData || []);
-      if (rData) setResearchRequests(rData.requests || []);
       setErrorBanner(null);
     } catch (err: any) {
       setErrorBanner({
@@ -102,6 +130,10 @@ export const AdminOrdersUsersPage: React.FC = () => {
       });
     }
   }, []);
+
+  const loadData = useCallback(async () => {
+    await Promise.allSettled([loadResearchRequests(), loadBillingAndUsers()]);
+  }, [loadResearchRequests, loadBillingAndUsers]);
 
   useEffect(() => {
     loadData();
@@ -493,6 +525,7 @@ export const AdminOrdersUsersPage: React.FC = () => {
               {[
                 { key: 'ALL', label: 'Tất cả', count: researchRequests.length },
                 { key: 'PENDING_QUOTE', label: 'Chờ báo giá', count: researchRequests.filter((r) => r.status === 'PENDING_QUOTE').length },
+                { key: 'WAITING_PAYMENT', label: 'Chờ thanh toán', count: researchRequests.filter((r) => r.status === 'WAITING_PAYMENT').length },
                 { key: 'CONFIRMED', label: 'Chờ chạy', count: researchRequests.filter((r) => r.status === 'CONFIRMED').length },
                 { key: 'READY_FOR_REVIEW', label: 'Chờ duyệt', count: researchRequests.filter((r) => r.status === 'READY_FOR_REVIEW').length },
                 { key: 'NEEDS_ATTENTION', label: 'Cần xử lý', count: researchRequests.filter((r) => r.status === 'NEEDS_ATTENTION' || r.current_step === 'NEEDS_ATTENTION').length },
@@ -519,7 +552,32 @@ export const AdminOrdersUsersPage: React.FC = () => {
               })}
             </div>
 
-            {researchRequests.length === 0 ? (
+            {/* Research Loading State */}
+            {researchLoading && researchRequests.length === 0 && (
+              <div className="p-8 text-center border border-dashed border-cyan-500/30 rounded-lg text-cyan-300 text-xs flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
+                <span>Đang đồng bộ danh sách đơn nghiên cứu...</span>
+              </div>
+            )}
+
+            {/* Research Error Banner with Retry */}
+            {researchError && (
+              <div className="p-4 rounded-lg bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{researchError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadResearchRequests}
+                  className="quant-button quant-button-secondary text-xs py-1 px-3"
+                >
+                  Thử lại
+                </button>
+              </div>
+            )}
+
+            {!researchLoading && !researchError && researchRequests.length === 0 ? (
               <div className="p-8 text-center border border-dashed border-slate-800 rounded-lg text-slate-500 text-xs">
                 Chưa có đơn nghiên cứu theo yêu cầu nào. Khi khách hàng cá nhân hoặc tổ chức gửi yêu cầu, thông tin sẽ hiển thị tại đây.
               </div>
@@ -686,6 +744,29 @@ export const AdminOrdersUsersPage: React.FC = () => {
                                 className="quant-button quant-button-secondary text-xs py-1 px-2.5"
                               >
                                 Chỉnh Báo Giá
+                              </button>
+                            )}
+
+                            {req.status === 'WAITING_PAYMENT' && (
+                              <button
+                                type="button"
+                                disabled={busyId === `pay_${req.id}`}
+                                onClick={async () => {
+                                  setBusyId(`pay_${req.id}`);
+                                  try {
+                                    await api.post(`/api/v1/research/orders/${encodeURIComponent(req.id)}/sandbox-pay`, {});
+                                    setMsg('Đã xác nhận thanh toán (Sandbox) cho đơn nghiên cứu.');
+                                    await loadResearchRequests();
+                                  } catch (err: any) {
+                                    setMsg(`Lỗi xác minh thanh toán: ${err?.message || ''}`);
+                                  } finally {
+                                    setBusyId(null);
+                                  }
+                                }}
+                                className="quant-button bg-cyan-600 hover:bg-cyan-500 text-white text-xs py-1 px-3 flex items-center gap-1"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>{busyId === `pay_${req.id}` ? 'Đang xử lý...' : 'Xác Nhận Thanh Toán (Sandbox)'}</span>
                               </button>
                             )}
 

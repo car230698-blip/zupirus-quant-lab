@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 export type ZoneType = 'landing' | 'user' | 'admin';
 export type UserPageKey = 'catalog' | 'library' | 'billing';
 export type AdminPageKey = 'overview' | 'reports' | 'research' | 'orders';
+export type AdminSubTabKey = 'research_orders' | 'orders' | 'trials' | 'users' | 'settings';
 
 export interface RouteState {
   pathname: string;
@@ -10,6 +11,7 @@ export interface RouteState {
   isAuthRoute: boolean;
   userPage: UserPageKey;
   adminPage: AdminPageKey;
+  adminSubTab?: AdminSubTabKey;
 }
 
 export function resolveRoutePath(
@@ -19,6 +21,67 @@ export function resolveRoutePath(
 ): RouteState {
   const cleanHost = host.toLowerCase();
   const path = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(0, -1) : rawPath || '/';
+
+  // Subdomain adm.zupirus.com support
+  if (cleanHost.startsWith('adm.')) {
+    if (path === '/' || path === '' || path === '/overview') {
+      return {
+        pathname: '/admin',
+        zone: 'admin',
+        isAuthRoute: false,
+        userPage: 'catalog',
+        adminPage: 'overview',
+      };
+    }
+    if (path === '/reports') {
+      return {
+        pathname: '/admin/reports',
+        zone: 'admin',
+        isAuthRoute: false,
+        userPage: 'catalog',
+        adminPage: 'reports',
+      };
+    }
+    if (path === '/research') {
+      return {
+        pathname: '/admin/research',
+        zone: 'admin',
+        isAuthRoute: false,
+        userPage: 'catalog',
+        adminPage: 'research',
+      };
+    }
+    if (path === '/users') {
+      return {
+        pathname: '/admin/users',
+        zone: 'admin',
+        isAuthRoute: false,
+        userPage: 'catalog',
+        adminPage: 'orders',
+        adminSubTab: 'users',
+      };
+    }
+    if (path === '/settings') {
+      return {
+        pathname: '/admin/settings',
+        zone: 'admin',
+        isAuthRoute: false,
+        userPage: 'catalog',
+        adminPage: 'orders',
+        adminSubTab: 'settings',
+      };
+    }
+    if (path === '/orders') {
+      return {
+        pathname: '/admin/orders',
+        zone: 'admin',
+        isAuthRoute: false,
+        userPage: 'catalog',
+        adminPage: 'orders',
+        adminSubTab: 'orders',
+      };
+    }
+  }
 
   // Backward compatibility for legacy ?portal=user | ?portal=admin or subdomain deployments
   if (queryPortal === 'admin' || (cleanHost.startsWith('adm.') && path === '/')) {
@@ -51,19 +114,38 @@ export function resolveRoutePath(
     };
   }
   if (path === '/admin' || path.startsWith('/admin/')) {
-    let adminPage: AdminPageKey = 'orders';
-    if (path === '/admin/overview') adminPage = 'overview';
-    else if (path === '/admin/reports') adminPage = 'reports';
-    else if (path === '/admin/research') adminPage = 'research';
-    else if (path === '/admin/orders' || path === '/admin/users' || path === '/admin/settings') adminPage = 'orders';
+    let adminPage: AdminPageKey = 'overview';
+    let adminSubTab: AdminSubTabKey | undefined = undefined;
 
-    return {
+    if (path === '/admin' || path === '/admin/overview') {
+      adminPage = 'overview';
+    } else if (path === '/admin/reports') {
+      adminPage = 'reports';
+    } else if (path === '/admin/research') {
+      adminPage = 'research';
+    } else if (path === '/admin/orders') {
+      adminPage = 'orders';
+    } else if (path === '/admin/users') {
+      adminPage = 'orders';
+      adminSubTab = 'users';
+    } else if (path === '/admin/settings') {
+      adminPage = 'orders';
+      adminSubTab = 'settings';
+    } else {
+      adminPage = 'orders';
+    }
+
+    const ret: RouteState = {
       pathname: path,
       zone: 'admin',
       isAuthRoute: false,
       userPage: 'catalog',
       adminPage,
     };
+    if (adminSubTab) {
+      ret.adminSubTab = adminSubTab;
+    }
+    return ret;
   }
 
   // User portal routes

@@ -498,3 +498,83 @@ def test_versioned_proposal_and_client_confirmation():
     assert good_conf.json()["status"] == "CONFIRMED"
     assert good_conf.json()["current_step"] == "CONFIRMED"
 
+
+def test_system_version_and_payment_and_inbox_and_attachment_fallback():
+    """Verify version endpoint, sandbox pay, payment verification, inbox, items/requests response schema, and attachment message_id fallback."""
+    now_ts = int(time.time())
+    client_inst, uid = _create_user_client(f"flow_test_{now_ts}@inst.com")
+    client_admin = _create_admin_client()
+
+    # 1. Version endpoint
+    v_res = client_inst.get("/api/v1/version")
+    assert v_res.status_code == 200
+    v_data = v_res.json()
+    assert v_data["version"] == "0.2.0"
+    assert "git_sha" in v_data
+    assert v_data["features"]["institutional_bespoke_research"] is True
+
+    # 2. Inquiry created
+    r = client_inst.post("/api/v1/research/institutional/inquiry", json={"problem_description": "Khảo sát tương quan liên thị trường"})
+    assert r.status_code == 200
+    req_id = r.json()["request_id"]
+
+    # 3. Client uploads CSV attachment
+    csv_bytes = b"Date,Open,High,Low,Close\n2026-01-01,100,105,95,102\n"
+    up_res = client_inst.post(
+        f"/api/v1/research/orders/{req_id}/attachments",
+        files={"file": ("market_data.csv", csv_bytes, "text/csv")},
+    )
+    assert up_res.status_code == 200
+    att_id = up_res.json()["attachment"]["id"]
+
+    # Retrieve messages to get the message_id for this attachment
+    msg_res = client_inst.get(f"/api/v1/research/orders/{req_id}/messages")
+    assert msg_res.status_code == 200
+    messages = msg_res.json()["messages"]
+    att_msg = next((m for m in messages if m.get("attachment_name") == "market_data.csv"), None)
+    assert att_msg is not None
+    msg_id = att_msg["id"]
+    assert att_msg.get("attachment_id") == att_id
+
+    # 4. Download attachment using BOTH att_id and msg_id (message_id fallback bug fix)
+    dl_by_att = client_inst.get(f"/api/v1/research/orders/{req_id}/attachments/{att_id}/download")
+    assert dl_by_att.status_code == 200
+    assert dl_by_att.content == csv_bytes
+
+    dl_by_msg = client_inst.get(f"/api/v1/research/orders/{req_id}/attachments/{msg_id}/download")
+    assert dl_by_msg.status_code == 200, "Should resolve attachment by message_id fallback"
+    assert dl_by_msg.content == csv_bytes
+
+    # 5. Set run input using message_id
+    set_in = client_admin.post(f"/api/v1/admin/research/requests/{req_id}/attachments/{msg_id}/set-run-input")
+    assert set_in.status_code == 200
+    assert set_in.json()["input_attachment_id"] == att_id
+
+    # 6. Admin quotes price
+    client_admin.post(f"/api/v1/admin/research/requests/{req_id}/quote", json={"quoted_price_usd": 5000.0})
+
+    # 7. Sandbox payment simulation
+    pay_res = client_inst.post(f"/api/v1/research/orders/{req_id}/sandbox-pay")
+    assert pay_res.status_code == 200
+    assert pay_res.json()["payment_status"] == "PAID"
+    assert pay_res.json()["status"] == "CONFIRMED"
+
+    # 8. Check client inbox
+    inbox_res = client_inst.get("/api/v1/research/my-inbox")
+    assert inbox_res.status_code == 200
+    assert len(inbox_res.json()["inbox"]) >= 1
+
+    # 9. Verify admin list returns BOTH items and requests
+    admin_list = client_admin.get("/api/v1/admin/research/requests")
+    assert admin_list.status_code == 200
+    assert "items" in admin_list.json()
+    assert "requests" in admin_list.json()
+    assert len(admin_list.json()["items"]) == len(admin_list.json()["requests"])
+
+    # 10. Retail analysis on USDJPY without synthetic candles returns INSUFFICIENT_DATA
+    retail_jpy = client_inst.post("/api/v1/research/retail/request", json={"symbol": "USDJPY", "timeframe": "H1"})
+    assert retail_jpy.status_code == 200
+    assert retail_jpy.json()["status"] == "INSUFFICIENT_DATA"
+    assert retail_jpy.json()["bias"] == "\u0110\u1ee8NG NGO\u00c0I"
+
+

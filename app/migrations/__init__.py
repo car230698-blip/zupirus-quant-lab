@@ -161,6 +161,11 @@ MIGRATIONS = [
         "version": 31,
         "name": "031_custom_research_chat_and_proposals",
         "description": "Real-time chat messages, file attachments, and versioned proposals for custom research"
+    },
+    {
+        "version": 32,
+        "name": "032_research_attachment_id_and_payment_columns",
+        "description": "Add attachment_id to messages and payment tracking columns to custom research requests"
     }
 ]
 
@@ -184,6 +189,7 @@ from .seed_and_fixes import (
     apply_migration_029,
     apply_migration_030,
     apply_migration_031,
+    apply_migration_032,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -223,6 +229,7 @@ def run_all_migrations(c, is_pg: bool):
         29: apply_migration_029,
         30: apply_migration_030,
         31: apply_migration_031,
+        32: apply_migration_032,
     }
 
     for m in MIGRATIONS:
@@ -248,6 +255,7 @@ def run_all_migrations(c, is_pg: bool):
             apply_migration_029(c, is_pg=False)
             apply_migration_030(c, is_pg=False)
             apply_migration_031(c, is_pg=False)
+            apply_migration_032(c, is_pg=False)
             c.commit()
         except Exception as e:
             logger.debug(f"SQLite migration 026/027 verification note: {e}")

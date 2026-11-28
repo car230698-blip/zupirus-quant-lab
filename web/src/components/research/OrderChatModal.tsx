@@ -111,6 +111,14 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
     };
   }, [loadMessages, onOrderUpdated, requestId]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = inputText.trim();
@@ -168,7 +176,12 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Trao Đổi Nghiên Cứu & Hồ Sơ"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150"
+    >
       <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col h-[85vh] max-h-[700px] overflow-hidden">
         {/* Header */}
         <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
@@ -263,7 +276,7 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
 
                         <div className="flex items-center gap-2">
                           <a
-                            href={`/api/v1/research/orders/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(m.id)}/download`}
+                            href={`/api/v1/research/orders/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(m.attachment_id || m.id)}/download`}
                             target="_blank"
                             rel="noreferrer"
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-200 hover:text-white underline underline-offset-2"
@@ -275,7 +288,7 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
                           {userRole === 'admin' && (
                             <button
                               type="button"
-                              onClick={() => handleSetRunInput(m.id)}
+                              onClick={() => handleSetRunInput(m.attachment_id || m.id)}
                               className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 hover:bg-cyan-900 transition"
                               title="Sử dụng tệp này làm đầu vào dữ liệu cho mô hình định lượng"
                             >

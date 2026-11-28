@@ -53,7 +53,7 @@ const PageLoader: React.FC<{ label?: string }> = ({ label }) => (
 
 const AppContent: React.FC = () => {
   const { lang } = useLanguage();
-  const { zone, isAuthRoute, userPage, adminPage, navigate } = useRoute();
+  const { zone, isAuthRoute, userPage, adminPage, adminSubTab, navigate } = useRoute();
 
   const [currentUser, setCurrentUser] = useState<UserInfo | null>(null);
   const [authChecking, setAuthChecking] = useState<boolean>(true);
@@ -101,12 +101,12 @@ const AppContent: React.FC = () => {
   const getSafePortalRedirect = useCallback((): string => {
     if (typeof window !== 'undefined') {
       const stored = sessionStorage.getItem('zupirus_auth_redirect');
-      if (stored && stored.startsWith('/portal') && !stored.includes('//')) {
+      if (stored && (stored.startsWith('/portal') || stored.startsWith('/admin')) && !stored.includes('//')) {
         sessionStorage.removeItem('zupirus_auth_redirect');
         return stored;
       }
-      const current = window.location.pathname;
-      if (current && current.startsWith('/portal') && !current.includes('//')) {
+      const current = window.location.pathname + window.location.search;
+      if (current && (current.startsWith('/portal') || current.startsWith('/admin')) && !current.includes('//')) {
         return current;
       }
     }
@@ -115,9 +115,9 @@ const AppContent: React.FC = () => {
 
   // Save intended internal portal destination when visiting while unauthenticated
   useEffect(() => {
-    if (typeof window !== 'undefined' && zone === 'user' && !currentUser && !isAuthRoute) {
-      const current = window.location.pathname;
-      if (current && current.startsWith('/portal') && !current.includes('//')) {
+    if (typeof window !== 'undefined' && !currentUser && !isAuthRoute) {
+      const current = window.location.pathname + window.location.search;
+      if (current && (current.startsWith('/portal') || current.startsWith('/admin')) && !current.includes('//')) {
         sessionStorage.setItem('zupirus_auth_redirect', current);
       }
     }
@@ -270,7 +270,7 @@ const AppContent: React.FC = () => {
           {adminPage === 'overview' && <AdminOverviewPage onNavigate={navigate} />}
           {adminPage === 'reports' && <AdminReportsPage />}
           {adminPage === 'research' && <AdminResearchPage />}
-          {adminPage === 'orders' && <AdminOrdersUsersPage />}
+          {adminPage === 'orders' && <AdminOrdersUsersPage initialSubTab={adminSubTab} />}
         </Suspense>
       </AdminLayout>
     );

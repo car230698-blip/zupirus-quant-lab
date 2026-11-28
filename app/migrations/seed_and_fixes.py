@@ -1252,6 +1252,33 @@ def apply_migration_031(c, is_pg: bool):
             c.execute("ALTER TABLE custom_research_requests ADD COLUMN next_action_vi TEXT")
 
 
+def apply_migration_032(c, is_pg: bool):
+    """Migration 032: Add attachment_id to custom_research_messages and payment columns to custom_research_requests."""
+    if is_pg:
+        c.execute("""
+        ALTER TABLE custom_research_messages ADD COLUMN IF NOT EXISTS attachment_id VARCHAR(64);
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS payment_status VARCHAR(32) NOT NULL DEFAULT 'UNPAID';
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS payment_order_id VARCHAR(64);
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS payment_tx_hash VARCHAR(128);
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS payment_confirmed_at DOUBLE PRECISION;
+        """)
+    else:
+        msg_cols = [r[1] for r in c.execute("PRAGMA table_info(custom_research_messages)").fetchall()]
+        if "attachment_id" not in msg_cols:
+            c.execute("ALTER TABLE custom_research_messages ADD COLUMN attachment_id TEXT")
+
+        req_cols = [r[1] for r in c.execute("PRAGMA table_info(custom_research_requests)").fetchall()]
+        if "payment_status" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'UNPAID'")
+        if "payment_order_id" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN payment_order_id TEXT")
+        if "payment_tx_hash" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN payment_tx_hash TEXT")
+        if "payment_confirmed_at" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN payment_confirmed_at REAL")
+
+
+
 
 
 

@@ -322,6 +322,8 @@ def resample_candles(candles: Sequence[Candle], target_tf: str) -> List[Candle]:
     """Resample candle series into higher timeframe bars (H1, H4).
     Only includes closed/complete buckets.
     """
+    import time
+
     tf_u = target_tf.strip().upper()
     if tf_u in ("M15", "15M"):
         return list(candles)
@@ -335,8 +337,12 @@ def resample_candles(candles: Sequence[Candle], target_tf: str) -> List[Candle]:
         b_ts = (c.time // bucket_secs) * bucket_secs
         buckets.setdefault(b_ts, []).append(c)
 
+    now_ts = int(time.time())
     resampled: List[Candle] = []
     for b_ts in sorted(buckets.keys()):
+        # Drop incomplete/unclosed buckets extending past current wall-clock time
+        if b_ts + bucket_secs > now_ts:
+            continue
         b_candles = buckets[b_ts]
         # Form composite candle
         op = b_candles[0].open
