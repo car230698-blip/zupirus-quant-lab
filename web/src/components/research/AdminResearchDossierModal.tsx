@@ -572,14 +572,26 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
                         {r.status === 'COMPLETED' && (
                           <>
                             <a
-                              href={`/api/v1/research/orders/${encodeURIComponent(order.id)}/download-pdf`}
+                              href={`/api/v1/admin/research/requests/${encodeURIComponent(order.id)}/runs/${encodeURIComponent(r.id)}/preview-pdf`}
                               target="_blank"
                               rel="noreferrer"
                               className="quant-button quant-button-secondary text-[11px] py-1 px-2.5 flex items-center gap-1"
                             >
                               <Download className="w-3 h-3 text-cyan-400" />
-                              <span>Xem PDF</span>
+                              <span>Xem Trước PDF</span>
                             </a>
+                            {r.deliverable_bundle_path && (
+                              <a
+                                href={`/api/v1/admin/research/requests/${encodeURIComponent(order.id)}/runs/${encodeURIComponent(r.id)}/download-bundle`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="quant-button quant-button-secondary text-[11px] py-1 px-2 flex items-center gap-1"
+                                title="Tải gói ZIP thẩm định độc lập"
+                              >
+                                <Layers className="w-3 h-3 text-cyan-400" />
+                                <span>ZIP</span>
+                              </a>
+                            )}
                             {r.is_approved !== 1 && (
                               <button
                                 type="button"

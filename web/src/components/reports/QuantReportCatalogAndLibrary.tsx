@@ -1299,10 +1299,8 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                                   </div>
                                 )}
 
-                                {/* Sandbox Pay - strictly hidden in production */}
-                                {typeof window !== 'undefined' &&
-                                  !window.location.hostname.includes('zupirus.com') &&
-                                  !window.location.hostname.includes('109.199.100.120') && (
+                                {/* Sandbox Pay - strictly driven by backend capability */}
+                                {Boolean(cr.can_sandbox_pay) && (
                                     <div className="pt-2 border-t border-amber-900/40">
                                       <button
                                         type="button"

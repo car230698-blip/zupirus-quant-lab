@@ -181,6 +181,11 @@ MIGRATIONS = [
         "version": 35,
         "name": "035_checkout_locking_and_immutable_deliverables",
         "description": "Add checkout locking, deposit address, expiration, and immutable delivered run columns to custom_research_requests"
+    },
+    {
+        "version": 36,
+        "name": "036_checkout_records_and_audit",
+        "description": "Create dedicated custom_research_checkouts table, add checkout_id to requests, enforce tx deduplication, and backfill delivered_run_id"
     }
 ]
 
@@ -208,6 +213,7 @@ from .seed_and_fixes import (
     apply_migration_033,
     apply_migration_034,
     apply_migration_035,
+    apply_migration_036,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -251,6 +257,7 @@ def run_all_migrations(c, is_pg: bool):
         33: apply_migration_033,
         34: apply_migration_034,
         35: apply_migration_035,
+        36: apply_migration_036,
     }
 
     for m in MIGRATIONS:

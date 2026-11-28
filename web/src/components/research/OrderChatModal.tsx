@@ -216,7 +216,7 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
             {orderTitle || 'Yêu cầu nghiên cứu định lượng'} {currentStatus ? `· [${currentStatus}]` : ''}
           </p>
         </div>
-        {!embedded && (
+        {!embedded ? (
           <button
             type="button"
             onClick={onClose}
@@ -225,6 +225,16 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onClose}
+            title="Về Tổng quan hồ sơ"
+            aria-label="Về Tổng quan hồ sơ"
+            className="text-xs px-2.5 py-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer flex items-center gap-1 border border-slate-800"
+          >
+            <span>Về Đề Xuất & Báo Giá →</span>
           </button>
         )}
       </div>

@@ -1450,6 +1450,98 @@ def apply_migration_035(c, is_pg: bool):
                 pass
 
 
+def apply_migration_036(c, is_pg: bool):
+    """036_checkout_records_and_audit:
+    Creates dedicated custom_research_checkouts table, adds checkout_id to requests,
+    enforces unique constraints on payment_tx_hash, and backfills delivered_run_id on legacy records.
+    """
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS custom_research_checkouts (
+            id VARCHAR(64) PRIMARY KEY,
+            request_id VARCHAR(64) NOT NULL REFERENCES custom_research_requests(id) ON DELETE CASCADE,
+            proposal_version INTEGER NOT NULL,
+            amount_usd DOUBLE PRECISION NOT NULL,
+            currency VARCHAR(16) NOT NULL DEFAULT 'USDT',
+            payment_network VARCHAR(32) NOT NULL,
+            deposit_address TEXT NOT NULL,
+            status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+            expires_at DOUBLE PRECISION NOT NULL,
+            created_at DOUBLE PRECISION NOT NULL,
+            paid_at DOUBLE PRECISION,
+            tx_hash VARCHAR(128)
+        );
+        CREATE INDEX IF NOT EXISTS idx_crc_req ON custom_research_checkouts(request_id);
+        CREATE INDEX IF NOT EXISTS idx_crc_tx ON custom_research_checkouts(tx_hash);
+
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS checkout_id VARCHAR(64);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_crr_paid_tx ON custom_research_requests(payment_tx_hash)
+            WHERE payment_status = 'PAID' AND payment_tx_hash IS NOT NULL;
+        """)
+        # Backfill delivered_run_id if missing on DELIVERED requests
+        c.execute("""
+        UPDATE custom_research_requests
+        SET delivered_run_id = (
+            SELECT id FROM custom_research_runs
+            WHERE request_id = custom_research_requests.id AND status = 'COMPLETED'
+            ORDER BY run_number DESC LIMIT 1
+        )
+        WHERE (delivered_run_id IS NULL OR delivered_run_id = '')
+          AND (status = 'DELIVERED' OR deliverable_pdf_path IS NOT NULL)
+          AND EXISTS (SELECT 1 FROM custom_research_runs WHERE request_id = custom_research_requests.id);
+
+        UPDATE custom_research_requests
+        SET delivered_pdf_path = deliverable_pdf_path
+        WHERE (delivered_pdf_path IS NULL OR delivered_pdf_path = '') AND deliverable_pdf_path IS NOT NULL;
+
+        UPDATE custom_research_requests
+        SET delivered_bundle_path = deliverable_bundle_path
+        WHERE (delivered_bundle_path IS NULL OR delivered_bundle_path = '') AND deliverable_bundle_path IS NOT NULL;
+        """)
+    else:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS custom_research_checkouts (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL REFERENCES custom_research_requests(id) ON DELETE CASCADE,
+            proposal_version INTEGER NOT NULL,
+            amount_usd REAL NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'USDT',
+            payment_network TEXT NOT NULL,
+            deposit_address TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            expires_at REAL NOT NULL,
+            created_at REAL NOT NULL,
+            paid_at REAL,
+            tx_hash TEXT
+        )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_crc_req ON custom_research_checkouts(request_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_crc_tx ON custom_research_checkouts(tx_hash)")
+
+        cols = [row[1] for row in c.execute("PRAGMA table_info(custom_research_requests)").fetchall()]
+        if "checkout_id" not in cols:
+            try:
+                c.execute("ALTER TABLE custom_research_requests ADD COLUMN checkout_id TEXT")
+            except Exception:
+                pass
+        try:
+            c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_crr_paid_tx ON custom_research_requests(payment_tx_hash) WHERE payment_status = 'PAID' AND payment_tx_hash IS NOT NULL")
+        except Exception:
+            pass
+
+        # Backfill delivered_run_id on SQLite
+        try:
+            rows = c.execute("SELECT id, deliverable_pdf_path, deliverable_bundle_path FROM custom_research_requests WHERE (delivered_run_id IS NULL OR delivered_run_id = '') AND (status = 'DELIVERED' OR deliverable_pdf_path IS NOT NULL)").fetchall()
+            for r in rows:
+                req_id = r[0]
+                run_row = c.execute("SELECT id FROM custom_research_runs WHERE request_id = ? AND status = 'COMPLETED' ORDER BY run_number DESC LIMIT 1", (req_id,)).fetchone()
+                if run_row:
+                    c.execute("UPDATE custom_research_requests SET delivered_run_id = ?, delivered_pdf_path = COALESCE(delivered_pdf_path, ?), delivered_bundle_path = COALESCE(delivered_bundle_path, ?) WHERE id = ?", (run_row[0], r[1], r[2], req_id))
+        except Exception:
+            pass
+
+
+
 
 
 

@@ -81,7 +81,8 @@ def process_on_demand_research_jobs(now: float, target_request_id: Optional[str]
                 """,
                 (now, now, cid),
             )
-            claimed_ids.append(cid)
+            if c.rowcount and c.rowcount > 0:
+                claimed_ids.append(cid)
 
     for cid in claimed_ids:
         try:

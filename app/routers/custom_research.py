@@ -59,16 +59,36 @@ def _fail(status_code: int, detail: str) -> None:
 
 
 def _get_attachments_dir(request_id: str) -> Path:
-    base = Path("data/research_attachments") / request_id
+    data_dir = Path(os.getenv("DATA_DIR", "data"))
+    base = data_dir / "research_attachments" / request_id
     base.mkdir(parents=True, exist_ok=True)
     return base
 
 
+def is_sandbox_allowed() -> bool:
+    env = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).lower()
+    allow_sb = os.getenv("ALLOW_SANDBOX_PAY", "").lower() in ("true", "1", "yes")
+    if env in ("production", "prod"):
+        return allow_sb
+    return os.getenv("ALLOW_SANDBOX_PAY", "true").lower() in ("true", "1", "yes")
+
+
 def _broadcast_chat_message(request_id: str, message_data: dict) -> None:
+    # 1. In-process queues
     queues = _chat_subscribers.get(request_id, [])
     for q in list(queues):
         try:
             q.put_nowait(message_data)
+        except Exception:
+            pass
+
+    # 2. Cross-process Redis pub/sub if available
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        try:
+            import redis
+            rc = redis.from_url(redis_url, socket_timeout=1.0)
+            rc.publish(f"cr_chat:{request_id}", json.dumps(message_data, ensure_ascii=False))
         except Exception:
             pass
 
@@ -585,7 +605,8 @@ def checkout_lock_research_request(
 ):
     """Lock checkout parameters for USDT payment.
     Requires client to have confirmed current proposal version.
-    Validates receiving wallet address from kv_settings/env; rejects if not configured.
+    Saves immutable checkout record with distinct checkout_id, deposit address, and 24h expiration.
+    Handles idempotent locks and quotes changing cleanly.
     """
     net = payload.payment_network.strip().upper()
     if net not in ("BEP20", "TRC20"):
@@ -615,10 +636,41 @@ def checkout_lock_research_request(
         if not wallet_addr or not validate_crypto_address(wallet_addr, net):
             _fail(400, f"Hệ thống chưa cấu hình địa chỉ ví nhận USDT {net} hợp lệ. Vui lòng liên hệ Ban Quản Trị.")
 
+        # Check existing active checkout for idempotency
+        existing_chk = c.execute(
+            """
+            SELECT id, expires_at FROM custom_research_checkouts
+            WHERE request_id = ? AND proposal_version = ? AND payment_network = ? AND status = 'PENDING' AND expires_at > ?
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (request_id, current_ver, net, now_ts),
+        ).fetchone()
+
+        if existing_chk:
+            chk_id = existing_chk[0]
+            expires_at = float(existing_chk[1])
+        else:
+            # Supersede older pending checkouts for this request
+            c.execute(
+                "UPDATE custom_research_checkouts SET status = 'SUPERSEDED' WHERE request_id = ? AND status = 'PENDING'",
+                (request_id,),
+            )
+            chk_id = f"chk_{uuid.uuid4().hex[:12]}"
+            expires_at = now_ts + 86400  # 24h
+            c.execute(
+                """
+                INSERT INTO custom_research_checkouts (
+                    id, request_id, proposal_version, amount_usd, currency, payment_network,
+                    deposit_address, status, expires_at, created_at
+                ) VALUES (?, ?, ?, ?, 'USDT', ?, ?, 'PENDING', ?, ?)
+                """,
+                (chk_id, request_id, current_ver, price, net, wallet_addr, expires_at, now_ts),
+            )
+
         c.execute(
             """
             UPDATE custom_research_requests
-            SET checkout_locked = 1, checkout_locked_at = ?, payment_network = ?, currency = 'USDT',
+            SET checkout_id = ?, checkout_locked = 1, checkout_locked_at = ?, payment_network = ?, currency = 'USDT',
                 client_confirmed_version = ?,
                 checkout_proposal_version = ?, checkout_amount = ?, checkout_deposit_address = ?,
                 checkout_expires_at = ?,
@@ -626,16 +678,18 @@ def checkout_lock_research_request(
                 waiting_reason_vi = 'Đang chờ khách hàng thanh toán USDT', updated_at = ?
             WHERE id = ?
             """,
-            (now_ts, net, current_ver, current_ver, price, wallet_addr, now_ts + 86400, now_ts, request_id),
+            (chk_id, now_ts, net, current_ver, current_ver, price, wallet_addr, expires_at, now_ts, request_id),
         )
 
         _log_audit_action(
-            c, request_id, str(user["id"]), user.get("role", "client"), "CHECKOUT_LOCKED", details={"network": net, "amount": price, "deposit_address": wallet_addr}
+            c, request_id, str(user["id"]), user.get("role", "client"), "CHECKOUT_LOCKED",
+            details={"checkout_id": chk_id, "network": net, "amount": price, "deposit_address": wallet_addr, "expires_at": expires_at}
         )
 
     return {
         "ok": True,
         "request_id": request_id,
+        "checkout_id": chk_id,
         "checkout_locked": 1,
         "checkout_locked_at": now_ts,
         "payment_network": net,
@@ -643,7 +697,8 @@ def checkout_lock_research_request(
         "amount_usdt": price,
         "proposal_version": current_ver,
         "deposit_address": wallet_addr,
-        "expires_in_seconds": 86400,
+        "expires_at": expires_at,
+        "expires_in_seconds": int(max(0, expires_at - now_ts)),
     }
 
 
@@ -654,16 +709,24 @@ def sandbox_pay_research_request(
     user: dict = Depends(get_current_user),
 ):
     """Sandbox payment simulation for custom research order testing without real funds."""
-    env = os.getenv("ENVIRONMENT", "").lower()
-    allow_sb = os.getenv("ALLOW_SANDBOX_PAY", "").lower() in ("true", "1")
-    if env == "production" and not allow_sb:
-        _fail(403, "Cổng thanh toán thử nghiệm (sandbox) bị khóa trên môi trường Production.")
+    if not is_sandbox_allowed():
+        _fail(403, "Cổng thanh toán thử nghiệm (Sandbox) bị khóa trên môi trường Production.")
 
     now_ts = time.time()
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
+        if req.get("payment_status") == "PAID":
+            _fail(400, "Hồ sơ nghiên cứu này đã được thanh toán trước đó.")
+
         mock_tx = f"SANDBOX_TX_{uuid.uuid4().hex[:12].upper()}"
         mock_ord = f"ord_sb_{uuid.uuid4().hex[:8]}"
+
+        chk_id = req.get("checkout_id")
+        if chk_id:
+            c.execute(
+                "UPDATE custom_research_checkouts SET status = 'PAID', paid_at = ?, tx_hash = ? WHERE id = ?",
+                (now_ts, mock_tx, chk_id),
+            )
 
         c.execute(
             """
@@ -715,8 +778,14 @@ def verify_research_payment(
     """Verify payment transaction for custom research order with duplication & timeout protection."""
     now_ts = time.time()
     clean_tx = payload.tx_hash.strip()
+    if not clean_tx:
+        _fail(400, "Vui lòng nhập mã giao dịch on-chain (TxHash).")
+
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
+
+        if req.get("payment_status") == "PAID":
+            _fail(400, "Hồ sơ nghiên cứu này đã được đối soát thanh toán trước đó.")
 
         # 1. Check duplicate tx_hash in custom_research_requests
         dup_req = c.execute(
@@ -724,36 +793,39 @@ def verify_research_payment(
             (clean_tx, request_id),
         ).fetchone()
         if dup_req:
-            _fail(409, f"Mã giao dịch (TX hash) này đã được xác nhận cho hồ sơ {dup_req['id']}.")
+            _fail(409, f"Mã giao dịch (TX hash) này đã được xác nhận cho hồ sơ nghiên cứu {dup_req['id']}.")
 
-        # 2. Check duplicate tx_hash in orders table
-        try:
-            dup_ord = c.execute(
-                "SELECT id FROM orders WHERE tx_hash = ? AND status = 'PAID'",
-                (clean_tx,),
-            ).fetchone()
-            if dup_ord:
-                _fail(409, f"Mã giao dịch (TX hash) này đã được đối soát cho đơn hàng {dup_ord['id']}.")
-        except Exception:
-            pass
+        # 2. Check duplicate tx_hash in legacy orders table (do NOT swallow error)
+        dup_ord = c.execute(
+            "SELECT id FROM orders WHERE tx_hash = ? AND status = 'PAID'",
+            (clean_tx,),
+        ).fetchone()
+        if dup_ord:
+            _fail(409, f"Mã giao dịch (TX hash) này đã được đối soát cho đơn mua trước đó {dup_ord['id']}.")
 
-        # 3. Check version match
+        # 3. Check duplicate in custom_research_checkouts
+        dup_chk = c.execute(
+            "SELECT id, request_id FROM custom_research_checkouts WHERE tx_hash = ? AND status = 'PAID' AND request_id != ?",
+            (clean_tx, request_id),
+        ).fetchone()
+        if dup_chk:
+            _fail(409, f"Mã giao dịch (TX hash) này đã được ghi nhận cho thanh toán {dup_chk['id']} thuộc hồ sơ {dup_chk['request_id']}.")
+
+        # 4. Check version match
         lock_ver = req.get("checkout_proposal_version")
         curr_ver = int(req.get("proposal_version") or 1)
         if lock_ver and int(lock_ver) != curr_ver:
             _fail(400, f"Báo giá đã thay đổi sang phiên bản v{curr_ver}. Vui lòng tạo lệnh thanh toán mới cho phiên bản này.")
 
-        # 4. Check expiration
+        # 5. Check expiration
         expires_at = req.get("checkout_expires_at")
         if expires_at and now_ts > float(expires_at):
             _fail(400, "Lệnh thanh toán đã hết hạn (24 giờ). Vui lòng tạo lại yêu cầu thanh toán.")
 
-        # 5. Check sandbox in production vs on-chain verification
-        env = os.getenv("ENVIRONMENT", "").lower()
-        allow_sb = os.getenv("ALLOW_SANDBOX_PAY", "").lower() in ("true", "1")
+        # 6. Check sandbox in production vs on-chain verification
         is_test_tx = clean_tx.startswith("SANDBOX_") or clean_tx.startswith("0xTEST_") or clean_tx.startswith("TEST_")
         if is_test_tx:
-            if env == "production" and not allow_sb:
+            if not is_sandbox_allowed():
                 _fail(403, "Mã giao dịch thử nghiệm (Sandbox / Test) bị chặn trên môi trường Production.")
         else:
             net = (req.get("payment_network") or "TRC20").strip().upper()
@@ -763,14 +835,28 @@ def verify_research_payment(
                 _fail(400, "Chưa xác định được ví nhận thanh toán hợp lệ của đơn hàng này. Vui lòng tạo lại lệnh thanh toán.")
 
             if net == "TRC20":
-                valid, vmsg, _ = verify_trc20_transaction(clean_tx, dest_wallet, expected_amt)
+                valid, vmsg, tx_info = verify_trc20_transaction(clean_tx, dest_wallet, expected_amt)
             elif net == "BEP20":
-                valid, vmsg, _ = verify_bep20_transaction(clean_tx, dest_wallet, expected_amt)
+                valid, vmsg, tx_info = verify_bep20_transaction(clean_tx, dest_wallet, expected_amt)
             else:
                 _fail(400, f"Mạng thanh toán {net} không được hỗ trợ.")
 
             if not valid:
                 _fail(400, f"Xác minh on-chain thất bại: {vmsg}")
+
+            # Verify transaction timestamp if available
+            tx_time = (tx_info or {}).get("timestamp")
+            lock_time = float(req.get("checkout_locked_at") or 0.0)
+            if tx_time and lock_time and tx_time < (lock_time - 3600):
+                _fail(400, "Giao dịch on-chain này xảy ra trước thời điểm tạo lệnh thanh toán của hồ sơ.")
+
+        # Update checkout record
+        chk_id = req.get("checkout_id")
+        if chk_id:
+            c.execute(
+                "UPDATE custom_research_checkouts SET status = 'PAID', paid_at = ?, tx_hash = ? WHERE id = ?",
+                (now_ts, clean_tx, chk_id),
+            )
 
         c.execute(
             """
@@ -779,28 +865,38 @@ def verify_research_payment(
                 status = 'CONFIRMED', current_step = 'CONFIRMED', action_category = 'RUNNING',
                 waiting_reason_vi = 'Đã đối soát thanh toán. Hệ thống tự động xếp hàng đợi chạy',
                 updated_at = ?
-            WHERE id = ?
+            WHERE id = ? AND payment_status != 'PAID'
             """,
             (clean_tx, now_ts, now_ts, request_id),
         )
 
         _log_audit_action(
-            c, request_id, str(user["id"]), user.get("role", "client"), "PAYMENT_VERIFIED", details={"tx_hash": clean_tx}
+            c, request_id, str(user["id"]), user.get("role", "client"), "PAYMENT_VERIFIED",
+            details={"tx_hash": clean_tx, "network": req.get("payment_network"), "amount": req.get("quoted_price_usd")}
         )
 
-        pay_msg = f"Giao dịch thanh toán đã được ghi nhận (TX: {clean_tx}). Trạng thái đơn: CONFIRMED."
+        conf_msg = f"Thanh toán USDT on-chain đã được đối soát thành công (TX: {clean_tx}). Hệ thống tự động chuyển hồ sơ vào hàng đợi thực thi."
         c.execute(
             """
             INSERT INTO custom_research_messages (
                 id, request_id, sender_id, sender_role, sender_name, message,
                 is_read_by_admin, is_read_by_client, created_at
-            ) VALUES (?, ?, ?, 'system', 'Hệ Thống Thanh Toán', ?, 0, 1, ?)
+            ) VALUES (?, ?, ?, 'system', 'Hệ Thống Đối Soát USDT', ?, 0, 1, ?)
             """,
-            (f"msg_{uuid.uuid4().hex[:10]}", request_id, user["id"], pay_msg, now_ts),
+            (f"msg_{uuid.uuid4().hex[:10]}", request_id, user["id"], conf_msg, now_ts),
         )
 
     _broadcast_chat_message(request_id, {"event": "status_changed", "status": "CONFIRMED", "payment_status": "PAID"})
-    return {"ok": True, "request_id": request_id, "payment_status": "PAID", "status": "CONFIRMED", "action_category": "RUNNING"}
+
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "payment_status": "PAID",
+        "tx_hash": clean_tx,
+        "status": "CONFIRMED",
+        "action_category": "RUNNING",
+        "message": "Đối soát giao dịch thành công. Hồ sơ đã sẵn sàng chạy.",
+    }
 
 
 # --- Client & Shared Order Query Endpoints ---
@@ -867,7 +963,11 @@ def get_research_order_detail(
     request_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Retrieve full detail for a custom research order."""
+    """Retrieve full detail for a custom research order.
+    Client response only exposes safe metadata and sanitized download URLs,
+    keeping internal system paths, audit logs, and unapproved runs strictly within admin scope.
+    """
+    is_admin = user.get("role") == "admin"
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
         req["symbols"] = json.loads(req.get("symbols_json") or "[]")
@@ -877,26 +977,51 @@ def get_research_order_detail(
             except Exception:
                 req["proposal_details"] = None
 
+        req["can_sandbox_pay"] = is_sandbox_allowed()
+        req["can_download_pdf"] = bool(req.get("delivered_pdf_path")) if req.get("product_type") == "INSTITUTIONAL_RESEARCH" else bool(req.get("deliverable_pdf_path"))
+        req["can_download_bundle"] = bool(req.get("delivered_bundle_path")) if req.get("product_type") == "INSTITUTIONAL_RESEARCH" else bool(req.get("deliverable_bundle_path"))
+        req["download_pdf_url"] = f"/api/v1/research/orders/{request_id}/download-pdf"
+        req["download_bundle_url"] = f"/api/v1/research/orders/{request_id}/download-bundle"
+
         # Fetch attachments
         att_rows = c.execute(
             "SELECT * FROM custom_research_attachments WHERE request_id = ? ORDER BY created_at ASC",
             (request_id,),
         ).fetchall()
-        req["attachments"] = [dict(a) for a in att_rows]
+        attachments = []
+        for a in att_rows:
+            ad = dict(a)
+            if not is_admin:
+                ad.pop("stored_path", None)
+            ad["download_url"] = f"/api/v1/research/orders/{request_id}/attachments/{ad['id']}/download"
+            attachments.append(ad)
+        req["attachments"] = attachments
 
         # Fetch runs
         run_rows = c.execute(
             "SELECT * FROM custom_research_runs WHERE request_id = ? ORDER BY run_number ASC",
             (request_id,),
         ).fetchall()
-        req["runs"] = [dict(r) for r in run_rows]
 
-        # Fetch audit logs
-        log_rows = c.execute(
-            "SELECT * FROM custom_research_audit_logs WHERE request_id = ? ORDER BY created_at DESC",
-            (request_id,),
-        ).fetchall()
-        req["audit_logs"] = [dict(l) for l in log_rows]
+        if is_admin:
+            req["runs"] = [dict(r) for r in run_rows]
+            # Fetch audit logs (admin-only)
+            log_rows = c.execute(
+                "SELECT * FROM custom_research_audit_logs WHERE request_id = ? ORDER BY created_at DESC",
+                (request_id,),
+            ).fetchall()
+            req["audit_logs"] = [dict(l) for l in log_rows]
+        else:
+            # Client only sees approved deliverable runs without raw server disk paths
+            req["runs"] = [dict(r) for r in run_rows if r.get("is_approved") == 1]
+            for r in req["runs"]:
+                r.pop("deliverable_pdf_path", None)
+                r.pop("deliverable_bundle_path", None)
+            req["audit_logs"] = []
+            req.pop("deliverable_pdf_path", None)
+            req.pop("deliverable_bundle_path", None)
+            req.pop("delivered_pdf_path", None)
+            req.pop("delivered_bundle_path", None)
 
     return {"ok": True, "order": req}
 
@@ -906,9 +1031,10 @@ def get_research_order_detail(
 @router.get("/api/v1/research/orders/{request_id}/messages")
 def get_order_messages(
     request_id: str,
+    since_ts: Optional[float] = Query(None, description="Fetch messages created after this timestamp"),
     user: dict = Depends(get_current_user),
 ):
-    """Get chat history for a research request. Marks messages as read."""
+    """Get chat history for a research request. Supports since_ts catch-up and marks messages as read."""
     with tx() as c:
         _verify_order_access(c, request_id, user)
         is_admin = user.get("role") == "admin"
@@ -917,10 +1043,16 @@ def get_order_messages(
         else:
             c.execute("UPDATE custom_research_messages SET is_read_by_client = 1 WHERE request_id = ?", (request_id,))
 
-        rows = c.execute(
-            "SELECT * FROM custom_research_messages WHERE request_id = ? ORDER BY created_at ASC",
-            (request_id,),
-        ).fetchall()
+        if since_ts is not None:
+            rows = c.execute(
+                "SELECT * FROM custom_research_messages WHERE request_id = ? AND created_at > ? ORDER BY created_at ASC",
+                (request_id, float(since_ts)),
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT * FROM custom_research_messages WHERE request_id = ? ORDER BY created_at ASC",
+                (request_id,),
+            ).fetchall()
         messages = [dict(r) for r in rows]
 
     return {"ok": True, "request_id": request_id, "messages": messages, "count": len(messages)}
@@ -984,8 +1116,9 @@ def send_order_message(
 async def stream_order_messages(
     request: Request,
     request_id: str,
+    since_ts: Optional[float] = Query(None),
 ):
-    """Server-Sent Events (SSE) stream for real-time order chat."""
+    """Server-Sent Events (SSE) stream for real-time order chat with catch-up on reconnect."""
     user = get_current_user(request)
     with tx() as c:
         _verify_order_access(c, request_id, user)
@@ -996,6 +1129,17 @@ async def stream_order_messages(
     async def event_generator():
         try:
             yield f"event: connected\ndata: {json.dumps({'ok': True, 'request_id': request_id})}\n\n"
+
+            # Catch up missed messages if since_ts supplied
+            if since_ts:
+                with tx() as c:
+                    missed_rows = c.execute(
+                        "SELECT * FROM custom_research_messages WHERE request_id = ? AND created_at > ? ORDER BY created_at ASC",
+                        (request_id, float(since_ts)),
+                    ).fetchall()
+                    for r in missed_rows:
+                        yield f"event: message\ndata: {json.dumps({'event': 'new_message', 'message': dict(r)}, ensure_ascii=False)}\n\n"
+
             while True:
                 if await request.is_disconnected():
                     break
@@ -1017,7 +1161,14 @@ async def upload_order_attachment(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    """Upload a file attachment (PNG, JPEG, WebP, PDF, CSV) to the order chat."""
+    """Upload a file attachment (PNG, JPEG, WebP, PDF, CSV) to the order chat.
+    Enforces authorization check strictly before writing any file to persistent storage.
+    """
+    # 1. Check authorization first
+    with tx() as c:
+        _verify_order_access(c, request_id, user)
+
+    # 2. Read and validate content
     content = await file.read()
     mime_type = _validate_attachment_bytes(file.filename or "upload", content)
 
@@ -1043,7 +1194,6 @@ async def upload_order_attachment(
 
     try:
         with tx() as c:
-            _verify_order_access(c, request_id, user)
             c.execute(
                 """
                 INSERT INTO custom_research_attachments (
@@ -1158,7 +1308,7 @@ def admin_list_research_requests(
             cat = category.strip().lower()
             if cat == "actionable":
                 where_clauses.append(
-                    "(action_category = 'ACTIONABLE' OR status IN ('PENDING_QUOTE', 'NEEDS_DATA', 'READY_FOR_REVIEW', 'FAILED') "
+                    "(action_category = 'ACTIONABLE' OR status IN ('PENDING_QUOTE', 'NEEDS_CLARIFICATION', 'NEEDS_DATA', 'READY_FOR_REVIEW', 'FAILED') "
                     "OR (SELECT COUNT(*) FROM custom_research_messages WHERE request_id = custom_research_requests.id AND is_read_by_admin = 0) > 0)"
                 )
             elif cat == "waiting_client":
@@ -1194,6 +1344,8 @@ def admin_list_research_requests(
                 d["queue_group"] = "PENDING_REPLY"
             elif d["status"] == "PENDING_QUOTE":
                 d["queue_group"] = "PENDING_QUOTE"
+            elif d["status"] == "NEEDS_CLARIFICATION":
+                d["queue_group"] = "NEEDS_CLARIFICATION"
             elif d["status"] in ("NEEDS_DATA", "NEEDS_ATTENTION"):
                 d["queue_group"] = "NEEDS_DATA"
             elif d["status"] == "READY_FOR_REVIEW":
@@ -1353,11 +1505,18 @@ def execute_research_run_internal(
 
         zip_path, bundle_filename, bundle_sha = build_institutional_deliverable_bundle(study)
         pdf_path = zip_path.parent / f"{study.study_id}_report_full.pdf"
-        pdf_bytes = generate_institutional_pdf(study)
-        pdf_path.write_bytes(pdf_bytes)
 
         done_ts = time.time()
         with tx() as c:
+            # Atomic active check before writing run outputs
+            active_run = c.execute(
+                "SELECT status FROM custom_research_runs WHERE id = ?",
+                (run_uuid,),
+            ).fetchone()
+            if not active_run or active_run[0] != 'RUNNING':
+                logger.warning("Run %s is not in RUNNING state (%s). Aborting output commit.", run_uuid, active_run[0] if active_run else "MISSING")
+                return
+
             c.execute(
                 """
                 UPDATE custom_research_runs
@@ -1766,6 +1925,52 @@ def admin_archive_research_request(
     return {"ok": True, "request_id": request_id, "is_archived": 1}
 
 
+@router.get("/api/v1/admin/research/requests/{request_id}/runs/{run_id}/preview-pdf")
+def admin_preview_run_pdf(
+    request_id: str,
+    run_id: str,
+    admin: dict = Depends(get_current_admin),
+):
+    """Admin: Preview specific PDF deliverable by run_id."""
+    with tx() as c:
+        run_row = c.execute(
+            "SELECT deliverable_pdf_path FROM custom_research_runs WHERE id = ? AND request_id = ?",
+            (run_id, request_id),
+        ).fetchone()
+        if not run_row or not run_row[0] or not Path(run_row[0]).exists():
+            _fail(404, f"Không tìm thấy tệp PDF của lượt chạy {run_id}.")
+        pdf_path = Path(run_row[0])
+
+    return FileResponse(
+        path=str(pdf_path),
+        media_type="application/pdf",
+        filename=f"preview_run_{run_id}.pdf",
+    )
+
+
+@router.get("/api/v1/admin/research/requests/{request_id}/runs/{run_id}/download-bundle")
+def admin_download_run_bundle(
+    request_id: str,
+    run_id: str,
+    admin: dict = Depends(get_current_admin),
+):
+    """Admin: Download specific bundle ZIP deliverable by run_id."""
+    with tx() as c:
+        run_row = c.execute(
+            "SELECT deliverable_bundle_path FROM custom_research_runs WHERE id = ? AND request_id = ?",
+            (run_id, request_id),
+        ).fetchone()
+        if not run_row or not run_row[0] or not Path(run_row[0]).exists():
+            _fail(404, f"Không tìm thấy gói bundle ZIP của lượt chạy {run_id}.")
+        bundle_path = Path(run_row[0])
+
+    return FileResponse(
+        path=str(bundle_path),
+        media_type="application/zip",
+        filename=f"bundle_run_{run_id}.zip",
+    )
+
+
 @router.post("/api/v1/admin/research/requests/{request_id}/approve")
 def admin_approve_deliver_research_request(
     request_id: str,
@@ -1807,12 +2012,24 @@ def admin_approve_deliver_research_request(
         if not target_run:
             _fail(400, "Chưa có lượt chạy hoàn tất nào cho hồ sơ này. Hãy bấm 'Chạy nghiên cứu' trước khi duyệt bàn giao.")
 
-        pdf_path = target_run.get("deliverable_pdf_path") or req.get("deliverable_pdf_path")
-        bundle_path = target_run.get("deliverable_bundle_path") or req.get("deliverable_bundle_path")
-        bundle_sha = target_run.get("deliverable_bundle_sha256") or req.get("deliverable_bundle_sha256")
+        if target_run.get("status") != "COMPLETED":
+            _fail(400, f"Lượt chạy {target_run['id']} chưa hoàn tất thành công (trạng thái: {target_run.get('status')}).")
+
+        curr_proposal_ver = int(req.get("proposal_version") or 1)
+        if int(target_run.get("proposal_version") or 1) != curr_proposal_ver:
+            _fail(400, f"Lượt chạy {target_run['id']} thuộc phiên bản đề xuất v{target_run.get('proposal_version')}, không khớp phiên bản hiện tại v{curr_proposal_ver}.")
+
+        # Enforce valid run paths without falling back to request pointers
+        pdf_path = target_run.get("deliverable_pdf_path")
+        bundle_path = target_run.get("deliverable_bundle_path")
+        bundle_sha = target_run.get("deliverable_bundle_sha256")
 
         if not pdf_path or not Path(pdf_path).exists():
             _fail(400, "Tệp PDF nghiên cứu của lượt chạy này không tồn tại trên hệ thống lưu trữ.")
+        if not bundle_path or not Path(bundle_path).exists():
+            _fail(400, "Tệp bundle ZIP của lượt chạy này không tồn tại trên hệ thống lưu trữ.")
+        if not bundle_sha:
+            _fail(400, "Lượt chạy thiếu mã băm SHA-256 xác thực.")
 
         # Mark target run as approved
         c.execute(
@@ -1834,7 +2051,7 @@ def admin_approve_deliver_research_request(
                 waiting_reason_vi = 'Đã hoàn tất bàn giao. Khách hàng có thể tải PDF và gói Replay', updated_at = ?
             WHERE id = ?
             """,
-            (target_run["id"], str(pdf_path), str(bundle_path) if bundle_path else None, bundle_sha, now_ts, now_ts, request_id),
+            (target_run["id"], str(pdf_path), str(bundle_path), bundle_sha, now_ts, now_ts, request_id),
         )
 
         _log_audit_action(
@@ -1919,14 +2136,15 @@ def download_research_order_pdf(
 ):
     """Download research PDF. Strictly restricted to request owner or system admin.
     Client can only download after deliverable approval for institutional orders.
-    Always serves the immutable delivered file when available.
+    During reruns, previously approved deliverable remains downloadable by client.
     """
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
         is_admin = user.get("role") == "admin"
         if not is_admin:
-            if req.get("product_type") == "INSTITUTIONAL_RESEARCH" and req.get("status") != "DELIVERED":
-                _fail(403, "Bản nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
+            if req.get("product_type") == "INSTITUTIONAL_RESEARCH":
+                if req.get("status") not in ("DELIVERED", "COMPLETED") and not (req.get("delivered_pdf_path") or req.get("deliverable_pdf_path")):
+                    _fail(403, "Bản nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
 
     pdf_path_str = req.get("delivered_pdf_path") or req.get("deliverable_pdf_path")
     if not pdf_path_str or not Path(pdf_path_str).exists():
@@ -1947,14 +2165,15 @@ def download_research_order_bundle(
 ):
     """Download complete deliverable bundle ZIP. Strictly restricted to request owner or admin.
     Client can only download after deliverable approval for institutional orders.
-    Always serves the immutable delivered bundle file when available.
+    During reruns, previously approved deliverable bundle remains downloadable by client.
     """
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
         is_admin = user.get("role") == "admin"
         if not is_admin:
-            if req.get("product_type") == "INSTITUTIONAL_RESEARCH" and req.get("status") != "DELIVERED":
-                _fail(403, "Gói nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
+            if req.get("product_type") == "INSTITUTIONAL_RESEARCH":
+                if req.get("status") not in ("DELIVERED", "COMPLETED") and not (req.get("delivered_bundle_path") or req.get("deliverable_bundle_path")):
+                    _fail(403, "Gói nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
 
     bundle_path_str = req.get("delivered_bundle_path") or req.get("deliverable_bundle_path")
     if not bundle_path_str or not Path(bundle_path_str).exists():
