@@ -103,7 +103,7 @@ export interface LibraryEntitlementItem {
 
 export interface QuantReportCatalogAndLibraryProps {
   mode: 'public' | 'portal';
-  initialSection?: 'catalog' | 'library';
+  initialSection?: 'requests' | 'catalog' | 'library';
   showSectionSwitch?: boolean;
   onRequireAuth?: () => void;
   onUnlockedLibrary?: () => void;
@@ -117,7 +117,9 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
   onUnlockedLibrary,
 }) => {
   const { lang } = useLanguage();
-  const [activeView, setActiveView] = useState<'catalog' | 'library'>(initialSection);
+  const [activeView, setActiveView] = useState<'requests' | 'catalog' | 'library'>(
+    initialSection === 'requests' ? 'requests' : initialSection === 'library' ? 'library' : 'catalog'
+  );
   const [reports, setReports] = useState<ResearchReportItem[]>([]);
   const [libraryItems, setLibraryItems] = useState<LibraryEntitlementItem[]>([]);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
@@ -153,6 +155,25 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
   useEffect(() => {
     setActiveView(initialSection);
   }, [initialSection]);
+
+  // Handle URL parameters for direct deep-linking into tabs and action modals
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam === 'requests' || tabParam === 'library' || tabParam === 'catalog') {
+        setActiveView(tabParam);
+      }
+      const actionParam = params.get('action');
+      if (actionParam === 'retail') {
+        setRequestTab('retail');
+        setShowRequestModal(true);
+      } else if (actionParam === 'institutional') {
+        setRequestTab('institutional');
+        setShowRequestModal(true);
+      }
+    }
+  }, []);
 
   // Keyboard navigation: Escape key closes active modals
   useEffect(() => {
@@ -506,13 +527,23 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
         <div className="quant-panel p-5 flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="font-mono text-[11px] font-semibold uppercase tracking-wider text-[#12B5A6]">
-              {lang === 'en' ? 'XAU/USD PUBLICATIONS' : 'ẤN PHẨM NGHIÊN CỨU XAU/USD'}
+              {mode === 'portal'
+                ? lang === 'en'
+                  ? 'CUSTOMER QUANT LAB & RESEARCH'
+                  : 'TRUNG TÂM NGHIÊN CỨU & YÊU CẦU ĐỊNH LƯỢNG'
+                : lang === 'en'
+                ? 'XAU/USD PUBLICATIONS'
+                : 'ẤN PHẨM NGHIÊN CỨU XAU/USD'}
             </div>
             <h2 className="mt-1 text-lg sm:text-xl font-bold text-white">
-              {activeView === 'library'
+              {activeView === 'requests'
                 ? lang === 'en'
-                  ? 'My Quantitative PDF Library'
-                  : 'Thư Viện Báo Cáo PDF Của Tôi'
+                  ? 'My Research & Analysis Requests'
+                  : 'Yêu Cầu Phân Tích & Nghiên Cứu Của Tôi'
+                : activeView === 'library'
+                ? lang === 'en'
+                  ? 'My Purchased PDF Library'
+                  : 'Thư Viện Ấn Phẩm PDF Đã Mua'
                 : lang === 'en'
                 ? 'Research Publications Catalog'
                 : 'Danh Mục Ấn Phẩm Nghiên Cứu'}
@@ -520,35 +551,70 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveView('catalog')}
-              className={activeView === 'catalog' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
-            >
-              <BookOpen className="h-4 w-4" />
-              <span>
-                {lang === 'en' ? 'Catalog' : 'Danh mục'} ({reports.length})
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveView('library')}
-              className={activeView === 'library' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
-            >
-              <Layers className="h-4 w-4" />
-              <span>
-                {lang === 'en' ? 'Library' : 'Thư viện'} ({libraryItems.length + customRequests.length})
-              </span>
-            </button>
-            {mode === 'portal' && (
-              <button
-                type="button"
-                onClick={() => setShowRequestModal(true)}
-                className="quant-btn-secondary text-xs flex items-center gap-1.5 border-teal-500/40 text-teal-300 hover:bg-teal-950/30"
-              >
-                <Plus className="h-4 w-4" />
-                <span>{lang === 'en' ? 'Request Research' : 'Yêu Cầu Nghiên Cứu'}</span>
-              </button>
+            {mode === 'portal' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('requests')}
+                  className={activeView === 'requests' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  <span>
+                    {lang === 'en' ? 'My Requests' : 'Yêu Cầu Của Tôi'} ({customRequests.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('library')}
+                  className={activeView === 'library' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
+                >
+                  <Layers className="h-4 w-4" />
+                  <span>
+                    {lang === 'en' ? 'Purchased Library' : 'Ấn Phẩm Đã Mua'} ({libraryItems.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('catalog')}
+                  className={activeView === 'catalog' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
+                >
+                  <BookOpen className="h-4 w-4" />
+                  <span>
+                    {lang === 'en' ? 'Catalog' : 'Danh Mục'} ({reports.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRequestModal(true)}
+                  className="quant-btn-primary text-xs flex items-center gap-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-slate-950 font-semibold shadow-md shadow-teal-500/20"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>{lang === 'en' ? '+ New Request' : '+ Tạo Yêu Cầu'}</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('catalog')}
+                  className={activeView === 'catalog' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
+                >
+                  <BookOpen className="h-4 w-4" />
+                  <span>
+                    {lang === 'en' ? 'Catalog' : 'Danh mục'} ({reports.length})
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('library')}
+                  className={activeView === 'library' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
+                >
+                  <Layers className="h-4 w-4" />
+                  <span>
+                    {lang === 'en' ? 'Library' : 'Thư viện'} ({libraryItems.length + customRequests.length})
+                  </span>
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -630,10 +696,163 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
         </div>
       )}
 
-      {/* VIEW 1: MY LIBRARY (PORTAL) */}
-      {mode === 'portal' && activeView === 'library' ? (
+      {/* VIEW 1: MY RESEARCH REQUESTS (PORTAL) */}
+      {mode === 'portal' && activeView === 'requests' && (
         <div className="space-y-4">
-          {libraryLoading && libraryItems.length === 0 && customRequests.length === 0 ? (
+          {libraryLoading && customRequests.length === 0 ? (
+            <div className="quant-panel p-10 text-center text-sm text-slate-400">
+              {lang === 'en' ? 'Loading your research requests...' : 'Đang tải danh sách yêu cầu nghiên cứu...'}
+            </div>
+          ) : customRequests.length === 0 ? (
+            <EmptyState
+              icon={<ShieldCheck className="h-6 w-6 text-teal-400" />}
+              title={lang === 'en' ? 'No Research Requests Yet' : 'Chưa có yêu cầu nghiên cứu nào'}
+              description={
+                lang === 'en'
+                  ? 'Request on-demand technical analysis (Retail) or submit bespoke quantitative research hypotheses for institutional decision-making.'
+                  : 'Gửi yêu cầu phân tích kỹ thuật chuẩn hóa cho cá nhân (XAUUSD, EURUSD, USDJPY) hoặc gửi bài toán nghiên cứu vĩ mô riêng cho tổ chức.'
+              }
+              action={
+                <button
+                  type="button"
+                  onClick={() => setShowRequestModal(true)}
+                  className="quant-btn-primary text-xs flex items-center gap-1.5"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>{lang === 'en' ? '+ Create First Request' : '+ Tạo Yêu Cầu Đầu Tiên'}</span>
+                </button>
+              }
+            />
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-teal-400" />
+                  <span>
+                    {lang === 'en'
+                      ? 'Private Custom Research & Analysis Orders'
+                      : 'Hồ Sơ Yêu Cầu Phân Tích & Nghiên Cứu Định Lượng'}
+                  </span>
+                </h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-slate-400">({customRequests.length} hồ sơ)</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowRequestModal(true)}
+                    className="quant-btn-primary text-xs py-1 px-2.5 flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{lang === 'en' ? 'New Request' : 'Tạo mới'}</span>
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {customRequests.map((cr: any) => (
+                  <div key={cr.id} className="quant-card-interactive p-5 flex flex-col justify-between gap-3 border-teal-500/30">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[11px] text-teal-400 font-semibold">{cr.id}</span>
+                        <div className="flex items-center gap-1.5">
+                          {cr.current_step && (
+                            <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                              {cr.current_step}
+                            </span>
+                          )}
+                          <StatusBadge tone={cr.status === 'DELIVERED' || cr.status === 'COMPLETED' ? 'success' : cr.status === 'QUOTED' ? 'info' : 'warning'}>
+                            {cr.status}
+                          </StatusBadge>
+                        </div>
+                      </div>
+                      <h4 className="text-sm font-bold text-white leading-snug">
+                        {cr.problem_description || cr.hypothesis_prompt || `${cr.symbol} · ${cr.timeframe} Technical Analysis`}
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        {cr.product_type} · {cr.symbol} {cr.timeframe} · {new Date(cr.created_at * 1000).toLocaleDateString('vi-VN')}
+                      </p>
+
+                      {cr.next_action_vi && (
+                        <div className="text-[11px] text-teal-300/90 bg-teal-950/30 px-2.5 py-1.5 rounded border border-teal-800/40 flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 shrink-0" />
+                          <span>Bước tiếp theo: {cr.next_action_vi}</span>
+                        </div>
+                      )}
+
+                      {/* Quoted Box & Confirm Action */}
+                      {cr.status === 'QUOTED' && (
+                        <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-800/40 space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-slate-400">Báo giá đề xuất (v{cr.proposal_version || 1}):</span>
+                            <span className="font-bold text-cyan-300 font-mono text-sm">
+                              ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={confirmingQuoteId === cr.id}
+                            onClick={() => handleConfirmQuote(cr.id, cr.proposal_version)}
+                            className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5"
+                          >
+                            {confirmingQuoteId === cr.id ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>Đang xác nhận...</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Xác Nhận Đề Xuất &amp; Báo Giá Này</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setActiveChatOrder(cr)}
+                        className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Mở Trao Đổi &amp; Tệp</span>
+                      </button>
+
+                      {(cr.deliverable_pdf_path || cr.download_pdf_url) && (
+                        <a
+                          href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-pdf`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="quant-btn-primary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Tải PDF</span>
+                        </a>
+                      )}
+                      {(cr.deliverable_bundle_path || cr.download_bundle_url) && (
+                        <a
+                          href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-bundle`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Tải Bundle ZIP</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* VIEW 2: MY PURCHASED LIBRARY (PORTAL) */}
+      {mode === 'portal' && activeView === 'library' && (
+        <div className="space-y-4">
+          {libraryLoading && libraryItems.length === 0 ? (
             <div className="quant-panel p-10 text-center text-sm text-slate-400">
               {lang === 'en' ? 'Loading your PDF report library...' : 'Đang tải dữ liệu thư viện báo cáo PDF...'}
             </div>
@@ -649,7 +868,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                 {lang === 'en' ? 'Retry' : 'Thử lại'}
               </button>
             </div>
-          ) : libraryItems.length === 0 && customRequests.length === 0 ? (
+          ) : libraryItems.length === 0 ? (
             <EmptyState
               icon={<FileText className="h-5 w-5" />}
               title={lang === 'en' ? 'Your PDF Library is Empty' : 'Chưa có báo cáo nào trong Thư viện của bạn'}
@@ -670,121 +889,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
               }
             />
           ) : (
-            <div className="space-y-6">
-              {/* CUSTOM RESEARCH DELIVERABLES */}
-              {customRequests.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-teal-400" />
-                      <span>{lang === 'en' ? 'Private Custom Research Deliverables' : 'Bản Nghiên Cứu Định Lượng Riêng Theo Yêu Cầu'}</span>
-                    </h3>
-                    <span className="text-xs font-mono text-slate-400">({customRequests.length} hồ sơ)</span>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {customRequests.map((cr: any) => (
-                      <div key={cr.id} className="quant-card-interactive p-5 flex flex-col justify-between gap-3 border-teal-500/30">
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono text-[11px] text-teal-400 font-semibold">{cr.id}</span>
-                            <div className="flex items-center gap-1.5">
-                              {cr.current_step && (
-                                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                                  {cr.current_step}
-                                </span>
-                              )}
-                              <StatusBadge tone={cr.status === 'DELIVERED' || cr.status === 'COMPLETED' ? 'success' : cr.status === 'QUOTED' ? 'info' : 'warning'}>
-                                {cr.status}
-                              </StatusBadge>
-                            </div>
-                          </div>
-                          <h4 className="text-sm font-bold text-white leading-snug">
-                            {cr.problem_description || cr.hypothesis_prompt || `${cr.symbol} · ${cr.timeframe} Technical Analysis`}
-                          </h4>
-                          <p className="text-xs text-slate-400">
-                            {cr.product_type} · {cr.symbol} {cr.timeframe} · {new Date(cr.created_at * 1000).toLocaleDateString('vi-VN')}
-                          </p>
-
-                          {cr.next_action_vi && (
-                            <div className="text-[11px] text-teal-300/90 bg-teal-950/30 px-2.5 py-1.5 rounded border border-teal-800/40 flex items-center gap-1.5">
-                              <Clock className="w-3.5 h-3.5 shrink-0" />
-                              <span>Bước tiếp theo: {cr.next_action_vi}</span>
-                            </div>
-                          )}
-
-                          {/* Quoted Box & Confirm Action */}
-                          {cr.status === 'QUOTED' && (
-                            <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-800/40 space-y-2">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-slate-400">Báo giá đề xuất (v{cr.proposal_version || 1}):</span>
-                                <span className="font-bold text-cyan-300 font-mono text-sm">
-                                  ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                disabled={confirmingQuoteId === cr.id}
-                                onClick={() => handleConfirmQuote(cr.id, cr.proposal_version)}
-                                className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5"
-                              >
-                                {confirmingQuoteId === cr.id ? (
-                                  <>
-                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                    <span>Đang xác nhận...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Xác Nhận Đề Xuất &amp; Báo Giá Này</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
-                          <button
-                            type="button"
-                            onClick={() => setActiveChatOrder(cr)}
-                            className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
-                            <span>Mở Trao Đổi &amp; Tệp</span>
-                          </button>
-
-                          {(cr.deliverable_pdf_path || cr.download_pdf_url) && (
-                            <a
-                              href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-pdf`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="quant-btn-primary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                              <span>Tải PDF</span>
-                            </a>
-                          )}
-                          {(cr.deliverable_bundle_path || cr.download_bundle_url) && (
-                            <a
-                              href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-bundle`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                              <span>Tải Bundle ZIP</span>
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* STANDARD COMMERCIAL PUBLICATIONS */}
-              {libraryItems.length > 0 && (
-                <div className="grid gap-5 md:grid-cols-2">
+            <div className="grid gap-5 md:grid-cols-2">
               {libraryItems.map((item) => {
                 const isDownloading = downloadingId === `${item.report_id}:${item.purchased_version}`;
                 const isDownloadingBundle = downloadingBundleId === `${item.report_id}:${item.purchased_version}`;
@@ -981,13 +1086,13 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                   </div>
                 );
               })}
-                </div>
-              )}
             </div>
           )}
         </div>
-      ) : (
-        /* VIEW 2: RESEARCH REPORT CATALOG */
+      )}
+
+      {/* VIEW 3: RESEARCH REPORT CATALOG */}
+      {(activeView === 'catalog' || mode === 'public') && (
         <div className="grid gap-6">
           {catalogLoading && reports.length === 0 ? (
             <div className="quant-panel p-10 text-center text-sm text-slate-400">

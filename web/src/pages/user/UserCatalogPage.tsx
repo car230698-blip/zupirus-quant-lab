@@ -14,17 +14,17 @@ export const UserCatalogPage: React.FC<UserCatalogPageProps> = ({ onNavigate }) 
       <div className="quant-heading">
         <div className="space-y-1">
           <div className="font-mono text-xs uppercase tracking-wider text-[#12B5A6]">
-            {lang === 'en' ? 'CUSTOMER PORTAL · PUBLICATIONS' : 'CỔNG KHÁCH HÀNG · DANH MỤC'}
+            {lang === 'en' ? 'CUSTOMER PORTAL · ON-DEMAND QUANT LAB' : 'CỔNG KHÁCH HÀNG · NGHIÊN CỨU THEO YÊU CẦU'}
           </div>
           <h1>
             {lang === 'en'
-              ? 'XAU/USD Quantitative Research Catalog'
-              : 'Danh Mục Ấn Phẩm Nghiên Cứu Định Lượng'}
+              ? 'On-Demand Research & Analysis Lab'
+              : 'Trung Tâm Phân Tích & Nghiên Cứu Định Lượng'}
           </h1>
           <p className="text-sm text-slate-400 m-0">
             {lang === 'en'
-              ? 'Review out-of-sample statistics, read free sample PDFs, and purchase individual reports via USDT.'
-              : 'Đối chiếu số liệu Walk-Forward, đọc bản mẫu miễn phí và mở khóa báo cáo PDF đầy đủ bằng USDT.'}
+              ? 'Request on-demand technical analysis, order bespoke institutional studies, and access your research deliverables.'
+              : 'Tạo bản phân tích kỹ thuật chuẩn hóa, đặt bài toán nghiên cứu vĩ mô riêng cho tổ chức và quản lý các kết quả bàn giao.'}
           </p>
         </div>
         <button
@@ -38,7 +38,7 @@ export const UserCatalogPage: React.FC<UserCatalogPageProps> = ({ onNavigate }) 
 
       <QuantReportCatalogAndLibrary
         mode="portal"
-        initialSection="catalog"
+        initialSection="requests"
         onUnlockedLibrary={() => onNavigate('/portal/library')}
       />
     </div>

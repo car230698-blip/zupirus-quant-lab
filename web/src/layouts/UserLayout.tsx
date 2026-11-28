@@ -6,9 +6,9 @@ import { ChangePasswordModal } from '../components/common/ChangePasswordModal';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { UserPageKey } from '../hooks/useRoute';
 import {
-  BookOpen,
   Layers,
   ReceiptText,
+  ShieldCheck,
   ArrowLeft,
   Menu,
   X,
@@ -78,7 +78,7 @@ export const UserLayout: React.FC<UserLayoutProps> = ({
   };
 
   const navItems: Array<{ key: UserPageKey; to: string; label: string; icon: ReactNode }> = [
-    { key: 'catalog', to: '/portal', label: t.portal.catalog, icon: <BookOpen className="h-4 w-4" /> },
+    { key: 'catalog', to: '/portal', label: lang === 'en' ? 'My Requests' : 'Yêu Cầu Của Tôi', icon: <ShieldCheck className="h-4 w-4" /> },
     { key: 'library', to: '/portal/library', label: t.portal.library, icon: <Layers className="h-4 w-4" /> },
     { key: 'billing', to: '/portal/billing', label: t.portal.billing, icon: <ReceiptText className="h-4 w-4" /> },
   ];
