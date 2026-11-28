@@ -162,13 +162,13 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({
   const actionableCount = researchRequests.filter(
     (r) =>
       Number(r.unread_messages_count || 0) > 0 ||
-      ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
+      ['PENDING_QUOTE', 'NEEDS_CLARIFICATION', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
         r.status
       )
   ).length;
   const pendingReplyCount = researchRequests.filter((r) => Number(r.unread_messages_count || 0) > 0).length;
   const pendingQuoteCount = researchRequests.filter((r) => r.status === 'PENDING_QUOTE').length;
-  const needsDataCount = researchRequests.filter((r) => r.status === 'NEEDS_DATA' || r.status === 'NEEDS_ATTENTION').length;
+  const needsDataCount = researchRequests.filter((r) => r.status === 'NEEDS_DATA' || r.status === 'NEEDS_ATTENTION' || r.status === 'NEEDS_CLARIFICATION').length;
   const readyReviewCount = researchRequests.filter((r) => r.status === 'READY_FOR_REVIEW').length;
   const errorCount = researchRequests.filter((r) => ['FAILED', 'TIMED_OUT', 'ERROR'].includes(r.status)).length;
 
@@ -338,7 +338,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({
       // Must be actionable
       const isActionable =
         Number(req.unread_messages_count || 0) > 0 ||
-        ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
+        ['PENDING_QUOTE', 'NEEDS_CLARIFICATION', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
           req.status
         );
       if (!isActionable) return false;
@@ -350,7 +350,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({
         return req.status === 'PENDING_QUOTE';
       }
       if (actionableGroup === 'NEEDS_DATA') {
-        return req.status === 'NEEDS_DATA' || req.status === 'NEEDS_ATTENTION';
+        return req.status === 'NEEDS_DATA' || req.status === 'NEEDS_ATTENTION' || req.status === 'NEEDS_CLARIFICATION';
       }
       if (actionableGroup === 'READY_FOR_REVIEW') {
         return req.status === 'READY_FOR_REVIEW';

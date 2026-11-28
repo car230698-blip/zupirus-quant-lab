@@ -128,7 +128,7 @@ def test_retail_api_endpoint_execution():
 # --- 2. Institutional Macro Event-Study & Deterministic Packaging ---
 
 def test_institutional_macro_event_study_engine():
-    """Test US CPI event study across XAUUSD, EURUSD, USDJPY with multi-window 1/5/20 evaluation."""
+    """Test US CPI event study: EURUSD sourced from real candles; XAUUSD & USDJPY return INSUFFICIENT_DATA."""
     study = run_institutional_macro_event_study(
         hypothesis_prompt="Đánh giá tác động của công bố chỉ số US CPI bất ngờ tăng mạnh đối với XAUUSD, EURUSD và USDJPY",
         symbols=["XAUUSD", "EURUSD", "USDJPY"],
@@ -139,14 +139,37 @@ def test_institutional_macro_event_study_engine():
     assert len(study.assets) == 3
     assert len(study.ledger_records) > 0
 
+    # 1. Verify XAUUSD and USDJPY return INSUFFICIENT_DATA without fake prices or trades
     gold_impact = next(a for a in study.assets if a.symbol == "XAUUSD")
-    assert "1_SESSION" in gold_impact.windows
-    assert "5_SESSIONS" in gold_impact.windows
-    assert "20_SESSIONS" in gold_impact.windows
-    assert gold_impact.windows["20_SESSIONS"].evidence_strength == "WEAK_EVIDENCE"
-    assert len(gold_impact.failure_cases) > 0
+    assert gold_impact.status == "INSUFFICIENT_DATA"
+    assert gold_impact.valid_sample_count == 0
+    assert gold_impact.excluded_sample_count == 15
+    assert gold_impact.windows["1_SESSION"].evidence_strength == "INSUFFICIENT_DATA"
+    assert gold_impact.windows["20_SESSIONS"].evidence_strength == "INSUFFICIENT_DATA"
+    assert gold_impact.windows["1_SESSION"].win_rate_pct is None
 
-    # Test PDF generation
+    jpy_impact = next(a for a in study.assets if a.symbol == "USDJPY")
+    assert jpy_impact.status == "INSUFFICIENT_DATA"
+    assert jpy_impact.valid_sample_count == 0
+    assert jpy_impact.excluded_sample_count == 15
+
+    # 2. Verify EURUSD has valid empirical candles (14 valid CPI events, 1 excluded outside candle range)
+    eur_impact = next(a for a in study.assets if a.symbol == "EURUSD")
+    assert eur_impact.status == "VALID"
+    assert eur_impact.valid_sample_count == 14
+    assert eur_impact.excluded_sample_count == 1
+    assert eur_impact.windows["1_SESSION"].win_rate_pct is not None
+    assert eur_impact.windows["1_SESSION"].net_expectancy_r is not None
+    assert eur_impact.windows["1_SESSION"].evidence_strength in ("STRONG", "MODERATE", "WEAK_EVIDENCE")
+
+    # 3. Verify ledger is purely sourced: ONLY symbols with valid candles exist in trades ledger
+    symbols_in_ledger = set(r["symbol"] for r in study.ledger_records)
+    assert "EURUSD" in symbols_in_ledger
+    assert "XAUUSD" not in symbols_in_ledger, "XAUUSD must not have synthetic trades in ledger when missing historical candles"
+    assert "USDJPY" not in symbols_in_ledger, "USDJPY must not have synthetic trades in ledger when missing historical candles"
+    assert all(r["entry_price"] > 0.0 and r["exit_price"] > 0.0 for r in study.ledger_records)
+
+    # 4. Verify PDF generation produces non-empty valid PDF with Page 1 Actionable Plan
     pdf_bytes = generate_institutional_pdf(study)
     assert len(pdf_bytes) > 20000
     assert pdf_bytes.startswith(b"%PDF-")
@@ -177,6 +200,45 @@ def test_institutional_bundle_deterministic_reproducibility():
         assert "replay.py" in names
         assert "QUICKSTART.md" in names
         assert "MANIFEST.sha256" in names
+
+
+def test_institutional_replay_cli_execution_and_mismatch_exit_code():
+    """Execute replay CLI on unpacked bundle: asserts exit code 0 on valid, exit code 1 on mismatch."""
+    import sys
+    import subprocess
+    import tempfile
+    import shutil
+
+    study = run_institutional_macro_event_study(
+        hypothesis_prompt="Verification of Replay CLI Exit Code and Metrics",
+        symbols=["XAUUSD", "EURUSD", "USDJPY"],
+        client_name="Audit Bureau",
+        quoted_price_usd=10000.0,
+    )
+    zip_path, _, _ = build_institutional_deliverable_bundle(study)
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_p = Path(temp_dir)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(temp_p)
+
+        # 1. Run replay.py in clean unpacked bundle -> Must exit with code 0
+        res = subprocess.run([sys.executable, "replay.py"], cwd=str(temp_p), capture_output=True, text=True)
+        assert res.returncode == 0, f"replay.py failed: {res.stdout}\n{res.stderr}"
+        assert "ALL VERIFICATIONS PASSED" in res.stdout
+        assert "INSUFFICIENT_DATA confirmed with 0 simulated trades" in res.stdout
+
+        # 2. Tamper with metrics.json -> Must exit with code 1
+        metrics_p = temp_p / "metrics.json"
+        metrics_data = json.loads(metrics_p.read_text(encoding="utf-8"))
+        # Artificially alter EURUSD win_rate_pct
+        for a in metrics_data["assets"]:
+            if a["symbol"] == "EURUSD":
+                a["windows"]["1_SESSION"]["win_rate_pct"] = 99.9
+        metrics_p.write_text(json.dumps(metrics_data), encoding="utf-8")
+
+        res_tampered = subprocess.run([sys.executable, "replay.py"], cwd=str(temp_p), capture_output=True, text=True)
+        assert res_tampered.returncode == 1, "replay.py must exit with code 1 on tampered metrics or manifest"
 
 
 # --- 3. Full Institutional Lifecycle & Tenant Isolation (403 Forbidden) ---
@@ -607,7 +669,19 @@ def test_locked_checkout_and_worker_and_admin_exceptions_and_runs():
     # 2. Admin quotes price
     client_admin.post(f"/api/v1/admin/research/requests/{req_id}/quote", json={"quoted_price_usd": 8500.0})
 
-    # 3. Checkout Lock
+    # 3a. Checkout Lock rejected if client has not yet accepted official proposal
+    unconf_lock = client_inst.post(
+        f"/api/v1/research/orders/{req_id}/checkout-lock",
+        json={"payment_network": "BEP20"},
+    )
+    assert unconf_lock.status_code == 400
+    assert "chấp nhận đề xuất" in unconf_lock.json()["detail"]
+
+    # 3b. Client confirms official proposal version
+    conf_res = client_inst.post(f"/api/v1/research/institutional/{req_id}/confirm")
+    assert conf_res.status_code == 200
+
+    # 3c. Checkout Lock succeeds after client confirmation
     lock_res = client_inst.post(
         f"/api/v1/research/orders/{req_id}/checkout-lock",
         json={"payment_network": "BEP20"},

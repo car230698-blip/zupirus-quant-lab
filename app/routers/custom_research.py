@@ -624,8 +624,8 @@ def checkout_lock_research_request(
 
         client_conf_ver = req.get("client_confirmed_version")
         current_ver = int(req.get("proposal_version") or 1)
-        if client_conf_ver and int(client_conf_ver) != current_ver:
-            _fail(400, f"Vui lòng chấp nhận đề xuất nghiên cứu phiên bản mới nhất (v{current_ver}) trước khi tạo lệnh thanh toán.")
+        if not client_conf_ver or int(client_conf_ver) != current_ver:
+            _fail(400, f"Vui lòng chấp nhận đề xuất nghiên cứu chính thức phiên bản v{current_ver} trước khi tạo lệnh thanh toán.")
 
         cfg = get_crypto_wallets_config(c)
         if net == "BEP20":
@@ -671,14 +671,13 @@ def checkout_lock_research_request(
             """
             UPDATE custom_research_requests
             SET checkout_id = ?, checkout_locked = 1, checkout_locked_at = ?, payment_network = ?, currency = 'USDT',
-                client_confirmed_version = ?,
                 checkout_proposal_version = ?, checkout_amount = ?, checkout_deposit_address = ?,
                 checkout_expires_at = ?,
                 status = 'WAITING_PAYMENT', current_step = 'PAYMENT_PENDING', action_category = 'WAITING_CLIENT',
                 waiting_reason_vi = 'Đang chờ khách hàng thanh toán USDT', updated_at = ?
             WHERE id = ?
             """,
-            (chk_id, now_ts, net, current_ver, current_ver, price, wallet_addr, expires_at, now_ts, request_id),
+            (chk_id, now_ts, net, current_ver, price, wallet_addr, expires_at, now_ts, request_id),
         )
 
         _log_audit_action(

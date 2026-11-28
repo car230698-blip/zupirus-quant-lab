@@ -120,9 +120,8 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
     };
   }, [loadMessages, onOrderUpdated, requestId]);
 
-  // Handle ESC key to close modal (only in standalone dialog mode)
+  // Handle ESC key to close modal
   useEffect(() => {
-    if (embedded) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
@@ -130,7 +129,7 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [embedded, onClose]);
+  }, [onClose]);
 
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -219,20 +218,30 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
         {!embedded ? (
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
             title="Đóng (Esc)"
             aria-label="Đóng cửa sổ trao đổi"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            data-testid="close-chat-modal"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer shrink-0 z-10"
           >
             <X className="w-5 h-5" />
           </button>
         ) : (
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
             title="Về Tổng quan hồ sơ"
             aria-label="Về Tổng quan hồ sơ"
-            className="text-xs px-2.5 py-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer flex items-center gap-1 border border-slate-800"
+            data-testid="close-chat-embedded"
+            className="text-xs px-2.5 py-1 rounded-md text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer flex items-center gap-1 border border-slate-800 shrink-0 z-10"
           >
             <span>Về Đề Xuất & Báo Giá →</span>
           </button>
@@ -401,7 +410,12 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
       aria-modal="true"
       aria-label="Trao Đổi Nghiên Cứu & Hồ Sơ"
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+          onClose();
+        }
+      }}
     >
       {chatContent}
     </div>

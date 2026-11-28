@@ -375,14 +375,19 @@ class CombinedStaticFiles(StaticFiles):
 app.mount('/assets', CombinedStaticFiles(DIST_DIR / 'assets', WEB_DIR), name='assets')
 
 
-def _render_localized_index_html(index_file: Path, lang: str) -> str:
+def _render_localized_index_html(index_file: Path, lang: str, is_en_path: bool = False) -> str:
     html_text = index_file.read_text(encoding="utf-8")
-    if lang == "en":
-        html_text = html_text.replace('<html lang="vi"', '<html lang="en"')
+    if is_en_path:
         html_text = html_text.replace(
             '<link rel="canonical" href="https://zupirus.com/" />',
             '<link rel="canonical" href="https://zupirus.com/en" />',
         )
+        html_text = html_text.replace(
+            'property="og:url" content="https://zupirus.com/"',
+            'property="og:url" content="https://zupirus.com/en"',
+        )
+    if lang == "en":
+        html_text = html_text.replace('<html lang="vi"', '<html lang="en"')
         html_text = html_text.replace(
             '<title>ZUPIRUS Quant Lab — Nền Tảng Nghiên Cứu Định Lượng &amp; Báo Cáo Phân Tích Kỹ Thuật</title>',
             '<title>ZUPIRUS Quant Lab — Quantitative Research Platform &amp; Technical Analysis Reports</title>',
@@ -402,10 +407,6 @@ def _render_localized_index_html(index_file: Path, lang: str) -> str:
         html_text = html_text.replace(
             'property="og:locale:alternate" content="en_US"',
             'property="og:locale:alternate" content="vi_VN"',
-        )
-        html_text = html_text.replace(
-            'property="og:url" content="https://zupirus.com/"',
-            'property="og:url" content="https://zupirus.com/en"',
         )
         html_text = html_text.replace(
             'property="og:title" content="ZUPIRUS Quant Lab — Nền Tảng Nghiên Cứu Định Lượng &amp; Báo Cáo Phân Tích Kỹ Thuật"',
@@ -430,7 +431,7 @@ def _render_localized_index_html(index_file: Path, lang: str) -> str:
     return html_text
 
 
-def _serve_spa_dir(base_dir: Path, full_path: str, lang: str = "vi"):
+def _serve_spa_dir(base_dir: Path, full_path: str, lang: str = "vi", is_en_path: bool = False):
     if not base_dir.exists():
         return None
     root = base_dir.resolve()
@@ -438,7 +439,7 @@ def _serve_spa_dir(base_dir: Path, full_path: str, lang: str = "vi"):
     direct_file = (root / clean_path).resolve()
     if clean_path and direct_file.is_relative_to(root) and direct_file.is_file():
         if direct_file.name == 'index.html':
-            rendered = _render_localized_index_html(direct_file, lang)
+            rendered = _render_localized_index_html(direct_file, lang, is_en_path)
             return HTMLResponse(content=rendered, status_code=200, headers=_NO_CACHE_HEADERS)
         return FileResponse(direct_file)
     for alt_pub in (ROOT / 'public', WEB_DIR / 'public'):
@@ -448,7 +449,7 @@ def _serve_spa_dir(base_dir: Path, full_path: str, lang: str = "vi"):
                 return FileResponse(cand)
     index_file = base_dir / 'index.html'
     if index_file.exists():
-        rendered = _render_localized_index_html(index_file, lang)
+        rendered = _render_localized_index_html(index_file, lang, is_en_path)
         return HTMLResponse(content=rendered, status_code=200, headers=_NO_CACHE_HEADERS)
     return None
 
@@ -479,7 +480,15 @@ async def spa_fallback(request: Request, full_path: str):
     # Determine language preference based on path, query param, or GeoIP / Accept-Language
     q_lang = (request.query_params.get("lang") or "").lower()
     clean_fp = full_path.strip("/").lower()
-    if clean_fp == "en" or clean_fp.startswith("en/"):
+    is_en_path = clean_fp == "en" or clean_fp.startswith("en/")
+
+    ua = (request.headers.get("user-agent") or "").lower()
+    is_crawler = any(bot in ua for bot in ("googlebot", "bingbot", "yandex", "baiduspider", "duckduckbot", "slurp", "twitterbot", "facebookexternalhit"))
+
+    if is_crawler:
+        # Search engine crawlers crawl dedicated language URLs with exact self-canonical and hreflang
+        target_lang = "en" if is_en_path else "vi"
+    elif is_en_path:
         target_lang = "en"
     elif q_lang in ("en", "vi"):
         target_lang = q_lang
@@ -500,7 +509,7 @@ async def spa_fallback(request: Request, full_path: str):
     cookie_domain = ".zupirus.com" if host_clean.endswith("zupirus.com") else None
 
     for directory in (DIST_DIR, WEB_DIR):
-        resp = _serve_spa_dir(directory, full_path, lang=target_lang)
+        resp = _serve_spa_dir(directory, full_path, lang=target_lang, is_en_path=is_en_path)
         if resp is not None:
             if is_admin_host:
                 resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
@@ -519,7 +528,7 @@ async def spa_fallback(request: Request, full_path: str):
             return resp
 
     if (ROOT / 'index.html').exists():
-        rendered = _render_localized_index_html(ROOT / 'index.html', target_lang)
+        rendered = _render_localized_index_html(ROOT / 'index.html', target_lang, is_en_path=is_en_path)
         resp = HTMLResponse(content=rendered, status_code=200, headers=_NO_CACHE_HEADERS)
         if is_admin_host:
             resp.headers['X-Robots-Tag'] = 'noindex, nofollow'

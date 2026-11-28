@@ -62,14 +62,16 @@ class WindowPerformance:
     window_name: str  # "1_SESSION", "5_SESSIONS", "20_SESSIONS"
     holding_sessions: int
     sample_size: int
-    win_rate_pct: float
-    avg_return_pct: float
-    net_expectancy_r: float
-    max_drawdown_pct: float
-    post_cost_profit_factor: float
-    correlation_with_surprise: float
-    statistical_significance_p: float
-    evidence_strength: str  # "STRONG", "MODERATE", "WEAK_EVIDENCE"
+    win_rate_pct: Optional[float]
+    avg_return_pct: Optional[float]
+    net_expectancy_r: Optional[float]
+    max_drawdown_pct: Optional[float]
+    post_cost_profit_factor: Optional[float]
+    correlation_with_surprise: Optional[float]
+    statistical_significance_p: Optional[float]
+    evidence_strength: str  # "STRONG", "MODERATE", "WEAK_EVIDENCE", "INSUFFICIENT_DATA"
+    valid_samples: int = 0
+    excluded_samples: int = 0
 
 
 @dataclass
@@ -80,6 +82,10 @@ class AssetEventImpact:
     transmission_channel: str
     windows: Dict[str, WindowPerformance]
     failure_cases: List[str]
+    status: str = "VALID"  # "VALID" or "INSUFFICIENT_DATA"
+    valid_sample_count: int = 0
+    excluded_sample_count: int = 0
+    reason_vi: Optional[str] = None
 
 
 @dataclass
@@ -96,6 +102,8 @@ class InstitutionalMacroStudy:
     transmission_mechanisms_vi: List[str]
     risk_uncertainty_vi: str
     ledger_records: List[Dict[str, Any]]
+    total_valid_samples: int = 0
+    total_excluded_samples: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -109,6 +117,8 @@ class InstitutionalMacroStudy:
             "executive_thesis_vi": self.executive_thesis_vi,
             "transmission_mechanisms_vi": self.transmission_mechanisms_vi,
             "risk_uncertainty_vi": self.risk_uncertainty_vi,
+            "total_valid_samples": self.total_valid_samples,
+            "total_excluded_samples": self.total_excluded_samples,
             "assets": [
                 {
                     "symbol": a.symbol,
@@ -116,6 +126,10 @@ class InstitutionalMacroStudy:
                     "directional_bias": a.directional_bias,
                     "transmission_channel": a.transmission_channel,
                     "failure_cases": a.failure_cases,
+                    "status": a.status,
+                    "valid_sample_count": a.valid_sample_count,
+                    "excluded_sample_count": a.excluded_sample_count,
+                    "reason_vi": a.reason_vi,
                     "windows": {k: vars(v) for k, v in a.windows.items()},
                 }
                 for a in self.assets
@@ -127,30 +141,46 @@ class InstitutionalMacroStudy:
 _CANDLE_CACHE: Dict[str, List[Dict[str, Any]]] = {}
 
 
-def _load_historical_candles(sym_code: str) -> List[Dict[str, Any]]:
-    """Load cached historical candle series for empirical measurement."""
-    if sym_code in _CANDLE_CACHE:
-        return _CANDLE_CACHE[sym_code]
+def _load_historical_candles(sym_code: str) -> Tuple[List[Dict[str, Any]], str]:
+    """Load cached historical candle series and return (candles, source_label).
+    Strictly distinguishes spot XAUUSD from COMEX futures GC=F.
+    """
+    sym_u = sym_code.strip().upper()
+    if sym_u in _CANDLE_CACHE:
+        return _CANDLE_CACHE[sym_u], "CACHE"
     data_dir = Path(__file__).resolve().parent.parent.parent.parent / "data"
     candles: List[Dict[str, Any]] = []
-    if "EUR" in sym_code:
+    source_label = "NONE"
+
+    if "EUR" in sym_u:
         p = data_dir / "eurusd_h1_yahoo.json"
         if p.exists():
             try:
                 candles = json.loads(p.read_text(encoding="utf-8"))
+                source_label = "Yahoo Finance H1 (2024-02 to 2026-11)"
             except Exception:
                 candles = []
-    elif "XAU" in sym_code or "GOLD" in sym_code or "GC" in sym_code:
+    elif sym_u in ("GC=F", "GC", "COMEX_GOLD"):
+        # COMEX Gold Futures contract (GC=F)
         p = data_dir / "xauusd_gcf_m15_historical.json"
-        if not p.exists():
-            p = data_dir / "candles_xauusd_m15.json"
         if p.exists():
             try:
                 candles = json.loads(p.read_text(encoding="utf-8"))
+                source_label = "COMEX Futures GC=F M15 (2026-09 to 2026-11)"
             except Exception:
                 candles = []
-    _CANDLE_CACHE[sym_code] = candles
-    return candles
+    elif "XAU" in sym_u or "GOLD" in sym_u:
+        # Spot Gold XAUUSD
+        p = data_dir / "candles_xauusd_m15.json"
+        if p.exists():
+            try:
+                candles = json.loads(p.read_text(encoding="utf-8"))
+                source_label = "Spot Gold XAUUSD M15 (2026-11)"
+            except Exception:
+                candles = []
+
+    _CANDLE_CACHE[sym_u] = candles
+    return candles, source_label
 
 
 def _measure_empirical_trade(
@@ -158,9 +188,15 @@ def _measure_empirical_trade(
     ev: Dict[str, Any],
     holding_sessions: int,
     bias: str,
-) -> Dict[str, Any]:
-    """Measure exact entry/exit prices from historical candles or calibrated market empirical volatility."""
-    candles = _load_historical_candles(sym_code)
+) -> Optional[Dict[str, Any]]:
+    """Measure exact entry/exit prices from historical candles.
+    Returns None if no valid closed candle exists covering the event or holding window.
+    NEVER synthesizes fake prices or mock data.
+    """
+    candles, _source = _load_historical_candles(sym_code)
+    if not candles:
+        return None
+
     ev_ts = float(ev["ts"])
     surprise = float(ev["surprise"])
     direction = "SHORT" if "BEARISH" in bias else "LONG"
@@ -169,35 +205,40 @@ def _measure_empirical_trade(
     # Volatility scale per 1R
     vol_scale_pct = 0.40 if "EUR" in sym_code else 0.85 if "XAU" in sym_code else 0.45
 
-    entry_price = 0.0
-    exit_price = 0.0
-    entry_time = ev["event_date"] + " 12:30:00"
-    exit_time = ev["event_date"] + f" +{holding_sessions}d"
+    # Find closest entry candle within 2 hours after event release
+    valid_entries = [
+        c for c in candles
+        if 0 <= (float(c.get("time") or 0) - ev_ts) <= 7200
+        or abs(float(c.get("time") or 0) - ev_ts) <= 3600
+    ]
+    if not valid_entries:
+        return None
 
-    if candles:
-        # Find closest candle to event timestamp
-        closest_entry = min(candles, key=lambda c: abs(float(c.get("time") or 0) - ev_ts))
-        time_diff = abs(float(closest_entry.get("time") or 0) - ev_ts)
-        if time_diff <= 86400 * 2:  # within 2 days
-            entry_price = round(float(closest_entry.get("open") or closest_entry.get("close") or 1.0), 4)
-            entry_time = str(closest_entry.get("datetime") or entry_time)
-            target_exit_ts = float(closest_entry.get("time") or ev_ts) + (holding_sessions * 86400)
-            closest_exit = min(candles, key=lambda c: abs(float(c.get("time") or 0) - target_exit_ts))
-            exit_price = round(float(closest_exit.get("close") or entry_price), 4)
-            exit_time = str(closest_exit.get("datetime") or exit_time)
+    closest_entry = min(valid_entries, key=lambda c: abs(float(c.get("time") or 0) - ev_ts))
+    entry_ts = float(closest_entry.get("time") or 0)
+    entry_price = round(float(closest_entry.get("open") or closest_entry.get("close") or 0.0), 4)
+    if entry_price <= 0.0:
+        return None
 
-    if entry_price <= 0.0 or exit_price <= 0.0:
-        # Fallback calibrated to market regime when candle range does not cover event date
-        base_price = 1.0820 if "EUR" in sym_code else 2350.0 if "XAU" in sym_code else 153.50
-        entry_price = base_price
-        decay = 1.0 if holding_sessions == 1 else 0.65 if holding_sessions == 5 else 0.20
-        delta_pct = (surprise * 4.2 * decay * vol_scale_pct)
-        if direction == "SHORT":
-            exit_price = round(entry_price * (1.0 + delta_pct / 100.0), 4)
-        else:
-            exit_price = round(entry_price * (1.0 + delta_pct / 100.0), 4)
+    entry_time = str(closest_entry.get("datetime") or ev["event_date"] + " 12:30:00")
 
-    # Calculate empirical percentage return
+    # Find exit candle matching the session holding window (1 session = 24h, 5 = 120h, 20 = 480h)
+    target_exit_ts = entry_ts + (holding_sessions * 86400)
+    valid_exits = [
+        c for c in candles
+        if abs(float(c.get("time") or 0) - target_exit_ts) <= 86400
+    ]
+    if not valid_exits:
+        return None
+
+    closest_exit = min(valid_exits, key=lambda c: abs(float(c.get("time") or 0) - target_exit_ts))
+    exit_price = round(float(closest_exit.get("close") or 0.0), 4)
+    if exit_price <= 0.0:
+        return None
+
+    exit_time = str(closest_exit.get("datetime") or ev["event_date"] + f" +{holding_sessions}d")
+
+    # Calculate empirical return from real prices
     raw_delta_pct = ((exit_price - entry_price) / entry_price) * 100.0
     trade_return_pct = -raw_delta_pct if direction == "SHORT" else raw_delta_pct
     raw_r = round(trade_return_pct / vol_scale_pct, 2)
@@ -223,21 +264,48 @@ def _compute_empirical_window(
     events: Sequence[Dict[str, Any]],
     bias: str,
 ) -> Tuple[WindowPerformance, List[Dict[str, Any]]]:
-    """Calculate empirical metrics from canonical historical event delta and price observations."""
+    """Calculate empirical metrics from verified historical event observations.
+    If valid observations are fewer than 5, returns INSUFFICIENT_DATA and zero ledger trades.
+    """
     window_name = f"{holding_sessions}_SESSION" if holding_sessions == 1 else f"{holding_sessions}_SESSIONS"
     trades_r: List[float] = []
     surprises: List[float] = []
     measured_trades: List[Dict[str, Any]] = []
+    excluded_samples = 0
 
     for ev in events:
         tr = _measure_empirical_trade(sym_code, ev, holding_sessions, bias)
-        surprises.append(tr["surprise"])
-        trades_r.append(tr["net_r"])
-        measured_trades.append(tr)
+        if tr is not None:
+            surprises.append(tr["surprise"])
+            trades_r.append(tr["net_r"])
+            measured_trades.append(tr)
+        else:
+            excluded_samples += 1
+
+    valid_samples = len(measured_trades)
+
+    # When insufficient candles cover the event horizon (< 5 valid events), mark INSUFFICIENT_DATA
+    if valid_samples < 5:
+        perf = WindowPerformance(
+            window_name=window_name,
+            holding_sessions=holding_sessions,
+            sample_size=len(events),
+            win_rate_pct=None,
+            avg_return_pct=None,
+            net_expectancy_r=None,
+            max_drawdown_pct=None,
+            post_cost_profit_factor=None,
+            correlation_with_surprise=None,
+            statistical_significance_p=None,
+            evidence_strength="INSUFFICIENT_DATA",
+            valid_samples=valid_samples,
+            excluded_samples=excluded_samples,
+        )
+        return perf, []
 
     wins = [r for r in trades_r if r > 0]
     total_trades = len(trades_r)
-    win_rate = round((len(wins) / total_trades) * 100, 1) if total_trades > 0 else 50.0
+    win_rate = round((len(wins) / total_trades) * 100, 1) if total_trades > 0 else 0.0
     avg_r = round(sum(trades_r) / total_trades, 2) if total_trades > 0 else 0.0
     net_exp = avg_r
     gross_win = sum(wins)
@@ -293,6 +361,8 @@ def _compute_empirical_window(
         correlation_with_surprise=corr,
         statistical_significance_p=p_val,
         evidence_strength=strength,
+        valid_samples=valid_samples,
+        excluded_samples=excluded_samples,
     )
     return perf, measured_trades
 
@@ -317,7 +387,17 @@ def run_institutional_macro_event_study(
     ledger_rows: List[Dict[str, Any]] = []
 
     for sym in valid_symbols:
-        if "XAU" in sym or "GOLD" in sym or "GC" in sym:
+        sym_u = sym.strip().upper()
+        if sym_u in ("GC=F", "GC", "COMEX_GOLD"):
+            sym_code = "GC=F"
+            sym_name = "Hợp đồng Vàng tương lai COMEX (GC=F)"
+            bias = "BEARISH_ON_HAWKISH_CPI"
+            channel = "Lạm phát tăng -> Lợi suất thực TPCP Mỹ (Real Yields) tăng -> Chi phí cơ hội nắm giữ vàng tương lai tăng -> Áp lực bán kỹ thuật."
+            failures = [
+                "Kỳ CPI tháng 04/2024: CPI tăng bất ngờ nhưng căng thẳng địa chính trị Trung Đông khiến dòng tiền phòng thủ đẩy Vàng tăng ngược xu hướng.",
+            ]
+            reason = "Tệp nến COMEX GC=F chỉ có dữ liệu tháng 09–11/2026, không bao phủ chuỗi sự kiện US CPI 2024-2025."
+        elif "XAU" in sym_u or "GOLD" in sym_u:
             sym_code = "XAUUSD"
             sym_name = "Vàng giao ngay Spot Gold (XAU/USD)"
             bias = "BEARISH_ON_HAWKISH_CPI"
@@ -326,7 +406,8 @@ def run_institutional_macro_event_study(
                 "Kỳ CPI tháng 04/2024: CPI tăng bất ngờ nhưng căng thẳng địa chính trị Trung Đông khiến dòng tiền phòng thủ đẩy Vàng tăng ngược xu hướng.",
                 "Kỳ CPI tháng 10/2024: Nhu cầu gom vàng của các NHTW châu Á hấp thụ hoàn toàn áp lực bán kỹ thuật sau tin.",
             ]
-        elif "EUR" in sym:
+            reason = "Tệp nến Spot Gold XAUUSD hiện tại chỉ có dữ liệu tháng 11/2026, không bao phủ 15 sự kiện US CPI 2024-2025."
+        elif "EUR" in sym_u:
             sym_code = "EURUSD"
             sym_name = "Euro / Đô la Mỹ (EUR/USD)"
             bias = "BEARISH_ON_HAWKISH_CPI"
@@ -334,7 +415,8 @@ def run_institutional_macro_event_study(
             failures = [
                 "Kỳ CPI tháng 06/2024: ECB đồng thời có phát biểu hawkish về lạm phát dịch vụ khu vực đồng Euro, triệt tiêu đà tăng của USD.",
             ]
-        elif "JPY" in sym:
+            reason = None
+        elif "JPY" in sym_u:
             sym_code = "USDJPY"
             sym_name = "Đô la Mỹ / Yên Nhật (USD/JPY)"
             bias = "BULLISH_ON_HAWKISH_CPI"
@@ -342,16 +424,20 @@ def run_institutional_macro_event_study(
             failures = [
                 "Kỳ CPI tháng 07/2024: Ngân hàng Trung ương Nhật Bản (BoJ) can thiệp tỷ giá trực tiếp, khiến USD/JPY sụt giảm hơn 300 pips bất chấp tin CPI.",
             ]
+            reason = "Hệ thống chưa nạp tệp nến lịch sử USDJPY cho giai đoạn 15 sự kiện US CPI 2024-2025."
         else:
-            sym_code = sym
-            sym_name = f"{sym} Custom Target"
+            sym_code = sym_u
+            sym_name = f"{sym_u} Custom Target"
             bias = "NEUTRAL"
             channel = "Tác động gián tiếp qua khẩu vị rủi ro toàn cầu và chỉ số DXY."
             failures = ["Thiếu độ sâu thanh khoản tại thời điểm ra tin."]
+            reason = f"Chưa có tệp nến lịch sử đóng cho mã {sym_u}."
 
         w1, trades1 = _compute_empirical_window(sym_code, 1, CPI_EVENT_BENCHMARKS, bias)
         w5, trades5 = _compute_empirical_window(sym_code, 5, CPI_EVENT_BENCHMARKS, bias)
         w20, trades20 = _compute_empirical_window(sym_code, 20, CPI_EVENT_BENCHMARKS, bias)
+
+        status = "INSUFFICIENT_DATA" if w1.evidence_strength == "INSUFFICIENT_DATA" else "VALID"
 
         asset_impact = AssetEventImpact(
             symbol=sym_code,
@@ -360,38 +446,61 @@ def run_institutional_macro_event_study(
             transmission_channel=channel,
             windows={"1_SESSION": w1, "5_SESSIONS": w5, "20_SESSIONS": w20},
             failure_cases=failures,
+            status=status,
+            valid_sample_count=w1.valid_samples,
+            excluded_sample_count=w1.excluded_samples,
+            reason_vi=reason,
         )
         assets.append(asset_impact)
 
-        # Generate simulation ledger entries for each historical event across all 3 windows (1, 5, 20 sessions)
-        for h_sess, t_list in [(1, trades1), (5, trades5), (20, trades20)]:
-            for ev, tr in zip(CPI_EVENT_BENCHMARKS, t_list):
-                ledger_rows.append({
-                    "trade_id": f"sim_{sym_code}_{ev['event_date']}_w{h_sess}",
-                    "symbol": sym_code,
-                    "event_name": "US_CPI",
-                    "event_date": ev["event_date"],
-                    "surprise_delta": tr["surprise"],
-                    "action": tr["action"],
-                    "hold_sessions": h_sess,
-                    "entry_price": tr["entry_price"],
-                    "exit_price": tr["exit_price"],
-                    "entry_time": tr["entry_time"],
-                    "exit_time": tr["exit_time"],
-                    "gross_pnl_r": tr["gross_r"],
-                    "cost_friction_r": tr["friction_cost_r"],
-                    "net_pnl_r": tr["net_r"],
-                    "outcome": tr["outcome"],
-                })
+        # Generate simulation ledger entries ONLY for valid empirical trades with sourced candle observations
+        if status == "VALID":
+            for h_sess, t_list in [(1, trades1), (5, trades5), (20, trades20)]:
+                for ev, tr in zip(CPI_EVENT_BENCHMARKS, t_list):
+                    ledger_rows.append({
+                        "trade_id": f"sim_{sym_code}_{ev['event_date']}_w{h_sess}",
+                        "symbol": sym_code,
+                        "event_name": "US_CPI",
+                        "event_date": ev["event_date"],
+                        "surprise_delta": tr["surprise"],
+                        "action": tr["action"],
+                        "hold_sessions": h_sess,
+                        "entry_price": tr["entry_price"],
+                        "exit_price": tr["exit_price"],
+                        "entry_time": tr["entry_time"],
+                        "exit_time": tr["exit_time"],
+                        "gross_pnl_r": tr["gross_r"],
+                        "cost_friction_r": tr["friction_cost_r"],
+                        "net_pnl_r": tr["net_r"],
+                        "outcome": tr["outcome"],
+                    })
 
-    executive_thesis = (
-        f"Nghiên cứu định lượng này thẩm định giả thuyết: '{hypothesis_prompt}'. "
-        f"Kết quả kiểm định trên {len(CPI_EVENT_BENCHMARKS)} kỳ công bố chỉ số US CPI cho thấy: "
-        f"Dữ liệu lạm phát cao hơn dự báo (Hawkish Surprise) tạo ra phản ứng định hướng mạnh nhất trong cửa sổ 1 Phiên (1 Session). "
-        f"USD/JPY thể hiện mối tương quan dương cao nhất (tỷ lệ thắng 75.0%, Expectancy 1.25R sau chi phí). "
-        f"EUR/USD và XAU/USD chịu áp lực giảm rõ rệt trong 24 giờ đầu tiên, nhưng từ phiên thứ 5 trở đi xuất hiện hiện tượng "
-        f"suy yếu quán tính (regime drift) khi thị trường chuyển dịch sang định giá tăng trưởng kinh tế và rủi ro địa chính trị."
-    )
+    total_valid = sum(a.valid_sample_count for a in assets)
+    total_excluded = sum(a.excluded_sample_count for a in assets)
+
+    valid_assets = [a for a in assets if a.status == "VALID"]
+    insufficient_assets = [a for a in assets if a.status == "INSUFFICIENT_DATA"]
+
+    thesis_parts = [
+        f"Nghiên cứu định lượng này thẩm định giả thuyết: '{hypothesis_prompt}'.",
+        f"Kiểm định đối chiếu trên {len(CPI_EVENT_BENCHMARKS)} kỳ công bố chỉ số US CPI chuẩn (thời kỳ 2024-2025).",
+    ]
+    if valid_assets:
+        for va in valid_assets:
+            w1 = va.windows.get("1_SESSION")
+            wr_str = f"{w1.win_rate_pct:.1f}%" if (w1 and w1.win_rate_pct is not None) else "N/A"
+            exp_str = f"{w1.net_expectancy_r:+.2f}R" if (w1 and w1.net_expectancy_r is not None) else "N/A"
+            thesis_parts.append(
+                f"Tài sản {va.symbol_display} có {va.valid_sample_count}/{len(CPI_EVENT_BENCHMARKS)} sự kiện có nến đóng đầy đủ (loại {va.excluded_sample_count} sự kiện ngoài biên): "
+                f"Cửa sổ 1 Phiên ghi nhận tỷ lệ thắng thực nghiệm {wr_str}, kỳ vọng toán học {exp_str} sau chi phí ({w1.evidence_strength if w1 else 'N/A'})."
+            )
+    if insufficient_assets:
+        ins_names = ", ".join(ia.symbol for ia in insufficient_assets)
+        thesis_parts.append(
+            f"Đối với {ins_names}: Không có đủ chuỗi nến lịch sử đóng trong giai đoạn sự kiện US CPI (2024-2025). "
+            f"ZUPIRUS Quant Lab tuân thủ chuẩn mực liêm chính học thuật, gắn nhãn INSUFFICIENT_DATA và không tạo dữ liệu giá giả hay giao dịch ảo."
+        )
+    executive_thesis = " ".join(thesis_parts)
 
     transmission_mechanisms = [
         "Kênh Lợi suất Thực (Real Rates): US CPI bất ngờ tăng buộc thị trường nâng kỳ vọng đỉnh lãi suất Fed, làm lợi suất thực kỳ hạn 2 năm và 10 năm của Mỹ bật tăng, trực tiếp gây áp lực bán lên tài sản không sinh lợi suất như Vàng.",
@@ -493,27 +602,52 @@ class _InstitutionalPDFWriter:
     def table(self, columns: Sequence[str], rows: Sequence[Sequence[Any]]) -> None:
         if not columns or not rows:
             return
-        row_h = 5.2 * mm
-        header_h = 6.0 * mm
-        needed = header_h + len(rows) * row_h + 6 * mm
-        self.ensure(needed)
 
         left = 14 * mm
         width = PAGE_W - 28 * mm
         col_w = width / len(columns)
 
+        # Precompute wrapped lines for header
+        h_font = _font(self.family, True)
+        h_lines_list = [_wrap(_text(c, self.family), h_font, 7.0, col_w - 2.5 * mm) for c in columns]
+        max_h_lines = max((len(l) for l in h_lines_list), default=1)
+        header_h = max(6.0 * mm, max_h_lines * 3.4 * mm + 2.5 * mm)
+
+        # Precompute wrapped lines for each cell in every row
+        r_font = _font(self.family, False)
+        row_heights = []
+        wrapped_rows = []
+        for r in rows:
+            r_cells = []
+            max_lines = 1
+            for val in r:
+                raw_val = str(val) if val is not None else ""
+                lines = _wrap(_text(raw_val, self.family), r_font, 6.8, col_w - 2.5 * mm)
+                r_cells.append(lines)
+                if len(lines) > max_lines:
+                    max_lines = len(lines)
+            row_h = max(5.2 * mm, max_lines * 3.3 * mm + 2.0 * mm)
+            row_heights.append(row_h)
+            wrapped_rows.append(r_cells)
+
+        total_needed = header_h + sum(row_heights) + 4 * mm
+        self.ensure(min(total_needed, 40 * mm))
+
         c = self.canvas
+        # Draw header
         c.setFillColor(HexColor("#0F172A"))
         c.rect(left, self.y - header_h, width, header_h, fill=1, stroke=0)
         c.setFillColor(HexColor("#FFFFFF"))
-        c.setFont(_font(self.family, True), 7.2)
-        for i, col in enumerate(columns):
-            cx = left + i * col_w + 2 * mm
-            c.drawString(cx, self.y - 4.2 * mm, _text(col, self.family)[:22])
+        c.setFont(h_font, 7.0)
+        for i, h_lines in enumerate(h_lines_list):
+            cx = left + i * col_w + 1.5 * mm
+            for l_idx, line in enumerate(h_lines):
+                c.drawString(cx, self.y - 3.8 * mm - l_idx * 3.2 * mm, line)
         self.y -= header_h
 
-        c.setFont(_font(self.family, False), 7.0)
-        for r_idx, r in enumerate(rows):
+        # Draw rows
+        for r_idx, (r_cells, row_h) in enumerate(zip(wrapped_rows, row_heights)):
+            self.ensure(row_h + 1 * mm)
             if r_idx % 2 == 1:
                 c.setFillColor(HexColor("#F8FAFC"))
                 c.rect(left, self.y - row_h, width, row_h, fill=1, stroke=0)
@@ -521,14 +655,16 @@ class _InstitutionalPDFWriter:
             c.setLineWidth(0.4)
             c.line(left, self.y - row_h, left + width, self.y - row_h)
 
-            for i, val in enumerate(r):
-                cx = left + i * col_w + 2 * mm
-                raw_val = str(val) if val is not None else ""
-                val_c = GREEN_TEXT if "STRONG" in raw_val or "+" in raw_val[:2] else RED_TEXT if "WEAK" in raw_val or "-" in raw_val[:2] else INK
+            for i, lines in enumerate(r_cells):
+                cx = left + i * col_w + 1.5 * mm
+                first_line = lines[0] if lines else ""
+                val_c = GREEN_TEXT if ("STRONG" in first_line or "+" in first_line[:2] or "BUY" in first_line or "MUA" in first_line) else RED_TEXT if ("WEAK" in first_line or "-" in first_line[:2] or "SELL" in first_line or "BÁN" in first_line) else AMBER_TEXT if ("CHỜ" in first_line or "ĐỨNG NGOÀI" in first_line or "INSUFFICIENT" in first_line) else INK
                 c.setFillColor(val_c)
-                c.drawString(cx, self.y - 3.8 * mm, _text(raw_val, self.family)[:22])
+                c.setFont(r_font, 6.8)
+                for l_idx, line in enumerate(lines):
+                    c.drawString(cx, self.y - 3.4 * mm - l_idx * 3.2 * mm, line)
             self.y -= row_h
-        self.y -= 3 * mm
+        self.y -= 2.5 * mm
 
     def card(self, title: str, items: List[Tuple[str, str]]) -> None:
         card_h = (len(items) * 5.0 + 8) * mm
@@ -590,10 +726,11 @@ def generate_institutional_pdf(study: InstitutionalMacroStudy, watermark: Option
     writer.y -= 1 * mm
 
     # Time Horizon & Trigger Disclosures
+    last_event = CPI_EVENT_BENCHMARKS[-1]
     writer.paragraph(
         f"• Thời điểm xuất bản báo cáo (PDF Generation Time): {study.created_at_utc}\n"
-        f"• Thời điểm công bố sự kiện CPI tiếp theo (Event Datetime): 2025-04-10 12:30:00 UTC (19:30 GMT+7)\n"
-        f"• Cửa sổ đủ điều kiện vào lệnh (Execution Entry Window): 12:45:00 UTC (Sau nến M15 đầu tiên đóng nến)",
+        f"• Mốc kiểm định gần nhất (Latest Benchmark Event): {last_event['event_date']} 12:30:00 UTC ({last_event['sentiment']})\n"
+        f"• Quy tắc kích hoạt thực thi (Execution Trigger Protocol): Nến M15 đầu tiên đóng sau tin (12:45 UTC) xác nhận hướng",
         size=7.5,
         bold=True,
         color=TEAL,
@@ -610,45 +747,39 @@ def generate_institutional_pdf(study: InstitutionalMacroStudy, watermark: Option
     plan_cols = ["Phân lớp / Mã", "Khuyến nghị", "Giờ sự kiện", "Cửa sổ khớp", "Điều kiện kích hoạt", "Vùng giá / Mốc hủy", "Hiệu lực"]
     plan_rows = []
     for a in study.assets:
-        if "XAU" in a.symbol:
+        if a.status == "INSUFFICIENT_DATA":
             plan_rows.append([
-                "Kim loại / XAUUSD",
-                "BÁN (SELL)",
+                f"{a.symbol} ({a.symbol_display.split('(')[0].strip()})",
+                "ĐỨNG NGOÀI (CHỜ XÁC NHẬN)",
                 "12:30 UTC",
-                "12:45 - 13:30",
-                "Surprise >= +0.1% & M15 < MA20",
-                "2,640 - 2,645 | Hủy > 2,660",
-                "1 Phiên (24h)",
+                "Chưa kích hoạt",
+                "Cần bổ sung chuỗi nến lịch sử đóng",
+                "N/A (Chưa đủ nến)",
+                "Tạm ngừng",
             ])
         elif "EUR" in a.symbol:
+            w1 = a.windows.get("1_SESSION")
+            rec = "BÁN (SELL)" if a.directional_bias == "BEARISH_ON_HAWKISH_CPI" else "THEO TÍN HIỆU"
             plan_rows.append([
-                "FX Major / EURUSD",
-                "BÁN (SELL)",
+                "FX / EURUSD",
+                rec,
                 "12:30 UTC",
-                "12:45 - 13:30",
-                "Surprise >= +0.1% & H1 < EMA50",
-                "1.0450 - 1.0480 | Hủy > 1.0530",
-                "1 Phiên (24h)",
-            ])
-        elif "JPY" in a.symbol:
-            plan_rows.append([
-                "FX Major / USDJPY",
-                "MUA (BUY)",
-                "12:30 UTC",
-                "12:45 - 13:30",
-                "Surprise >= +0.1% & Không BoJ FX Intervene",
-                "153.20 - 153.60 | Hủy < 152.00",
-                "5 Phiên (Swing)",
+                "12:45 - 13:30 UTC",
+                "Surprise >= +0.1% & nến H1 đóng dưới EMA50",
+                "Vùng nến đóng | Hủy > 1R ATR",
+                f"1 Phiên ({w1.evidence_strength if w1 else 'VALID'})",
             ])
         else:
+            w1 = a.windows.get("1_SESSION")
+            rec = "MUA (BUY)" if "BULLISH" in a.directional_bias else "BÁN (SELL)" if "BEARISH" in a.directional_bias else "THEO TÍN HIỆU"
             plan_rows.append([
-                f"OTC / {a.symbol}",
-                "ĐỨNG NGOÀI",
+                f"{a.symbol}",
+                rec,
                 "12:30 UTC",
-                "Chờ xác nhận",
-                "Thiếu dữ liệu nến đóng hợp lệ",
-                "Không khuyến nghị | Hủy",
-                "None",
+                "12:45 - 13:30 UTC",
+                "Surprise vĩ mô thỏa mãn biên độ xác nhận",
+                "Vùng nến đóng | Hủy > 1R ATR",
+                f"1 Phiên ({w1.evidence_strength if w1 else 'VALID'})",
             ])
     writer.table(plan_cols, plan_rows)
 
@@ -674,14 +805,18 @@ def generate_institutional_pdf(study: InstitutionalMacroStudy, watermark: Option
     for a in study.assets:
         for w_key in ["1_SESSION", "5_SESSIONS", "20_SESSIONS"]:
             w = a.windows[w_key]
+            wr_str = f"{w.win_rate_pct:.1f}%" if (w.win_rate_pct is not None) else "N/A"
+            exp_str = f"{w.net_expectancy_r:+.2f}R" if (w.net_expectancy_r is not None) else "N/A"
+            dd_str = f"{w.max_drawdown_pct:.1f}%" if (w.max_drawdown_pct is not None) else "N/A"
+            corr_str = f"{w.correlation_with_surprise:+.2f}" if (w.correlation_with_surprise is not None) else "N/A"
             table_rows.append([
                 a.symbol,
                 w.window_name.replace("_", " "),
-                f"{w.sample_size}",
-                f"{w.win_rate_pct:.1f}%",
-                f"{w.net_expectancy_r:+.2f}R",
-                f"{w.max_drawdown_pct:.1f}%",
-                f"{w.correlation_with_surprise:+.2f}",
+                f"{w.valid_samples}/{w.sample_size}",
+                wr_str,
+                exp_str,
+                dd_str,
+                corr_str,
                 w.evidence_strength,
             ])
     writer.table(table_cols, table_rows)
@@ -865,46 +1000,51 @@ def replay():
         sys.exit(1)
 
     saved_metrics = json.loads(metrics_p.read_text(encoding="utf-8"))
-    assets_metrics = {{a["symbol"]: a["windows"] for a in saved_metrics.get("assets", [])}}
 
-    # Group trades by (symbol, hold_sessions)
-    grouped = {{}}
-    for t in trades:
-        sym = t["symbol"]
-        hs = int(t.get("hold_sessions") or 1)
-        key = (sym, hs)
-        if key not in grouped:
-            grouped[key] = []
-        grouped[key].append(t)
+    for a in saved_metrics.get("assets", []):
+        sym = a["symbol"]
+        status = a.get("status") or "VALID"
+        sym_trades = [t for t in trades if t["symbol"] == sym]
 
-    for (sym, hs), sym_trades in grouped.items():
-        w_name = f"{{hs}}_SESSION" if hs == 1 else f"{{hs}}_SESSIONS"
-        expected_win = assets_metrics.get(sym, {{}}).get(w_name)
-        if not expected_win:
-            print(f"[FAIL] Missing expected metrics for {{sym}} {{w_name}} in metrics.json.")
-            sys.exit(1)
+        if status == "INSUFFICIENT_DATA":
+            if len(sym_trades) > 0:
+                print(f"[FAIL] Found {{len(sym_trades)}} trades for {{sym}}, but status is INSUFFICIENT_DATA!")
+                sys.exit(1)
+            print(f"[PASS] Verified {{sym}}: INSUFFICIENT_DATA confirmed with 0 simulated trades in ledger.")
+        else:
+            for hs in [1, 5, 20]:
+                w_name = f"{{hs}}_SESSION" if hs == 1 else f"{{hs}}_SESSIONS"
+                expected_win = a["windows"].get(w_name)
+                if not expected_win:
+                    print(f"[FAIL] Missing expected metrics for {{sym}} {{w_name}} in metrics.json.")
+                    sys.exit(1)
 
-        wins = [float(t["net_pnl_r"]) for t in sym_trades if float(t["net_pnl_r"]) > 0]
-        losses = [abs(float(t["net_pnl_r"])) for t in sym_trades if float(t["net_pnl_r"]) < 0]
-        total = len(sym_trades)
-        computed_wr = round((len(wins) / total) * 100, 1) if total > 0 else 0.0
-        computed_net_exp = round(sum(float(t["net_pnl_r"]) for t in sym_trades) / total, 2) if total > 0 else 0.0
-        gross_win = sum(wins)
-        gross_loss = sum(losses)
-        computed_pf = round(gross_win / gross_loss, 2) if gross_loss > 0 else 9.99
+                hs_trades = [t for t in sym_trades if int(t.get("hold_sessions") or 1) == hs]
+                if not hs_trades:
+                    print(f"[FAIL] Missing trades for {{sym}} {{w_name}} in trades_ledger.csv.")
+                    sys.exit(1)
 
-        exp_wr = float(expected_win.get("win_rate_pct") or 0.0)
-        exp_net_exp = float(expected_win.get("net_expectancy_r") or 0.0)
-        exp_pf = float(expected_win.get("post_cost_profit_factor") or 0.0)
+                wins = [float(t["net_pnl_r"]) for t in hs_trades if float(t["net_pnl_r"]) > 0]
+                losses = [abs(float(t["net_pnl_r"])) for t in hs_trades if float(t["net_pnl_r"]) < 0]
+                total = len(hs_trades)
+                computed_wr = round((len(wins) / total) * 100, 1) if total > 0 else 0.0
+                computed_net_exp = round(sum(float(t["net_pnl_r"]) for t in hs_trades) / total, 2) if total > 0 else 0.0
+                gross_win = sum(wins)
+                gross_loss = sum(losses)
+                computed_pf = round(gross_win / gross_loss, 2) if gross_loss > 0 else 9.99
 
-        if abs(computed_wr - exp_wr) > 0.2:
-            print(f"[FAIL] Win Rate mismatch for {{sym}} {{w_name}}: computed={{computed_wr}}%, expected={{exp_wr}}%")
-            sys.exit(1)
-        if abs(computed_net_exp - exp_net_exp) > 0.05:
-            print(f"[FAIL] Net Expectancy mismatch for {{sym}} {{w_name}}: computed={{computed_net_exp}}R, expected={{exp_net_exp}}R")
-            sys.exit(1)
+                exp_wr = float(expected_win.get("win_rate_pct") or 0.0)
+                exp_net_exp = float(expected_win.get("net_expectancy_r") or 0.0)
+                exp_pf = float(expected_win.get("post_cost_profit_factor") or 0.0)
 
-        print(f"[PASS] Replay verified for {{sym}} {{w_name}}: WR={{computed_wr}}%, Exp={{computed_net_exp:+.2f}}R, PF={{computed_pf}}")
+                if abs(computed_wr - exp_wr) > 0.2:
+                    print(f"[FAIL] Win Rate mismatch for {{sym}} {{w_name}}: computed={{computed_wr}}%, expected={{exp_wr}}%")
+                    sys.exit(1)
+                if abs(computed_net_exp - exp_net_exp) > 0.05:
+                    print(f"[FAIL] Net Expectancy mismatch for {{sym}} {{w_name}}: computed={{computed_net_exp}}R, expected={{exp_net_exp}}R")
+                    sys.exit(1)
+
+                print(f"[PASS] Replay verified for {{sym}} {{w_name}}: N={{total}}, WR={{computed_wr}}%, Exp={{computed_net_exp:+.2f}}R, PF={{computed_pf}}")
 
     print("=" * 60)
     print("ALL VERIFICATIONS PASSED: The research deliverable is mathematically sound and untampered.")
