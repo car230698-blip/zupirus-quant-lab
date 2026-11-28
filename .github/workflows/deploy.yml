@@ -34,7 +34,16 @@ jobs:
             echo "================================================================="
             echo " [1/4] Navigating to Project & Pulling Latest Main"
             echo "================================================================="
-            DEPLOY_PATH="${{ secrets.VPS_DEPLOY_PATH || '/home/hoangminh2306/zupirus-quant-lab-test' }}"
+            DEPLOY_PATH="${{ secrets.VPS_DEPLOY_PATH }}"
+            if [ -z "$DEPLOY_PATH" ]; then
+              if [ -d "/root/zupirus-quant-lab" ]; then
+                DEPLOY_PATH="/root/zupirus-quant-lab"
+              elif [ -d "/home/hoangminh2306/zupirus-quant-lab-test" ]; then
+                DEPLOY_PATH="/home/hoangminh2306/zupirus-quant-lab-test"
+              else
+                DEPLOY_PATH="$(pwd)"
+              fi
+            fi
             TARGET_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
             cd "$DEPLOY_PATH"
 
