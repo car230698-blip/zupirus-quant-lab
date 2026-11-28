@@ -267,7 +267,7 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
           </div>
 
           <div className="flex items-center gap-2">
-            {order?.status === 'CONFIRMED' && (
+            {(order?.status === 'CONFIRMED' || order?.status === 'PAID') && (
               <button
                 type="button"
                 disabled={actionBusy}

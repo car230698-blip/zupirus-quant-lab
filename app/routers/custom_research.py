@@ -272,10 +272,8 @@ def _load_candles_for_symbol(symbol: str, timeframe: str) -> List[Candle]:
             except Exception as e:
                 logger.warning("Error loading COMEX Gold candles: %s", e)
     elif "XAU" in sym_u or "GOLD" in sym_u:
-        # Spot Gold (XAU/USD)
+        # Spot Gold (XAU/USD) - strictly use spot market candle feed
         p = Path("data/candles_xauusd_m15.json")
-        if not p.exists():
-            p = Path("data/xauusd_gcf_m15_historical.json")
         if p.exists():
             try:
                 raw_list = json.loads(p.read_text(encoding="utf-8"))
