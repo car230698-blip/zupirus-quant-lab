@@ -9,7 +9,7 @@ export interface LandingLayoutProps {
 }
 
 export const LandingLayout: React.FC<LandingLayoutProps> = ({ onNavigate, children }) => {
-  const { lang, setLang, t } = useLanguage();
+  const { lang, t } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
@@ -41,16 +41,8 @@ export const LandingLayout: React.FC<LandingLayoutProps> = ({ onNavigate, childr
             ))}
           </nav>
 
-          {/* Zone 3: Language + Customer Login + Portal CTA */}
+          {/* Zone 3: Customer Login + Portal CTA */}
           <div className="hidden md:flex items-center gap-2.5 shrink-0">
-            <button
-              type="button"
-              onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
-              className="rounded-lg border border-slate-800 bg-[#0B1220] px-2.5 py-1.5 font-mono text-xs font-semibold text-slate-300 hover:text-white transition cursor-pointer whitespace-nowrap shrink-0"
-              title="Switch language"
-            >
-              {lang === 'vi' ? 'VI' : 'EN'}
-            </button>
             <button
               type="button"
               onClick={() => onNavigate('/login')}
@@ -69,13 +61,6 @@ export const LandingLayout: React.FC<LandingLayoutProps> = ({ onNavigate, childr
 
           {/* Mobile Actions */}
           <div className="flex md:hidden items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
-              className="rounded-lg border border-slate-800 bg-[#0B1220] px-2.5 py-1.5 font-mono text-xs font-semibold text-slate-300 cursor-pointer"
-            >
-              {lang === 'vi' ? 'VI' : 'EN'}
-            </button>
             <button
               type="button"
               onClick={() => setMobileMenuOpen((v) => !v)}

@@ -362,9 +362,10 @@ def _resolve_lang(request: Optional[Request], lang: Optional[str]) -> str:
 def get_robots_txt() -> Response:
     content = """User-agent: *
 Allow: /
+Allow: /en
+Allow: /en/
 Allow: /huong-dan/
 Allow: /guides/
-Allow: /en/
 Allow: /bao-cao/
 Allow: /reports/
 Disallow: /api/
@@ -386,7 +387,7 @@ def get_dynamic_sitemap() -> Response:
         # Core Landing Pages
         """  <url>
     <loc>https://zupirus.com/</loc>
-    <lastmod>2026-11-26</lastmod>
+    <lastmod>2026-11-28</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
     <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/"/>
@@ -395,7 +396,7 @@ def get_dynamic_sitemap() -> Response:
   </url>""",
         """  <url>
     <loc>https://zupirus.com/en</loc>
-    <lastmod>2026-11-26</lastmod>
+    <lastmod>2026-11-28</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en"/>
@@ -405,27 +406,30 @@ def get_dynamic_sitemap() -> Response:
         # Knowledge Hubs
         """  <url>
     <loc>https://zupirus.com/huong-dan</loc>
-    <lastmod>2026-11-26</lastmod>
+    <lastmod>2026-11-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
     <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en/guides"/>
   </url>""",
         """  <url>
     <loc>https://zupirus.com/guides</loc>
-    <lastmod>2026-11-26</lastmod>
+    <lastmod>2026-11-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
     <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en/guides"/>
   </url>""",
         """  <url>
     <loc>https://zupirus.com/en/guides</loc>
-    <lastmod>2026-11-26</lastmod>
+    <lastmod>2026-11-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides"/>
     <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en/guides"/>
   </url>""",
     ]
 
@@ -434,21 +438,23 @@ def get_dynamic_sitemap() -> Response:
         url_entries.append(
             f"""  <url>
     <loc>https://zupirus.com/huong-dan/{vi_slug}</loc>
-    <lastmod>2026-11-26</lastmod>
+    <lastmod>2026-11-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
     <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/{vi_slug}"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/{en_slug}"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en/guides/{en_slug}"/>
   </url>"""
         )
         url_entries.append(
             f"""  <url>
     <loc>https://zupirus.com/en/guides/{en_slug}</loc>
-    <lastmod>2026-11-26</lastmod>
+    <lastmod>2026-11-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://zupirus.com/en/guides/{en_slug}"/>
     <xhtml:link rel="alternate" hreflang="vi" href="https://zupirus.com/huong-dan/{vi_slug}"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://zupirus.com/en/guides/{en_slug}"/>
   </url>"""
         )
 

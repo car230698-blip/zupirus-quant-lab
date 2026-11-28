@@ -350,14 +350,72 @@ class CombinedStaticFiles(StaticFiles):
 app.mount('/assets', CombinedStaticFiles(DIST_DIR / 'assets', WEB_DIR), name='assets')
 
 
-def _serve_spa_dir(base_dir: Path, full_path: str):
+def _render_localized_index_html(index_file: Path, lang: str) -> str:
+    html_text = index_file.read_text(encoding="utf-8")
+    if lang == "en":
+        html_text = html_text.replace('<html lang="vi"', '<html lang="en"')
+        html_text = html_text.replace(
+            '<link rel="canonical" href="https://zupirus.com/" />',
+            '<link rel="canonical" href="https://zupirus.com/en" />',
+        )
+        html_text = html_text.replace(
+            '<title>ZUPIRUS Quant Lab — Nền Tảng Nghiên Cứu Định Lượng &amp; Báo Cáo Phân Tích Kỹ Thuật</title>',
+            '<title>ZUPIRUS Quant Lab — Quantitative Research Platform &amp; Technical Analysis Reports</title>',
+        )
+        html_text = html_text.replace(
+            'content="Phòng nghiên cứu định lượng độc lập. Cung cấp báo cáo phân tích kỹ thuật chuẩn mực 2–4 trang cho nhà đầu tư cá nhân và dịch vụ nghiên cứu định lượng chuyên sâu theo bài toán riêng cho khách hàng tổ chức."',
+            'content="Independent quantitative research laboratory. Providing standardized 2–4 page technical analysis notes for individual traders and bespoke quantitative research studies for institutional clients."',
+        )
+        html_text = html_text.replace(
+            'content="ZUPIRUS Quant Lab, nghiên cứu định lượng, báo cáo phân tích kỹ thuật, quantitative research, phân tích định lượng XAUUSD, nghiên cứu theo yêu cầu, backtest ngoài mẫu, kiểm định định lượng tổ chức"',
+            'content="ZUPIRUS Quant Lab, quantitative research, technical analysis reports, institutional quant lab, walk-forward optimization, market microstructure, custom backtest, risk management"',
+        )
+        html_text = html_text.replace(
+            'property="og:locale" content="vi_VN"',
+            'property="og:locale" content="en_US"',
+        )
+        html_text = html_text.replace(
+            'property="og:locale:alternate" content="en_US"',
+            'property="og:locale:alternate" content="vi_VN"',
+        )
+        html_text = html_text.replace(
+            'property="og:url" content="https://zupirus.com/"',
+            'property="og:url" content="https://zupirus.com/en"',
+        )
+        html_text = html_text.replace(
+            'property="og:title" content="ZUPIRUS Quant Lab — Nền Tảng Nghiên Cứu Định Lượng &amp; Báo Cáo Phân Tích Kỹ Thuật"',
+            'property="og:title" content="ZUPIRUS Quant Lab — Quantitative Research Platform &amp; Technical Analysis Reports"',
+        )
+        html_text = html_text.replace(
+            'Báo cáo phân tích kỹ thuật chuẩn mực cho cá nhân và nghiên cứu định lượng theo bài toán riêng cho tổ chức. Minh bạch phương pháp, kiểm định ngoài mẫu OOS.',
+            'Standardized technical analysis notes for individual traders and bespoke quantitative research studies for institutions. Out-of-sample rigor and transparent methodologies.',
+        )
+        html_text = html_text.replace(
+            'name="twitter:title" content="ZUPIRUS Quant Lab — Nền Tảng Nghiên Cứu Định Lượng &amp; Báo Cáo Phân Tích Kỹ Thuật"',
+            'name="twitter:title" content="ZUPIRUS Quant Lab — Quantitative Research Platform &amp; Technical Analysis Reports"',
+        )
+        html_text = html_text.replace(
+            'name="twitter:description"\n      content="Báo cáo phân tích kỹ thuật chuẩn mực cho cá nhân và nghiên cứu định lượng theo bài toán riêng cho tổ chức."',
+            'name="twitter:description"\n      content="Standardized technical analysis notes for traders and bespoke quantitative research studies for institutions."',
+        )
+        html_text = html_text.replace(
+            '<h1>ZUPIRUS Quant Lab — Nền Tảng Nghiên Cứu Định Lượng &amp; Báo Cáo Phân Tích Kỹ Thuật</h1>\n        <p>Phòng nghiên cứu định lượng độc lập. Cung cấp báo cáo phân tích kỹ thuật chuẩn mực 2–4 trang cho cá nhân và nghiên cứu định lượng chuyên sâu theo bài toán riêng cho tổ chức.</p>',
+            '<h1>ZUPIRUS Quant Lab — Quantitative Research Platform &amp; Technical Analysis Reports</h1>\n        <p>Independent quantitative research laboratory. Providing standardized 2–4 page technical analysis notes for individual traders and bespoke quantitative research studies for institutional clients.</p>',
+        )
+    return html_text
+
+
+def _serve_spa_dir(base_dir: Path, full_path: str, lang: str = "vi"):
     if not base_dir.exists():
         return None
     root = base_dir.resolve()
     clean_path = full_path.lstrip("/\\")
     direct_file = (root / clean_path).resolve()
     if clean_path and direct_file.is_relative_to(root) and direct_file.is_file():
-        return FileResponse(direct_file, headers=_NO_CACHE_HEADERS if direct_file.name == 'index.html' else None)
+        if direct_file.name == 'index.html':
+            rendered = _render_localized_index_html(direct_file, lang)
+            return HTMLResponse(content=rendered, status_code=200, headers=_NO_CACHE_HEADERS)
+        return FileResponse(direct_file)
     for alt_pub in (ROOT / 'public', WEB_DIR / 'public'):
         if alt_pub.exists():
             cand = (alt_pub.resolve() / clean_path).resolve()
@@ -365,7 +423,8 @@ def _serve_spa_dir(base_dir: Path, full_path: str):
                 return FileResponse(cand)
     index_file = base_dir / 'index.html'
     if index_file.exists():
-        return FileResponse(index_file, headers=_NO_CACHE_HEADERS)
+        rendered = _render_localized_index_html(index_file, lang)
+        return HTMLResponse(content=rendered, status_code=200, headers=_NO_CACHE_HEADERS)
     return None
 
 
@@ -386,33 +445,39 @@ async def spa_fallback(request: Request, full_path: str):
     if full_path == 'robots.txt' and is_admin_host:
         from fastapi.responses import PlainTextResponse
         return PlainTextResponse("User-agent: *\nDisallow: /\n", headers={"X-Robots-Tag": "noindex, nofollow"})
+
+    # Determine language preference based on path, query param, or GeoIP / Accept-Language
+    q_lang = (request.query_params.get("lang") or "").lower()
+    clean_fp = full_path.strip("/").lower()
+    if clean_fp == "en" or clean_fp.startswith("en/"):
+        target_lang = "en"
+    elif q_lang in ("en", "vi"):
+        target_lang = q_lang
+    else:
+        client_ip = _client_ip(request)
+        cf_country = (request.headers.get("cf-ipcountry") or "").strip().upper()
+        if cf_country and cf_country not in ("XX", "T1", "UNKNOWN"):
+            target_lang = "vi" if cf_country == "VN" else "en"
+        else:
+            country, is_foreign_ip = resolve_ip_country(client_ip)
+            if country in ("LOCAL", "UNKNOWN"):
+                accept_lang = (request.headers.get("accept-language") or "").lower()
+                target_lang = "vi" if "vi" in accept_lang else "en"
+            else:
+                target_lang = "en" if is_foreign_ip else "vi"
+
+    host_clean = host.split(":")[0]
+    cookie_domain = ".zupirus.com" if host_clean.endswith("zupirus.com") else None
+
     for directory in (DIST_DIR, WEB_DIR):
-        resp = _serve_spa_dir(directory, full_path)
+        resp = _serve_spa_dir(directory, full_path, lang=target_lang)
         if resp is not None:
             if is_admin_host:
                 resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
-            # GeoIP & Accept-Language auto-detection for international visitors
             if not full_path or full_path.endswith('.html') or '.' not in full_path:
-                q_lang = (request.query_params.get("lang") or "").lower()
-                if q_lang in ("en", "vi"):
-                    is_foreign = (q_lang == "en")
-                else:
-                    client_ip = _client_ip(request)
-                    cf_country = (request.headers.get("cf-ipcountry") or "").strip().upper()
-                    if cf_country and cf_country not in ("XX", "T1", "UNKNOWN"):
-                        is_foreign = (cf_country != "VN")
-                    else:
-                        country, is_foreign_ip = resolve_ip_country(client_ip)
-                        if country in ("LOCAL", "UNKNOWN"):
-                            accept_lang = (request.headers.get("accept-language") or "").lower()
-                            is_foreign = bool("vi" not in accept_lang)
-                        else:
-                            is_foreign = is_foreign_ip
-                host_clean = host.split(":")[0]
-                cookie_domain = ".zupirus.com" if host_clean.endswith("zupirus.com") else None
                 resp.set_cookie(
                     "zupirus_geo_lang",
-                    "en" if is_foreign else "vi",
+                    target_lang,
                     max_age=86400 * 30,
                     path="/",
                     domain=cookie_domain,
@@ -420,30 +485,15 @@ async def spa_fallback(request: Request, full_path: str):
                     samesite="lax",
                 )
             return resp
+
     if (ROOT / 'index.html').exists():
-        resp = FileResponse(ROOT / 'index.html', headers=_NO_CACHE_HEADERS)
+        rendered = _render_localized_index_html(ROOT / 'index.html', target_lang)
+        resp = HTMLResponse(content=rendered, status_code=200, headers=_NO_CACHE_HEADERS)
         if is_admin_host:
             resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
-        q_lang = (request.query_params.get("lang") or "").lower()
-        if q_lang in ("en", "vi"):
-            is_foreign = (q_lang == "en")
-        else:
-            client_ip = _client_ip(request)
-            cf_country = (request.headers.get("cf-ipcountry") or "").strip().upper()
-            if cf_country and cf_country not in ("XX", "T1", "UNKNOWN"):
-                is_foreign = (cf_country != "VN")
-            else:
-                country, is_foreign_ip = resolve_ip_country(client_ip)
-                if country in ("LOCAL", "UNKNOWN"):
-                    accept_lang = (request.headers.get("accept-language") or "").lower()
-                    is_foreign = bool("vi" not in accept_lang)
-                else:
-                    is_foreign = is_foreign_ip
-        host_clean = host.split(":")[0]
-        cookie_domain = ".zupirus.com" if host_clean.endswith("zupirus.com") else None
         resp.set_cookie(
             "zupirus_geo_lang",
-            "en" if is_foreign else "vi",
+            target_lang,
             max_age=86400 * 30,
             path="/",
             domain=cookie_domain,
@@ -451,4 +501,5 @@ async def spa_fallback(request: Request, full_path: str):
             samesite="lax",
         )
         return resp
+    return JSONResponse({'detail': 'Not Found'}, status_code=404)
     return JSONResponse({'detail': 'Not Found'}, status_code=404)

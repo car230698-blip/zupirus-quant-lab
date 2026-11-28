@@ -21,7 +21,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   onNavigateHome,
   onSwitchZone,
 }) => {
-  const { lang, toggleLang } = useLanguage();
+  const { lang } = useLanguage();
   const isAdmin = mode === 'admin';
 
   const [register, setRegister] = useState(false);
@@ -144,13 +144,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             onClick={onNavigateHome}
           />
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={toggleLang}
-              className="rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-1.5 font-mono text-xs font-semibold text-slate-300 hover:text-white cursor-pointer"
-            >
-              {lang === 'vi' ? 'VI' : 'EN'}
-            </button>
             <button
               type="button"
               onClick={onNavigateHome}

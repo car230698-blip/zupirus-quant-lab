@@ -32,7 +32,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   onLogout,
   children,
 }) => {
-  const { lang, setLang } = useLanguage();
+  const { lang } = useLanguage();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pwdModalOpen, setPwdModalOpen] = useState(false);
@@ -276,13 +276,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
-              className="h-8 rounded-lg border border-slate-800 bg-slate-900 px-2 font-mono text-[11px] font-semibold text-slate-300 cursor-pointer"
-            >
-              {lang === 'vi' ? 'VI' : 'EN'}
-            </button>
             <NotificationBellMenu
               notifications={notifications}
               unreadCount={unreadCount}
@@ -333,13 +326,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
               title={lang === 'en' ? `Quick Command (${kbdShortcut})` : `Lệnh nhanh (${kbdShortcut})`}
             >
               <span className="font-mono text-cyan-300">{kbdShortcut}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
-              className="quant-quiet font-mono"
-            >
-              {lang === 'vi' ? 'VI' : 'EN'}
             </button>
             <span className="quant-email hidden xl:inline-block" title={email}>
               {email}

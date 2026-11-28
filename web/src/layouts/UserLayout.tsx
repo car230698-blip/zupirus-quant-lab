@@ -31,7 +31,7 @@ export const UserLayout: React.FC<UserLayoutProps> = ({
   onLogout,
   children,
 }) => {
-  const { lang, setLang, t } = useLanguage();
+  const { lang, t } = useLanguage();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pwdModalOpen, setPwdModalOpen] = useState(false);
@@ -184,13 +184,6 @@ export const UserLayout: React.FC<UserLayoutProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
-              className="h-8 rounded-lg border border-slate-800 bg-slate-900 px-2 font-mono text-[11px] font-semibold text-slate-300 cursor-pointer"
-            >
-              {lang === 'vi' ? 'VI' : 'EN'}
-            </button>
             <NotificationBellMenu
               notifications={notifications}
               unreadCount={unreadCount}
@@ -237,13 +230,6 @@ export const UserLayout: React.FC<UserLayoutProps> = ({
               onMarkAllRead={markAllRead}
               onMarkSingleRead={markSingleRead}
             />
-            <button
-              type="button"
-              onClick={() => setLang(lang === 'vi' ? 'en' : 'vi')}
-              className="quant-quiet font-mono"
-            >
-              {lang === 'vi' ? 'VI' : 'EN'}
-            </button>
             <span className="quant-email hidden xl:inline-block" title={email}>
               {email}
             </span>
