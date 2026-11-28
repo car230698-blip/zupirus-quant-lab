@@ -21,13 +21,16 @@ from app.domains.quant.candles import Candle, CandleValidationError, normalize_c
 logger = logging.getLogger("zupirus.quant.data_feed")
 
 SYMBOL_MAP = {
-    "XAUUSD": "GC=F",
-    "GOLD": "GC=F",
-    "XAU/USD": "GC=F",
+    "XAUUSD": "XAUUSD=X",
+    "GOLD": "XAUUSD=X",
+    "XAU/USD": "XAUUSD=X",
+    "GC=F": "GC=F",
     "EURUSD": "EURUSD=X",
     "EUR/USD": "EURUSD=X",
     "GBPUSD": "GBPUSD=X",
     "GBP/USD": "GBPUSD=X",
+    "USDJPY": "USDJPY=X",
+    "USD/JPY": "USDJPY=X",
     "BTCUSD": "BTC-USD",
     "BTC/USD": "BTC-USD",
     "BTCUSDT": "BTC-USD",
@@ -107,7 +110,7 @@ def build_dataset_identity(symbol: str, timeframe: str, candles: Sequence[Candle
     canonical_sym = SYMBOL_MAP.get(sym_u, sym_u).replace("=", "_").replace("^", "").replace("-", "_")
     version_id = f"ds_{canonical_sym}_{tf_u}_{data_hash[:8]}"
 
-    if sym_u in ("XAUUSD", "GOLD", "XAU/USD", "GC=F"):
+    if sym_u in ("GC=F", "COMEX_GOLD"):
         return DatasetIdentity(
             asset_class="COMEX_GOLD_FUTURES",
             symbol="GC=F",
@@ -128,6 +131,40 @@ def build_dataset_identity(symbol: str, timeframe: str, candles: Sequence[Candle
                 "Nghiên cứu mang tính thăm dò cấu trúc giá vàng tương lai, không công bố hay bảo đảm lợi thế thực nghiệm "
                 "trên thị trường Spot khi chưa có dữ liệu tick Spot trực tiếp."
             ),
+        )
+    elif sym_u in ("XAUUSD", "GOLD", "XAU/USD", "XAUUSD=X"):
+        return DatasetIdentity(
+            asset_class="SPOT_COMMODITY",
+            symbol="XAUUSD=X",
+            symbol_display="Vàng giao ngay Spot Gold (XAU/USD)",
+            provider="Yahoo Finance / Spot Gold Benchmark",
+            timeframe=tf_u,
+            timezone="UTC",
+            bars_count=bars_n,
+            start_time_utc=start_iso,
+            end_time_utc=end_iso,
+            cutoff_date=cutoff,
+            data_version_id=version_id,
+            data_sha256=data_hash,
+            is_spot_confirmed=True,
+            limitations="Dữ liệu giá giao ngay XAU/USD OTC tham chiếu. Cần lưu ý spread thực tế từ broker có thể giãn mạnh trong các phiên giao dịch có tin tức biến động mạnh.",
+        )
+    elif sym_u in ("USDJPY", "USD/JPY", "USDJPY=X"):
+        return DatasetIdentity(
+            asset_class="FOREX_SPOT",
+            symbol="USDJPY=X",
+            symbol_display="Tỷ giá USD/JPY Spot Benchmark",
+            provider="Yahoo Finance / FX Benchmark",
+            timeframe=tf_u,
+            timezone="UTC",
+            bars_count=bars_n,
+            start_time_utc=start_iso,
+            end_time_utc=end_iso,
+            cutoff_date=cutoff,
+            data_version_id=version_id,
+            data_sha256=data_hash,
+            is_spot_confirmed=True,
+            limitations="Dữ liệu tham chiếu OTC tổng hợp, không bao gồm độ giãn spread trong thời điểm tin tức kinh tế quan trọng.",
         )
     elif sym_u in ("EURUSD", "EUR/USD", "EURUSD=X"):
         return DatasetIdentity(

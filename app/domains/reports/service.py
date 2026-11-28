@@ -53,6 +53,19 @@ def _compute_sha256(filepath: str | Path | None) -> str:
     return h.hexdigest()
 
 
+def _column_names(c, table: str) -> list[str]:
+    """Retrieve column names for a given table across Postgres and SQLite."""
+    from app.core.db import is_postgres
+    if is_postgres():
+        rows = c.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+            (table.lower(),),
+        ).fetchall()
+        return [r[0] for r in rows]
+    rows = c.execute(f"PRAGMA table_info({table})").fetchall()
+    return [r[1] for r in rows]
+
+
 def check_report_purchase_eligibility(status: Optional[str], is_for_sale: bool = True) -> Tuple[bool, Optional[str]]:
     """Determine if a report is currently eligible for online purchase.
     Strictly synchronizes:
@@ -684,7 +697,7 @@ def publish_admin_report(
         c.execute(
             """
             UPDATE research_reports
-            SET status = 'PUBLISHED', version = ?, full_pdf_path = ?, published_at = COALESCE(published_at, ?), updated_at = ?
+            SET status = 'PUBLISHED', is_for_sale = 1, version = ?, full_pdf_path = ?, published_at = COALESCE(published_at, ?), updated_at = ?
             WHERE id = ?
             """,
             (eff_ver, full_path, now, now, real_id),
@@ -1019,7 +1032,11 @@ def grant_report_entitlement_tx(
     ).fetchone()
     if existing_by_ver:
         ent_d = dict(existing_by_ver)
-        if ent_d.get("status") != "ACTIVE" or ent_d.get("expires_at") != effective_expires_at:
+        # INVARIANT: Never overwrite perpetual ownership (is_trial == 0) with a trial grant or expiration
+        if ent_d.get("is_trial") == 0:
+            effective_is_trial = 0
+            effective_expires_at = None
+        if ent_d.get("status") != "ACTIVE" or (ent_d.get("is_trial") == 1 and ent_d.get("expires_at") != effective_expires_at):
             c.execute(
                 "UPDATE report_entitlements SET status = 'ACTIVE', order_id = ?, full_pdf_path = ?, expires_at = ?, is_trial = ?, granted_at = ?, revoked_at = NULL WHERE id = ?",
                 (order_id, locked_pdf_path, effective_expires_at, effective_is_trial, now, ent_d["id"]),
@@ -1584,6 +1601,13 @@ def build_or_get_report_bundle_zip(report_id: str, version: str = "v1.0") -> Tup
     if not pdf_file.is_file():
         pdf_file = get_private_reports_dir() / f"rep_gold_research_suite_v1-{version}-full.pdf"
 
+    if not pdf_file.is_file():
+        raise FileNotFoundError(f"Không tìm thấy tệp PDF nghiên cứu đã phê duyệt của phiên bản {version}. Bản bố cục mẫu (placeholder) không được đóng gói xuất bản.")
+
+    pdf_bytes = pdf_file.read_bytes()
+    if pdf_bytes.startswith(b"%PDF-1.4 Default Report") or len(pdf_bytes) < 100:
+        raise ValueError("Tệp PDF hiện tại chỉ là bản bố cục mẫu (placeholder), không được phép đóng gói bàn giao.")
+
     bundle_filename = f"zupirus-gold-research-suite-{version}.zip"
     zip_path = bundles_dir / bundle_filename
 
@@ -1649,12 +1673,11 @@ def build_or_get_report_bundle_zip(report_id: str, version: str = "v1.0") -> Tup
     quickstart_bytes = quickstart_md.encode("utf-8")
     quickstart_sha256 = hashlib.sha256(quickstart_bytes).hexdigest()
 
-    pdf_bytes = pdf_file.read_bytes() if pdf_file.is_file() else b"%PDF-1.4 Default Report"
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
 
     manifest_lines = [
         f"# ZUPIRUS QUANT LAB - GOLD RESEARCH SUITE {version.upper()} SHA-256 MANIFEST",
-        f"# Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        f"# Deterministic Canonical Verification Manifest",
         f"# Note: Raw CSV hash is explicitly separated from normalized candle stream hash.",
         "",
         f"# --- CANONICAL DATASET PROVENANCE ---",
@@ -1672,16 +1695,26 @@ def build_or_get_report_bundle_zip(report_id: str, version: str = "v1.0") -> Tup
     ]
     manifest_bytes = "\n".join(manifest_lines).encode("utf-8")
 
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("report_full.pdf", pdf_bytes)
-        zf.writestr("trades_ledger.csv", ledger_csv_bytes)
-        zf.writestr("metrics.json", metrics_json_bytes)
-        zf.writestr("strategy_config.json", config_bytes)
-        zf.writestr("replay.py", replay_py_bytes)
-        zf.writestr("requirements.txt", reqs_bytes)
-        zf.writestr("data/sample_candles.csv", raw_csv_bytes)
-        zf.writestr("QUICKSTART.md", quickstart_bytes)
-        zf.writestr("MANIFEST.sha256", manifest_bytes)
+    def _write_deterministic_zip(target_zip: Path):
+        with zipfile.ZipFile(target_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            items = [
+                ("report_full.pdf", pdf_bytes),
+                ("trades_ledger.csv", ledger_csv_bytes),
+                ("metrics.json", metrics_json_bytes),
+                ("strategy_config.json", config_bytes),
+                ("replay.py", replay_py_bytes),
+                ("requirements.txt", reqs_bytes),
+                ("data/sample_candles.csv", raw_csv_bytes),
+                ("QUICKSTART.md", quickstart_bytes),
+                ("MANIFEST.sha256", manifest_bytes),
+            ]
+            for arcname, data in items:
+                zinfo = zipfile.ZipInfo(arcname, date_time=(2026, 1, 1, 0, 0, 0))
+                zinfo.external_attr = 0o644 << 16
+                zinfo.compress_type = zipfile.ZIP_DEFLATED
+                zf.writestr(zinfo, data)
+
+    _write_deterministic_zip(zip_path)
 
     manifest_dict = {
         "raw_csv_file": raw_csv_sha256,

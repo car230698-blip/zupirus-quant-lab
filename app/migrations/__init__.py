@@ -151,6 +151,16 @@ MIGRATIONS = [
         "version": 29,
         "name": "029_quant_studies_and_methodologies",
         "description": "Additive quant study and bilingual methodology tables, plus optional PDF watermark flag"
+    },
+    {
+        "version": 30,
+        "name": "030_custom_research_requests",
+        "description": "On-demand retail technical analysis and bespoke institutional research requests"
+    },
+    {
+        "version": 31,
+        "name": "031_custom_research_chat_and_proposals",
+        "description": "Real-time chat messages, file attachments, and versioned proposals for custom research"
     }
 ]
 
@@ -172,6 +182,8 @@ from .seed_and_fixes import (
     apply_migration_025, apply_migration_026,     apply_migration_027,
     apply_migration_028,
     apply_migration_029,
+    apply_migration_030,
+    apply_migration_031,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -209,6 +221,8 @@ def run_all_migrations(c, is_pg: bool):
         27: apply_migration_027,
         28: apply_migration_028,
         29: apply_migration_029,
+        30: apply_migration_030,
+        31: apply_migration_031,
     }
 
     for m in MIGRATIONS:
@@ -232,6 +246,8 @@ def run_all_migrations(c, is_pg: bool):
             apply_migration_027(c, is_pg=False)
             apply_migration_028(c, is_pg=False)
             apply_migration_029(c, is_pg=False)
+            apply_migration_030(c, is_pg=False)
+            apply_migration_031(c, is_pg=False)
             c.commit()
         except Exception as e:
             logger.debug(f"SQLite migration 026/027 verification note: {e}")

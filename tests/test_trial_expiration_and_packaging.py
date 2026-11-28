@@ -57,8 +57,8 @@ def test_trial_expiration_and_multi_account_isolation(client, tmp_path):
 
     pdf_full = tmp_path / "trial_full.pdf"
     pdf_sample = tmp_path / "trial_sample.pdf"
-    pdf_full.write_bytes(b"%PDF-1.4 Dummy Full PDF Content for Trial Test")
-    pdf_sample.write_bytes(b"%PDF-1.4 Dummy Sample PDF Content for Trial Test")
+    pdf_full.write_bytes(b"%PDF-1.4 " + b"ZUPIRUS Institutional Quantitative Research Test Full PDF Content " * 5)
+    pdf_sample.write_bytes(b"%PDF-1.4 " + b"ZUPIRUS Institutional Quantitative Research Test Sample PDF Content " * 5)
 
     with db.tx() as c:
         c.execute(
@@ -233,8 +233,8 @@ def test_research_suite_bundle_structure_and_manifest_integrity(client, tmp_path
 
     pdf_full = tmp_path / "pkg_full.pdf"
     pdf_sample = tmp_path / "pkg_sample.pdf"
-    pdf_full.write_bytes(b"%PDF-1.4 Packaging Test PDF File")
-    pdf_sample.write_bytes(b"%PDF-1.4 Packaging Test Sample PDF File")
+    pdf_full.write_bytes(b"%PDF-1.4 " + b"ZUPIRUS Institutional Quantitative Research Packaging Test Full PDF Content " * 5)
+    pdf_sample.write_bytes(b"%PDF-1.4 " + b"ZUPIRUS Institutional Quantitative Research Packaging Test Sample PDF Content " * 5)
 
     with db.tx() as c:
         c.execute(

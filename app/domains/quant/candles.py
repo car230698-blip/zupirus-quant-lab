@@ -316,3 +316,34 @@ def parse_csv_candles(csv_text: str) -> List[Dict[str, Any]]:
             raise CandleValidationError(f"Dòng #{idx + 1}: Lỗi phân tích nến - {exc}") from exc
 
     return parsed_candles
+
+
+def resample_candles(candles: Sequence[Candle], target_tf: str) -> List[Candle]:
+    """Resample candle series into higher timeframe bars (H1, H4).
+    Only includes closed/complete buckets.
+    """
+    tf_u = target_tf.strip().upper()
+    if tf_u in ("M15", "15M"):
+        return list(candles)
+
+    bucket_secs = 3600 if tf_u in ("H1", "1H") else 14400 if tf_u in ("H4", "4H") else 86400
+    if not candles:
+        return []
+
+    buckets: Dict[int, List[Candle]] = {}
+    for c in candles:
+        b_ts = (c.time // bucket_secs) * bucket_secs
+        buckets.setdefault(b_ts, []).append(c)
+
+    resampled: List[Candle] = []
+    for b_ts in sorted(buckets.keys()):
+        b_candles = buckets[b_ts]
+        # Form composite candle
+        op = b_candles[0].open
+        hi = max(c.high for c in b_candles)
+        lo = min(c.low for c in b_candles)
+        cl = b_candles[-1].close
+        vol = sum(c.volume for c in b_candles)
+        resampled.append(Candle(time=b_ts, open=op, high=hi, low=lo, close=cl, volume=vol))
+
+    return resampled

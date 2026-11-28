@@ -6,7 +6,7 @@ and what the measurement does not claim.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 DISCLAIMER_VI = (
     "Tài liệu này là bài nghiên cứu thống kê phục vụ học tập. "

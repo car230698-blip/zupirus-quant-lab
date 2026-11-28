@@ -1095,6 +1095,166 @@ def apply_migration_029(c, is_pg: bool):
         logger.warning("Launch guide seed note in migration 029: %s", seed_err)
 
 
+def apply_migration_030(c, is_pg: bool):
+    """Migration 030: Add custom_research_requests table for on-demand retail & institutional research."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS custom_research_requests (
+            id VARCHAR(64) PRIMARY KEY,
+            user_id VARCHAR(64) NOT NULL,
+            client_email VARCHAR(255),
+            product_type VARCHAR(32) NOT NULL DEFAULT 'RETAIL_ANALYSIS',
+            symbol VARCHAR(32) NOT NULL,
+            timeframe VARCHAR(16) NOT NULL DEFAULT 'H1',
+            period_bars INTEGER NOT NULL DEFAULT 100,
+            hypothesis_prompt TEXT,
+            symbols_json TEXT,
+            turnaround_hours INTEGER NOT NULL DEFAULT 24,
+            quoted_price_usd DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            scope_notes TEXT,
+            status VARCHAR(32) NOT NULL DEFAULT 'PENDING_QUOTE',
+            run_id VARCHAR(64),
+            deliverable_report_id VARCHAR(64),
+            deliverable_version VARCHAR(16) NOT NULL DEFAULT 'v1.0',
+            deliverable_pdf_path TEXT,
+            deliverable_bundle_path TEXT,
+            rejection_reason TEXT,
+            created_at DOUBLE PRECISION NOT NULL,
+            updated_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_crr_user ON custom_research_requests(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_crr_status ON custom_research_requests(status);
+        CREATE INDEX IF NOT EXISTS idx_crr_type ON custom_research_requests(product_type);
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS custom_research_requests (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            client_email TEXT,
+            product_type TEXT NOT NULL DEFAULT 'RETAIL_ANALYSIS',
+            symbol TEXT NOT NULL,
+            timeframe TEXT NOT NULL DEFAULT 'H1',
+            period_bars INTEGER NOT NULL DEFAULT 100,
+            hypothesis_prompt TEXT,
+            symbols_json TEXT,
+            turnaround_hours INTEGER NOT NULL DEFAULT 24,
+            quoted_price_usd REAL NOT NULL DEFAULT 0.0,
+            scope_notes TEXT,
+            status TEXT NOT NULL DEFAULT 'PENDING_QUOTE',
+            run_id TEXT,
+            deliverable_report_id TEXT,
+            deliverable_version TEXT NOT NULL DEFAULT 'v1.0',
+            deliverable_pdf_path TEXT,
+            deliverable_bundle_path TEXT,
+            rejection_reason TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_crr_user ON custom_research_requests(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_crr_status ON custom_research_requests(status);
+        CREATE INDEX IF NOT EXISTS idx_crr_type ON custom_research_requests(product_type);
+        """)
+
+
+def apply_migration_031(c, is_pg: bool):
+    """Migration 031: Add chat messages, attachments, and proposal versioning for custom research requests."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS custom_research_messages (
+            id VARCHAR(64) PRIMARY KEY,
+            request_id VARCHAR(64) NOT NULL REFERENCES custom_research_requests(id) ON DELETE CASCADE,
+            sender_id VARCHAR(64) NOT NULL,
+            sender_role VARCHAR(32) NOT NULL DEFAULT 'client',
+            sender_name VARCHAR(128),
+            message TEXT NOT NULL,
+            attachment_path TEXT,
+            attachment_name TEXT,
+            attachment_type VARCHAR(64),
+            attachment_size BIGINT,
+            is_read_by_admin INTEGER NOT NULL DEFAULT 0,
+            is_read_by_client INTEGER NOT NULL DEFAULT 1,
+            created_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_crm_req ON custom_research_messages(request_id, created_at ASC);
+        CREATE INDEX IF NOT EXISTS idx_crm_admin_unread ON custom_research_messages(is_read_by_admin);
+
+        CREATE TABLE IF NOT EXISTS custom_research_attachments (
+            id VARCHAR(64) PRIMARY KEY,
+            request_id VARCHAR(64) NOT NULL REFERENCES custom_research_requests(id) ON DELETE CASCADE,
+            message_id VARCHAR(64),
+            uploader_id VARCHAR(64) NOT NULL,
+            filename VARCHAR(255) NOT NULL,
+            stored_path TEXT NOT NULL,
+            file_type VARCHAR(64) NOT NULL,
+            file_size BIGINT NOT NULL,
+            is_run_input INTEGER NOT NULL DEFAULT 0,
+            created_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cra_req ON custom_research_attachments(request_id);
+
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS problem_description TEXT;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS proposal_version INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS proposal_details_json TEXT;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS client_confirmed_version INTEGER;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS input_attachment_id VARCHAR(64);
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS current_step VARCHAR(32) NOT NULL DEFAULT 'PROPOSAL_PENDING';
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS next_action_vi TEXT;
+        """)
+    else:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS custom_research_messages (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            sender_id TEXT NOT NULL,
+            sender_role TEXT NOT NULL DEFAULT 'client',
+            sender_name TEXT,
+            message TEXT NOT NULL,
+            attachment_path TEXT,
+            attachment_name TEXT,
+            attachment_type TEXT,
+            attachment_size INTEGER,
+            is_read_by_admin INTEGER NOT NULL DEFAULT 0,
+            is_read_by_client INTEGER NOT NULL DEFAULT 1,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_crm_req ON custom_research_messages(request_id, created_at ASC);
+        CREATE INDEX IF NOT EXISTS idx_crm_admin_unread ON custom_research_messages(is_read_by_admin);
+
+        CREATE TABLE IF NOT EXISTS custom_research_attachments (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            message_id TEXT,
+            uploader_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            stored_path TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            is_run_input INTEGER NOT NULL DEFAULT 0,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cra_req ON custom_research_attachments(request_id);
+        """)
+        cols = [r[1] for r in c.execute("PRAGMA table_info(custom_research_requests)").fetchall()]
+        if "problem_description" not in cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN problem_description TEXT")
+        if "proposal_version" not in cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN proposal_version INTEGER NOT NULL DEFAULT 1")
+        if "proposal_details_json" not in cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN proposal_details_json TEXT")
+        if "client_confirmed_version" not in cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN client_confirmed_version INTEGER")
+        if "input_attachment_id" not in cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN input_attachment_id TEXT")
+        if "current_step" not in cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN current_step TEXT NOT NULL DEFAULT 'PROPOSAL_PENDING'")
+        if "next_action_vi" not in cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN next_action_vi TEXT")
+
+
+
+
+
 
 
 

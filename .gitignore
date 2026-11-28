@@ -24,6 +24,7 @@ coverage/
 *.log
 data/reports_private/
 data/reports_samples/
+data/research_attachments/
 tmp/
 backups/
 *.dump

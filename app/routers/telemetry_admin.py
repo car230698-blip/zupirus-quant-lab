@@ -118,7 +118,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
             src_name = sl.get("source_name") or "AI"
             reason_txt = sl.get("reject_reason") or sl.get("reason") or sl.get("rejection_reason") or st
             if st == "APPROVED":
-                msg = f"Nhận tín hiệu {side} {sym} ({src_name}) -> Đã qua 4 lớp an toàn -> Phân phối tới {deployed_cnt} tài khoản."
+                msg = f"Nhận tín hiệu {side} {sym} ({src_name}) -> Đã qua 4 lớp an toàn."
                 kind = "success"
             else:
                 msg = f"Tín hiệu {side} {sym} ({src_name}) bị Lá chắn từ chối: {reason_txt}."

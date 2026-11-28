@@ -34,9 +34,10 @@ def _make_dummy_candles(n_days=10, bars_per_day=30):
 
 
 def test_stage2_1_dataset_identity_provenance():
-    """Stage 2.1: GC=F is explicitly marked COMEX Gold Futures, never falsely claimed as Spot."""
+    """Stage 2.1: GC=F is explicitly marked COMEX Gold Futures, and XAUUSD is marked Spot Gold."""
     candles = _make_dummy_candles(n_days=3, bars_per_day=20)
-    ds = build_dataset_identity("XAUUSD", "M15", candles)
+    # COMEX Gold Futures
+    ds = build_dataset_identity("GC=F", "M15", candles)
     assert ds.asset_class == "COMEX_GOLD_FUTURES"
     assert ds.symbol == "GC=F"
     assert ds.timeframe == "M15"
@@ -45,6 +46,12 @@ def test_stage2_1_dataset_identity_provenance():
     assert "Hợp đồng tương lai vàng COMEX" in ds.symbol_display
     assert "không phải giá giao ngay" in ds.limitations
     assert len(ds.data_sha256) == 64
+
+    # Spot Gold XAU/USD decoupling
+    ds_gold_spot = build_dataset_identity("XAUUSD", "M15", candles)
+    assert ds_gold_spot.asset_class == "SPOT_COMMODITY"
+    assert ds_gold_spot.is_spot_confirmed is True
+    assert "Vàng giao ngay Spot Gold" in ds_gold_spot.symbol_display
 
     # ForeX spot
     ds_fx = build_dataset_identity("EURUSD", "M15", candles)

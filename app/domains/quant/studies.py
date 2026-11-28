@@ -10,7 +10,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from app.domains.quant.candles import Candle, normalize_candles, session_name, utc_date_key, weekday_name
 

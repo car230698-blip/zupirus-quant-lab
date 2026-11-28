@@ -51,8 +51,9 @@ export function resolveRoutePath(
     };
   }
   if (path === '/admin' || path.startsWith('/admin/')) {
-    let adminPage: AdminPageKey = 'overview';
-    if (path === '/admin/reports') adminPage = 'reports';
+    let adminPage: AdminPageKey = 'orders';
+    if (path === '/admin/overview') adminPage = 'overview';
+    else if (path === '/admin/reports') adminPage = 'reports';
     else if (path === '/admin/research') adminPage = 'research';
     else if (path === '/admin/orders' || path === '/admin/users' || path === '/admin/settings') adminPage = 'orders';
 

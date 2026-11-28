@@ -14,52 +14,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [heroImgFailed, setHeroImgFailed] = useState(false);
 
-  const methodSteps =
-    lang === 'en'
-      ? [
-          {
-            step: '01',
-            title: 'Asia Range Definition (00:00–05:00 UTC)',
-            desc: 'Calculate high/low boundaries across exactly 20 M15 bars on COMEX Gold Futures (GC=F) continuous contracts.',
-          },
-          {
-            step: '02',
-            title: 'Breakout & Retest Confirmation',
-            desc: 'Require bar close outside the Asia range, detect valid retest within 1–8 subsequent bars, and enter on the next open.',
-          },
-          {
-            step: '03',
-            title: 'Fixed-Rule Sub-Period Evaluation',
-            desc: 'Evaluate performance across independent time periods with 1.5R profit target, opposite-boundary SL, and 32-bar time stop.',
-          },
-          {
-            step: '04',
-            title: 'Full Suite Delivery',
-            desc: 'Package comprehensive PDF documentation, empirical trade ledger CSV, and standalone CLI replay engine for local verification.',
-          },
-        ]
-      : [
-          {
-            step: '01',
-            title: 'Xác Định Biên Độ Phiên Á (00:00–05:00 UTC)',
-            desc: 'Đo khung biên độ dao động gồm đúng 20 nến M15 trên hợp đồng tương lai vàng COMEX (GC=F) theo giờ UTC.',
-          },
-          {
-            step: '02',
-            title: 'Xác Nhận Breakout & Retest',
-            desc: 'Chỉ xác nhận phá vỡ khi nến đóng ngoài biên, tìm nhịp retest trong 1–8 nến tiếp theo và vào lệnh tại giá mở nến sau retest.',
-          },
-          {
-            step: '03',
-            title: 'Kiểm Định Phân Tách Giai Đoạn',
-            desc: 'Đánh giá khách quan theo các giai đoạn thời gian độc lập với TP 1,5R, cắt lỗ biên đối diện và giới hạn tối đa 32 nến.',
-          },
-          {
-            step: '04',
-            title: 'Bàn Giao Trọn Bộ Sản Phẩm',
-            desc: 'Đóng gói báo cáo PDF chuyên sâu, nhật ký giao dịch ledger CSV và công cụ CLI Replay độc lập để tự kiểm tra nội bộ.',
-          },
-        ];
+  const methodSteps = lang === 'en' ? [
+    { step: '01', title: 'Asia Range Definition (00:00–05:00 UTC)', desc: 'Calculate high/low boundaries across exactly 20 M15 bars on COMEX Gold Futures (GC=F) continuous contracts.' },
+    { step: '02', title: 'Breakout & Retest Confirmation', desc: 'Require bar close outside the Asia range, detect valid retest within 1–8 subsequent bars, and enter on the next open.' },
+    { step: '03', title: 'Fixed-Rule Sub-Period Evaluation', desc: 'Evaluate performance across independent time periods with 1.5R profit target, opposite-boundary SL, and 32-bar time stop.' },
+    { step: '04', title: 'Full Suite Delivery', desc: 'Package comprehensive PDF documentation, empirical trade ledger CSV, and standalone CLI replay engine for local verification.' },
+  ] : [
+    { step: '01', title: 'Xác Định Biên Độ Phiên Á (00:00–05:00 UTC)', desc: 'Đo khung biên độ dao động gồm đúng 20 nến M15 trên hợp đồng tương lai vàng COMEX (GC=F) theo giờ UTC.' },
+    { step: '02', title: 'Xác Nhận Breakout & Retest', desc: 'Chỉ xác nhận phá vỡ khi nến đóng ngoài biên, tìm nhịp retest trong 1–8 nến tiếp theo và vào lệnh tại giá mở nến sau retest.' },
+    { step: '03', title: 'Kiểm Định Phân Tách Giai Đoạn', desc: 'Đánh giá khách quan theo các giai đoạn thời gian độc lập với TP 1,5R, cắt lỗ biên đối diện và giới hạn tối đa 32 nến.' },
+    { step: '04', title: 'Bàn Giao Trọn Bộ Sản Phẩm', desc: 'Đóng gói báo cáo PDF chuyên sâu, nhật ký giao dịch ledger CSV và công cụ CLI Replay độc lập để tự kiểm tra nội bộ.' },
+  ];
 
   const faqs =
     lang === 'en'
@@ -125,13 +90,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                 onClick={() => onNavigate('/portal')}
                 className="quant-btn-primary text-sm px-5 py-3"
               >
-                <span>{t.hero.ctaPrimary}</span>
+                <span>{lang === 'en' ? 'Create Technical Analysis Note' : 'Tạo báo cáo kỹ thuật'}</span>
                 <ArrowRight className="h-4 w-4" />
               </button>
-              <a href="#reports" className="quant-btn-secondary text-sm px-5 py-3">
-                <FileText className="h-4 w-4" />
-                <span>{t.hero.ctaSecondary}</span>
-              </a>
+              <button
+                type="button"
+                onClick={() => onNavigate('/portal')}
+                className="quant-btn-secondary text-sm px-5 py-3 border border-amber-500/40 text-amber-200 hover:bg-amber-500/10"
+              >
+                <FileText className="h-4 w-4 text-amber-300" />
+                <span>{lang === 'en' ? 'Discuss Bespoke Research Needs' : 'Trao đổi về nhu cầu nghiên cứu'}</span>
+              </button>
             </div>
 
             {/* Clean Unboxed Stats Strip */}
@@ -273,6 +242,70 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                 {lang === 'en' ? 'Independent Research Suite Delivery' : 'Bàn giao bộ nghiên cứu độc lập'}
               </span>
               <span>No MT5 · Single-Team License</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION: VALUE PROPOSITION - KHÁCH CUNG CẤP GÌ, NHẬN ĐƯỢC GÌ, BƯỚC TIẾP THEO */}
+      <section className="border-b border-slate-800/70 bg-slate-900/40">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12">
+          <div className="text-center max-w-2xl mx-auto mb-8 space-y-2">
+            <div className="font-mono text-xs font-semibold uppercase tracking-wider text-[#12B5A6]">
+              {lang === 'en' ? 'ON-DEMAND RESEARCH FRAMEWORK' : 'MÔ HÌNH NGHIÊN CỨU THEO YÊU CẦU'}
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+              {lang === 'en' ? 'Clear Inputs, Empirical Deliverables & Private Handoff' : 'Khách cung cấp gì · Nhận được gì · Bước tiếp theo'}
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Card 1: Khách cung cấp gì */}
+            <div className="p-6 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-[#12B5A6]/10 text-[#12B5A6] font-mono font-bold flex items-center justify-center text-sm border border-[#12B5A6]/20">01</div>
+              <h3 className="text-base font-bold text-white">Khách hàng cung cấp gì?</h3>
+              <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
+                <li className="flex items-start gap-1.5">
+                  <span className="text-[#12B5A6] font-bold">•</span>
+                  <span><strong>Khách cá nhân:</strong> Chọn cặp tài sản (XAUUSD, EURUSD, USDJPY), khung nến (H1/H4) và kỳ quan sát.</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-amber-400 font-bold">•</span>
+                  <span><strong>Khách tổ chức:</strong> Chỉ cần mô tả bài toán cần ra quyết định hoặc rủi ro đang lo ngại. Không cần chọn mã hay phương pháp kỹ thuật.</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Card 2: Nhận được gì */}
+            <div className="p-6 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-300 font-mono font-bold flex items-center justify-center text-sm border border-amber-500/20">02</div>
+              <h3 className="text-base font-bold text-white">Nhận được sản phẩm gì?</h3>
+              <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
+                <li className="flex items-start gap-1.5">
+                  <span className="text-[#12B5A6] font-bold">•</span>
+                  <span><strong>Bản cá nhân:</strong> PDF 2–4 trang tối ưu di động, chốt hướng BUY/SELL/ĐỨNG NGOÀI, vùng S/R, mốc hủy.</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-amber-400 font-bold">•</span>
+                  <span><strong>Nghiên cứu tổ chức:</strong> PDF chuyên sâu 20+ trang, nhật ký mô phỏng ledger CSV, bộ số liệu metrics JSON, công cụ Replay CLI và mã băm SHA-256.</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Card 3: Bước tiếp theo */}
+            <div className="p-6 rounded-xl border border-slate-800 bg-slate-900/60 space-y-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 font-mono font-bold flex items-center justify-center text-sm border border-emerald-500/20">03</div>
+              <h3 className="text-base font-bold text-white">Bước tiếp theo & Bàn giao</h3>
+              <ul className="text-xs text-slate-300 space-y-2 leading-relaxed">
+                <li className="flex items-start gap-1.5">
+                  <span className="text-emerald-400 font-bold">•</span>
+                  <span><strong>Trao đổi & Đính kèm:</strong> Chat hai chiều, gửi ảnh, PDF hoặc CSV trực tiếp với desk nghiên cứu.</span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <span className="text-emerald-400 font-bold">•</span>
+                  <span><strong>Bàn giao riêng tư:</strong> Khách xác nhận đề xuất theo phiên bản, Admin duyệt bàn giao vào thư viện tài khoản, hoàn toàn bảo mật.</span>
+                </li>
+              </ul>
             </div>
           </div>
         </div>

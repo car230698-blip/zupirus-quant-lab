@@ -605,6 +605,8 @@ def admin_extend_trial_license(entitlement_id: str, p: ExtendTrialPayload, _admi
         if not row:
             fail(404, f"Không tìm thấy giấy phép dùng thử {entitlement_id}")
         ent = dict(row)
+        if not ent.get("is_trial"):
+            fail(400, f"Giấy phép '{entitlement_id}' là quyền sở hữu vĩnh viễn (is_trial=0), không thể gia hạn ngày dùng thử.")
         current_exp = float(ent.get("expires_at") or now_ts)
         new_exp = max(current_exp, now_ts) + (p.extra_days * 86400)
 
@@ -645,6 +647,8 @@ def admin_revoke_trial_license(entitlement_id: str, p: RevokeTrialPayload, _admi
         if not row:
             fail(404, f"Không tìm thấy giấy phép dùng thử {entitlement_id}")
         ent = dict(row)
+        if not ent.get("is_trial"):
+            fail(400, f"Không thể thu hồi giấy phép sở hữu vĩnh viễn (is_trial=0) '{entitlement_id}' qua luồng dùng thử.")
 
         c.execute("""
             UPDATE report_entitlements SET

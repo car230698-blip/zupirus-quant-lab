@@ -35,6 +35,7 @@ from app.routers import (
 from app.routers.quant import router as quant_router
 from app.routers.growth import router as growth_router
 from app.routers.seo_pages import router as seo_pages_router
+from app.routers.custom_research import router as custom_research_router
 from app.routers.auth import _client_ip, resolve_ip_country
 
 logger = logging.getLogger("zupirus.api")
@@ -263,6 +264,7 @@ for _router in (
     admin_ai_router,
     growth_router,
     seo_pages_router,
+    custom_research_router,
 ):
     app.include_router(_router)
 

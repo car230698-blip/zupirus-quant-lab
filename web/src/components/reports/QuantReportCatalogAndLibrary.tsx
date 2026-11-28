@@ -17,7 +17,10 @@ import {
   RefreshCw,
   Copy,
   Check,
+  Plus,
+  MessageSquare,
 } from 'lucide-react';
+import { OrderChatModal } from '../research/OrderChatModal';
 
 export interface ResearchReportItem {
   id: string;
@@ -135,6 +138,18 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadingBundleId, setDownloadingBundleId] = useState<string | null>(null);
 
+  // Custom Research State
+  const [customRequests, setCustomRequests] = useState<any[]>([]);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [requestTab, setRequestTab] = useState<'retail' | 'institutional'>('retail');
+  const [retailSymbol, setRetailSymbol] = useState('XAUUSD');
+  const [retailTimeframe, setRetailTimeframe] = useState('H1');
+  const [instPrompt, setInstPrompt] = useState('Quỹ chúng tôi đang lo ngại lạm phát Mỹ dai dẳng và muốn biết giá vàng và tỷ giá EUR/USD phản ứng ra sao sau các nhịp CPI bất ngờ.');
+  const [instTurnaround, setInstTurnaround] = useState(48);
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [activeChatOrder, setActiveChatOrder] = useState<any | null>(null);
+  const [confirmingQuoteId, setConfirmingQuoteId] = useState<string | null>(null);
+
   useEffect(() => {
     setActiveView(initialSection);
   }, [initialSection]);
@@ -190,6 +205,10 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
         } else {
           setPendingOrders([]);
         }
+
+        const customRes = await apiGet<any>('/api/v1/research/my-requests').catch(() => ({ items: [] }));
+        const customList = customRes?.items || customRes?.requests || [];
+        setCustomRequests(Array.isArray(customList) ? customList : []);
       } catch (err: any) {
         if (err?.status !== 401) {
           setLibraryError(
@@ -289,6 +308,71 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
     setCheckoutOrder(null);
     setTxHashInput('');
     setStatusMessage(null);
+  };
+
+  const handleCreateCustomRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRequestSubmitting(true);
+    setStatusMessage(null);
+    try {
+      if (requestTab === 'retail') {
+        await apiPost<any>('/api/v1/research/retail/request', {
+          symbol: retailSymbol,
+          timeframe: retailTimeframe,
+          period_bars: 100,
+        });
+        setStatusMessage({
+          type: 'success',
+          text: lang === 'en'
+            ? 'Retail technical analysis completed. PDF is ready for download in your Library!'
+            : 'Đã hoàn tất phân tích kỹ thuật! Bản PDF 2-4 trang đọc trên di động đã sẵn sàng tải về trong Thư viện.',
+        });
+      } else {
+        const res: any = await apiPost<any>('/api/v1/research/institutional/inquiry', {
+          problem_description: instPrompt,
+          turnaround_hours: Number(instTurnaround),
+        });
+        setStatusMessage({
+          type: 'success',
+          text: lang === 'en'
+            ? 'Institutional RFP submitted. Initial draft proposal and chat are ready!'
+            : 'Yêu cầu nghiên cứu tổ chức đã được tiếp nhận. Đề xuất sơ bộ đã sẵn sàng trong cuộc trao đổi!',
+        });
+        if (res?.request_id) {
+          setActiveChatOrder({ id: res.request_id, hypothesis_prompt: instPrompt });
+        }
+      }
+      setShowRequestModal(false);
+      await loadData();
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Có lỗi xảy ra khi gửi yêu cầu nghiên cứu.',
+      });
+    } finally {
+      setRequestSubmitting(false);
+    }
+  };
+
+  const handleConfirmQuote = async (reqId: string, version?: number) => {
+    try {
+      setConfirmingQuoteId(reqId);
+      await apiPost(`/api/v1/research/institutional/${encodeURIComponent(reqId)}/confirm`, {
+        version: version || 1,
+      });
+      setStatusMessage({
+        type: 'success',
+        text: 'Đã xác nhận báo giá và phạm vi nghiên cứu thành công! Ban quản trị sẽ tiến hành chạy mô hình.',
+      });
+      await loadData();
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Không thể xác nhận đề xuất.',
+      });
+    } finally {
+      setConfirmingQuoteId(null);
+    }
   };
 
   const handleCreateReportOrder = async () => {
@@ -453,9 +537,19 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
             >
               <Layers className="h-4 w-4" />
               <span>
-                {lang === 'en' ? 'Library' : 'Thư viện'} ({libraryItems.length})
+                {lang === 'en' ? 'Library' : 'Thư viện'} ({libraryItems.length + customRequests.length})
               </span>
             </button>
+            {mode === 'portal' && (
+              <button
+                type="button"
+                onClick={() => setShowRequestModal(true)}
+                className="quant-btn-secondary text-xs flex items-center gap-1.5 border-teal-500/40 text-teal-300 hover:bg-teal-950/30"
+              >
+                <Plus className="h-4 w-4" />
+                <span>{lang === 'en' ? 'Request Research' : 'Yêu Cầu Nghiên Cứu'}</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={loadData}
@@ -539,7 +633,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
       {/* VIEW 1: MY LIBRARY (PORTAL) */}
       {mode === 'portal' && activeView === 'library' ? (
         <div className="space-y-4">
-          {libraryLoading && libraryItems.length === 0 ? (
+          {libraryLoading && libraryItems.length === 0 && customRequests.length === 0 ? (
             <div className="quant-panel p-10 text-center text-sm text-slate-400">
               {lang === 'en' ? 'Loading your PDF report library...' : 'Đang tải dữ liệu thư viện báo cáo PDF...'}
             </div>
@@ -555,7 +649,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                 {lang === 'en' ? 'Retry' : 'Thử lại'}
               </button>
             </div>
-          ) : libraryItems.length === 0 ? (
+          ) : libraryItems.length === 0 && customRequests.length === 0 ? (
             <EmptyState
               icon={<FileText className="h-5 w-5" />}
               title={lang === 'en' ? 'Your PDF Library is Empty' : 'Chưa có báo cáo nào trong Thư viện của bạn'}
@@ -576,7 +670,121 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
               }
             />
           ) : (
-            <div className="grid gap-5 md:grid-cols-2">
+            <div className="space-y-6">
+              {/* CUSTOM RESEARCH DELIVERABLES */}
+              {customRequests.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-teal-400" />
+                      <span>{lang === 'en' ? 'Private Custom Research Deliverables' : 'Bản Nghiên Cứu Định Lượng Riêng Theo Yêu Cầu'}</span>
+                    </h3>
+                    <span className="text-xs font-mono text-slate-400">({customRequests.length} hồ sơ)</span>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {customRequests.map((cr: any) => (
+                      <div key={cr.id} className="quant-card-interactive p-5 flex flex-col justify-between gap-3 border-teal-500/30">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-[11px] text-teal-400 font-semibold">{cr.id}</span>
+                            <div className="flex items-center gap-1.5">
+                              {cr.current_step && (
+                                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                                  {cr.current_step}
+                                </span>
+                              )}
+                              <StatusBadge tone={cr.status === 'DELIVERED' || cr.status === 'COMPLETED' ? 'success' : cr.status === 'QUOTED' ? 'info' : 'warning'}>
+                                {cr.status}
+                              </StatusBadge>
+                            </div>
+                          </div>
+                          <h4 className="text-sm font-bold text-white leading-snug">
+                            {cr.problem_description || cr.hypothesis_prompt || `${cr.symbol} · ${cr.timeframe} Technical Analysis`}
+                          </h4>
+                          <p className="text-xs text-slate-400">
+                            {cr.product_type} · {cr.symbol} {cr.timeframe} · {new Date(cr.created_at * 1000).toLocaleDateString('vi-VN')}
+                          </p>
+
+                          {cr.next_action_vi && (
+                            <div className="text-[11px] text-teal-300/90 bg-teal-950/30 px-2.5 py-1.5 rounded border border-teal-800/40 flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>Bước tiếp theo: {cr.next_action_vi}</span>
+                            </div>
+                          )}
+
+                          {/* Quoted Box & Confirm Action */}
+                          {cr.status === 'QUOTED' && (
+                            <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-800/40 space-y-2">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-400">Báo giá đề xuất (v{cr.proposal_version || 1}):</span>
+                                <span className="font-bold text-cyan-300 font-mono text-sm">
+                                  ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={confirmingQuoteId === cr.id}
+                                onClick={() => handleConfirmQuote(cr.id, cr.proposal_version)}
+                                className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5"
+                              >
+                                {confirmingQuoteId === cr.id ? (
+                                  <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Đang xác nhận...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Xác Nhận Đề Xuất &amp; Báo Giá Này</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setActiveChatOrder(cr)}
+                            className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Mở Trao Đổi &amp; Tệp</span>
+                          </button>
+
+                          {(cr.deliverable_pdf_path || cr.download_pdf_url) && (
+                            <a
+                              href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-pdf`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="quant-btn-primary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Tải PDF</span>
+                            </a>
+                          )}
+                          {(cr.deliverable_bundle_path || cr.download_bundle_url) && (
+                            <a
+                              href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-bundle`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Tải Bundle ZIP</span>
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* STANDARD COMMERCIAL PUBLICATIONS */}
+              {libraryItems.length > 0 && (
+                <div className="grid gap-5 md:grid-cols-2">
               {libraryItems.map((item) => {
                 const isDownloading = downloadingId === `${item.report_id}:${item.purchased_version}`;
                 const isDownloadingBundle = downloadingBundleId === `${item.report_id}:${item.purchased_version}`;
@@ -773,6 +981,8 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                   </div>
                 );
               })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1380,6 +1590,160 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
             )}
           </div>
         </div>
+      )}
+      {/* MODAL 3: CUSTOM RESEARCH REQUEST MODAL */}
+      {showRequestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="space-y-0.5">
+                <span className="text-[11px] font-mono text-teal-400 font-semibold uppercase tracking-wider">
+                  ZUPIRUS QUANT ON-DEMAND RESEARCH
+                </span>
+                <h3 className="text-base font-bold text-white">
+                  {lang === 'en' ? 'New Quantitative Research Request' : 'Yêu Cầu Nghiên Cứu Định Lượng Mới'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRequestModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Sub-tab selection: Retail vs Institutional */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-lg border border-slate-800 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setRequestTab('retail')}
+                className={`py-2 rounded transition cursor-pointer text-center ${
+                  requestTab === 'retail' ? 'bg-teal-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Khách Cá Nhân (Retail TA)
+              </button>
+              <button
+                type="button"
+                onClick={() => setRequestTab('institutional')}
+                className={`py-2 rounded transition cursor-pointer text-center ${
+                  requestTab === 'institutional' ? 'bg-teal-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Khách Tổ Chức (Institutional)
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCustomRequest} className="space-y-4">
+              {requestTab === 'retail' ? (
+                <>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Hệ thống chạy mô hình định lượng chuẩn trên nến đóng, tạo bản PDF 2–4 trang đọc tốt trên điện thoại với các mốc hỗ trợ, kháng cự, điểm vô hiệu và khuyến nghị MUA / BÁN / ĐỨNG NGOÀI rõ ràng.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Mã tài sản (Symbol)</label>
+                    <select
+                      value={retailSymbol}
+                      onChange={(e) => setRetailSymbol(e.target.value)}
+                      className="quant-input text-xs w-full"
+                    >
+                      <option value="XAUUSD">XAUUSD (Spot Gold / Vàng giao ngay)</option>
+                      <option value="EURUSD">EURUSD (Euro / USD)</option>
+                      <option value="USDJPY">USDJPY (USD / Yên Nhật)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Khung thời gian (Timeframe)</label>
+                    <select
+                      value={retailTimeframe}
+                      onChange={(e) => setRetailTimeframe(e.target.value)}
+                      className="quant-input text-xs w-full"
+                    >
+                      <option value="H1">H1 (1 Giờ - Khung chiến lược ngắn hạn)</option>
+                      <option value="H4">H4 (4 Giờ - Khung cấu trúc trung hạn)</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Khách hàng tổ chức chỉ cần nêu bài toán hoặc lo ngại rủi ro. Desk định lượng sẽ tự động đề xuất câu hỏi có thể kiểm định, rổ tài sản, sự kiện và bộ bằng chứng bàn giao để Admin gửi Quý khách duyệt.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-semibold text-white mb-1.5 flex items-center gap-1.5">
+                      <span className="text-teal-400 font-bold">●</span>
+                      <span>Anh/chị đang cần ra quyết định gì hoặc đang lo rủi ro nào?</span>
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={instPrompt}
+                      onChange={(e) => setInstPrompt(e.target.value)}
+                      placeholder="Mô tả bài toán đầu tư, quyết định cần ra hoặc sự kiện rủi ro mà Quý khách đang quan tâm (Không cần chọn mã, khung hay phương pháp)..."
+                      className="quant-input text-xs w-full"
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1">Thời hạn mong muốn (Tùy chọn)</label>
+                      <select
+                        value={instTurnaround}
+                        onChange={(e) => setInstTurnaround(Number(e.target.value))}
+                        className="quant-input text-xs w-full"
+                      >
+                        <option value={24}>24 giờ (Express)</option>
+                        <option value={48}>48 giờ (Tiêu chuẩn)</option>
+                        <option value={72}>72 giờ (Chuyên sâu)</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end">
+                      <p className="text-[11px] text-slate-400 pb-1.5">
+                        Mức $10.000 USD là mục tiêu tham chiếu nội bộ. Giá và phạm vi chính thức sẽ do Admin báo theo từng đơn.
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowRequestModal(false)}
+                  className="quant-btn-secondary text-xs"
+                >
+                  {lang === 'en' ? 'Cancel' : 'Hủy'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={requestSubmitting}
+                  className="quant-btn-primary text-xs flex items-center gap-1.5"
+                >
+                  {requestSubmitting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>{requestTab === 'retail' ? 'Đang phân tích...' : 'Đang gửi yêu cầu...'}</span>
+                    </>
+                  ) : (
+                    <span>{requestTab === 'retail' ? 'Chạy Phân Tích Kỹ Thuật' : 'Gửi Yêu Cầu RFP Tổ Chức'}</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Order Chat & Attachments Modal */}
+      {activeChatOrder && (
+        <OrderChatModal
+          requestId={activeChatOrder.id}
+          orderTitle={activeChatOrder.problem_description || activeChatOrder.hypothesis_prompt || `${activeChatOrder.symbol} Research`}
+          currentStatus={activeChatOrder.status}
+          userRole="client"
+          onClose={() => setActiveChatOrder(null)}
+          onOrderUpdated={loadData}
+        />
       )}
     </section>
   );
