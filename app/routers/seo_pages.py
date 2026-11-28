@@ -358,7 +358,7 @@ def _resolve_lang(request: Optional[Request], lang: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/robots.txt", response_class=Response)
+@router.api_route("/robots.txt", methods=["GET", "HEAD"], response_class=Response)
 def get_robots_txt() -> Response:
     content = """User-agent: *
 Allow: /
@@ -380,7 +380,7 @@ Sitemap: https://zupirus.com/sitemap.xml
     return Response(content=content, media_type="text/plain; charset=utf-8")
 
 
-@router.get("/sitemap.xml", response_class=Response)
+@router.api_route("/sitemap.xml", methods=["GET", "HEAD"], response_class=Response)
 def get_dynamic_sitemap() -> Response:
     """Generate dynamic XML sitemap including static pages and published reports."""
     url_entries = [
@@ -472,9 +472,11 @@ def get_dynamic_sitemap() -> Response:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/huong-dan", response_class=HTMLResponse)
-@router.get("/guides", response_class=HTMLResponse)
+@router.api_route("/huong-dan", methods=["GET", "HEAD"], response_class=HTMLResponse)
+@router.api_route("/guides", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
+    if request.method == "HEAD":
+        return HTMLResponse(content="", status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
     effective_lang = _resolve_lang(request, lang)
     canonical = "https://zupirus.com/huong-dan"
     vi_alt = "https://zupirus.com/huong-dan"
@@ -560,8 +562,13 @@ def seo_guides_hub(request: Request, lang: Optional[str] = Query(None)) -> HTMLR
     )
 
 
-@router.get("/huong-dan/{slug}", response_class=HTMLResponse)
+@router.api_route("/huong-dan/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
+    if request.method == "HEAD":
+        g = GUIDE_BY_SLUG.get(slug)
+        if not g:
+            raise HTTPException(status_code=404, detail="Guide not found")
+        return HTMLResponse(content="", status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
     effective_lang = _resolve_lang(request, lang)
     g = GUIDE_BY_SLUG.get(slug)
     if not g:
@@ -643,8 +650,10 @@ def seo_guide_detail(slug: str, request: Request, lang: Optional[str] = Query(No
 # ---------------------------------------------------------------------------
 
 
-@router.get("/en", response_class=HTMLResponse)
+@router.api_route("/en", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def seo_english_landing(request: Request) -> HTMLResponse:
+    if request.method == "HEAD":
+        return HTMLResponse(content="", status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
     canonical = "https://zupirus.com/en"
     title = "ZUPIRUS — Institutional Gold (XAU/USD) Quantitative Research Lab"
     desc = "Independent quantitative research laboratory specializing in COMEX Gold (XAU/USD) market microstructure, Walk-Forward Optimization, and published PDF reports."
@@ -726,8 +735,10 @@ def seo_english_landing(request: Request) -> HTMLResponse:
     )
 
 
-@router.get("/en/guides", response_class=HTMLResponse)
+@router.api_route("/en/guides", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def seo_english_guides(request: Request) -> HTMLResponse:
+    if request.method == "HEAD":
+        return HTMLResponse(content="", status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
     canonical = "https://zupirus.com/en/guides"
     title = "Quantitative Research & Methodology Knowledge Hub | ZUPIRUS Quant Lab"
     desc = "Explore in-depth quantitative research, Walk-Forward Optimization methodologies, and realistic friction cost modeling for COMEX Gold (XAU/USD)."
@@ -789,8 +800,13 @@ def seo_english_guides(request: Request) -> HTMLResponse:
     )
 
 
-@router.get("/en/guides/{slug}", response_class=HTMLResponse)
+@router.api_route("/en/guides/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
+    if request.method == "HEAD":
+        g = ENGLISH_GUIDE_BY_SLUG.get(slug)
+        if not g:
+            raise HTTPException(status_code=404, detail="Guide not found")
+        return HTMLResponse(content="", status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
     g = ENGLISH_GUIDE_BY_SLUG.get(slug)
     if not g:
         raise HTTPException(status_code=404, detail="Guide not found")
@@ -871,8 +887,8 @@ def seo_english_guide_detail(slug: str, request: Request) -> HTMLResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/bao-cao/{slug}", response_class=HTMLResponse)
-@router.get("/reports/{slug}", response_class=HTMLResponse)
+@router.api_route("/bao-cao/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
+@router.api_route("/reports/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(None)) -> HTMLResponse:
     effective_lang = _resolve_lang(request, lang)
     is_en = effective_lang == "en"
@@ -882,6 +898,8 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
     report = get_public_report_detail(slug)
     if not report:
         raise HTTPException(status_code=404, detail="Báo cáo không tồn tại hoặc chưa phát hành.")
+    if request.method == "HEAD":
+        return HTMLResponse(content="", status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
 
     rep_title = str(report.get("title") or "Báo Cáo Nghiên Cứu Định Lượng XAU/USD")
     rep_slug = str(report.get("slug") or slug)

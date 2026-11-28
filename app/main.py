@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, ORJSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, ORJSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -98,6 +98,30 @@ ORIGINS = os.getenv(
 async def perimeter(request: Request, call_next):
     # Defense-in-depth: enforce domain isolation even when behind external reverse proxies (NPM/ALB/Caddy)
     host = (request.headers.get('host') or '').split(':')[0].lower()
+
+    # 1. Permanent 301 Redirect: Canonicalize www.zupirus.com -> zupirus.com for Google SEO consolidation
+    if host == 'www.zupirus.com':
+        path_and_query = request.url.path
+        if request.url.query:
+            path_and_query += f"?{request.url.query}"
+        return RedirectResponse(f"https://zupirus.com{path_and_query}", status_code=301)
+
+    # 2. Permanent 301 Redirect: Retire legacy pages from previous project versions (e.g. /full, /hub)
+    clean_p = request.url.path.rstrip("/").lower()
+    legacy_redirects = {
+        "/full": "/",
+        "/hub": "/",
+        "/cong-dong": "/",
+        "/community": "/",
+        "/trading": "/",
+        "/bot": "/",
+        "/app": "/portal",
+        "/dashboard": "/portal",
+        "/pricing": "/portal",
+    }
+    if clean_p in legacy_redirects:
+        return RedirectResponse(legacy_redirects[clean_p], status_code=301)
+
     if host in ('app.zupirus.com', 'zupirus.com', 'www.zupirus.com'):
         admin_blocked_prefixes = (
             '/api/admin',
@@ -309,6 +333,7 @@ _NO_CACHE_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
     "Pragma": "no-cache",
     "Expires": "0",
+    "Last-Modified": "Sat, 28 Nov 2026 12:00:00 GMT",
 }
 
 
@@ -433,17 +458,22 @@ async def api_unmatched_fallback(request: Request, full_path: str):
     return JSONResponse({"detail": f"Not Found: api/{full_path}"}, status_code=404)
 
 
-@app.get('/{full_path:path}')
+@app.api_route('/{full_path:path}', methods=['GET', 'HEAD'])
 async def spa_fallback(request: Request, full_path: str):
     if full_path.startswith('api/') or full_path in ('healthz', 'readyz', 'api'):
         return JSONResponse({'detail': f'Not Found: {full_path}'}, status_code=404)
     if full_path == 'sitemap.xml':
         from app.routers.seo_pages import get_dynamic_sitemap
-        return get_dynamic_sitemap()
+        resp = get_dynamic_sitemap()
+        if request.method == 'HEAD':
+            return Response(content=b"", status_code=200, headers=dict(resp.headers), media_type=resp.media_type)
+        return resp
     host = (request.headers.get('host') or '').lower()
     is_admin_host = host.startswith('adm.')
     if full_path == 'robots.txt' and is_admin_host:
         from fastapi.responses import PlainTextResponse
+        if request.method == 'HEAD':
+            return Response(content=b"", status_code=200, headers={"X-Robots-Tag": "noindex, nofollow", "content-type": "text/plain; charset=utf-8"})
         return PlainTextResponse("User-agent: *\nDisallow: /\n", headers={"X-Robots-Tag": "noindex, nofollow"})
 
     # Determine language preference based on path, query param, or GeoIP / Accept-Language
@@ -484,6 +514,8 @@ async def spa_fallback(request: Request, full_path: str):
                     httponly=False,
                     samesite="lax",
                 )
+            if request.method == 'HEAD':
+                return Response(content=b"", status_code=resp.status_code, headers=dict(resp.headers), media_type=resp.media_type)
             return resp
 
     if (ROOT / 'index.html').exists():
@@ -500,6 +532,7 @@ async def spa_fallback(request: Request, full_path: str):
             httponly=False,
             samesite="lax",
         )
+        if request.method == 'HEAD':
+            return Response(content=b"", status_code=200, headers=dict(resp.headers), media_type=resp.media_type)
         return resp
-    return JSONResponse({'detail': 'Not Found'}, status_code=404)
     return JSONResponse({'detail': 'Not Found'}, status_code=404)

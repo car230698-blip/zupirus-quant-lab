@@ -66,3 +66,29 @@ def test_seo_report_detail_ssr(client):
     if res.status_code == 200:
         assert "Product" in res.text
         assert "OOS WIN RATE" in res.text
+
+
+def test_head_method_allowed(client):
+    """Ensure Googlebot can probe routes with HEAD without getting 405 Method Not Allowed."""
+    for path in ["/", "/robots.txt", "/sitemap.xml", "/en", "/huong-dan", "/en/guides"]:
+        res = client.head(path)
+        assert res.status_code == 200, f"HEAD {path} returned {res.status_code}"
+
+
+def test_canonical_www_redirect(client):
+    """Ensure www.zupirus.com permanently redirects to zupirus.com to consolidate Google indexing."""
+    res = client.get("/", headers={"host": "www.zupirus.com"}, follow_redirects=False)
+    assert res.status_code == 301
+    assert res.headers["location"] == "https://zupirus.com/"
+
+    res_sub = client.get("/en/guides", headers={"host": "www.zupirus.com"}, follow_redirects=False)
+    assert res_sub.status_code == 301
+    assert res_sub.headers["location"] == "https://zupirus.com/en/guides"
+
+
+def test_legacy_routes_redirect(client):
+    """Ensure retired project pages (/full, /hub, etc.) 301 redirect to / so Google purges old snippets."""
+    for legacy_path in ["/full", "/full/", "/hub", "/cong-dong", "/community", "/trading", "/bot"]:
+        res = client.get(legacy_path, follow_redirects=False)
+        assert res.status_code == 301, f"Expected 301 for {legacy_path}, got {res.status_code}"
+        assert res.headers["location"] == "/"
