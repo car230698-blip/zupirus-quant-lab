@@ -84,6 +84,17 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
     loadDetail();
   }, [loadDetail]);
 
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   const handleSendProposal = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionBusy(true);
@@ -209,8 +220,16 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-[#0B1220] border border-slate-700/80 rounded-2xl w-full max-w-5xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-2 sm:p-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div
+        className="bg-[#0B1220] border border-slate-700/80 rounded-2xl w-full max-w-5xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* HEADER */}
         <div className="p-4 sm:p-5 border-b border-slate-800 bg-slate-900/60 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="space-y-1">
@@ -273,7 +292,9 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              title="Đóng hồ sơ (Esc)"
+              aria-label="Đóng hồ sơ"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -459,13 +480,14 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
 
           {/* 2. REAL-TIME CHAT */}
           {activeTab === 'chat' && (
-            <div className="h-[520px]">
+            <div className="h-[560px]">
               <OrderChatModal
                 requestId={order.id}
                 orderTitle={order.hypothesis_prompt || order.problem_description}
                 currentStatus={order.status}
                 userRole="admin"
-                onClose={() => {}}
+                embedded={true}
+                onClose={() => setActiveTab('overview')}
                 onOrderUpdated={loadDetail}
               />
             </div>

@@ -11,6 +11,7 @@ import { AdminLayout } from '../layouts/AdminLayout';
 import { QuantReportCatalogAndLibrary } from './reports/QuantReportCatalogAndLibrary';
 import { UserBillingSection } from './reports/UserBillingSection';
 import { AdminOverviewPage } from '../pages/admin/AdminOverviewPage';
+import { OrderChatModal } from './research/OrderChatModal';
 
 const withLang = (node: React.ReactElement) =>
   React.createElement(LanguageProvider, null, node);
@@ -326,4 +327,40 @@ test('AdminLayout renders 3-item navigation, mobile toggle, and search shortcut'
 
   // Checks active page content
   assert.match(html, /Queue Content/);
+});
+
+test('OrderChatModal renders close buttons and supports embedded mode for admin dossier', () => {
+  const noop = () => {};
+
+  // Modal mode (e.g. client portal)
+  const modalHtml = renderToStaticMarkup(
+    React.createElement(OrderChatModal, {
+      requestId: 'crr_test_123',
+      orderTitle: 'XAUUSD Quant Study',
+      currentStatus: 'PENDING_QUOTE',
+      userRole: 'admin',
+      embedded: false,
+      onClose: noop,
+    })
+  );
+  assert.match(modalHtml, /role="dialog"/);
+  assert.match(modalHtml, /fixed inset-0/);
+  assert.match(modalHtml, /title="Đóng \(Esc\)"/);
+  assert.match(modalHtml, /crr_test_123/);
+
+  // Embedded mode (e.g. inside admin dossier tab)
+  const embeddedHtml = renderToStaticMarkup(
+    React.createElement(OrderChatModal, {
+      requestId: 'crr_test_embedded',
+      orderTitle: 'EURUSD Quant Study',
+      currentStatus: 'READY_FOR_REVIEW',
+      userRole: 'admin',
+      embedded: true,
+      onClose: noop,
+    })
+  );
+  assert.doesNotMatch(embeddedHtml, /role="dialog"/);
+  assert.doesNotMatch(embeddedHtml, /fixed inset-0/);
+  assert.match(embeddedHtml, /title="Đóng \(Esc\)"/);
+  assert.match(embeddedHtml, /crr_test_embedded/);
 });
