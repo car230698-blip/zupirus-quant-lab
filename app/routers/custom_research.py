@@ -30,6 +30,12 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.core.db import tx
+from app.domains.billing.crypto_direct import (
+    get_crypto_wallets_config,
+    validate_crypto_address,
+    verify_trc20_transaction,
+    verify_bep20_transaction,
+)
 from app.domains.quant.candles import Candle, resample_candles
 from app.domains.quant.institutional_macro import (
     build_institutional_deliverable_bundle,
@@ -169,6 +175,10 @@ class AdminOverrideStatusPayload(BaseModel):
     reason: str = Field(min_length=3)
 
 
+class AdminApprovePayload(BaseModel):
+    run_id: Optional[str] = None
+
+
 def detect_proposal_ambiguities(desc: str, symbols: List[str]) -> List[str]:
     ambiguities = []
     desc_clean = (desc or "").strip().lower()
@@ -224,10 +234,25 @@ def _load_candles_for_symbol(symbol: str, timeframe: str) -> List[Candle]:
         if p.exists():
             try:
                 raw_list = json.loads(p.read_text(encoding="utf-8"))
-                candles = [Candle(time=int(c["time"]), open=float(c["open"]), high=float(c["high"]), low=float(c["low"]), close=float(c["close"]), volume=float(c.get("volume", 0))) for c in raw_list]
+                h1_candles = [Candle(time=int(c["time"]), open=float(c["open"]), high=float(c["high"]), low=float(c["low"]), close=float(c["close"]), volume=float(c.get("volume", 0))) for c in raw_list]
+                if tf_u == "H4":
+                    candles = resample_candles(h1_candles, "H4")
+                else:
+                    candles = h1_candles
             except Exception as e:
                 logger.warning("Error loading EURUSD candles: %s", e)
-    elif "XAU" in sym_u or "GOLD" in sym_u or "GC" in sym_u:
+    elif "GC" in sym_u or sym_u == "GC=F":
+        # COMEX Gold Futures
+        p = Path("data/xauusd_gcf_m15_historical.json")
+        if p.exists():
+            try:
+                raw_list = json.loads(p.read_text(encoding="utf-8"))
+                m15_candles = [Candle(time=int(c["time"]), open=float(c["open"]), high=float(c["high"]), low=float(c["low"]), close=float(c["close"]), volume=float(c.get("volume", 0))) for c in raw_list]
+                candles = resample_candles(m15_candles, tf_u)
+            except Exception as e:
+                logger.warning("Error loading COMEX Gold candles: %s", e)
+    elif "XAU" in sym_u or "GOLD" in sym_u:
+        # Spot Gold (XAU/USD)
         p = Path("data/candles_xauusd_m15.json")
         if not p.exists():
             p = Path("data/xauusd_gcf_m15_historical.json")
@@ -237,11 +262,20 @@ def _load_candles_for_symbol(symbol: str, timeframe: str) -> List[Candle]:
                 m15_candles = [Candle(time=int(c["time"]), open=float(c["open"]), high=float(c["high"]), low=float(c["low"]), close=float(c["close"]), volume=float(c.get("volume", 0))) for c in raw_list]
                 candles = resample_candles(m15_candles, tf_u)
             except Exception as e:
-                logger.warning("Error loading Gold candles: %s", e)
+                logger.warning("Error loading Spot Gold candles: %s", e)
+    elif "JPY" in sym_u:
+        # USDJPY: only enable when valid closed candles source file exists
+        p = Path("data/usdjpy_h1.json")
+        if p.exists():
+            try:
+                raw_list = json.loads(p.read_text(encoding="utf-8"))
+                h1_candles = [Candle(time=int(c["time"]), open=float(c["open"]), high=float(c["high"]), low=float(c["low"]), close=float(c["close"]), volume=float(c.get("volume", 0))) for c in raw_list]
+                candles = resample_candles(h1_candles, tf_u) if tf_u == "H4" else h1_candles
+            except Exception as e:
+                logger.warning("Error loading USDJPY candles: %s", e)
 
-    # Note: Strictly use real historical data. Synthetic math.sin() candles are prohibited in production.
-    # If candle data is missing (e.g. USDJPY or unconfigured asset), return empty list so retail analysis engine
-    # safely flags INSUFFICIENT_DATA and status NEEDS_ATTENTION.
+    # Strictly use real historical closed candles. Synthetic math.sin() candles are prohibited.
+    # If candle data is missing, returns [] which cleanly triggers INSUFFICIENT_DATA and halts PDF delivery.
     return candles
 
 
@@ -268,20 +302,27 @@ def execute_retail_technical_analysis(
         period_bars=payload.period_bars,
     )
 
-    pdf_bytes = generate_retail_pdf(result, watermark=user_email)
-
-    deliverables_dir = get_private_reports_dir() / "retail_notes"
-    deliverables_dir.mkdir(parents=True, exist_ok=True)
-    pdf_filename = f"retail_note_{sym_u}_{tf_u}_{result.run_id}.pdf"
-    pdf_path = deliverables_dir / pdf_filename
-    pdf_path.write_bytes(pdf_bytes)
-
     req_id = f"crr_ret_{uuid.uuid4().hex[:10]}"
     now_ts = time.time()
 
-    status_str = "COMPLETED" if result.status == "SUCCESS" else "NEEDS_ATTENTION"
-    step_str = "DELIVERED" if result.status == "SUCCESS" else "NEEDS_ATTENTION"
-    next_action = "Tải bản ghi chú PDF chuyên sâu" if result.status == "SUCCESS" else "Cần bổ sung nguồn dữ liệu nến cho mã này"
+    if result.status == "INSUFFICIENT_DATA" or len(candles) < 30:
+        pdf_path = None
+        download_url = None
+        status_str = "INSUFFICIENT_DATA"
+        step_str = "NEEDS_DATA"
+        next_action = "Nguồn dữ liệu nến cho mã này chưa đủ hoặc chưa có. Vui lòng chọn mã khác (XAUUSD, EURUSD)."
+    else:
+        pdf_bytes = generate_retail_pdf(result, watermark=user_email)
+        deliverables_dir = get_private_reports_dir() / "retail_notes"
+        deliverables_dir.mkdir(parents=True, exist_ok=True)
+        pdf_filename = f"retail_note_{sym_u}_{tf_u}_{result.run_id}.pdf"
+        p_file = deliverables_dir / pdf_filename
+        p_file.write_bytes(pdf_bytes)
+        pdf_path = str(p_file)
+        download_url = f"/api/v1/research/orders/{req_id}/download-pdf"
+        status_str = "COMPLETED"
+        step_str = "DELIVERED"
+        next_action = "Tải bản ghi chú PDF chuyên sâu"
 
     with tx() as c:
         c.execute(
@@ -290,8 +331,9 @@ def execute_retail_technical_analysis(
                 id, user_id, client_email, product_type, symbol, timeframe, period_bars,
                 hypothesis_prompt, symbols_json, turnaround_hours, quoted_price_usd,
                 scope_notes, status, run_id, deliverable_report_id, deliverable_version,
-                deliverable_pdf_path, deliverable_bundle_path, current_step, next_action_vi, created_at, updated_at
-            ) VALUES (?, ?, ?, 'RETAIL_ANALYSIS', ?, ?, ?, ?, ?, 0, 0.0, ?, ?, ?, ?, 'v1.0', ?, NULL, ?, ?, ?, ?)
+                deliverable_pdf_path, deliverable_bundle_path, delivered_run_id, delivered_pdf_path,
+                current_step, next_action_vi, created_at, updated_at
+            ) VALUES (?, ?, ?, 'RETAIL_ANALYSIS', ?, ?, ?, ?, ?, 0, 0.0, ?, ?, ?, ?, 'v1.0', ?, NULL, ?, ?, ?, ?, ?, ?)
             """,
             (
                 req_id,
@@ -306,7 +348,9 @@ def execute_retail_technical_analysis(
                 status_str,
                 result.run_id,
                 f"rep_retail_{result.run_id}",
-                str(pdf_path),
+                pdf_path,
+                result.run_id if status_str == "COMPLETED" else None,
+                pdf_path if status_str == "COMPLETED" else None,
                 step_str,
                 next_action,
                 now_ts,
@@ -331,7 +375,7 @@ def execute_retail_technical_analysis(
         "resistance_zone": result.resistance_zone,
         "thesis_summary_vi": result.thesis_summary_vi,
         "action_plan_vi": result.action_plan_vi,
-        "download_pdf_url": f"/api/v1/research/orders/{req_id}/download-pdf",
+        "download_pdf_url": download_url,
     }
 
 
@@ -349,6 +393,12 @@ def submit_institutional_inquiry(
     desc = (payload.problem_description or payload.hypothesis_prompt or "").strip()
     if len(desc) < 5:
         _fail(400, "Vui lòng mô tả vấn đề cần giải quyết hoặc rủi ro Quý khách đang quan tâm.")
+
+    is_generic = len(desc) < 15 or any(term in desc.lower() for term in ("cần hỗ trợ", "can ho tro", "help", "hỗ trợ", "tư vấn", "test"))
+    init_status = "NEEDS_CLARIFICATION" if is_generic else "PENDING_QUOTE"
+    init_step = "NEEDS_DATA" if is_generic else "PROPOSAL_PENDING"
+    init_act_cat = "ACTIONABLE" if is_generic else "WAITING_ADMIN"
+    init_waiting_reason = "Bài toán còn khái quát, cần làm rõ phạm vi sự kiện, rổ tài sản và câu hỏi nghiên cứu" if is_generic else "Chờ ban quản trị rà soát và gửi đề xuất chính thức"
 
     req_id = f"crr_{uuid.uuid4().hex[:12]}"
     now_ts = time.time()
@@ -380,17 +430,27 @@ def submit_institutional_inquiry(
         "suggested_price_usd": 10000.0,
     }
 
-    welcome_msg = (
-        f"Chào Quý khách! ZUPIRUS Quant Lab đã tiếp nhận bài toán nghiên cứu:\n"
-        f"**\"{desc}\"**\n\n"
-        f"Hệ thống đã chuẩn bị bản thảo đề xuất sơ bộ (v1):\n"
-        f"- **Câu hỏi kiểm định**: {draft_proposal['research_question']}\n"
-        f"- **Rổ tài sản khảo nghiệm**: {', '.join(symbols_clean)}\n"
-        f"- **Cửa sổ so sánh**: 1 phiên, 5 phiên, 20 phiên sau sự kiện\n"
-        f"- **Bộ sản phẩm bàn giao**: Báo cáo PDF chuyên sâu, Ledger CSV, Metrics JSON, Bộ Replay CLI độc lập và Manifest SHA-256.\n\n"
-        f"Quý khách có thể gửi thêm tài liệu, file dữ liệu hoặc đặt câu hỏi trực tiếp tại khung chat này. "
-        f"Ban quản trị sẽ xem xét và gửi báo giá / đề xuất chính thức tới Quý khách."
-    )
+    if is_generic:
+        welcome_msg = (
+            f"Chào Quý khách! ZUPIRUS Quant Lab đã tiếp nhận yêu cầu: **\"{desc}\"**.\n\n"
+            f"Hiện tại mô tả bài toán còn khái quát. Để ban quản trị và đội ngũ Quant có thể xây dựng đề xuất chính xác, Quý khách vui lòng làm rõ thêm:\n"
+            f"1. **Mục tiêu nghiên cứu**: Bạn muốn kiểm định tác động của sự kiện vĩ mô cụ thể nào (ví dụ: CPI, FOMC, NFP, công bố lãi suất)?\n"
+            f"2. **Tài sản trọng tâm**: Bạn quan tâm chủ yếu đến Kim loại quý (Vàng XAU/USD), Ngoại hối (EUR/USD, USD/JPY) hay Chỉ số?\n"
+            f"3. **Khung thời gian & kỳ vọng**: Kỳ vọng giữ vị thế ngắn hạn trong ngày (Intraday) hay nhiều tuần (Swing/Position)?\n\n"
+            f"Quý khách có thể trả lời trực tiếp tại khung chat này hoặc đính kèm tài liệu mô tả để Admin phản hồi."
+        )
+    else:
+        welcome_msg = (
+            f"Chào Quý khách! ZUPIRUS Quant Lab đã tiếp nhận bài toán nghiên cứu:\n"
+            f"**\"{desc}\"**\n\n"
+            f"Hệ thống đã chuẩn bị bản thảo đề xuất sơ bộ (v1):\n"
+            f"- **Câu hỏi kiểm định**: {draft_proposal['research_question']}\n"
+            f"- **Rổ tài sản khảo nghiệm**: {', '.join(symbols_clean)}\n"
+            f"- **Cửa sổ so sánh**: 1 phiên, 5 phiên, 20 phiên sau sự kiện\n"
+            f"- **Bộ sản phẩm bàn giao**: Báo cáo PDF chuyên sâu, Ledger CSV, Metrics JSON, Bộ Replay CLI độc lập và Manifest SHA-256.\n\n"
+            f"Quý khách có thể gửi thêm tài liệu, file dữ liệu hoặc đặt câu hỏi trực tiếp tại khung chat này. "
+            f"Ban quản trị sẽ xem xét và gửi báo giá / đề xuất chính thức tới Quý khách."
+        )
 
     with tx() as c:
         c.execute(
@@ -400,8 +460,8 @@ def submit_institutional_inquiry(
                 hypothesis_prompt, problem_description, symbols_json, turnaround_hours, quoted_price_usd,
                 scope_notes, status, run_id, deliverable_report_id, deliverable_version,
                 deliverable_pdf_path, deliverable_bundle_path, proposal_version, proposal_details_json,
-                current_step, next_action_vi, created_at, updated_at
-            ) VALUES (?, ?, ?, 'INSTITUTIONAL_RESEARCH', ?, 'MACRO_EVENT', 20, ?, ?, ?, ?, 0.0, ?, 'PENDING_QUOTE', NULL, NULL, 'v1.0', NULL, NULL, 1, ?, 'PROPOSAL_PENDING', 'Chờ ban quản trị rà soát và gửi đề xuất chính thức', ?, ?)
+                current_step, action_category, waiting_reason_vi, next_action_vi, created_at, updated_at
+            ) VALUES (?, ?, ?, 'INSTITUTIONAL_RESEARCH', ?, 'MACRO_EVENT', 20, ?, ?, ?, ?, 0.0, ?, ?, NULL, NULL, 'v1.0', NULL, NULL, 1, ?, ?, ?, ?, 'Chờ ban quản trị rà soát và gửi đề xuất chính thức', ?, ?)
             """,
             (
                 req_id,
@@ -413,7 +473,11 @@ def submit_institutional_inquiry(
                 json.dumps(symbols_clean),
                 turnaround,
                 payload.client_notes,
+                init_status,
                 json.dumps(draft_proposal, ensure_ascii=False),
+                init_step,
+                init_act_cat,
+                init_waiting_reason,
                 now_ts,
                 now_ts,
             ),
@@ -435,8 +499,8 @@ def submit_institutional_inquiry(
     return {
         "ok": True,
         "request_id": req_id,
-        "status": "PENDING_QUOTE",
-        "current_step": "PROPOSAL_PENDING",
+        "status": init_status,
+        "current_step": init_step,
         "message": "Yêu cầu nghiên cứu tổ chức đã được tiếp nhận. Cuộc trao đổi đã được mở và đề xuất sơ bộ đã sẵn sàng.",
         "hypothesis_prompt": desc,
         "symbols": symbols_clean,
@@ -453,6 +517,7 @@ def confirm_institutional_quote(
 ):
     """Client confirms the quoted price and authorizes study execution.
     Checks proposal version to avoid confirming outdated quotes.
+    If price > 0, moves to WAITING_PAYMENT so commercial study is only executed after verified payment.
     """
     now_ts = time.time()
     with tx() as c:
@@ -464,23 +529,32 @@ def confirm_institutional_quote(
 
         quoted_price = float(req.get("quoted_price_usd") or 0.0)
         pay_status = req.get("payment_status", "UNPAID")
-        
-        new_status = "CONFIRMED"
-        next_step = "CONFIRMED"
-        next_act = "Chờ ban quản trị bấm Chạy nghiên cứu"
+
+        if quoted_price > 0 and pay_status != "PAID":
+            new_status = "WAITING_PAYMENT"
+            next_step = "PAYMENT_PENDING"
+            act_cat = "WAITING_CLIENT"
+            next_act = "Khách hàng thực hiện thanh toán USDT theo báo giá đã xác nhận"
+            waiting_reason = f"Đã chấp nhận đề xuất v{current_ver}. Đang chờ thanh toán USDT (${quoted_price:,.2f})"
+            conf_msg = f"Khách hàng ({user.get('email')}) đã chấp nhận đề xuất nghiên cứu phiên bản v{current_ver} (${quoted_price:,.2f} USD). Vui lòng hoàn tất thanh toán để hệ thống xếp lịch chạy."
+        else:
+            new_status = "CONFIRMED"
+            next_step = "CONFIRMED"
+            act_cat = "RUNNING"
+            next_act = "Chờ ban quản trị bấm Chạy nghiên cứu"
+            waiting_reason = "Đã xác nhận đơn. Sẵn sàng thực thi nghiên cứu"
+            conf_msg = f"Khách hàng ({user.get('email')}) đã xác nhận đề xuất nghiên cứu phiên bản v{current_ver}. Đơn hàng đã sẵn sàng để thực thi."
 
         c.execute(
             """
             UPDATE custom_research_requests
             SET status = ?, client_confirmed_version = ?, current_step = ?,
-                next_action_vi = ?, updated_at = ?
+                action_category = ?, waiting_reason_vi = ?, next_action_vi = ?, updated_at = ?
             WHERE id = ?
             """,
-            (new_status, current_ver, next_step, next_act, now_ts, request_id),
+            (new_status, current_ver, next_step, act_cat, waiting_reason, next_act, now_ts, request_id),
         )
 
-        # Post confirmation note to chat
-        conf_msg = f"Khách hàng ({user.get('email')}) đã xác nhận đề xuất nghiên cứu phiên bản v{current_ver}. Đơn hàng đã sẵn sàng để thực thi."
         c.execute(
             """
             INSERT INTO custom_research_messages (
@@ -509,7 +583,10 @@ def checkout_lock_research_request(
     payload: CheckoutLockPayload,
     user: dict = Depends(get_current_user),
 ):
-    """Lock checkout parameters for USDT payment."""
+    """Lock checkout parameters for USDT payment.
+    Requires client to have confirmed current proposal version.
+    Validates receiving wallet address from kv_settings/env; rejects if not configured.
+    """
     net = payload.payment_network.strip().upper()
     if net not in ("BEP20", "TRC20"):
         _fail(400, "Mạng thanh toán không hợp lệ. Chỉ hỗ trợ BEP20 hoặc TRC20.")
@@ -524,28 +601,37 @@ def checkout_lock_research_request(
         if req.get("payment_status") == "PAID":
             _fail(400, "Hồ sơ nghiên cứu này đã được thanh toán.")
 
-        new_status = "WAITING_PAYMENT" if req.get("status") in ("QUOTED", "PENDING_QUOTE") else req.get("status")
+        client_conf_ver = req.get("client_confirmed_version")
+        current_ver = int(req.get("proposal_version") or 1)
+        if client_conf_ver and int(client_conf_ver) != current_ver:
+            _fail(400, f"Vui lòng chấp nhận đề xuất nghiên cứu phiên bản mới nhất (v{current_ver}) trước khi tạo lệnh thanh toán.")
+
+        cfg = get_crypto_wallets_config(c)
+        if net == "BEP20":
+            wallet_addr = (cfg.get("bep20_address") or cfg.get("usdt_bep20_address") or "").strip()
+        else:
+            wallet_addr = (cfg.get("trc20_address") or cfg.get("usdt_trc20_address") or "").strip()
+
+        if not wallet_addr or not validate_crypto_address(wallet_addr, net):
+            _fail(400, f"Hệ thống chưa cấu hình địa chỉ ví nhận USDT {net} hợp lệ. Vui lòng liên hệ Ban Quản Trị.")
 
         c.execute(
             """
             UPDATE custom_research_requests
             SET checkout_locked = 1, checkout_locked_at = ?, payment_network = ?, currency = 'USDT',
-                status = ?, current_step = 'PAYMENT_PENDING', action_category = 'WAITING_CLIENT',
+                client_confirmed_version = ?,
+                checkout_proposal_version = ?, checkout_amount = ?, checkout_deposit_address = ?,
+                checkout_expires_at = ?,
+                status = 'WAITING_PAYMENT', current_step = 'PAYMENT_PENDING', action_category = 'WAITING_CLIENT',
                 waiting_reason_vi = 'Đang chờ khách hàng thanh toán USDT', updated_at = ?
             WHERE id = ?
             """,
-            (now_ts, net, new_status, now_ts, request_id),
+            (now_ts, net, current_ver, current_ver, price, wallet_addr, now_ts + 86400, now_ts, request_id),
         )
 
         _log_audit_action(
-            c, request_id, str(user["id"]), user.get("role", "client"), "CHECKOUT_LOCKED", details={"network": net, "amount": price}
+            c, request_id, str(user["id"]), user.get("role", "client"), "CHECKOUT_LOCKED", details={"network": net, "amount": price, "deposit_address": wallet_addr}
         )
-
-    usdt_address = (
-        os.getenv("USDT_BEP20_ADDRESS", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")
-        if net == "BEP20"
-        else os.getenv("USDT_TRC20_ADDRESS", "TQn9Y2khEsLJW1ChVWFMSMeSTow5K3GW3U")
-    )
 
     return {
         "ok": True,
@@ -555,8 +641,8 @@ def checkout_lock_research_request(
         "payment_network": net,
         "currency": "USDT",
         "amount_usdt": price,
-        "proposal_version": req.get("proposal_version") or 1,
-        "deposit_address": usdt_address,
+        "proposal_version": current_ver,
+        "deposit_address": wallet_addr,
         "expires_in_seconds": 86400,
     }
 
@@ -651,10 +737,40 @@ def verify_research_payment(
         except Exception:
             pass
 
-        # 3. Check expiration (> 24 hours)
-        locked_at = req.get("checkout_locked_at")
-        if locked_at and (now_ts - float(locked_at)) > 86400:
-            _fail(400, "Yêu cầu thanh toán đã hết hạn (24 giờ). Vui lòng thực hiện khóa thanh toán lại.")
+        # 3. Check version match
+        lock_ver = req.get("checkout_proposal_version")
+        curr_ver = int(req.get("proposal_version") or 1)
+        if lock_ver and int(lock_ver) != curr_ver:
+            _fail(400, f"Báo giá đã thay đổi sang phiên bản v{curr_ver}. Vui lòng tạo lệnh thanh toán mới cho phiên bản này.")
+
+        # 4. Check expiration
+        expires_at = req.get("checkout_expires_at")
+        if expires_at and now_ts > float(expires_at):
+            _fail(400, "Lệnh thanh toán đã hết hạn (24 giờ). Vui lòng tạo lại yêu cầu thanh toán.")
+
+        # 5. Check sandbox in production vs on-chain verification
+        env = os.getenv("ENVIRONMENT", "").lower()
+        allow_sb = os.getenv("ALLOW_SANDBOX_PAY", "").lower() in ("true", "1")
+        is_test_tx = clean_tx.startswith("SANDBOX_") or clean_tx.startswith("0xTEST_") or clean_tx.startswith("TEST_")
+        if is_test_tx:
+            if env == "production" and not allow_sb:
+                _fail(403, "Mã giao dịch thử nghiệm (Sandbox / Test) bị chặn trên môi trường Production.")
+        else:
+            net = (req.get("payment_network") or "TRC20").strip().upper()
+            dest_wallet = (req.get("checkout_deposit_address") or "").strip()
+            expected_amt = float(req.get("checkout_amount") or req.get("quoted_price_usd") or 0.0)
+            if not dest_wallet:
+                _fail(400, "Chưa xác định được ví nhận thanh toán hợp lệ của đơn hàng này. Vui lòng tạo lại lệnh thanh toán.")
+
+            if net == "TRC20":
+                valid, vmsg, _ = verify_trc20_transaction(clean_tx, dest_wallet, expected_amt)
+            elif net == "BEP20":
+                valid, vmsg, _ = verify_bep20_transaction(clean_tx, dest_wallet, expected_amt)
+            else:
+                _fail(400, f"Mạng thanh toán {net} không được hỗ trợ.")
+
+            if not valid:
+                _fail(400, f"Xác minh on-chain thất bại: {vmsg}")
 
         c.execute(
             """
@@ -1147,18 +1263,18 @@ def execute_research_run_internal(
             _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
         req = dict(row)
 
-        # Mutex lock check: if currently RUNNING and last_run_started_at < 15 min ago, reject
-        if req.get("status") == "RUNNING":
+        # Mutex lock check: if currently RUNNING and last_run_started_at < 15 min ago, reject (allow worker claim)
+        if req.get("status") == "RUNNING" and operator_role != "worker":
             last_start = float(req.get("last_run_started_at") or 0.0)
-            if now_ts - last_start < 900:
+            if last_start > 0 and now_ts - last_start < 900:
                 _fail(409, "Nghiên cứu này đang trong quá trình thực thi. Vui lòng không thực hiện chạy trùng lặp.")
 
         price = float(req.get("quoted_price_usd") or 0.0)
         pay_status = req.get("payment_status", "UNPAID")
-        if price > 0 and pay_status != "PAID" and req.get("status") not in ("CONFIRMED", "PAID"):
+        if price > 0 and pay_status != "PAID":
             _fail(
                 400,
-                f"Yêu cầu nghiên cứu chưa hoàn tất thanh toán (Trạng thái thanh toán: {pay_status}). Vui lòng xác minh thanh toán trước khi chạy.",
+                f"Yêu cầu nghiên cứu có báo giá thương mại (${price:,.2f} USD) chưa hoàn tất thanh toán (Trạng thái: {pay_status}). Chỉ được thực thi sau khi thanh toán on-chain được xác nhận.",
             )
 
         # Check required data inputs
@@ -1168,17 +1284,19 @@ def execute_research_run_internal(
             att = c.execute("SELECT * FROM custom_research_attachments WHERE id = ?", (input_att_id,)).fetchone()
             stored = att["stored_path"] if att and "stored_path" in att.keys() else None
             if not stored or not Path(stored).exists():
-                c.execute(
-                    """
-                    UPDATE custom_research_requests
-                    SET status = 'NEEDS_DATA', action_category = 'ACTIONABLE',
-                        waiting_reason_vi = 'Tệp dữ liệu đầu vào đính kèm không tồn tại trên hệ thống lưu trữ.',
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (now_ts, request_id),
-                )
-                _log_audit_action(c, request_id, operator_id, operator_role, "DATA_CHECK_FAILED", reason="Missing attachment file")
+                # Save NEEDS_DATA in an isolated committed transaction before failing so state is never rolled back
+                with tx() as c_err:
+                    c_err.execute(
+                        """
+                        UPDATE custom_research_requests
+                        SET status = 'NEEDS_DATA', current_step = 'NEEDS_DATA', action_category = 'ACTIONABLE',
+                            waiting_reason_vi = 'Tệp dữ liệu đầu vào đính kèm không tồn tại trên hệ thống lưu trữ.',
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (now_ts, request_id),
+                    )
+                    _log_audit_action(c_err, request_id, operator_id, operator_role, "DATA_CHECK_FAILED", reason="Missing attachment file")
                 _fail(400, "Tệp dữ liệu đầu vào đính kèm không tồn tại trên hệ thống lưu trữ.")
 
         # Determine next run number
@@ -1651,9 +1769,13 @@ def admin_archive_research_request(
 @router.post("/api/v1/admin/research/requests/{request_id}/approve")
 def admin_approve_deliver_research_request(
     request_id: str,
+    payload: Optional[AdminApprovePayload] = None,
     admin: dict = Depends(get_current_admin),
 ):
-    """Admin approves evidence and delivers private research package exclusively to client."""
+    """Admin approves evidence and delivers private research package exclusively to client.
+    Can approve a specific run by run_id or the latest completed run.
+    Stores immutable deliverable paths and hashes to protect client downloads against subsequent background runs.
+    """
     now_ts = time.time()
     with tx() as c:
         row = c.execute("SELECT * FROM custom_research_requests WHERE id = ?", (request_id,)).fetchone()
@@ -1661,32 +1783,65 @@ def admin_approve_deliver_research_request(
             _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
         req = dict(row)
 
-        if not req.get("deliverable_pdf_path") or not Path(req["deliverable_pdf_path"]).exists():
-            _fail(400, "Chưa có tệp nghiên cứu thực tế được tạo. Hãy bấm 'Chạy nghiên cứu' trước khi duyệt bàn giao.")
+        target_run = None
+        if payload and payload.run_id:
+            run_row = c.execute(
+                "SELECT * FROM custom_research_runs WHERE id = ? AND request_id = ?",
+                (payload.run_id, request_id),
+            ).fetchone()
+            if not run_row:
+                _fail(404, f"Không tìm thấy lượt chạy {payload.run_id} thuộc hồ sơ này.")
+            target_run = dict(run_row)
+        else:
+            run_row = c.execute(
+                """
+                SELECT * FROM custom_research_runs
+                WHERE request_id = ? AND status = 'COMPLETED'
+                ORDER BY run_number DESC LIMIT 1
+                """,
+                (request_id,),
+            ).fetchone()
+            if run_row:
+                target_run = dict(run_row)
 
-        # Mark latest run as approved
+        if not target_run:
+            _fail(400, "Chưa có lượt chạy hoàn tất nào cho hồ sơ này. Hãy bấm 'Chạy nghiên cứu' trước khi duyệt bàn giao.")
+
+        pdf_path = target_run.get("deliverable_pdf_path") or req.get("deliverable_pdf_path")
+        bundle_path = target_run.get("deliverable_bundle_path") or req.get("deliverable_bundle_path")
+        bundle_sha = target_run.get("deliverable_bundle_sha256") or req.get("deliverable_bundle_sha256")
+
+        if not pdf_path or not Path(pdf_path).exists():
+            _fail(400, "Tệp PDF nghiên cứu của lượt chạy này không tồn tại trên hệ thống lưu trữ.")
+
+        # Mark target run as approved
         c.execute(
             """
             UPDATE custom_research_runs
             SET is_approved = 1, approved_at = ?
-            WHERE request_id = ? AND run_number = (
-                SELECT MAX(run_number) FROM custom_research_runs WHERE request_id = ?
-            )
+            WHERE id = ?
             """,
-            (now_ts, request_id, request_id),
+            (now_ts, target_run["id"]),
         )
 
+        # Save immutable handover records on custom_research_requests
         c.execute(
             """
             UPDATE custom_research_requests
-            SET status = 'DELIVERED', current_step = 'DELIVERED', action_category = 'COMPLETED',
+            SET delivered_run_id = ?, delivered_pdf_path = ?, delivered_bundle_path = ?,
+                delivered_bundle_sha256 = ?, delivered_at = ?,
+                status = 'DELIVERED', current_step = 'DELIVERED', action_category = 'COMPLETED',
                 waiting_reason_vi = 'Đã hoàn tất bàn giao. Khách hàng có thể tải PDF và gói Replay', updated_at = ?
             WHERE id = ?
             """,
-            (now_ts, request_id),
+            (target_run["id"], str(pdf_path), str(bundle_path) if bundle_path else None, bundle_sha, now_ts, now_ts, request_id),
         )
 
-        _log_audit_action(c, request_id, str(admin["id"]), "admin", "DELIVERABLE_APPROVED", reason="Approved and delivered")
+        _log_audit_action(
+            c, request_id, str(admin["id"]), "admin", "DELIVERABLE_APPROVED",
+            reason=f"Approved and delivered run {target_run['id']}",
+            details={"run_id": target_run["id"], "run_number": target_run.get("run_number")},
+        )
 
         deliv_msg = (
             "Hồ sơ nghiên cứu đã được Ban Quản Trị phê duyệt và bàn giao riêng thành công!\n"
@@ -1709,6 +1864,7 @@ def admin_approve_deliver_research_request(
         "request_id": request_id,
         "status": "DELIVERED",
         "current_step": "DELIVERED",
+        "approved_run_id": target_run["id"],
         "message": f"Đã duyệt bàn giao nghiên cứu riêng thành công cho khách hàng ({req.get('client_email')}).",
     }
 
@@ -1763,20 +1919,16 @@ def download_research_order_pdf(
 ):
     """Download research PDF. Strictly restricted to request owner or system admin.
     Client can only download after deliverable approval for institutional orders.
+    Always serves the immutable delivered file when available.
     """
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
         is_admin = user.get("role") == "admin"
         if not is_admin:
             if req.get("product_type") == "INSTITUTIONAL_RESEARCH" and req.get("status") != "DELIVERED":
-                appr = c.execute(
-                    "SELECT id FROM custom_research_runs WHERE request_id = ? AND is_approved = 1",
-                    (request_id,),
-                ).fetchone()
-                if not appr:
-                    _fail(403, "Bản nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
+                _fail(403, "Bản nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
 
-    pdf_path_str = req.get("deliverable_pdf_path")
+    pdf_path_str = req.get("delivered_pdf_path") or req.get("deliverable_pdf_path")
     if not pdf_path_str or not Path(pdf_path_str).exists():
         _fail(404, "Tệp PDF nghiên cứu chưa sẵn sàng hoặc chưa được tạo.")
 
@@ -1795,20 +1947,16 @@ def download_research_order_bundle(
 ):
     """Download complete deliverable bundle ZIP. Strictly restricted to request owner or admin.
     Client can only download after deliverable approval for institutional orders.
+    Always serves the immutable delivered bundle file when available.
     """
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
         is_admin = user.get("role") == "admin"
         if not is_admin:
             if req.get("product_type") == "INSTITUTIONAL_RESEARCH" and req.get("status") != "DELIVERED":
-                appr = c.execute(
-                    "SELECT id FROM custom_research_runs WHERE request_id = ? AND is_approved = 1",
-                    (request_id,),
-                ).fetchone()
-                if not appr:
-                    _fail(403, "Gói nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
+                _fail(403, "Gói nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
 
-    bundle_path_str = req.get("deliverable_bundle_path")
+    bundle_path_str = req.get("delivered_bundle_path") or req.get("deliverable_bundle_path")
     if not bundle_path_str or not Path(bundle_path_str).exists():
         _fail(404, "Gói bằng chứng nghiên cứu (bundle ZIP) chưa được tạo hoặc chưa sẵn sàng.")
 
@@ -1816,5 +1964,5 @@ def download_research_order_bundle(
     return FileResponse(
         path=str(bundle_p),
         media_type="application/zip",
-        filename=bundle_p.name,
+        filename=f"zupirus_bundle_{req.get('product_type', 'study').lower()}_{req.get('symbol', 'study')}.zip",
     )

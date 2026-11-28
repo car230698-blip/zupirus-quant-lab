@@ -1406,6 +1406,51 @@ def apply_migration_034(c, is_pg: bool):
                 c.execute("ALTER TABLE report_entitlements ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
 
 
+def apply_migration_035(c, is_pg: bool):
+    """035_checkout_locking_and_immutable_deliverables:
+    Adds checkout deposit address, amount, proposal version, expiration,
+    and immutable delivered run reference columns to custom_research_requests.
+    """
+    if is_pg:
+        c.execute("""
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS checkout_deposit_address TEXT;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS checkout_amount DOUBLE PRECISION;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS checkout_proposal_version INTEGER;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS checkout_expires_at DOUBLE PRECISION;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS delivered_run_id TEXT;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS delivered_pdf_path TEXT;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS delivered_bundle_path TEXT;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS delivered_bundle_sha256 TEXT;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS delivered_at DOUBLE PRECISION;
+        CREATE INDEX IF NOT EXISTS idx_crr_delivered_run ON custom_research_requests(delivered_run_id);
+        """)
+    else:
+        cols = [row[1] for row in c.execute("PRAGMA table_info(custom_research_requests)").fetchall()]
+        if cols:
+            new_cols = [
+                ("checkout_deposit_address", "TEXT"),
+                ("checkout_amount", "REAL"),
+                ("checkout_proposal_version", "INTEGER"),
+                ("checkout_expires_at", "REAL"),
+                ("delivered_run_id", "TEXT"),
+                ("delivered_pdf_path", "TEXT"),
+                ("delivered_bundle_path", "TEXT"),
+                ("delivered_bundle_sha256", "TEXT"),
+                ("delivered_at", "REAL"),
+            ]
+            for col_name, col_def in new_cols:
+                if col_name not in cols:
+                    try:
+                        c.execute(f"ALTER TABLE custom_research_requests ADD COLUMN {col_name} {col_def}")
+                    except Exception:
+                        pass
+            try:
+                c.execute("CREATE INDEX IF NOT EXISTS idx_crr_delivered_run ON custom_research_requests(delivered_run_id)")
+            except Exception:
+                pass
+
+
+
 
 
 

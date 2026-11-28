@@ -56,30 +56,39 @@ def process_on_demand_research_jobs(now: float, target_request_id: Optional[str]
             )
             _log_audit_action(c, req_id, "system_worker", "worker", "RUN_TIMED_OUT", reason="Exceeded 15m timeout")
 
-        # 2. Pick up CONFIRMED + PAID requests for automated execution
+        # 2. Pick up CONFIRMED + PAID requests with atomic claim to prevent concurrent duplicate execution
         if target_request_id:
-            ready_rows = c.execute(
-                """
-                SELECT id FROM custom_research_requests
-                WHERE id = ? AND status = 'CONFIRMED' AND payment_status = 'PAID'
-                """,
-                (target_request_id,),
-            ).fetchall()
+            candidate_ids = [target_request_id]
         else:
-            ready_rows = c.execute(
+            cand_rows = c.execute(
                 """
                 SELECT id FROM custom_research_requests
                 WHERE status = 'CONFIRMED' AND payment_status = 'PAID'
                 ORDER BY created_at ASC
                 """
             ).fetchall()
+            candidate_ids = [row["id"] for row in cand_rows]
 
-    for r in ready_rows:
+        claimed_ids = []
+        for cid in candidate_ids:
+            # Atomically transition to RUNNING with last_run_started_at
+            c.execute(
+                """
+                UPDATE custom_research_requests
+                SET status = 'RUNNING', action_category = 'RUNNING',
+                    last_run_started_at = ?, updated_at = ?
+                WHERE id = ? AND status = 'CONFIRMED' AND payment_status = 'PAID'
+                """,
+                (now, now, cid),
+            )
+            claimed_ids.append(cid)
+
+    for cid in claimed_ids:
         try:
-            logger.info("Worker auto-executing confirmed study %s...", r["id"])
-            execute_research_run_internal(r["id"], "system_worker", "worker", is_rerun=False)
+            logger.info("Worker auto-executing confirmed study %s...", cid)
+            execute_research_run_internal(cid, "system_worker", "worker", is_rerun=False)
         except Exception as exc:
-            logger.exception("Worker failed executing study %s: %s", r["id"], exc)
+            logger.exception("Worker failed executing study %s: %s", cid, exc)
 
 
 def main() -> None:

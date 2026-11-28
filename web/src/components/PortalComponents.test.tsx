@@ -361,6 +361,6 @@ test('OrderChatModal renders close buttons and supports embedded mode for admin 
   );
   assert.doesNotMatch(embeddedHtml, /role="dialog"/);
   assert.doesNotMatch(embeddedHtml, /fixed inset-0/);
-  assert.match(embeddedHtml, /title="Đóng \(Esc\)"/);
+  assert.doesNotMatch(embeddedHtml, /title="Đóng \(Esc\)"/);
   assert.match(embeddedHtml, /crr_test_embedded/);
 });

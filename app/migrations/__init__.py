@@ -176,6 +176,11 @@ MIGRATIONS = [
         "version": 34,
         "name": "034_ensure_report_entitlements_columns",
         "description": "Ensure report_entitlements has expires_at, is_trial, and download_count columns in both Postgres and SQLite"
+    },
+    {
+        "version": 35,
+        "name": "035_checkout_locking_and_immutable_deliverables",
+        "description": "Add checkout locking, deposit address, expiration, and immutable delivered run columns to custom_research_requests"
     }
 ]
 
@@ -202,6 +207,7 @@ from .seed_and_fixes import (
     apply_migration_032,
     apply_migration_033,
     apply_migration_034,
+    apply_migration_035,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -244,6 +250,7 @@ def run_all_migrations(c, is_pg: bool):
         32: apply_migration_032,
         33: apply_migration_033,
         34: apply_migration_034,
+        35: apply_migration_035,
     }
 
     for m in MIGRATIONS:

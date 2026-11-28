@@ -178,11 +178,13 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
     }
   };
 
-  const handleApproveDeliverable = async () => {
+  const handleApproveDeliverable = async (runId?: string) => {
     setActionBusy(true);
     setActionMsg(null);
     try {
-      await api.post(`/api/v1/admin/research/requests/${encodeURIComponent(requestId)}/approve`, {});
+      await api.post(`/api/v1/admin/research/requests/${encodeURIComponent(requestId)}/approve`, {
+        run_id: runId || undefined,
+      });
       setActionMsg('Đã duyệt và bàn giao riêng hồ sơ thành công cho khách hàng.');
       await loadDetail();
       onUpdated();
@@ -281,7 +283,7 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
               <button
                 type="button"
                 disabled={actionBusy}
-                onClick={handleApproveDeliverable}
+                onClick={() => handleApproveDeliverable()}
                 className="quant-button bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-1.5 px-3.5 flex items-center gap-1.5 shadow-lg shadow-emerald-950"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
@@ -563,6 +565,33 @@ export const AdminResearchDossierModal: React.FC<AdminResearchDossierModalProps>
                           <div className="text-rose-300 text-[11px]">
                             Lỗi: {r.error_details}
                           </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {r.status === 'COMPLETED' && (
+                          <>
+                            <a
+                              href={`/api/v1/research/orders/${encodeURIComponent(order.id)}/download-pdf`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="quant-button quant-button-secondary text-[11px] py-1 px-2.5 flex items-center gap-1"
+                            >
+                              <Download className="w-3 h-3 text-cyan-400" />
+                              <span>Xem PDF</span>
+                            </a>
+                            {r.is_approved !== 1 && (
+                              <button
+                                type="button"
+                                disabled={actionBusy}
+                                onClick={() => handleApproveDeliverable(r.id)}
+                                className="quant-button bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] py-1 px-2.5 flex items-center gap-1 shadow-sm"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>Duyệt Lần Chạy Này</span>
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>

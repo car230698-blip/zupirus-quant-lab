@@ -217,7 +217,10 @@ def test_institutional_full_lifecycle_and_tenant_isolation():
     # 4. Client confirms quote
     conf_res = client1.post(f"/api/v1/research/institutional/{req_id}/confirm")
     assert conf_res.status_code == 200
-    assert conf_res.json()["status"] == "CONFIRMED"
+    assert conf_res.json()["status"] in ("CONFIRMED", "WAITING_PAYMENT")
+    if conf_res.json()["status"] == "WAITING_PAYMENT":
+        pay_res = client1.post(f"/api/v1/research/orders/{req_id}/sandbox-pay")
+        assert pay_res.status_code == 200
 
     # 5. Admin runs study
     run_res = client_admin.post(f"/api/v1/admin/research/requests/{req_id}/run")
@@ -495,8 +498,8 @@ def test_versioned_proposal_and_client_confirmation():
     # 4. Client confirms matching version 2 -> succeeds!
     good_conf = client_inst.post(f"/api/v1/research/institutional/{req_id}/confirm", json={"version": 2})
     assert good_conf.status_code == 200
-    assert good_conf.json()["status"] == "CONFIRMED"
-    assert good_conf.json()["current_step"] == "CONFIRMED"
+    assert good_conf.json()["status"] in ("CONFIRMED", "WAITING_PAYMENT")
+    assert good_conf.json()["current_step"] in ("CONFIRMED", "PAYMENT_PENDING")
 
 
 def test_system_version_and_payment_and_inbox_and_attachment_fallback():

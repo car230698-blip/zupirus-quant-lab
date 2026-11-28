@@ -43,6 +43,7 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimeoutRef = useRef<any>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -97,7 +98,8 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
           setConnStatus('disconnected');
           es.close();
           // Attempt auto reconnect after 5s
-          setTimeout(connectSSE, 5000);
+          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = setTimeout(connectSSE, 5000);
         };
       } catch {
         setConnStatus('disconnected');
@@ -107,14 +109,20 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
     connectSSE();
 
     return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
     };
   }, [loadMessages, onOrderUpdated, requestId]);
 
-  // Handle ESC key to close modal
+  // Handle ESC key to close modal (only in standalone dialog mode)
   useEffect(() => {
+    if (embedded) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
@@ -122,7 +130,7 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [embedded, onClose]);
 
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -208,15 +216,17 @@ export const OrderChatModal: React.FC<OrderChatModalProps> = ({
             {orderTitle || 'Yêu cầu nghiên cứu định lượng'} {currentStatus ? `· [${currentStatus}]` : ''}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          title="Đóng (Esc)"
-          aria-label="Đóng cửa sổ trao đổi"
-          className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {!embedded && (
+          <button
+            type="button"
+            onClick={onClose}
+            title="Đóng (Esc)"
+            aria-label="Đóng cửa sổ trao đổi"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
         {/* Message Thread Body */}

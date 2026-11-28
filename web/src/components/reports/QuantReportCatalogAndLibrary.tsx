@@ -159,6 +159,11 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
   const [activeChatOrder, setActiveChatOrder] = useState<any | null>(null);
   const [confirmingQuoteId, setConfirmingQuoteId] = useState<string | null>(null);
   const [payingSandboxId, setPayingSandboxId] = useState<string | null>(null);
+  const [checkoutNetwork, setCheckoutNetwork] = useState<Record<string, 'TRC20' | 'BEP20'>>({});
+  const [checkoutTxHash, setCheckoutTxHash] = useState<Record<string, string>>({});
+  const [lockingCheckoutId, setLockingCheckoutId] = useState<string | null>(null);
+  const [verifyingResearchPaymentId, setVerifyingResearchPaymentId] = useState<string | null>(null);
+  const [copiedReqWalletId, setCopiedReqWalletId] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveView(initialSection);
@@ -183,6 +188,12 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
         setActiveView('requests');
       } else if (tabParam === 'catalog') {
         setActiveView('catalog');
+      } else if (tabParam === 'retail') {
+        setRequestTab('retail');
+        setShowRequestModal(true);
+      } else if (tabParam === 'institutional') {
+        setRequestTab('institutional');
+        setShowRequestModal(true);
       }
       const actionParam = params.get('action');
       if (actionParam === 'retail') {
@@ -202,6 +213,8 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
         setSelectedReport(null);
         setCheckoutReport(null);
         setCheckoutOrder(null);
+        setShowRequestModal(false);
+        setActiveChatOrder(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -422,7 +435,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
       });
       setStatusMessage({
         type: 'success',
-        text: 'Đã xác nhận báo giá và phạm vi nghiên cứu thành công! Ban quản trị sẽ tiến hành chạy mô hình.',
+        text: 'Đã xác nhận đề xuất và báo giá! Đơn hàng đang ở trạng thái Đang chờ thanh toán. Vui lòng hoàn tất thanh toán để hệ thống đưa vào hàng đợi thực thi.',
       });
       await loadData();
     } catch (err: any) {
@@ -432,6 +445,56 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
       });
     } finally {
       setConfirmingQuoteId(null);
+    }
+  };
+
+  const handleLockCheckout = async (reqId: string, network: 'TRC20' | 'BEP20') => {
+    try {
+      setLockingCheckoutId(reqId);
+      await apiPost(`/api/v1/research/orders/${encodeURIComponent(reqId)}/checkout-lock`, {
+        payment_network: network,
+      });
+      setStatusMessage({
+        type: 'success',
+        text: 'Đã khóa thông tin thanh toán và tạo địa chỉ ví nhận USDT.',
+      });
+      await loadData();
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Không thể tạo địa chỉ ví thanh toán.',
+      });
+    } finally {
+      setLockingCheckoutId(null);
+    }
+  };
+
+  const handleVerifyResearchPayment = async (reqId: string, network: string, txHash: string) => {
+    if (!txHash || !txHash.trim()) {
+      setStatusMessage({
+        type: 'error',
+        text: 'Vui lòng nhập mã giao dịch on-chain (TxHash).',
+      });
+      return;
+    }
+    try {
+      setVerifyingResearchPaymentId(reqId);
+      await apiPost(`/api/v1/research/orders/${encodeURIComponent(reqId)}/verify-payment`, {
+        network,
+        tx_hash: txHash.trim(),
+      });
+      setStatusMessage({
+        type: 'success',
+        text: 'Thanh toán đã được xác minh thành công trên chuỗi! Đơn hàng đã chuyển sang trạng thái CONFIRMED để thực thi.',
+      });
+      await loadData();
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || 'Không thể xác minh giao dịch.',
+      });
+    } finally {
+      setVerifyingResearchPaymentId(null);
     }
   };
 
@@ -798,6 +861,12 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                             <p className="text-xs text-slate-400">
                               {cr.product_type} · {cr.symbol} {cr.timeframe} · {new Date(cr.created_at * 1000).toLocaleDateString('vi-VN')}
                             </p>
+                            {(cr.delivered_bundle_sha256 || cr.deliverable_bundle_sha256) && (
+                              <div className="font-mono text-[10px] text-slate-400 break-all bg-slate-900/80 p-2 rounded-lg border border-slate-800 space-y-0.5">
+                                <div className="text-slate-500 font-semibold">Mã băm kiểm định độc lập (SHA-256):</div>
+                                <div className="text-cyan-300">{cr.delivered_bundle_sha256 || cr.deliverable_bundle_sha256}</div>
+                              </div>
+                            )}
                           </div>
                           <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
                             <button
@@ -1113,34 +1182,148 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
 
                             {/* Waiting Payment Box */}
                             {cr.status === 'WAITING_PAYMENT' && (
-                              <div className="p-3 rounded-lg bg-amber-950/30 border border-amber-800/40 space-y-2">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-amber-300 font-semibold">Đơn hàng chờ thanh toán:</span>
+                              <div className="p-4 rounded-xl bg-amber-950/25 border border-amber-800/50 space-y-3">
+                                <div className="flex items-center justify-between text-xs border-b border-amber-900/40 pb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                                    <span className="text-amber-300 font-bold uppercase tracking-wider text-[11px]">
+                                      Trạng Thái: Đang Chờ Thanh Toán
+                                    </span>
+                                  </div>
                                   <span className="font-bold text-amber-200 font-mono text-sm">
-                                    ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
+                                    ${Number(cr.checkout_amount || cr.quoted_price_usd || 0).toLocaleString()} USDT
                                   </span>
                                 </div>
-                                <p className="text-[11px] text-slate-400 leading-relaxed">
-                                  Đề xuất đã được xác nhận. Quý khách có thể thực hiện thanh toán thử nghiệm qua Sandbox Test để kích hoạt quy trình thực thi mô hình.
-                                </p>
-                                <button
-                                  type="button"
-                                  disabled={payingSandboxId === cr.id}
-                                  onClick={() => handleSandboxPay(cr.id)}
-                                  className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-500 to-teal-500 text-slate-950 font-bold"
-                                >
-                                  {payingSandboxId === cr.id ? (
-                                    <>
-                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                      <span>Đang xử lý thanh toán Sandbox...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>Xác Nhận Thanh Toán Thử Nghiệm (Sandbox Pay)</span>
-                                    </>
+
+                                {cr.checkout_deposit_address ? (
+                                  <div className="space-y-2.5 text-xs">
+                                    <div className="flex items-center justify-between text-[11px] text-slate-300">
+                                      <span>Mạng lưới: <strong className="text-cyan-400 font-mono">{cr.payment_network || 'TRC20'}</strong></span>
+                                      <span>Tiền tệ: <strong className="text-emerald-400 font-mono">USDT</strong></span>
+                                    </div>
+                                    <div className="space-y-1">
+                                      <span className="text-[11px] text-slate-400">Địa chỉ ví nhận chính thức:</span>
+                                      <div className="flex items-center gap-1.5 p-2 rounded-lg bg-slate-900/90 border border-slate-700/80 font-mono text-[11px] text-slate-200">
+                                        <span className="truncate flex-1 select-all">{cr.checkout_deposit_address}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            navigator.clipboard?.writeText(cr.checkout_deposit_address).catch(() => {});
+                                            setCopiedReqWalletId(cr.id);
+                                            setTimeout(() => setCopiedReqWalletId(null), 2000);
+                                          }}
+                                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white shrink-0 cursor-pointer"
+                                          title="Sao chép ví"
+                                        >
+                                          {copiedReqWalletId === cr.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* TxHash input and verification */}
+                                    <div className="space-y-1.5 pt-1">
+                                      <label className="text-[11px] text-slate-300 font-semibold block">
+                                        Nhập mã giao dịch on-chain (TxHash) sau khi chuyển:
+                                      </label>
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="text"
+                                          placeholder="Nhập TxHash (0x... hoặc chuỗi Tron hex)"
+                                          value={checkoutTxHash[cr.id] || ''}
+                                          onChange={(e) =>
+                                            setCheckoutTxHash((prev) => ({ ...prev, [cr.id]: e.target.value }))
+                                          }
+                                          className="quant-input text-xs flex-1 py-1.5"
+                                        />
+                                        <button
+                                          type="button"
+                                          disabled={verifyingResearchPaymentId === cr.id || !(checkoutTxHash[cr.id]?.trim())}
+                                          onClick={() =>
+                                            handleVerifyResearchPayment(
+                                              cr.id,
+                                              cr.payment_network || 'TRC20',
+                                              checkoutTxHash[cr.id] || ''
+                                            )
+                                          }
+                                          className="quant-btn-primary text-xs py-1.5 px-3 shrink-0 flex items-center gap-1"
+                                        >
+                                          {verifyingResearchPaymentId === cr.id ? (
+                                            <>
+                                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                              <span>Đang xác minh...</span>
+                                            </>
+                                          ) : (
+                                            <span>Xác Minh On-Chain</span>
+                                          )}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2 text-xs">
+                                    <p className="text-[11px] text-slate-400">
+                                      Đề xuất v{cr.proposal_version || 1} đã được xác nhận. Vui lòng chọn mạng thanh toán để nhận địa chỉ ví nạp USDT:
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <select
+                                        value={checkoutNetwork[cr.id] || 'TRC20'}
+                                        onChange={(e) =>
+                                          setCheckoutNetwork((prev) => ({
+                                            ...prev,
+                                            [cr.id]: e.target.value as 'TRC20' | 'BEP20',
+                                          }))
+                                        }
+                                        className="quant-input text-xs py-1.5 px-2 bg-slate-900 border border-slate-700"
+                                      >
+                                        <option value="TRC20">USDT (TRC20 - Tron)</option>
+                                        <option value="BEP20">USDT (BEP20 - BSC)</option>
+                                      </select>
+                                      <button
+                                        type="button"
+                                        disabled={lockingCheckoutId === cr.id}
+                                        onClick={() =>
+                                          handleLockCheckout(cr.id, checkoutNetwork[cr.id] || 'TRC20')
+                                        }
+                                        className="quant-btn-primary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                                      >
+                                        {lockingCheckoutId === cr.id ? (
+                                          <>
+                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                            <span>Đang khóa &amp; tạo ví...</span>
+                                          </>
+                                        ) : (
+                                          <span>Lấy Địa Chỉ Ví &amp; Khóa Thanh Toán</span>
+                                        )}
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Sandbox Pay - strictly hidden in production */}
+                                {typeof window !== 'undefined' &&
+                                  !window.location.hostname.includes('zupirus.com') &&
+                                  !window.location.hostname.includes('109.199.100.120') && (
+                                    <div className="pt-2 border-t border-amber-900/40">
+                                      <button
+                                        type="button"
+                                        disabled={payingSandboxId === cr.id}
+                                        onClick={() => handleSandboxPay(cr.id)}
+                                        className="w-full text-xs py-1.5 px-3 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium flex items-center justify-center gap-1.5 transition"
+                                      >
+                                        {payingSandboxId === cr.id ? (
+                                          <>
+                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                            <span>Đang xử lý sandbox...</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            <span>Thanh Toán Thử Nghiệm Môi Trường Test (Sandbox)</span>
+                                          </>
+                                        )}
+                                      </button>
+                                    </div>
                                   )}
-                                </button>
                               </div>
                             )}
                           </div>

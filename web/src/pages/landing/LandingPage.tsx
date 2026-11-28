@@ -59,7 +59,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             <div className="flex flex-wrap items-center gap-3 pt-1">
               <button
                 type="button"
-                onClick={() => onNavigate('/portal')}
+                onClick={() => onNavigate('/portal?tab=retail')}
                 className="quant-btn-primary text-sm px-5 py-3"
               >
                 <span>{lang === 'en' ? 'Create Technical Analysis Note' : 'Tạo báo cáo kỹ thuật'}</span>
@@ -67,7 +67,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               </button>
               <button
                 type="button"
-                onClick={() => onNavigate('/portal')}
+                onClick={() => onNavigate('/portal?tab=institutional')}
                 className="quant-btn-secondary text-sm px-5 py-3 border border-amber-500/40 text-amber-200 hover:bg-amber-500/10"
               >
                 <FileText className="h-4 w-4 text-amber-300" />
@@ -308,7 +308,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
             </div>
             <button
               type="button"
-              onClick={() => onNavigate('/portal')}
+              onClick={() => onNavigate('/portal?tab=retail')}
               className="quant-button quant-button-primary w-full py-2.5 text-xs font-semibold flex items-center justify-center gap-2"
             >
               <span>Tạo Bản Phân Tích Kỹ Thuật</span>
@@ -338,13 +338,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                 </li>
                 <li className="flex items-center gap-2 text-slate-300">
                   <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Báo giá theo phạm vi từng đơn (Mục tiêu 10.000 USD)</span>
+                  <span>Báo giá theo phạm vi từng đơn</span>
                 </li>
               </ul>
             </div>
             <button
               type="button"
-              onClick={() => onNavigate('/portal')}
+              onClick={() => onNavigate('/portal?tab=institutional')}
               className="quant-button quant-button-secondary border border-amber-500/40 text-amber-200 hover:bg-amber-500/10 w-full py-2.5 text-xs font-semibold flex items-center justify-center gap-2"
             >
               <span>Gửi Bài Toán Nghiên Cứu Tổ Chức</span>
@@ -428,9 +428,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                   >
                     <span className="text-sm font-semibold text-white">{item.q}</span>
                     <ChevronDown
-                      className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
-                        isOpen ? 'rotate-180 text-[#12B5A6]' : ''
-                      }`}
+                      className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-180 text-[#12B5A6]' : ''
+                        }`}
                     />
                   </button>
                   {isOpen && (
