@@ -578,3 +578,122 @@ def test_system_version_and_payment_and_inbox_and_attachment_fallback():
     assert retail_jpy.json()["bias"] == "\u0110\u1ee8NG NGO\u00c0I"
 
 
+def test_locked_checkout_and_worker_and_admin_exceptions_and_runs():
+    """Verify locked checkout, duplicate payment rejection, worker auto-execution,
+    run persistence, admin rerun limits, status override, and archive protection.
+    """
+    import os
+    now_ts = int(time.time())
+    client_inst, uid = _create_user_client(f"locked_checkout_{now_ts}@inst.com")
+    client_other, uid2 = _create_user_client(f"other_client_{now_ts}@inst.com")
+    client_admin = _create_admin_client()
+
+    # 1. Inquiry and proposal draft with ambiguities
+    inq_res = client_inst.post(
+        "/api/v1/research/institutional/inquiry",
+        json={"problem_description": "Nghiên cứu tác động vĩ mô"},
+    )
+    assert inq_res.status_code == 200
+    req_id = inq_res.json()["request_id"]
+
+    draft_res = client_admin.get(f"/api/v1/admin/research/requests/{req_id}/draft-proposal")
+    assert draft_res.status_code == 200
+    draft_data = draft_res.json()["draft_proposal"]
+    assert len(draft_data["ambiguities_vi"]) > 0
+
+    # 2. Admin quotes price
+    client_admin.post(f"/api/v1/admin/research/requests/{req_id}/quote", json={"quoted_price_usd": 8500.0})
+
+    # 3. Checkout Lock
+    lock_res = client_inst.post(
+        f"/api/v1/research/orders/{req_id}/checkout-lock",
+        json={"payment_network": "BEP20"},
+    )
+    assert lock_res.status_code == 200
+    lock_data = lock_res.json()
+    assert lock_data["checkout_locked"] == 1
+    assert lock_data["amount_usdt"] == 8500.0
+    assert lock_data["deposit_address"].startswith("0x")
+
+    # 4. Payment Verification with duplicate check
+    tx_hash = f"0xTEST_TX_HASH_{now_ts}"
+    pay_res = client_inst.post(
+        f"/api/v1/research/orders/{req_id}/verify-payment",
+        json={"tx_hash": tx_hash},
+    )
+    assert pay_res.status_code == 200
+    assert pay_res.json()["status"] == "CONFIRMED"
+
+    # Attempt to verify another order with the EXACT SAME tx_hash -> rejected with 409
+    inq_res2 = client_other.post(
+        "/api/v1/research/institutional/inquiry",
+        json={"problem_description": "Nghiên cứu riêng thứ hai"},
+    )
+    req_id2 = inq_res2.json()["request_id"]
+    client_admin.post(f"/api/v1/admin/research/requests/{req_id2}/quote", json={"quoted_price_usd": 3000.0})
+    dup_pay = client_other.post(
+        f"/api/v1/research/orders/{req_id2}/verify-payment",
+        json={"tx_hash": tx_hash},
+    )
+    assert dup_pay.status_code == 409
+
+    # 5. Worker auto-execution of CONFIRMED paid job
+    from app.domains.quant.worker import process_on_demand_research_jobs
+    process_on_demand_research_jobs(time.time())
+
+    # Check that order status transitioned to READY_FOR_REVIEW and run was recorded
+    detail_res = client_admin.get(f"/api/v1/research/orders/{req_id}")
+    assert detail_res.status_code == 200
+    ord_data = detail_res.json()["order"]
+    assert ord_data["status"] == "READY_FOR_REVIEW"
+    assert len(ord_data["runs"]) >= 1
+    run1 = ord_data["runs"][0]
+    assert run1["status"] == "COMPLETED"
+    assert run1["deliverable_bundle_sha256"] is not None
+
+    # 6. Admin Re-run
+    rerun_res = client_admin.post(
+        f"/api/v1/admin/research/requests/{req_id}/rerun",
+        json={"reason": "Kiểm định lại sau cập nhật tham số"},
+    )
+    assert rerun_res.status_code == 200
+    assert rerun_res.json()["run_number"] == 2
+
+    # Check updated detail has 2 runs
+    detail_res2 = client_admin.get(f"/api/v1/research/orders/{req_id}")
+    assert len(detail_res2.json()["order"]["runs"]) == 2
+    assert len(detail_res2.json()["order"]["audit_logs"]) >= 2
+
+    # 7. Admin Override Status
+    ov_res = client_admin.post(
+        f"/api/v1/admin/research/requests/{req_id}/override-status",
+        json={"new_status": "READY_FOR_REVIEW", "reason": "Duyệt thủ công sau can thiệp"},
+    )
+    assert ov_res.status_code == 200
+
+    # 8. Admin Approve Deliverable
+    appr_res = client_admin.post(f"/api/v1/admin/research/requests/{req_id}/approve")
+    assert appr_res.status_code == 200
+    assert appr_res.json()["status"] == "DELIVERED"
+
+    # 9. Client can now download deliverable
+    dl_pdf = client_inst.get(f"/api/v1/research/orders/{req_id}/download-pdf")
+    assert dl_pdf.status_code == 200
+    dl_bundle = client_inst.get(f"/api/v1/research/orders/{req_id}/download-bundle")
+    assert dl_bundle.status_code == 200
+
+    # 10. Close endpoint rejects closing a paid/completed request -> instructs archive
+    close_res = client_admin.post(
+        f"/api/v1/admin/research/requests/{req_id}/close",
+        json={"reason": "Thử đóng đơn đã thanh toán"},
+    )
+    assert close_res.status_code == 400
+    assert "lưu trữ" in close_res.json()["detail"].lower()
+
+    # 11. Archive endpoint succeeds
+    arch_res = client_admin.post(f"/api/v1/admin/research/requests/{req_id}/archive")
+    assert arch_res.status_code == 200
+    assert arch_res.json()["is_archived"] == 1
+
+
+

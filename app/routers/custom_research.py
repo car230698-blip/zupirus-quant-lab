@@ -156,6 +156,61 @@ class AdminClosePayload(BaseModel):
     reason: Optional[str] = None
 
 
+class CheckoutLockPayload(BaseModel):
+    payment_network: str = Field(default="BEP20")
+
+
+class AdminRerunPayload(BaseModel):
+    reason: str = Field(min_length=3)
+
+
+class AdminOverrideStatusPayload(BaseModel):
+    new_status: str
+    reason: str = Field(min_length=3)
+
+
+def detect_proposal_ambiguities(desc: str, symbols: List[str]) -> List[str]:
+    ambiguities = []
+    desc_clean = (desc or "").strip().lower()
+    if len(desc_clean) < 40:
+        ambiguities.append("Mô tả bài toán còn ngắn gọn, cần làm rõ giả thuyết hoặc cơ chế tác động mong muốn.")
+    if not symbols or symbols == ["XAUUSD", "EURUSD", "USDJPY"]:
+        ambiguities.append("Khách hàng chưa chỉ định danh mục tài sản riêng (đang dùng rổ mặc định Vàng & FX).")
+    if not any(k in desc_clean for k in ["ngày", "tháng", "năm", "kỳ", "phiên", "cpi", "fomc", "nfp", "window", "event"]):
+        ambiguities.append("Chưa chỉ định rõ mốc thời gian hoặc sự kiện kích hoạt cụ thể cần đo lường.")
+    return ambiguities
+
+
+def _log_audit_action(
+    c,
+    request_id: str,
+    operator_id: str,
+    operator_role: str,
+    action: str,
+    reason: Optional[str] = None,
+    details: Optional[dict] = None,
+) -> None:
+    now_ts = time.time()
+    log_id = f"cral_{uuid.uuid4().hex[:12]}"
+    c.execute(
+        """
+        INSERT INTO custom_research_audit_logs (
+            id, request_id, operator_id, operator_role, action, reason, details_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            log_id,
+            request_id,
+            str(operator_id),
+            str(operator_role),
+            action,
+            reason,
+            json.dumps(details or {}, ensure_ascii=False) if details else None,
+            now_ts,
+        ),
+    )
+
+
 # --- Candle Helper for Retail Requests ---
 
 def _load_candles_for_symbol(symbol: str, timeframe: str) -> List[Candle]:
@@ -448,6 +503,64 @@ def confirm_institutional_quote(
     }
 
 
+@router.post("/api/v1/research/orders/{request_id}/checkout-lock")
+def checkout_lock_research_request(
+    request_id: str,
+    payload: CheckoutLockPayload,
+    user: dict = Depends(get_current_user),
+):
+    """Lock checkout parameters for USDT payment."""
+    net = payload.payment_network.strip().upper()
+    if net not in ("BEP20", "TRC20"):
+        _fail(400, "Mạng thanh toán không hợp lệ. Chỉ hỗ trợ BEP20 hoặc TRC20.")
+
+    now_ts = time.time()
+    with tx() as c:
+        req = _verify_order_access(c, request_id, user)
+        price = float(req.get("quoted_price_usd") or 0.0)
+        if price <= 0:
+            _fail(400, "Hồ sơ chưa có báo giá chính thức. Vui lòng chờ đề xuất từ Ban Quản Trị.")
+
+        if req.get("payment_status") == "PAID":
+            _fail(400, "Hồ sơ nghiên cứu này đã được thanh toán.")
+
+        new_status = "WAITING_PAYMENT" if req.get("status") in ("QUOTED", "PENDING_QUOTE") else req.get("status")
+
+        c.execute(
+            """
+            UPDATE custom_research_requests
+            SET checkout_locked = 1, checkout_locked_at = ?, payment_network = ?, currency = 'USDT',
+                status = ?, current_step = 'PAYMENT_PENDING', action_category = 'WAITING_CLIENT',
+                waiting_reason_vi = 'Đang chờ khách hàng thanh toán USDT', updated_at = ?
+            WHERE id = ?
+            """,
+            (now_ts, net, new_status, now_ts, request_id),
+        )
+
+        _log_audit_action(
+            c, request_id, str(user["id"]), user.get("role", "client"), "CHECKOUT_LOCKED", details={"network": net, "amount": price}
+        )
+
+    usdt_address = (
+        os.getenv("USDT_BEP20_ADDRESS", "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")
+        if net == "BEP20"
+        else os.getenv("USDT_TRC20_ADDRESS", "TQn9Y2khEsLJW1ChVWFMSMeSTow5K3GW3U")
+    )
+
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "checkout_locked": 1,
+        "checkout_locked_at": now_ts,
+        "payment_network": net,
+        "currency": "USDT",
+        "amount_usdt": price,
+        "proposal_version": req.get("proposal_version") or 1,
+        "deposit_address": usdt_address,
+        "expires_in_seconds": 86400,
+    }
+
+
 @router.post("/api/v1/research/orders/{request_id}/sandbox-pay")
 def sandbox_pay_research_request(
     request_id: str,
@@ -455,6 +568,11 @@ def sandbox_pay_research_request(
     user: dict = Depends(get_current_user),
 ):
     """Sandbox payment simulation for custom research order testing without real funds."""
+    env = os.getenv("ENVIRONMENT", "").lower()
+    allow_sb = os.getenv("ALLOW_SANDBOX_PAY", "").lower() in ("true", "1")
+    if env == "production" and not allow_sb:
+        _fail(403, "Cổng thanh toán thử nghiệm (sandbox) bị khóa trên môi trường Production.")
+
     now_ts = time.time()
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
@@ -466,14 +584,19 @@ def sandbox_pay_research_request(
             UPDATE custom_research_requests
             SET payment_status = 'PAID', payment_order_id = ?, payment_tx_hash = ?,
                 payment_confirmed_at = ?, status = 'CONFIRMED', current_step = 'CONFIRMED',
-                next_action_vi = 'Đã thanh toán (Sandbox). Chờ Ban Quản Trị bấm Chạy nghiên cứu',
+                action_category = 'RUNNING',
+                waiting_reason_vi = 'Đã thanh toán (Sandbox). Hệ thống tự động xếp hàng đợi chạy',
                 updated_at = ?
             WHERE id = ?
             """,
             (mock_ord, mock_tx, now_ts, now_ts, request_id),
         )
 
-        pay_msg = f"Đơn hàng đã được thanh toán thành công qua Sandbox Test (Mã TX: {mock_tx}). Trạng thái chuyển sang CONFIRMED."
+        _log_audit_action(
+            c, request_id, str(user["id"]), user.get("role", "client"), "SANDBOX_PAYMENT", details={"tx_hash": mock_tx}
+        )
+
+        pay_msg = f"Đơn hàng đã được thanh toán thành công qua Sandbox Test (Mã TX: {mock_tx}). Trạng thái chuyển sang CONFIRMED và sẵn sàng chạy."
         c.execute(
             """
             INSERT INTO custom_research_messages (
@@ -492,6 +615,7 @@ def sandbox_pay_research_request(
         "payment_status": "PAID",
         "tx_hash": mock_tx,
         "status": "CONFIRMED",
+        "action_category": "RUNNING",
         "message": "Đã thanh toán Sandbox thành công.",
     }
 
@@ -502,22 +626,52 @@ def verify_research_payment(
     payload: VerifyPaymentPayload,
     user: dict = Depends(get_current_user),
 ):
-    """Verify payment transaction for custom research order."""
+    """Verify payment transaction for custom research order with duplication & timeout protection."""
     now_ts = time.time()
+    clean_tx = payload.tx_hash.strip()
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
-        clean_tx = payload.tx_hash.strip()
+
+        # 1. Check duplicate tx_hash in custom_research_requests
+        dup_req = c.execute(
+            "SELECT id FROM custom_research_requests WHERE payment_tx_hash = ? AND id != ? AND payment_status = 'PAID'",
+            (clean_tx, request_id),
+        ).fetchone()
+        if dup_req:
+            _fail(409, f"Mã giao dịch (TX hash) này đã được xác nhận cho hồ sơ {dup_req['id']}.")
+
+        # 2. Check duplicate tx_hash in orders table
+        try:
+            dup_ord = c.execute(
+                "SELECT id FROM orders WHERE tx_hash = ? AND status = 'PAID'",
+                (clean_tx,),
+            ).fetchone()
+            if dup_ord:
+                _fail(409, f"Mã giao dịch (TX hash) này đã được đối soát cho đơn hàng {dup_ord['id']}.")
+        except Exception:
+            pass
+
+        # 3. Check expiration (> 24 hours)
+        locked_at = req.get("checkout_locked_at")
+        if locked_at and (now_ts - float(locked_at)) > 86400:
+            _fail(400, "Yêu cầu thanh toán đã hết hạn (24 giờ). Vui lòng thực hiện khóa thanh toán lại.")
+
         c.execute(
             """
             UPDATE custom_research_requests
             SET payment_status = 'PAID', payment_tx_hash = ?, payment_confirmed_at = ?,
-                status = 'CONFIRMED', current_step = 'CONFIRMED',
-                next_action_vi = 'Đã đối soát thanh toán. Chờ Ban Quản Trị bấm Chạy nghiên cứu',
+                status = 'CONFIRMED', current_step = 'CONFIRMED', action_category = 'RUNNING',
+                waiting_reason_vi = 'Đã đối soát thanh toán. Hệ thống tự động xếp hàng đợi chạy',
                 updated_at = ?
             WHERE id = ?
             """,
             (clean_tx, now_ts, now_ts, request_id),
         )
+
+        _log_audit_action(
+            c, request_id, str(user["id"]), user.get("role", "client"), "PAYMENT_VERIFIED", details={"tx_hash": clean_tx}
+        )
+
         pay_msg = f"Giao dịch thanh toán đã được ghi nhận (TX: {clean_tx}). Trạng thái đơn: CONFIRMED."
         c.execute(
             """
@@ -530,7 +684,7 @@ def verify_research_payment(
         )
 
     _broadcast_chat_message(request_id, {"event": "status_changed", "status": "CONFIRMED", "payment_status": "PAID"})
-    return {"ok": True, "request_id": request_id, "payment_status": "PAID", "status": "CONFIRMED"}
+    return {"ok": True, "request_id": request_id, "payment_status": "PAID", "status": "CONFIRMED", "action_category": "RUNNING"}
 
 
 # --- Client & Shared Order Query Endpoints ---
@@ -613,6 +767,20 @@ def get_research_order_detail(
             (request_id,),
         ).fetchall()
         req["attachments"] = [dict(a) for a in att_rows]
+
+        # Fetch runs
+        run_rows = c.execute(
+            "SELECT * FROM custom_research_runs WHERE request_id = ? ORDER BY run_number ASC",
+            (request_id,),
+        ).fetchall()
+        req["runs"] = [dict(r) for r in run_rows]
+
+        # Fetch audit logs
+        log_rows = c.execute(
+            "SELECT * FROM custom_research_audit_logs WHERE request_id = ? ORDER BY created_at DESC",
+            (request_id,),
+        ).fetchall()
+        req["audit_logs"] = [dict(l) for l in log_rows]
 
     return {"ok": True, "order": req}
 
@@ -851,29 +1019,42 @@ def download_order_attachment(
 @router.get("/api/v1/admin/research/requests")
 def admin_list_research_requests(
     status: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    include_archived: bool = Query(False),
     admin: dict = Depends(get_current_admin),
 ):
     """Admin: List all research inquiries and active studies.
-    Categorized into 'Đơn cần xử lý' (Pending Quote, Pending Run, Pending Review, Needs Attention).
+    Categorized into Actionable Queue (Pending Reply, Pending Quote, Needs Data, Pending Review, Failed/Intervention).
     Returns both 'items' and 'requests' for frontend backward-compatibility.
     """
     with tx() as c:
+        where_clauses = []
+        params = []
+
+        if not include_archived:
+            where_clauses.append("is_archived = 0")
+
         if status:
-            rows = c.execute(
-                """
-                SELECT * FROM custom_research_requests
-                WHERE status = ?
-                ORDER BY created_at DESC
-                """,
-                (status.upper(),),
-            ).fetchall()
-        else:
-            rows = c.execute(
-                """
-                SELECT * FROM custom_research_requests
-                ORDER BY created_at DESC
-                """
-            ).fetchall()
+            where_clauses.append("status = ?")
+            params.append(status.upper())
+
+        if category:
+            cat = category.strip().lower()
+            if cat == "actionable":
+                where_clauses.append(
+                    "(action_category = 'ACTIONABLE' OR status IN ('PENDING_QUOTE', 'NEEDS_DATA', 'READY_FOR_REVIEW', 'FAILED') "
+                    "OR (SELECT COUNT(*) FROM custom_research_messages WHERE request_id = custom_research_requests.id AND is_read_by_admin = 0) > 0)"
+                )
+            elif cat == "waiting_client":
+                where_clauses.append("(action_category = 'WAITING_CLIENT' OR status IN ('QUOTED', 'WAITING_PAYMENT'))")
+            elif cat == "running":
+                where_clauses.append("(action_category = 'RUNNING' OR status IN ('CONFIRMED', 'RUNNING'))")
+            elif cat == "completed":
+                where_clauses.append("(action_category = 'COMPLETED' OR status IN ('DELIVERED', 'REJECTED'))")
+
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        query = f"SELECT * FROM custom_research_requests {where_sql} ORDER BY updated_at DESC, created_at DESC"
+        rows = c.execute(query, tuple(params)).fetchall()
 
         items = []
         for r in rows:
@@ -891,9 +1072,269 @@ def admin_list_research_requests(
                 (d["id"],),
             ).fetchone()
             d["unread_messages_count"] = unread[0] if unread else 0
+
+            # Compute queue subcategory
+            if d["unread_messages_count"] > 0:
+                d["queue_group"] = "PENDING_REPLY"
+            elif d["status"] == "PENDING_QUOTE":
+                d["queue_group"] = "PENDING_QUOTE"
+            elif d["status"] in ("NEEDS_DATA", "NEEDS_ATTENTION"):
+                d["queue_group"] = "NEEDS_DATA"
+            elif d["status"] == "READY_FOR_REVIEW":
+                d["queue_group"] = "READY_FOR_REVIEW"
+            elif d["status"] in ("FAILED", "TIMED_OUT", "ERROR"):
+                d["queue_group"] = "ERROR_INTERVENTION"
+            elif d["status"] in ("QUOTED", "WAITING_PAYMENT"):
+                d["queue_group"] = "WAITING_CLIENT"
+            elif d["status"] in ("CONFIRMED", "RUNNING"):
+                d["queue_group"] = "RUNNING"
+            elif d["status"] in ("DELIVERED", "REJECTED"):
+                d["queue_group"] = "COMPLETED"
+            else:
+                d["queue_group"] = "ACTIONABLE"
+
             items.append(d)
 
     return {"ok": True, "items": items, "requests": items, "count": len(items)}
+
+
+@router.get("/api/v1/admin/research/requests/{request_id}/draft-proposal")
+def admin_get_draft_proposal(
+    request_id: str,
+    admin: dict = Depends(get_current_admin),
+):
+    """Auto-draft proposal with ambiguity detection for admin review."""
+    with tx() as c:
+        row = c.execute("SELECT * FROM custom_research_requests WHERE id = ?", (request_id,)).fetchone()
+        if not row:
+            _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
+        req = dict(row)
+
+    desc = req.get("problem_description") or req.get("hypothesis_prompt") or ""
+    symbols = json.loads(req.get("symbols_json") or "[\"XAUUSD\", \"EURUSD\", \"USDJPY\"]")
+    turnaround = int(req.get("turnaround_hours") or 48)
+    ambiguities = detect_proposal_ambiguities(desc, symbols)
+
+    draft = {
+        "research_question": f"Khảo nghiệm định lượng tác động: {desc[:150]}" if desc else "Khảo nghiệm phản ứng vĩ mô đa tài sản",
+        "deliverables": [
+            "Báo cáo nghiên cứu độc quyền PDF chuyên sâu (20+ trang)",
+            "Nhật ký mô phỏng giao dịch chi tiết (trades_ledger.csv)",
+            "Bộ chỉ số định lượng & suy diễn thống kê (metrics.json)",
+            "Bộ công cụ tái lập độc lập offline (replay.py & QUICKSTART.md)",
+            "Bảng kê mã băm mật mã chứng minh tính toàn vẹn (MANIFEST.sha256)",
+        ],
+        "turnaround_hours": turnaround,
+        "quoted_price_usd": float(req.get("quoted_price_usd") or 10000.0),
+        "scope_notes": req.get("scope_notes") or f"Khảo nghiệm trên rổ tài sản {', '.join(symbols)}.",
+        "ambiguities_vi": ambiguities,
+    }
+    return {"ok": True, "request_id": request_id, "draft_proposal": draft}
+
+
+def execute_research_run_internal(
+    request_id: str,
+    operator_id: str,
+    operator_role: str,
+    is_rerun: bool = False,
+    rerun_reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Execute quantitative research run with concurrency guard, data input check, run persistence, and audit logging."""
+    now_ts = time.time()
+    with tx() as c:
+        row = c.execute("SELECT * FROM custom_research_requests WHERE id = ?", (request_id,)).fetchone()
+        if not row:
+            _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
+        req = dict(row)
+
+        # Mutex lock check: if currently RUNNING and last_run_started_at < 15 min ago, reject
+        if req.get("status") == "RUNNING":
+            last_start = float(req.get("last_run_started_at") or 0.0)
+            if now_ts - last_start < 900:
+                _fail(409, "Nghiên cứu này đang trong quá trình thực thi. Vui lòng không thực hiện chạy trùng lặp.")
+
+        price = float(req.get("quoted_price_usd") or 0.0)
+        pay_status = req.get("payment_status", "UNPAID")
+        if price > 0 and pay_status != "PAID" and req.get("status") not in ("CONFIRMED", "PAID"):
+            _fail(
+                400,
+                f"Yêu cầu nghiên cứu chưa hoàn tất thanh toán (Trạng thái thanh toán: {pay_status}). Vui lòng xác minh thanh toán trước khi chạy.",
+            )
+
+        # Check required data inputs
+        symbols = json.loads(req.get("symbols_json") or "[\"XAUUSD\", \"EURUSD\", \"USDJPY\"]")
+        input_att_id = req.get("input_attachment_id")
+        if input_att_id:
+            att = c.execute("SELECT * FROM custom_research_attachments WHERE id = ?", (input_att_id,)).fetchone()
+            stored = att["stored_path"] if att and "stored_path" in att.keys() else None
+            if not stored or not Path(stored).exists():
+                c.execute(
+                    """
+                    UPDATE custom_research_requests
+                    SET status = 'NEEDS_DATA', action_category = 'ACTIONABLE',
+                        waiting_reason_vi = 'Tệp dữ liệu đầu vào đính kèm không tồn tại trên hệ thống lưu trữ.',
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now_ts, request_id),
+                )
+                _log_audit_action(c, request_id, operator_id, operator_role, "DATA_CHECK_FAILED", reason="Missing attachment file")
+                _fail(400, "Tệp dữ liệu đầu vào đính kèm không tồn tại trên hệ thống lưu trữ.")
+
+        # Determine next run number
+        max_run = c.execute(
+            "SELECT MAX(run_number) FROM custom_research_runs WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        next_run_num = (max_run[0] or 0) + 1 if max_run else 1
+        run_uuid = f"run_{uuid.uuid4().hex[:12]}"
+        proposal_ver = int(req.get("proposal_version") or 1)
+
+        c.execute(
+            """
+            INSERT INTO custom_research_runs (
+                id, request_id, run_number, proposal_version, status, input_attachment_id,
+                parameters_json, metrics_json, deliverable_pdf_path, deliverable_bundle_path,
+                deliverable_bundle_sha256, error_details, is_approved, started_at
+            ) VALUES (?, ?, ?, ?, 'RUNNING', ?, ?, NULL, NULL, NULL, NULL, NULL, 0, ?)
+            """,
+            (
+                run_uuid,
+                request_id,
+                next_run_num,
+                proposal_ver,
+                input_att_id,
+                json.dumps({"symbols": symbols, "turnaround": req.get("turnaround_hours")}),
+                now_ts,
+            ),
+        )
+
+        c.execute(
+            """
+            UPDATE custom_research_requests
+            SET status = 'RUNNING', current_step = 'RUNNING', action_category = 'RUNNING',
+                last_run_started_at = ?, run_count = run_count + 1, updated_at = ?
+            WHERE id = ?
+            """,
+            (now_ts, now_ts, request_id),
+        )
+
+    # Execute study engine
+    try:
+        prompt = req.get("hypothesis_prompt") or "Nghiên cứu định lượng vĩ mô"
+        turnaround = int(req.get("turnaround_hours") or 48)
+        client_name = req.get("client_email") or "Tổ chức Đối tác"
+
+        study = run_institutional_macro_event_study(
+            hypothesis_prompt=prompt,
+            symbols=symbols,
+            client_name=client_name,
+            quoted_price_usd=price,
+            turnaround_hours=turnaround,
+        )
+
+        zip_path, bundle_filename, bundle_sha = build_institutional_deliverable_bundle(study)
+        pdf_path = zip_path.parent / f"{study.study_id}_report_full.pdf"
+        pdf_bytes = generate_institutional_pdf(study)
+        pdf_path.write_bytes(pdf_bytes)
+
+        done_ts = time.time()
+        with tx() as c:
+            c.execute(
+                """
+                UPDATE custom_research_runs
+                SET status = 'COMPLETED', deliverable_pdf_path = ?, deliverable_bundle_path = ?,
+                    deliverable_bundle_sha256 = ?, metrics_json = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    str(pdf_path),
+                    str(zip_path),
+                    bundle_sha,
+                    json.dumps(study.to_dict(), ensure_ascii=False),
+                    done_ts,
+                    run_uuid,
+                ),
+            )
+
+            c.execute(
+                """
+                UPDATE custom_research_requests
+                SET run_id = ?, deliverable_report_id = ?, deliverable_pdf_path = ?,
+                    deliverable_bundle_path = ?, status = 'READY_FOR_REVIEW', current_step = 'IN_REVIEW',
+                    action_category = 'ACTIONABLE',
+                    waiting_reason_vi = 'Chờ ban quản trị kiểm tra bằng chứng và duyệt bàn giao',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    study.study_id,
+                    f"rep_{study.study_id}",
+                    str(pdf_path),
+                    str(zip_path),
+                    done_ts,
+                    request_id,
+                ),
+            )
+
+            _log_audit_action(
+                c,
+                request_id,
+                operator_id,
+                operator_role,
+                "RERUN_EXECUTED" if is_rerun else "RUN_EXECUTED",
+                reason=rerun_reason,
+                details={"run_id": study.study_id, "run_number": next_run_num, "bundle_sha256": bundle_sha},
+            )
+
+            run_msg = (
+                f"Nghiên cứu định lượng (Lượt #{next_run_num}) đã hoàn thành (Mã bài chạy: {study.study_id}). "
+                f"Bằng chứng, PDF và gói ZIP kiểm chứng đã sẵn sàng để kiểm tra."
+            )
+            c.execute(
+                """
+                INSERT INTO custom_research_messages (
+                    id, request_id, sender_id, sender_role, sender_name, message,
+                    is_read_by_admin, is_read_by_client, created_at
+                ) VALUES (?, ?, 'system', 'system', 'Hệ Thống ZUPIRUS Engine', ?, 1, 1, ?)
+                """,
+                (f"msg_{uuid.uuid4().hex[:10]}", request_id, run_msg, done_ts),
+            )
+
+        _broadcast_chat_message(request_id, {"event": "status_changed", "status": "READY_FOR_REVIEW", "current_step": "IN_REVIEW"})
+
+        return {
+            "ok": True,
+            "request_id": request_id,
+            "run_id": study.study_id,
+            "run_number": next_run_num,
+            "status": "READY_FOR_REVIEW",
+            "current_step": "IN_REVIEW",
+            "bundle_filename": bundle_filename,
+            "bundle_sha256": bundle_sha,
+            "message": "Nghiên cứu đã thực thi thành công. Bằng chứng, ledger và bundle ZIP sẵn sàng để Admin rà soát.",
+        }
+    except Exception as exc:
+        logger.exception("Error executing research run for %s", request_id)
+        err_ts = time.time()
+        with tx() as c:
+            c.execute(
+                "UPDATE custom_research_runs SET status = 'FAILED', error_details = ?, completed_at = ? WHERE id = ?",
+                (str(exc)[:500], err_ts, run_uuid),
+            )
+            c.execute(
+                """
+                UPDATE custom_research_requests
+                SET status = 'FAILED', action_category = 'ACTIONABLE',
+                    waiting_reason_vi = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (f"Lỗi thực thi: {str(exc)[:100]}", err_ts, request_id),
+            )
+            _log_audit_action(
+                c, request_id, operator_id, operator_role, "RUN_FAILED", reason=str(exc)[:200], details={"run_uuid": run_uuid}
+            )
+        raise HTTPException(status_code=500, detail=f"Lỗi thực thi nghiên cứu: {exc}")
 
 
 @router.get("/api/v1/admin/research/inbox")
@@ -1099,92 +1540,112 @@ def admin_run_research_study(
     request_id: str,
     admin: dict = Depends(get_current_admin),
 ):
-    """Admin executes quantitative study engine on the request.
-    Includes concurrency lock prevention and payment gate check.
-    Generates new Run ID, executable ledger, PDF, and deterministic bundle ZIP.
-    """
+    """Admin executes quantitative study engine on the request."""
+    return execute_research_run_internal(request_id, str(admin["id"]), "admin", is_rerun=False)
+
+
+@router.post("/api/v1/admin/research/requests/{request_id}/rerun")
+def admin_rerun_research_request(
+    request_id: str,
+    payload: AdminRerunPayload,
+    admin: dict = Depends(get_current_admin),
+):
+    """Admin triggers a re-run with audit trail and retry limit."""
+    with tx() as c:
+        row = c.execute("SELECT * FROM custom_research_requests WHERE id = ?", (request_id,)).fetchone()
+        if not row:
+            _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
+        req = dict(row)
+        retry_cnt = int(req.get("retry_count") or 0)
+        if retry_cnt >= 5:
+            _fail(400, "Đã đạt giới hạn tối đa số lần chạy lại (5 lần). Vui lòng can thiệp thủ công hoặc kiểm tra dữ liệu đầu vào.")
+        c.execute("UPDATE custom_research_requests SET retry_count = retry_count + 1 WHERE id = ?", (request_id,))
+
+    return execute_research_run_internal(request_id, str(admin["id"]), "admin", is_rerun=True, rerun_reason=payload.reason)
+
+
+@router.post("/api/v1/admin/research/requests/{request_id}/override-status")
+def admin_override_status(
+    request_id: str,
+    payload: AdminOverrideStatusPayload,
+    admin: dict = Depends(get_current_admin),
+):
+    """Admin manual intervention: overrides request status with audit log."""
+    allowed = {
+        "PENDING", "PENDING_QUOTE", "QUOTED", "WAITING_PAYMENT", "CONFIRMED",
+        "RUNNING", "NEEDS_DATA", "READY_FOR_REVIEW", "DELIVERED", "FAILED", "REJECTED"
+    }
+    new_status = payload.new_status.strip().upper()
+    if new_status not in allowed:
+        _fail(400, f"Trạng thái không hợp lệ. Cho phép: {', '.join(sorted(allowed))}")
+
     now_ts = time.time()
     with tx() as c:
         row = c.execute("SELECT * FROM custom_research_requests WHERE id = ?", (request_id,)).fetchone()
         if not row:
             _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
         req = dict(row)
+        old_status = req.get("status")
 
-        if req.get("status") == "RUNNING":
-            _fail(409, "Nghiên cứu này đang trong quá trình thực thi. Vui lòng không thực hiện chạy trùng lặp.")
+        if new_status in ("RUNNING", "CONFIRMED"):
+            cat = "RUNNING"
+        elif new_status in ("DELIVERED", "REJECTED"):
+            cat = "COMPLETED"
+        elif new_status in ("QUOTED", "WAITING_PAYMENT"):
+            cat = "WAITING_CLIENT"
+        else:
+            cat = "ACTIONABLE"
 
-        price = float(req.get("quoted_price_usd") or 0.0)
-        pay_status = req.get("payment_status", "UNPAID")
-        if price > 0 and pay_status != "PAID" and req.get("status") not in ("CONFIRMED", "PAID"):
-            _fail(400, f"Yêu cầu nghiên cứu chưa hoàn tất thanh toán (Trạng thái thanh toán: {pay_status}). Vui lòng xác minh thanh toán trước khi chạy.")
-
-        # Mark request as RUNNING
-        c.execute(
-            "UPDATE custom_research_requests SET status = 'RUNNING', current_step = 'RUNNING', updated_at = ? WHERE id = ?",
-            (now_ts, request_id),
-        )
-
-    prompt = req.get("hypothesis_prompt") or "Nghiên cứu định lượng vĩ mô"
-    symbols = json.loads(req.get("symbols_json") or "[\"XAUUSD\", \"EURUSD\", \"USDJPY\"]")
-    turnaround = int(req.get("turnaround_hours") or 48)
-    client_name = req.get("client_email") or "Tổ chức Đối tác"
-
-    # Run Institutional Quantitative Macro Event-Study Engine
-    study = run_institutional_macro_event_study(
-        hypothesis_prompt=prompt,
-        symbols=symbols,
-        client_name=client_name,
-        quoted_price_usd=price,
-        turnaround_hours=turnaround,
-    )
-
-    zip_path, bundle_filename, bundle_sha = build_institutional_deliverable_bundle(study)
-    pdf_path = zip_path.parent / f"{study.study_id}_report_full.pdf"
-    pdf_bytes = generate_institutional_pdf(study)
-    pdf_path.write_bytes(pdf_bytes)
-
-    with tx() as c:
         c.execute(
             """
             UPDATE custom_research_requests
-            SET run_id = ?, deliverable_report_id = ?, deliverable_pdf_path = ?,
-                deliverable_bundle_path = ?, status = 'READY_FOR_REVIEW', current_step = 'IN_REVIEW',
-                next_action_vi = 'Chờ ban quản trị kiểm tra bằng chứng và duyệt bàn giao', updated_at = ?
+            SET status = ?, action_category = ?, waiting_reason_vi = ?, updated_at = ?
             WHERE id = ?
             """,
-            (
-                study.study_id,
-                f"rep_{study.study_id}",
-                str(pdf_path),
-                str(zip_path),
-                now_ts,
-                request_id,
-            ),
+            (new_status, cat, f"Admin can thiệp: {payload.reason}", now_ts, request_id),
         )
 
-        run_msg = f"Nghiên cứu định lượng đã thực thi thành công (Mã bài chạy: {study.study_id}). Bằng chứng, PDF và gói ZIP kiểm chứng đã sẵn sàng để kiểm tra."
+        _log_audit_action(
+            c,
+            request_id,
+            str(admin["id"]),
+            "admin",
+            "STATUS_OVERRIDE",
+            reason=payload.reason,
+            details={"old_status": old_status, "new_status": new_status},
+        )
+
+        override_msg = f"Ban Quản Trị đã can thiệp thay đổi trạng thái hồ sơ: {old_status} -> {new_status}. Lý do: {payload.reason}"
         c.execute(
             """
             INSERT INTO custom_research_messages (
                 id, request_id, sender_id, sender_role, sender_name, message,
                 is_read_by_admin, is_read_by_client, created_at
-            ) VALUES (?, ?, 'system', 'system', 'Hệ Thống ZUPIRUS Engine', ?, 1, 1, ?)
+            ) VALUES (?, ?, ?, 'admin', 'Ban Quản Trị ZUPIRUS', ?, 1, 0, ?)
             """,
-            (f"msg_{uuid.uuid4().hex[:10]}", request_id, run_msg, now_ts),
+            (f"msg_{uuid.uuid4().hex[:10]}", request_id, admin["id"], override_msg, now_ts),
         )
 
-    _broadcast_chat_message(request_id, {"event": "status_changed", "status": "READY_FOR_REVIEW", "current_step": "IN_REVIEW"})
+    _broadcast_chat_message(request_id, {"event": "status_changed", "status": new_status, "action_category": cat})
 
-    return {
-        "ok": True,
-        "request_id": request_id,
-        "run_id": study.study_id,
-        "status": "READY_FOR_REVIEW",
-        "current_step": "IN_REVIEW",
-        "bundle_filename": bundle_filename,
-        "bundle_sha256": bundle_sha,
-        "message": "Nghiên cứu đã thực thi thành công. Bằng chứng, ledger và bundle ZIP sẵn sàng để Admin rà soát trước khi duyệt bàn giao.",
-    }
+    return {"ok": True, "request_id": request_id, "status": new_status, "action_category": cat, "reason": payload.reason}
+
+
+@router.post("/api/v1/admin/research/requests/{request_id}/archive")
+def admin_archive_research_request(
+    request_id: str,
+    admin: dict = Depends(get_current_admin),
+):
+    """Archive a research request rather than hard deleting."""
+    now_ts = time.time()
+    with tx() as c:
+        row = c.execute("SELECT * FROM custom_research_requests WHERE id = ?", (request_id,)).fetchone()
+        if not row:
+            _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
+        c.execute("UPDATE custom_research_requests SET is_archived = 1, updated_at = ? WHERE id = ?", (now_ts, request_id))
+        _log_audit_action(c, request_id, str(admin["id"]), "admin", "REQUEST_ARCHIVED", reason="Archived by admin")
+
+    return {"ok": True, "request_id": request_id, "is_archived": 1}
 
 
 @router.post("/api/v1/admin/research/requests/{request_id}/approve")
@@ -1203,15 +1664,29 @@ def admin_approve_deliver_research_request(
         if not req.get("deliverable_pdf_path") or not Path(req["deliverable_pdf_path"]).exists():
             _fail(400, "Chưa có tệp nghiên cứu thực tế được tạo. Hãy bấm 'Chạy nghiên cứu' trước khi duyệt bàn giao.")
 
+        # Mark latest run as approved
+        c.execute(
+            """
+            UPDATE custom_research_runs
+            SET is_approved = 1, approved_at = ?
+            WHERE request_id = ? AND run_number = (
+                SELECT MAX(run_number) FROM custom_research_runs WHERE request_id = ?
+            )
+            """,
+            (now_ts, request_id, request_id),
+        )
+
         c.execute(
             """
             UPDATE custom_research_requests
-            SET status = 'DELIVERED', current_step = 'DELIVERED',
-                next_action_vi = 'Đã hoàn tất bàn giao. Khách hàng có thể tải PDF và gói Replay', updated_at = ?
+            SET status = 'DELIVERED', current_step = 'DELIVERED', action_category = 'COMPLETED',
+                waiting_reason_vi = 'Đã hoàn tất bàn giao. Khách hàng có thể tải PDF và gói Replay', updated_at = ?
             WHERE id = ?
             """,
             (now_ts, request_id),
         )
+
+        _log_audit_action(c, request_id, str(admin["id"]), "admin", "DELIVERABLE_APPROVED", reason="Approved and delivered")
 
         deliv_msg = (
             "Hồ sơ nghiên cứu đã được Ban Quản Trị phê duyệt và bàn giao riêng thành công!\n"
@@ -1244,22 +1719,29 @@ def admin_close_research_request(
     payload: AdminClosePayload,
     admin: dict = Depends(get_current_admin),
 ):
-    """Admin closes or rejects a research request."""
+    """Admin closes or rejects a research request. If paid or has runs, reject hard deletion and recommend archive."""
     now_ts = time.time()
     with tx() as c:
         row = c.execute("SELECT * FROM custom_research_requests WHERE id = ?", (request_id,)).fetchone()
         if not row:
             _fail(404, f"Không tìm thấy yêu cầu nghiên cứu {request_id}")
+        req = dict(row)
+
+        if req.get("payment_status") == "PAID" or int(req.get("run_count") or 0) > 0:
+            _fail(400, "Hồ sơ đã có giao dịch thanh toán hoặc lịch sử chạy nghiên cứu, không thể đóng hoặc xóa vĩnh viễn. Vui lòng bấm Lưu trữ (Archive) để bảo toàn bằng chứng.")
 
         c.execute(
             """
             UPDATE custom_research_requests
             SET status = 'REJECTED', rejection_reason = ?, current_step = 'CLOSED',
+                action_category = 'COMPLETED',
                 next_action_vi = 'Yêu cầu đã kết thúc', updated_at = ?
             WHERE id = ?
             """,
             (payload.reason or "Yêu cầu đã đóng bởi quản trị viên", now_ts, request_id),
         )
+
+        _log_audit_action(c, request_id, str(admin["id"]), "admin", "REQUEST_CLOSED", reason=payload.reason)
 
     _broadcast_chat_message(request_id, {"event": "status_changed", "status": "REJECTED", "current_step": "CLOSED"})
 
@@ -1279,9 +1761,20 @@ def download_research_order_pdf(
     request_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Download research PDF. Strictly restricted to request owner or system admin."""
+    """Download research PDF. Strictly restricted to request owner or system admin.
+    Client can only download after deliverable approval for institutional orders.
+    """
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
+        is_admin = user.get("role") == "admin"
+        if not is_admin:
+            if req.get("product_type") == "INSTITUTIONAL_RESEARCH" and req.get("status") != "DELIVERED":
+                appr = c.execute(
+                    "SELECT id FROM custom_research_runs WHERE request_id = ? AND is_approved = 1",
+                    (request_id,),
+                ).fetchone()
+                if not appr:
+                    _fail(403, "Bản nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
 
     pdf_path_str = req.get("deliverable_pdf_path")
     if not pdf_path_str or not Path(pdf_path_str).exists():
@@ -1300,9 +1793,20 @@ def download_research_order_bundle(
     request_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Download complete deliverable bundle ZIP. Strictly restricted to request owner or admin."""
+    """Download complete deliverable bundle ZIP. Strictly restricted to request owner or admin.
+    Client can only download after deliverable approval for institutional orders.
+    """
     with tx() as c:
         req = _verify_order_access(c, request_id, user)
+        is_admin = user.get("role") == "admin"
+        if not is_admin:
+            if req.get("product_type") == "INSTITUTIONAL_RESEARCH" and req.get("status") != "DELIVERED":
+                appr = c.execute(
+                    "SELECT id FROM custom_research_runs WHERE request_id = ? AND is_approved = 1",
+                    (request_id,),
+                ).fetchone()
+                if not appr:
+                    _fail(403, "Gói nghiên cứu đang chờ Ban Quản Trị phê duyệt cuối cùng trước khi bàn giao.")
 
     bundle_path_str = req.get("deliverable_bundle_path")
     if not bundle_path_str or not Path(bundle_path_str).exists():

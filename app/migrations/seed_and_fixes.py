@@ -1278,6 +1278,112 @@ def apply_migration_032(c, is_pg: bool):
             c.execute("ALTER TABLE custom_research_requests ADD COLUMN payment_confirmed_at REAL")
 
 
+def apply_migration_033(c, is_pg: bool):
+    """Migration 033: Add custom_research_runs, custom_research_audit_logs, and queue/exception fields."""
+    if is_pg:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS custom_research_runs (
+            id VARCHAR(64) PRIMARY KEY,
+            request_id VARCHAR(64) NOT NULL REFERENCES custom_research_requests(id) ON DELETE CASCADE,
+            run_number INTEGER NOT NULL DEFAULT 1,
+            proposal_version INTEGER NOT NULL DEFAULT 1,
+            status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+            input_attachment_id VARCHAR(64),
+            parameters_json TEXT,
+            metrics_json TEXT,
+            deliverable_pdf_path TEXT,
+            deliverable_bundle_path TEXT,
+            deliverable_bundle_sha256 VARCHAR(64),
+            error_details TEXT,
+            is_approved INTEGER NOT NULL DEFAULT 0,
+            approved_at DOUBLE PRECISION,
+            started_at DOUBLE PRECISION NOT NULL,
+            completed_at DOUBLE PRECISION
+        );
+        CREATE INDEX IF NOT EXISTS idx_cr_runs_req ON custom_research_runs(request_id);
+
+        CREATE TABLE IF NOT EXISTS custom_research_audit_logs (
+            id VARCHAR(64) PRIMARY KEY,
+            request_id VARCHAR(64) NOT NULL,
+            operator_id VARCHAR(64),
+            operator_role VARCHAR(32),
+            action VARCHAR(64) NOT NULL,
+            reason TEXT,
+            details_json TEXT,
+            created_at DOUBLE PRECISION NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cral_req ON custom_research_audit_logs(request_id);
+
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS is_archived INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS run_count INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS last_run_started_at DOUBLE PRECISION;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS waiting_reason_vi TEXT;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS action_category VARCHAR(32) DEFAULT 'ACTIONABLE';
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS currency VARCHAR(16) DEFAULT 'USDT';
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS payment_network VARCHAR(32);
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS checkout_locked INTEGER DEFAULT 0;
+        ALTER TABLE custom_research_requests ADD COLUMN IF NOT EXISTS checkout_locked_at DOUBLE PRECISION;
+        """)
+    else:
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS custom_research_runs (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL REFERENCES custom_research_requests(id) ON DELETE CASCADE,
+            run_number INTEGER NOT NULL DEFAULT 1,
+            proposal_version INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            input_attachment_id TEXT,
+            parameters_json TEXT,
+            metrics_json TEXT,
+            deliverable_pdf_path TEXT,
+            deliverable_bundle_path TEXT,
+            deliverable_bundle_sha256 TEXT,
+            error_details TEXT,
+            is_approved INTEGER NOT NULL DEFAULT 0,
+            approved_at REAL,
+            started_at REAL NOT NULL,
+            completed_at REAL
+        )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cr_runs_req ON custom_research_runs(request_id)")
+
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS custom_research_audit_logs (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            operator_id TEXT,
+            operator_role TEXT,
+            action TEXT NOT NULL,
+            reason TEXT,
+            details_json TEXT,
+            created_at REAL NOT NULL
+        )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cral_req ON custom_research_audit_logs(request_id)")
+        req_cols = [r[1] for r in c.execute("PRAGMA table_info(custom_research_requests)").fetchall()]
+        if "is_archived" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0")
+        if "run_count" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN run_count INTEGER NOT NULL DEFAULT 0")
+        if "retry_count" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
+        if "last_run_started_at" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN last_run_started_at REAL")
+        if "waiting_reason_vi" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN waiting_reason_vi TEXT")
+        if "action_category" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN action_category TEXT DEFAULT 'ACTIONABLE'")
+        if "currency" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN currency TEXT DEFAULT 'USDT'")
+        if "payment_network" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN payment_network TEXT")
+        if "checkout_locked" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN checkout_locked INTEGER DEFAULT 0")
+        if "checkout_locked_at" not in req_cols:
+            c.execute("ALTER TABLE custom_research_requests ADD COLUMN checkout_locked_at REAL")
+
+
 
 
 

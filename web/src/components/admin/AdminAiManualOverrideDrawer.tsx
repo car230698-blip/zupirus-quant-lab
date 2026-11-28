@@ -13,22 +13,21 @@ export const AdminAiManualOverrideDrawer: React.FC<AdminAiManualOverrideDrawerPr
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isSyncingNews, setIsSyncingNews] = useState(false);
-  const [isResearching, setIsResearching] = useState(false);
+  const [isSyncingCandles, setIsSyncingCandles] = useState(false);
   const [isPingingAll, setIsPingingAll] = useState(false);
   const [isReclassifying, setIsReclassifying] = useState(false);
   const [confirmReclassify, setConfirmReclassify] = useState(false);
-  const [isSwarmCycling, setIsSwarmCycling] = useState(false);
 
-  const handleRunResearch = async () => {
-    setIsResearching(true);
+  const handleSyncCandles = async () => {
+    setIsSyncingCandles(true);
     try {
-      const res = await apiPost('/api/admin/research');
-      setMsg(`Đã kích hoạt WFO Research (Job #${res?.id?.slice(0, 8) || 'OK'}).`);
+      const res = await apiPost('/api/admin/candles/sync', { symbol: 'XAUUSD', timeframe: 'M15' });
+      setMsg(`Đã đồng bộ nến thị trường (${res?.message || 'Thành công'}).`);
       onRefresh();
     } catch (e: any) {
-      setMsg(`Lỗi kích hoạt Research: ${e.message || ''}`);
+      setMsg(`Lỗi đồng bộ nến: ${e.message || ''}`);
     } finally {
-      setIsResearching(false);
+      setIsSyncingCandles(false);
     }
   };
 
@@ -73,19 +72,6 @@ export const AdminAiManualOverrideDrawer: React.FC<AdminAiManualOverrideDrawerPr
     }
   };
 
-  const handleTriggerSwarmCycle = async () => {
-    setIsSwarmCycling(true);
-    try {
-      const res = await apiPost('/api/admin/swarm/cycle');
-      setMsg(`Đã kích hoạt chu kỳ 3-Agent Swarm (${res?.sentinel?.blackout ? 'Blackout: ON' : 'Blackout: OFF'}).`);
-      onRefresh();
-    } catch (e: any) {
-      setMsg(`Lỗi chạy Swarm: ${e.message || ''}`);
-    } finally {
-      setIsSwarmCycling(false);
-    }
-  };
-
   return (
     <div className="quant-panel overflow-hidden">
       <button
@@ -99,10 +85,10 @@ export const AdminAiManualOverrideDrawer: React.FC<AdminAiManualOverrideDrawerPr
           </span>
           <div>
             <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-              Công cụ bảo trì & Can thiệp thủ công
+              Công cụ bảo trì & Can thiệp hạ tầng
             </h4>
             <p className="text-xs text-slate-400 mt-0.5">
-              Kích hoạt tay từng tiến trình nghiên cứu khi cần kiểm tra hoặc bảo trì.
+              Đồng bộ dữ liệu nến, tin tức vĩ mô và kiểm tra hạ tầng API keys.
             </p>
           </div>
         </div>
@@ -122,17 +108,17 @@ export const AdminAiManualOverrideDrawer: React.FC<AdminAiManualOverrideDrawerPr
       </button>
 
       {isOpen && (
-        <div className="p-5 border-t border-slate-800 bg-[#060A13]/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="p-4 pt-0 border-t border-slate-800 grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
           <div className="p-3.5 bg-[#0B1220] border border-slate-800 rounded-xl space-y-2">
-            <div className="font-mono text-xs font-bold text-white">Chạy Walk-Forward Research</div>
-            <p className="text-xs text-slate-400">Kích hoạt tác vụ WFO kiểm thử dữ liệu OOS.</p>
+            <div className="font-mono text-xs font-bold text-white">Đồng Bộ Nến Thị Trường</div>
+            <p className="text-xs text-slate-400">Tải nến M15/H1 mới nhất cho Vàng và Forex.</p>
             <button
               type="button"
-              disabled={isResearching}
-              onClick={handleRunResearch}
+              disabled={isSyncingCandles}
+              onClick={handleSyncCandles}
               className="quant-btn-secondary w-full min-h-[34px] text-xs"
             >
-              {isResearching ? 'Đang chạy...' : 'Chạy WFO Research'}
+              {isSyncingCandles ? 'Đang đồng bộ...' : 'Đồng Bộ Nến'}
             </button>
           </div>
 
@@ -192,19 +178,6 @@ export const AdminAiManualOverrideDrawer: React.FC<AdminAiManualOverrideDrawerPr
               className="quant-btn-secondary w-full min-h-[34px] text-xs"
             >
               {isPingingAll ? 'Đang ping...' : 'Ping Toàn Bộ Key'}
-            </button>
-          </div>
-
-          <div className="p-3.5 bg-[#0B1220] border border-slate-800 rounded-xl space-y-2">
-            <div className="font-mono text-xs font-bold text-white">Quét Chu Kỳ Swarm</div>
-            <p className="text-xs text-slate-400">Đồng bộ tiến trình nghiên cứu vĩ mô và rủi ro.</p>
-            <button
-              type="button"
-              disabled={isSwarmCycling}
-              onClick={handleTriggerSwarmCycle}
-              className="quant-btn-secondary w-full min-h-[34px] text-xs"
-            >
-              {isSwarmCycling ? 'Đang quét...' : 'Chạy Chu Kỳ Swarm'}
             </button>
           </div>
         </div>

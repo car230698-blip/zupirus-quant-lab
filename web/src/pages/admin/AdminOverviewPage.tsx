@@ -289,8 +289,8 @@ export const AdminOverviewPage: React.FC<AdminOverviewPageProps> = ({ onNavigate
         <Panel
           className="lg:col-span-7"
           icon={<Bot className="h-4 w-4 text-indigo-300" />}
-          title="Tiến Trình Nghiên Cứu Ngầm & Swarm Workers"
-          subtitle="Các tác vụ định lượng chạy ngầm độc lập"
+          title="Tiến Trình Nghiên Cứu Định Lượng & Data Sync"
+          subtitle="Worker tự động hóa nghiên cứu và đồng bộ nến thị trường"
         >
           <div className="space-y-3">
             {agents.length === 0 ? (

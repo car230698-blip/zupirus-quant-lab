@@ -5,6 +5,7 @@ import { ToastNotification } from '../../components/ToastNotification';
 import { AdminErrorBanner, AdminErrorInfo } from '../../components/AdminErrorBanner';
 import { MetricCard, Panel, StatusBadge } from '../../components/ui/Primitives';
 import { OrderChatModal } from '../../components/research/OrderChatModal';
+import { AdminResearchDossierModal } from '../../components/research/AdminResearchDossierModal';
 import {
   CheckCircle2,
   Clock,
@@ -18,6 +19,7 @@ import {
   RotateCcw,
   RefreshCw,
   AlertCircle,
+  FileText,
 } from 'lucide-react';
 
 export interface AdminOrdersUsersPageProps {
@@ -42,8 +44,13 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
     }
   }, [initialSubTab]);
   const [researchStatusFilter, setResearchStatusFilter] = useState<
-    'ALL' | 'PENDING_QUOTE' | 'WAITING_PAYMENT' | 'CONFIRMED' | 'READY_FOR_REVIEW' | 'NEEDS_ATTENTION' | 'DELIVERED'
-  >('ALL');
+    'ACTIONABLE' | 'WAITING_CLIENT' | 'RUNNING' | 'DELIVERED' | 'ALL'
+  >('ACTIONABLE');
+  const [actionableGroup, setActionableGroup] = useState<
+    'ALL_ACTIONABLE' | 'PENDING_REPLY' | 'PENDING_QUOTE' | 'NEEDS_DATA' | 'READY_FOR_REVIEW' | 'ERROR_INTERVENTION'
+  >('ALL_ACTIONABLE');
+  const [activeDossierRequestId, setActiveDossierRequestId] = useState<string | null>(null);
+  const [searchResearchQuery, setSearchResearchQuery] = useState('');
   const [activeChatOrder, setActiveChatOrder] = useState<any | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'PAID'>('ALL');
   const [searchOrderQuery, setSearchOrderQuery] = useState('');
@@ -512,49 +519,160 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
         </button>
       </div>
 
-      {/* 0. RESEARCH ORDERS SUB-TAB (DEFAULT) */}
+      {/* 0. RESEARCH ORDERS SUB-TAB (DEFAULT - ACTIONABLE QUEUE) */}
       {activeSubTab === 'research_orders' && (
         <Panel
-          title="Quản Lý Đơn Nghiên Cứu Định Lượng Theo Yêu Cầu"
-          subtitle="Các yêu cầu phân tích kỹ thuật cá nhân (Retail) và nghiên cứu vĩ mô theo đề tài tổ chức (Institutional)."
+          title="Hàng Đợi Xử Lý Nghiên Cứu Định Lượng"
+          subtitle="Tập trung vào các hồ sơ cần xử lý ngoại lệ và phê duyệt quan trọng. Tự động hóa tối đa các tác vụ thường quy."
         >
           <div className="space-y-4">
-            {/* Filter chips */}
-            <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-800/80">
-              <span className="text-xs text-slate-400 font-semibold mr-1">Bộ lọc:</span>
-              {[
-                { key: 'ALL', label: 'Tất cả', count: researchRequests.length },
-                { key: 'PENDING_QUOTE', label: 'Chờ báo giá', count: researchRequests.filter((r) => r.status === 'PENDING_QUOTE').length },
-                { key: 'WAITING_PAYMENT', label: 'Chờ thanh toán', count: researchRequests.filter((r) => r.status === 'WAITING_PAYMENT').length },
-                { key: 'CONFIRMED', label: 'Chờ chạy', count: researchRequests.filter((r) => r.status === 'CONFIRMED').length },
-                { key: 'READY_FOR_REVIEW', label: 'Chờ duyệt', count: researchRequests.filter((r) => r.status === 'READY_FOR_REVIEW').length },
-                { key: 'NEEDS_ATTENTION', label: 'Cần xử lý', count: researchRequests.filter((r) => r.status === 'NEEDS_ATTENTION' || r.current_step === 'NEEDS_ATTENTION').length },
-                { key: 'DELIVERED', label: 'Đã bàn giao', count: researchRequests.filter((r) => r.status === 'DELIVERED' || r.status === 'COMPLETED').length },
-              ].map((chip) => {
-                const isActive = researchStatusFilter === chip.key;
-                return (
-                  <button
-                    key={chip.key}
-                    type="button"
-                    onClick={() => setResearchStatusFilter(chip.key as any)}
-                    className={`px-2.5 py-1 rounded text-xs transition flex items-center gap-1.5 ${
-                      isActive
-                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
-                        : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    <span>{chip.label}</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${isActive ? 'bg-cyan-500/30 text-cyan-200' : 'bg-slate-800 text-slate-400'}`}>
-                      {chip.count}
-                    </span>
-                  </button>
-                );
-              })}
+            {/* Primary Queue Tabs */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+              <div className="flex flex-wrap items-center gap-2">
+                {[
+                  {
+                    key: 'ACTIONABLE',
+                    label: 'Cần xử lý',
+                    tone: 'amber',
+                    count: researchRequests.filter(
+                      (r) =>
+                        Number(r.unread_messages_count || 0) > 0 ||
+                        ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
+                          r.status
+                        )
+                    ).length,
+                  },
+                  {
+                    key: 'WAITING_CLIENT',
+                    label: 'Đang chờ khách',
+                    tone: 'slate',
+                    count: researchRequests.filter((r) => ['QUOTED', 'WAITING_PAYMENT'].includes(r.status)).length,
+                  },
+                  {
+                    key: 'RUNNING',
+                    label: 'Đang chạy',
+                    tone: 'cyan',
+                    count: researchRequests.filter((r) => ['CONFIRMED', 'RUNNING'].includes(r.status)).length,
+                  },
+                  {
+                    key: 'DELIVERED',
+                    label: 'Đã bàn giao',
+                    tone: 'emerald',
+                    count: researchRequests.filter((r) => ['DELIVERED', 'COMPLETED'].includes(r.status)).length,
+                  },
+                  {
+                    key: 'ALL',
+                    label: 'Tất cả hồ sơ',
+                    tone: 'slate',
+                    count: researchRequests.length,
+                  },
+                ].map((tab) => {
+                  const isActive = researchStatusFilter === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setResearchStatusFilter(tab.key as any)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-2 ${
+                        isActive
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                          : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      <span>{tab.label}</span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                          isActive
+                            ? 'bg-cyan-400 text-slate-950'
+                            : tab.count > 0 && tab.key === 'ACTIONABLE'
+                            ? 'bg-amber-500/30 text-amber-300'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Search Bar */}
+              <div className="w-full sm:w-64">
+                <input
+                  type="text"
+                  placeholder="Tìm theo ID, email, mã..."
+                  value={searchResearchQuery}
+                  onChange={(e) => setSearchResearchQuery(e.target.value)}
+                  className="quant-input text-xs w-full py-1.5 px-3"
+                />
+              </div>
             </div>
+
+            {/* Sub-chips for Actionable Queue */}
+            {researchStatusFilter === 'ACTIONABLE' && (
+              <div className="flex flex-wrap items-center gap-2 pt-1 pb-2">
+                <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Phân nhóm:</span>
+                {[
+                  {
+                    key: 'ALL_ACTIONABLE',
+                    label: 'Tất cả cần xử lý',
+                    count: researchRequests.filter(
+                      (r) =>
+                        Number(r.unread_messages_count || 0) > 0 ||
+                        ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
+                          r.status
+                        )
+                    ).length,
+                  },
+                  {
+                    key: 'PENDING_REPLY',
+                    label: 'Nhắn lại',
+                    count: researchRequests.filter((r) => Number(r.unread_messages_count || 0) > 0).length,
+                  },
+                  {
+                    key: 'PENDING_QUOTE',
+                    label: 'Chờ duyệt báo giá',
+                    count: researchRequests.filter((r) => r.status === 'PENDING_QUOTE').length,
+                  },
+                  {
+                    key: 'NEEDS_DATA',
+                    label: 'Cần bổ sung dữ liệu',
+                    count: researchRequests.filter((r) => r.status === 'NEEDS_DATA' || r.status === 'NEEDS_ATTENTION').length,
+                  },
+                  {
+                    key: 'READY_FOR_REVIEW',
+                    label: 'Chờ duyệt bàn giao',
+                    count: researchRequests.filter((r) => r.status === 'READY_FOR_REVIEW').length,
+                  },
+                  {
+                    key: 'ERROR_INTERVENTION',
+                    label: 'Lỗi / Cần can thiệp',
+                    count: researchRequests.filter((r) => ['FAILED', 'TIMED_OUT', 'ERROR'].includes(r.status)).length,
+                  },
+                ].map((grp) => {
+                  const isGrpActive = actionableGroup === grp.key;
+                  return (
+                    <button
+                      key={grp.key}
+                      type="button"
+                      onClick={() => setActionableGroup(grp.key as any)}
+                      className={`px-2 py-0.8 rounded text-[11px] transition flex items-center gap-1.5 ${
+                        isGrpActive
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
+                          : 'bg-slate-900/60 text-slate-400 border border-slate-800/80 hover:text-slate-300'
+                      }`}
+                    >
+                      <span>{grp.label}</span>
+                      <span className="text-[10px] opacity-75">({grp.count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Research Loading State */}
             {researchLoading && researchRequests.length === 0 && (
-              <div className="p-8 text-center border border-dashed border-cyan-500/30 rounded-lg text-cyan-300 text-xs flex items-center justify-center gap-2">
+              <div className="p-8 text-center border border-dashed border-cyan-500/30 rounded-xl text-cyan-300 text-xs flex items-center justify-center gap-2">
                 <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
                 <span>Đang đồng bộ danh sách đơn nghiên cứu...</span>
               </div>
@@ -562,7 +680,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
 
             {/* Research Error Banner with Retry */}
             {researchError && (
-              <div className="p-4 rounded-lg bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-center justify-between gap-3">
+              <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
                   <span>{researchError}</span>
@@ -577,119 +695,173 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
               </div>
             )}
 
+            {/* Request Cards List */}
             {!researchLoading && !researchError && researchRequests.length === 0 ? (
-              <div className="p-8 text-center border border-dashed border-slate-800 rounded-lg text-slate-500 text-xs">
+              <div className="p-8 text-center border border-dashed border-slate-800 rounded-xl text-slate-500 text-xs">
                 Chưa có đơn nghiên cứu theo yêu cầu nào. Khi khách hàng cá nhân hoặc tổ chức gửi yêu cầu, thông tin sẽ hiển thị tại đây.
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4">
                 {researchRequests
                   .filter((req: any) => {
+                    // Search query matching
+                    if (searchResearchQuery.trim()) {
+                      const q = searchResearchQuery.trim().toLowerCase();
+                      const matchId = String(req.id || '').toLowerCase().includes(q);
+                      const matchEmail = String(req.client_email || '').toLowerCase().includes(q);
+                      const matchSymbol = String(req.symbol || '').toLowerCase().includes(q);
+                      const matchPrompt = String(req.hypothesis_prompt || req.problem_description || '').toLowerCase().includes(q);
+                      if (!matchId && !matchEmail && !matchSymbol && !matchPrompt) return false;
+                    }
+
+                    // Main Queue filtering
                     if (researchStatusFilter === 'ALL') return true;
-                    if (researchStatusFilter === 'NEEDS_ATTENTION') {
-                      return req.status === 'NEEDS_ATTENTION' || req.current_step === 'NEEDS_ATTENTION';
+                    if (researchStatusFilter === 'WAITING_CLIENT') {
+                      return ['QUOTED', 'WAITING_PAYMENT'].includes(req.status);
+                    }
+                    if (researchStatusFilter === 'RUNNING') {
+                      return ['CONFIRMED', 'RUNNING'].includes(req.status);
                     }
                     if (researchStatusFilter === 'DELIVERED') {
-                      return req.status === 'DELIVERED' || req.status === 'COMPLETED';
+                      return ['DELIVERED', 'COMPLETED'].includes(req.status);
                     }
-                    return req.status === researchStatusFilter;
+
+                    // Actionable sub-filters
+                    if (researchStatusFilter === 'ACTIONABLE') {
+                      const isActionable =
+                        Number(req.unread_messages_count || 0) > 0 ||
+                        ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
+                          req.status
+                        );
+                      if (!isActionable) return false;
+
+                      if (actionableGroup === 'PENDING_REPLY') {
+                        return Number(req.unread_messages_count || 0) > 0;
+                      }
+                      if (actionableGroup === 'PENDING_QUOTE') {
+                        return req.status === 'PENDING_QUOTE';
+                      }
+                      if (actionableGroup === 'NEEDS_DATA') {
+                        return req.status === 'NEEDS_DATA' || req.status === 'NEEDS_ATTENTION';
+                      }
+                      if (actionableGroup === 'READY_FOR_REVIEW') {
+                        return req.status === 'READY_FOR_REVIEW';
+                      }
+                      if (actionableGroup === 'ERROR_INTERVENTION') {
+                        return ['FAILED', 'TIMED_OUT', 'ERROR'].includes(req.status);
+                      }
+                      return true;
+                    }
+                    return true;
                   })
                   .map((req: any) => {
-                    const isBlocked = !req.quoted_price_usd && req.status === 'PENDING_QUOTE' ? 'Chưa báo giá cho khách'
-                      : req.status === 'QUOTED' ? 'Chờ khách hàng xác nhận báo giá'
-                      : req.status === 'CONFIRMED' ? 'Chờ chạy nghiên cứu'
-                      : req.status === 'READY_FOR_REVIEW' ? 'Chờ duyệt bàn giao'
-                      : req.status === 'NEEDS_ATTENTION' ? 'Yêu cầu cần can thiệp kiểm tra tham số hoặc dữ liệu'
-                      : null;
+                    const unreadCount = Number(req.unread_messages_count || 0);
                     return (
                       <div
                         key={req.id}
-                        className="p-4 rounded-lg bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition space-y-3"
+                        className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700/80 transition space-y-3 shadow-md"
                       >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-cyan-400 font-semibold text-xs">{req.id}</span>
-                              <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-cyan-400 font-bold text-xs">{req.id}</span>
+                              <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
                                 {req.product_type}
                               </span>
-                              <StatusBadge tone={req.status === 'DELIVERED' || req.status === 'COMPLETED' ? 'success' : req.status === 'READY_FOR_REVIEW' ? 'info' : req.status === 'REJECTED' ? 'danger' : 'warning'}>
+                              <StatusBadge
+                                tone={
+                                  req.status === 'DELIVERED' || req.status === 'COMPLETED'
+                                    ? 'success'
+                                    : req.status === 'READY_FOR_REVIEW'
+                                    ? 'info'
+                                    : req.status === 'FAILED' || req.status === 'REJECTED'
+                                    ? 'danger'
+                                    : 'warning'
+                                }
+                              >
                                 {req.status}
                               </StatusBadge>
+                              {unreadCount > 0 && (
+                                <span className="px-2 py-0.5 rounded-full bg-cyan-500 text-slate-950 font-bold text-[10px] animate-pulse">
+                                  {unreadCount} tin nhắn mới
+                                </span>
+                              )}
+                              {req.retry_count > 0 && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40">
+                                  Chạy lại: {req.retry_count}/5
+                                </span>
+                              )}
                             </div>
                             <h4 className="text-sm font-semibold text-white">
                               {req.hypothesis_prompt || req.scope_notes || `Nghiên cứu ${req.symbol} ${req.timeframe}`}
                             </h4>
                             <p className="text-xs text-slate-400">
-                              Khách hàng: <span className="text-slate-200">{req.client_email || req.user_id}</span> · Tạo lúc: {new Date(req.created_at * 1000).toLocaleString('vi-VN')}
+                              Khách hàng: <span className="text-slate-200">{req.client_email || req.user_id}</span> · Tạo lúc:{' '}
+                              {new Date(req.created_at * 1000).toLocaleString('vi-VN')}
                             </p>
                           </div>
                           <div className="text-right">
-                            <div className="text-xs text-slate-400">Giá báo</div>
-                            <div className="text-base font-bold text-emerald-400">
+                            <div className="text-xs text-slate-400">Giá báo hợp đồng</div>
+                            <div className="text-base font-bold text-emerald-400 font-mono">
                               ${Number(req.quoted_price_usd || 0).toLocaleString()} USD
                             </div>
                             <div className="text-[11px] text-slate-500">Thời hạn: {req.turnaround_hours || 24}h</div>
                           </div>
                         </div>
 
+                        {/* Waiting reason highlighted */}
+                        {req.waiting_reason_vi && (
+                          <div className="text-xs flex items-center gap-1.5 text-cyan-300 bg-cyan-950/30 px-3 py-2 rounded-lg border border-cyan-800/40 font-sans">
+                            <Clock className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
+                            <span>Lý do chờ / Tiến độ: <strong>{req.waiting_reason_vi}</strong></span>
+                          </div>
+                        )}
+
                         {req.problem_description && (
-                          <div className="p-2.5 rounded bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300">
+                          <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300">
                             <span className="text-cyan-400 font-semibold">Mô tả bài toán: </span>
                             {req.problem_description}
                           </div>
                         )}
 
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          <span className="px-2 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700/60 font-mono">
-                            Bước: {req.current_step || req.status}
-                          </span>
-                          {req.next_action_vi && (
-                            <span className="text-slate-400">
-                              Tiếp theo: <span className="text-cyan-300 font-medium">{req.next_action_vi}</span>
-                            </span>
-                          )}
-                          {req.proposal_version && (
-                            <span className="text-[11px] text-slate-500 font-mono">
-                              (Đề xuất v{req.proposal_version})
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 py-2 px-3 bg-slate-950/40 rounded border border-slate-800/80 text-xs">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 py-2 px-3 bg-slate-950/40 rounded-lg border border-slate-800/80 text-xs font-mono">
                           <div>
-                            <span className="text-slate-500">Mã chính:</span> <span className="font-mono text-slate-200 font-bold">{req.symbol}</span>
+                            <span className="text-slate-500">Mã chính:</span> <span className="text-slate-200 font-bold">{req.symbol}</span>
                           </div>
                           <div>
-                            <span className="text-slate-500">Khung:</span> <span className="font-mono text-slate-200">{req.timeframe}</span>
+                            <span className="text-slate-500">Khung:</span> <span className="text-slate-200">{req.timeframe}</span>
                           </div>
                           <div>
-                            <span className="text-slate-500">Danh mục:</span> <span className="text-slate-200">{req.symbols_json || req.symbol}</span>
+                            <span className="text-slate-500">Phiên bản:</span> <span className="text-slate-200">v{req.proposal_version || 1}</span>
                           </div>
                           <div>
-                            <span className="text-slate-500">Run ID:</span> <span className="font-mono text-slate-300">{req.run_id || 'Chưa chạy'}</span>
+                            <span className="text-slate-500">Lượt chạy:</span> <span className="text-slate-300">{req.run_count || 0}</span>
                           </div>
                         </div>
 
-                        {isBlocked && (
-                          <div className="text-xs flex items-center gap-1.5 text-amber-400 bg-amber-950/20 px-2.5 py-1.5 rounded border border-amber-800/30">
-                            <Clock className="w-3.5 h-3.5 shrink-0" />
-                            <span>Lưu ý tiến độ: {isBlocked}</span>
-                          </div>
-                        )}
-
+                        {/* Bottom Actions Bar */}
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
                           <div className="flex items-center gap-2">
+                            {/* 1-click Dossier Modal Button */}
+                            <button
+                              type="button"
+                              onClick={() => setActiveDossierRequestId(req.id)}
+                              className="quant-button quant-button-primary text-xs py-1.5 px-3 flex items-center gap-1.5 shadow-sm"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Mở Hồ Sơ Đầy Đủ</span>
+                            </button>
+
                             <button
                               type="button"
                               onClick={() => setActiveChatOrder(req)}
-                              className="quant-button quant-button-secondary text-xs py-1 px-2.5 flex items-center gap-1.5"
+                              className="quant-button quant-button-secondary text-xs py-1.5 px-2.5 flex items-center gap-1.5"
                             >
                               <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
-                              <span>Mở Trao Đổi</span>
-                              {Number(req.unread_messages_count || 0) > 0 && (
+                              <span>Trao Đổi</span>
+                              {unreadCount > 0 && (
                                 <span className="px-1.5 py-0.2 rounded-full bg-cyan-500 text-slate-950 font-bold text-[10px]">
-                                  {req.unread_messages_count}
+                                  {unreadCount}
                                 </span>
                               )}
                             </button>
@@ -699,7 +871,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
                                 href={`/api/v1/research/orders/${encodeURIComponent(req.id)}/download-pdf`}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="quant-button quant-button-secondary text-xs py-1 px-2.5"
+                                className="quant-button quant-button-secondary text-xs py-1.5 px-2.5"
                               >
                                 Xem PDF
                               </a>
@@ -709,7 +881,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
                                 href={`/api/v1/research/orders/${encodeURIComponent(req.id)}/download-bundle`}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="quant-button quant-button-secondary text-xs py-1 px-2.5"
+                                className="quant-button quant-button-secondary text-xs py-1.5 px-2.5"
                               >
                                 Tải Bundle ZIP
                               </a>
@@ -717,56 +889,14 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
                           </div>
 
                           <div className="flex items-center gap-2">
-                            {/* Contextual primary action buttons based on status */}
                             {req.status === 'PENDING_QUOTE' && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setQuoteTarget(req);
-                                  setQuotePriceInput(req.quoted_price_usd || 10000);
-                                  setQuoteNotesInput(req.scope_notes || '');
-                                }}
-                                className="quant-button quant-button-primary text-xs py-1 px-3 flex items-center gap-1"
+                                disabled={busyId === `close_${req.id}`}
+                                onClick={() => handleCloseResearch(req.id)}
+                                className="quant-button text-red-400 hover:bg-red-950/30 text-xs py-1.5 px-2"
                               >
-                                <DollarSign className="w-3 h-3" />
-                                <span>Gửi Đề Xuất & Báo Giá</span>
-                              </button>
-                            )}
-
-                            {req.status === 'QUOTED' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setQuoteTarget(req);
-                                  setQuotePriceInput(req.quoted_price_usd || 10000);
-                                  setQuoteNotesInput(req.scope_notes || '');
-                                }}
-                                className="quant-button quant-button-secondary text-xs py-1 px-2.5"
-                              >
-                                Chỉnh Báo Giá
-                              </button>
-                            )}
-
-                            {req.status === 'WAITING_PAYMENT' && (
-                              <button
-                                type="button"
-                                disabled={busyId === `pay_${req.id}`}
-                                onClick={async () => {
-                                  setBusyId(`pay_${req.id}`);
-                                  try {
-                                    await api.post(`/api/v1/research/orders/${encodeURIComponent(req.id)}/sandbox-pay`, {});
-                                    setMsg('Đã xác nhận thanh toán (Sandbox) cho đơn nghiên cứu.');
-                                    await loadResearchRequests();
-                                  } catch (err: any) {
-                                    setMsg(`Lỗi xác minh thanh toán: ${err?.message || ''}`);
-                                  } finally {
-                                    setBusyId(null);
-                                  }
-                                }}
-                                className="quant-button bg-cyan-600 hover:bg-cyan-500 text-white text-xs py-1 px-3 flex items-center gap-1"
-                              >
-                                <CheckCircle2 className="w-3 h-3" />
-                                <span>{busyId === `pay_${req.id}` ? 'Đang xử lý...' : 'Xác Nhận Thanh Toán (Sandbox)'}</span>
+                                Đóng
                               </button>
                             )}
 
@@ -775,7 +905,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
                                 type="button"
                                 disabled={busyId === `run_${req.id}`}
                                 onClick={() => handleRunResearch(req.id)}
-                                className="quant-button quant-button-primary text-xs py-1 px-3 flex items-center gap-1"
+                                className="quant-button quant-button-primary text-xs py-1.5 px-3 flex items-center gap-1 font-semibold"
                               >
                                 <Play className="w-3 h-3" />
                                 <span>{busyId === `run_${req.id}` ? 'Đang chạy...' : 'Chạy Nghiên Cứu'}</span>
@@ -787,40 +917,21 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
                                 type="button"
                                 disabled={busyId === `app_${req.id}`}
                                 onClick={() => handleApproveResearch(req.id)}
-                                className="quant-button bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-1 px-3 flex items-center gap-1"
+                                className="quant-button bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-1.5 px-3 flex items-center gap-1 font-semibold"
                               >
                                 <CheckCircle2 className="w-3 h-3" />
-                                <span>{busyId === `app_${req.id}` ? 'Đang duyệt...' : 'Xem & Duyệt Bàn Giao'}</span>
+                                <span>{busyId === `app_${req.id}` ? 'Đang duyệt...' : 'Duyệt Bàn Giao'}</span>
                               </button>
                             )}
 
-                            {(req.status === 'DELIVERED' || req.status === 'COMPLETED') && (
-                              <span className="text-xs px-2.5 py-1 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/60 font-semibold flex items-center gap-1">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Đã Bàn Giao Riêng</span>
-                              </span>
-                            )}
-
-                            {req.status === 'NEEDS_ATTENTION' && (
+                            {(req.status === 'NEEDS_DATA' || req.status === 'FAILED' || req.status === 'NEEDS_ATTENTION') && (
                               <button
                                 type="button"
-                                disabled={busyId === `run_${req.id}`}
-                                onClick={() => handleRunResearch(req.id)}
-                                className="quant-button bg-amber-600 hover:bg-amber-500 text-white text-xs py-1 px-3 flex items-center gap-1"
+                                onClick={() => setActiveDossierRequestId(req.id)}
+                                className="quant-button bg-amber-600 hover:bg-amber-500 text-white text-xs py-1.5 px-3 flex items-center gap-1 font-semibold"
                               >
                                 <RotateCcw className="w-3 h-3" />
-                                <span>{busyId === `run_${req.id}` ? 'Đang xử lý...' : 'Xử Lý Lại / Chạy Lại'}</span>
-                              </button>
-                            )}
-
-                            {req.status !== 'REJECTED' && req.status !== 'DELIVERED' && req.status !== 'COMPLETED' && (
-                              <button
-                                type="button"
-                                disabled={busyId === `close_${req.id}`}
-                                onClick={() => handleCloseResearch(req.id)}
-                                className="quant-button text-red-400 hover:bg-red-950/30 text-xs py-1 px-2"
-                              >
-                                Đóng
+                                <span>Xử Lý / Can Thiệp</span>
                               </button>
                             )}
                           </div>
@@ -1670,6 +1781,20 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
             loadData();
           }}
           onOrderUpdated={loadData}
+        />
+      )}
+
+      {/* Unified Single Dossier Modal for Admin */}
+      {activeDossierRequestId && (
+        <AdminResearchDossierModal
+          requestId={activeDossierRequestId}
+          onClose={() => {
+            setActiveDossierRequestId(null);
+            loadResearchRequests();
+          }}
+          onUpdated={() => {
+            loadResearchRequests();
+          }}
         />
       )}
     </div>
