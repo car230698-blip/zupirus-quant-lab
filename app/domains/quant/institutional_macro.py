@@ -39,21 +39,21 @@ AMBER_TEXT = HexColor("#92400E")
 
 # Historical canonical US CPI Releases benchmark dataset (UTC timestamps)
 CPI_EVENT_BENCHMARKS = [
-    {"event_date": "2024-01-11", "ts": 1704979800, "actual": 3.4, "consensus": 3.2, "surprise": 0.2, "sentiment": "HAWKISH_USD"},
-    {"event_date": "2024-02-13", "ts": 1707831000, "actual": 3.1, "consensus": 2.9, "surprise": 0.2, "sentiment": "HAWKISH_USD"},
-    {"event_date": "2024-03-12", "ts": 1710246600, "actual": 3.2, "consensus": 3.1, "surprise": 0.1, "sentiment": "HAWKISH_USD"},
-    {"event_date": "2024-04-10", "ts": 1712752200, "actual": 3.5, "consensus": 3.4, "surprise": 0.1, "sentiment": "HAWKISH_USD"},
-    {"event_date": "2024-05-15", "ts": 1715776200, "actual": 3.4, "consensus": 3.4, "surprise": 0.0, "sentiment": "NEUTRAL"},
-    {"event_date": "2024-06-12", "ts": 1718195400, "actual": 3.3, "consensus": 3.4, "surprise": -0.1, "sentiment": "DOVISH_USD"},
-    {"event_date": "2024-07-11", "ts": 1720701000, "actual": 3.0, "consensus": 3.1, "surprise": -0.1, "sentiment": "DOVISH_USD"},
-    {"event_date": "2024-08-14", "ts": 1723638600, "actual": 2.9, "consensus": 2.9, "surprise": 0.0, "sentiment": "NEUTRAL"},
-    {"event_date": "2024-09-11", "ts": 1726057800, "actual": 2.5, "consensus": 2.5, "surprise": 0.0, "sentiment": "NEUTRAL"},
-    {"event_date": "2024-10-10", "ts": 1728563400, "actual": 2.4, "consensus": 2.3, "surprise": 0.1, "sentiment": "HAWKISH_USD"},
-    {"event_date": "2024-11-13", "ts": 1731499800, "actual": 2.6, "consensus": 2.6, "surprise": 0.0, "sentiment": "NEUTRAL"},
-    {"event_date": "2024-12-11", "ts": 1733923800, "actual": 2.7, "consensus": 2.7, "surprise": 0.0, "sentiment": "NEUTRAL"},
-    {"event_date": "2025-01-15", "ts": 1736944200, "actual": 2.9, "consensus": 2.9, "surprise": 0.0, "sentiment": "NEUTRAL"},
-    {"event_date": "2025-02-12", "ts": 1739363400, "actual": 3.0, "consensus": 2.9, "surprise": 0.1, "sentiment": "HAWKISH_USD"},
-    {"event_date": "2025-03-12", "ts": 1741782600, "actual": 2.8, "consensus": 2.8, "surprise": 0.0, "sentiment": "NEUTRAL"},
+    {"event_id": "cpi_20240111", "event_date": "2024-01-11", "ts": 1704979800, "actual": 3.4, "consensus": 3.2, "surprise": 0.2, "sentiment": "HAWKISH_USD"},
+    {"event_id": "cpi_20240213", "event_date": "2024-02-13", "ts": 1707831000, "actual": 3.1, "consensus": 2.9, "surprise": 0.2, "sentiment": "HAWKISH_USD"},
+    {"event_id": "cpi_20240312", "event_date": "2024-03-12", "ts": 1710246600, "actual": 3.2, "consensus": 3.1, "surprise": 0.1, "sentiment": "HAWKISH_USD"},
+    {"event_id": "cpi_20240410", "event_date": "2024-04-10", "ts": 1712752200, "actual": 3.5, "consensus": 3.4, "surprise": 0.1, "sentiment": "HAWKISH_USD"},
+    {"event_id": "cpi_20240515", "event_date": "2024-05-15", "ts": 1715776200, "actual": 3.4, "consensus": 3.4, "surprise": 0.0, "sentiment": "NEUTRAL"},
+    {"event_id": "cpi_20240612", "event_date": "2024-06-12", "ts": 1718195400, "actual": 3.3, "consensus": 3.4, "surprise": -0.1, "sentiment": "DOVISH_USD"},
+    {"event_id": "cpi_20240711", "event_date": "2024-07-11", "ts": 1720701000, "actual": 3.0, "consensus": 3.1, "surprise": -0.1, "sentiment": "DOVISH_USD"},
+    {"event_id": "cpi_20240814", "event_date": "2024-08-14", "ts": 1723638600, "actual": 2.9, "consensus": 2.9, "surprise": 0.0, "sentiment": "NEUTRAL"},
+    {"event_id": "cpi_20240911", "event_date": "2024-09-11", "ts": 1726057800, "actual": 2.5, "consensus": 2.5, "surprise": 0.0, "sentiment": "NEUTRAL"},
+    {"event_id": "cpi_20241010", "event_date": "2024-10-10", "ts": 1728563400, "actual": 2.4, "consensus": 2.3, "surprise": 0.1, "sentiment": "HAWKISH_USD"},
+    {"event_id": "cpi_20241113", "event_date": "2024-11-13", "ts": 1731499800, "actual": 2.6, "consensus": 2.6, "surprise": 0.0, "sentiment": "NEUTRAL"},
+    {"event_id": "cpi_20241211", "event_date": "2024-12-11", "ts": 1733923800, "actual": 2.7, "consensus": 2.7, "surprise": 0.0, "sentiment": "NEUTRAL"},
+    {"event_id": "cpi_20250115", "event_date": "2025-01-15", "ts": 1736944200, "actual": 2.9, "consensus": 2.9, "surprise": 0.0, "sentiment": "NEUTRAL"},
+    {"event_id": "cpi_20250212", "event_date": "2025-02-12", "ts": 1739363400, "actual": 3.0, "consensus": 2.9, "surprise": 0.1, "sentiment": "HAWKISH_USD"},
+    {"event_id": "cpi_20250312", "event_date": "2025-03-12", "ts": 1741782600, "actual": 2.8, "consensus": 2.8, "surprise": 0.0, "sentiment": "NEUTRAL"},
 ]
 
 
@@ -205,22 +205,33 @@ def _measure_empirical_trade(
     # Volatility scale per 1R
     vol_scale_pct = 0.40 if "EUR" in sym_code else 0.85 if "XAU" in sym_code else 0.45
 
-    # Find closest entry candle within 2 hours after event release
-    valid_entries = [
+    # Find entry candle strictly following event release (zero lookahead)
+    # Entry price must be determined after news release is observed:
+    # 1. Bar starting at or after ev_ts: take its open/close
+    # 2. Bar in progress during ev_ts (e.g. 13:00-14:00 for 13:30 release): take its close (price at 14:00 after event)
+    post_event_candles = [
         c for c in candles
-        if 0 <= (float(c.get("time") or 0) - ev_ts) <= 7200
-        or abs(float(c.get("time") or 0) - ev_ts) <= 3600
+        if 0 <= (float(c.get("time") or 0) - ev_ts) <= 10800
     ]
-    if not valid_entries:
-        return None
+    if post_event_candles:
+        entry_candle = min(post_event_candles, key=lambda c: float(c.get("time") or 0))
+        entry_ts = float(entry_candle.get("time") or 0)
+        entry_price = round(float(entry_candle.get("open") or entry_candle.get("close") or 0.0), 4)
+        entry_time = str(entry_candle.get("datetime") or ev["event_date"] + " 14:00:00 UTC")
+    else:
+        containing_candles = [
+            c for c in candles
+            if float(c.get("time") or 0) <= ev_ts < float(c.get("time") or 0) + 3600
+        ]
+        if not containing_candles:
+            return None
+        entry_candle = containing_candles[0]
+        entry_ts = float(entry_candle.get("time") or 0) + 3600
+        entry_price = round(float(entry_candle.get("close") or 0.0), 4)
+        entry_time = str(entry_candle.get("datetime") or ev["event_date"] + " 14:00:00 UTC")
 
-    closest_entry = min(valid_entries, key=lambda c: abs(float(c.get("time") or 0) - ev_ts))
-    entry_ts = float(closest_entry.get("time") or 0)
-    entry_price = round(float(closest_entry.get("open") or closest_entry.get("close") or 0.0), 4)
     if entry_price <= 0.0:
         return None
-
-    entry_time = str(closest_entry.get("datetime") or ev["event_date"] + " 12:30:00")
 
     # Find exit candle matching the session holding window (1 session = 24h, 5 = 120h, 20 = 480h)
     target_exit_ts = entry_ts + (holding_sessions * 86400)
@@ -245,6 +256,8 @@ def _measure_empirical_trade(
     net_r = round(raw_r - friction_cost_r, 2)
 
     return {
+        "event_id": ev.get("event_id") or f"cpi_{ev['event_date'].replace('-', '')}",
+        "event_date": ev["event_date"],
         "surprise": surprise,
         "action": direction,
         "entry_price": entry_price,
@@ -333,18 +346,12 @@ def _compute_empirical_window(
     denom = math.sqrt(var_s * var_r)
     corr = round(cov / denom, 2) if denom > 1e-9 else 0.0
 
-    if holding_sessions >= 20:
-        corr = round(corr * 0.20, 2)
-
     # Calculate empirical two-tailed t-test p-value
     if abs(corr) < 0.999 and total_trades > 2:
         t_stat = corr * math.sqrt((total_trades - 2) / max(1e-9, 1.0 - corr**2))
         p_val = round(math.erfc(abs(t_stat) / math.sqrt(2)), 3)
     else:
         p_val = 0.001
-
-    if holding_sessions >= 20:
-        p_val = max(0.250, p_val)
 
     p_val = max(0.001, min(0.999, p_val))
     strength = "STRONG" if p_val < 0.025 else "MODERATE" if p_val < 0.05 else "WEAK_EVIDENCE"
@@ -456,12 +463,13 @@ def run_institutional_macro_event_study(
         # Generate simulation ledger entries ONLY for valid empirical trades with sourced candle observations
         if status == "VALID":
             for h_sess, t_list in [(1, trades1), (5, trades5), (20, trades20)]:
-                for ev, tr in zip(CPI_EVENT_BENCHMARKS, t_list):
+                for tr in t_list:
                     ledger_rows.append({
-                        "trade_id": f"sim_{sym_code}_{ev['event_date']}_w{h_sess}",
+                        "trade_id": f"sim_{sym_code}_{tr['event_date']}_w{h_sess}",
+                        "event_id": tr["event_id"],
                         "symbol": sym_code,
                         "event_name": "US_CPI",
-                        "event_date": ev["event_date"],
+                        "event_date": tr["event_date"],
                         "surprise_delta": tr["surprise"],
                         "action": tr["action"],
                         "hold_sessions": h_sess,
@@ -719,8 +727,8 @@ def generate_institutional_pdf(study: InstitutionalMacroStudy, watermark: Option
     # Page 1: Executive Summary & Actionable Trading Plan
     writer.heading("BÁO CÁO NGHIÊN CỨU ĐỊNH LƯỢNG TỔ CHỨC", size=13)
     writer.paragraph(
-        f"Mã nghiên cứu: {study.study_id}  |  Khách hàng: {study.client_name}",
-        size=7.8,
+        f"Mã nghiên cứu (Run ID): {study.study_id}  |  Đề xuất: Proposal v1  |  Engine: Institutional-Macro v2.4  |  Khách hàng: {study.client_name}",
+        size=7.5,
         color=MUTED,
     )
     writer.y -= 1 * mm
@@ -886,7 +894,7 @@ def build_institutional_deliverable_bundle(
     # 2. Generate CSV ledger covering all evaluated windows with unique trade IDs
     sio = StringIO()
     writer = csv.DictWriter(sio, fieldnames=[
-        "trade_id", "symbol", "event_name", "event_date", "surprise_delta",
+        "trade_id", "event_id", "symbol", "event_name", "event_date", "surprise_delta",
         "action", "hold_sessions", "entry_price", "exit_price", "entry_time",
         "exit_time", "gross_pnl_r", "cost_friction_r", "net_pnl_r", "outcome",
     ])
@@ -992,6 +1000,11 @@ def replay():
         trades = list(reader)
 
     print(f"[INFO] Loaded {{len(trades)}} simulated trades from trades_ledger.csv.")
+
+    for t in trades:
+        if not t.get("event_id"):
+            print(f"[FAIL] Missing event_id in trade {{t.get('trade_id')}}.")
+            sys.exit(1)
 
     # 3. Check against metrics.json with per-symbol, per-window assertions
     metrics_p = Path("metrics.json")

@@ -414,7 +414,12 @@ def submit_institutional_inquiry(
     if len(desc) < 5:
         _fail(400, "Vui lòng mô tả vấn đề cần giải quyết hoặc rủi ro Quý khách đang quan tâm.")
 
-    is_generic = len(desc) < 20 or any(term in desc.lower() for term in ("cần hỗ trợ", "can ho tro", "help", "hỗ trợ", "tư vấn", "test", "chào", "hello", "hi"))
+    desc_l = desc.lower()
+    is_boj_usdjpy = any(k in desc_l for k in ("boj", "ngân hàng trung ương nhật", "lãi suất boj", "usdjpy", "usd/jpy", "yên nhật"))
+    has_greeting = bool(re.search(r'\b(chào|hello|hi)\b', desc_l))
+    has_help = any(term in desc_l for term in ("cần hỗ trợ", "can ho tro", "hỗ trợ", "tư vấn", "test", "help"))
+    is_generic = (len(desc) < 20 or has_greeting or has_help) and not is_boj_usdjpy
+
     init_status = "NEEDS_CLARIFICATION" if is_generic else "PENDING_QUOTE"
     init_step = "NEEDS_DATA" if is_generic else "PROPOSAL_PENDING"
     init_act_cat = "ACTIONABLE" if is_generic else "WAITING_ADMIN"
@@ -426,7 +431,21 @@ def submit_institutional_inquiry(
 
     symbols_clean = [s.strip().upper() for s in (payload.symbols or []) if s.strip()]
     if not symbols_clean:
-        symbols_clean = [] if is_generic else ["XAUUSD", "EURUSD"]
+        found_symbols = []
+        desc_u = desc.upper()
+        if any(k in desc_u for k in ("XAU", "VÀNG", "GOLD")):
+            found_symbols.append("XAUUSD")
+        if "EUR" in desc_u:
+            found_symbols.append("EURUSD")
+        if is_boj_usdjpy or any(k in desc_u for k in ("JPY", "YÊN", "BOJ")):
+            found_symbols.append("USDJPY")
+
+        if found_symbols:
+            symbols_clean = found_symbols
+        elif is_generic:
+            symbols_clean = []
+        else:
+            symbols_clean = ["XAUUSD", "EURUSD"]
 
     primary_symbol = symbols_clean[0] if symbols_clean else "STUDY"
     turnaround = payload.turnaround_hours or 48
@@ -457,6 +476,36 @@ def submit_institutional_inquiry(
             f"2. **Tài sản trọng tâm**: Bạn quan tâm chủ yếu đến Kim loại quý (Vàng XAUUSD / COMEX GC=F), Ngoại hối (EURUSD) hay rổ tài sản khác?\n"
             f"3. **Khung thời gian & kỳ vọng**: Kỳ vọng giữ vị thế ngắn hạn trong ngày (Intraday) hay nhiều tuần (Swing/Position)?\n\n"
             f"Quý khách có thể trả lời trực tiếp tại khung chat này hoặc đính kèm tài liệu mô tả để Admin phản hồi."
+        )
+    elif is_boj_usdjpy:
+        data_status = "INSUFFICIENT_DATA (Hệ thống chưa có tệp nến USDJPY cho chuỗi sự kiện BoJ/Lãi suất)"
+        draft_proposal = {
+            "version": 1,
+            "research_question": f"Khảo nghiệm định lượng tác động: {desc[:120]}",
+            "recommended_symbols": ["USDJPY"],
+            "recommended_event": "Quyết định lãi suất BoJ & Chính sách tiền tệ Yên Nhật",
+            "study_windows": ["1 phiên (Intraday)", "5 phiên (Swing)", "20 phiên (Position)"],
+            "data_availability": data_status,
+            "deliverables": [
+                "Báo cáo nghiên cứu độc quyền PDF chuyên sâu (20+ trang)",
+                "Nhật ký mô phỏng giao dịch chi tiết (trades_ledger.csv)",
+                "Bộ chỉ số định lượng & suy diễn thống kê (metrics.json)",
+                "Bộ công cụ tái lập độc lập offline (replay.py & QUICKSTART.md)",
+                "Bảng kê mã băm mật mã chứng minh tính toàn vẹn (MANIFEST.sha256)",
+            ],
+            "turnaround_hours": turnaround,
+            "suggested_price_usd": 10000.0,
+        }
+        welcome_msg = (
+            f"Chào Quý khách! ZUPIRUS Quant Lab đã tiếp nhận bài toán nghiên cứu:\n"
+            f"**\"{desc}\"**\n\n"
+            f"Hệ thống đã nhận diện bài toán chuyên sâu về Ngân hàng Trung ương Nhật Bản (BoJ) & tỷ giá USDJPY (v1):\n"
+            f"- **Câu hỏi kiểm định**: {draft_proposal['research_question']}\n"
+            f"- **Tài sản trọng tâm**: USDJPY\n"
+            f"- **Cửa sổ so sánh**: 1 phiên, 5 phiên, 20 phiên sau sự kiện\n"
+            f"- **Độ phủ dữ liệu**: {data_status}\n"
+            f"- **Bộ sản phẩm bàn giao**: Báo cáo PDF chuyên sâu, Ledger CSV, Metrics JSON, Bộ Replay CLI độc lập và Manifest SHA-256.\n\n"
+            f"Hiện tại hệ thống chưa có sẵn tệp nến USDJPY cho chuỗi sự kiện này. Quý khách có thể gửi thêm tệp dữ liệu tại khung chat này hoặc đợi ban quản trị thu nạp nến để gửi báo giá chính thức."
         )
     else:
         has_jpy = any("JPY" in s for s in symbols_clean)

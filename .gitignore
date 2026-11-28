@@ -37,4 +37,6 @@ backups/
 !artifacts/launch-guide/preview-page-*.png
 !artifacts/launch-guide/guide-meta.json
 !data/guides/guide-meta.json
+artifacts/review/
+tmp_review_bundle/
 
