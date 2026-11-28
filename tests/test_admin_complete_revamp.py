@@ -67,15 +67,10 @@ def test_toggle_sale_endpoint(client):
     )
     rep_id = rep["id"]
 
-    # Toggle sale on
+    # Toggle sale is now strictly discontinued and returns 403
     res = client.post(f"/api/v1/admin/reports/{rep_id}/toggle-sale")
-    assert res.status_code == 200
-    assert res.json()["is_for_sale"] is True
-
-    # Toggle sale off
-    res2 = client.post(f"/api/v1/admin/reports/{rep_id}/toggle-sale")
-    assert res2.status_code == 200
-    assert res2.json()["is_for_sale"] is False
+    assert res.status_code == 403
+    assert "ngừng hoạt động" in res.json().get("detail", "")
 
 
 def test_manual_approve_order_requires_tx_hash_and_rejects_trials(client):
@@ -142,7 +137,7 @@ def test_trial_licenses_full_lifecycle(client):
     _login_admin(client)
     test_email = f"trial_client_{int(time.time()*1000)}@institution.org"
 
-    # Grant trial
+    # Grant trial is strictly discontinued and returns 403
     res_grant = client.post(
         "/api/v1/admin/billing/trials/grant",
         json={
@@ -153,38 +148,12 @@ def test_trial_licenses_full_lifecycle(client):
             "notes": "Evaluation Pilot Agreement",
         },
     )
-    assert res_grant.status_code == 200
-    ent = res_grant.json()["entitlement"]
-    ent_id = ent["id"]
+    assert res_grant.status_code == 403
+    assert "ngừng hoạt động" in res_grant.json().get("detail", "")
 
-    # List trials
+    # List trials (read-only verification works)
     res_list = client.get("/api/v1/admin/billing/trials")
     assert res_list.status_code == 200
-    trials = res_list.json()["trials"]
-    found = [t for t in trials if t["id"] == ent_id]
-    assert len(found) == 1
-    assert found[0]["user_email"] == test_email
-    assert found[0]["is_active"] is True
-
-    # Extend trial
-    res_ext = client.post(
-        f"/api/v1/admin/billing/trials/{ent_id}/extend",
-        json={"extra_days": 10},
-    )
-    assert res_ext.status_code == 200
-
-    # Revoke trial
-    res_rev = client.post(
-        f"/api/v1/admin/billing/trials/{ent_id}/revoke",
-        json={"reason": "Testing immediate revocation"},
-    )
-    assert res_rev.status_code == 200
-
-    # Verify status changed to REVOKED
-    res_list2 = client.get("/api/v1/admin/billing/trials")
-    found2 = [t for t in res_list2.json()["trials"] if t["id"] == ent_id]
-    assert found2[0]["is_active"] is False
-    assert found2[0]["status"] == "REVOKED"
 
 
 def test_csv_parser_with_comments():
@@ -246,22 +215,10 @@ def test_order_creation_reuses_pending_order_and_locks_amount(client, monkeypatc
             (rep_id, now_ts, now_ts),
         )
 
-    # 1st checkout
+    # Publication checkout is strictly discontinued and returns 403
     res1 = client.post(f"/api/v1/reports/{rep_id}/checkout", json={"payment_method": "USDT_BEP20"})
-    assert res1.status_code == 200, res1.text
-    order1 = res1.json()
-    ord_code1 = order1["order_code"]
-    amt1 = float(order1["amount"])
-    assert 19.00 <= amt1 <= 20.00
-
-    # 2nd checkout (rapid click or reload)
-    res2 = client.post(f"/api/v1/reports/{rep_id}/checkout", json={"payment_method": "USDT_BEP20"})
-    assert res2.status_code == 200, res2.text
-    order2 = res2.json()
-    # Must reuse the same order code and amount!
-    assert order2["order_code"] == ord_code1
-    assert float(order2["amount"]) == amt1
-    assert order2.get("already_exists") is True
+    assert res1.status_code == 403
+    assert "ngừng hoạt động" in res1.json().get("detail", "")
 
 
 def test_locked_purchase_when_commercial_sale_disabled(client, monkeypatch):
@@ -271,6 +228,5 @@ def test_locked_purchase_when_commercial_sale_disabled(client, monkeypatch):
 
     monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "false")
     res = client.post("/api/v1/reports/rep_gold_breakout_retest_m15_v1/checkout", json={"payment_method": "USDT_BEP20"})
-    assert res.status_code == 400
-    assert "tạm tắt" in res.json().get("detail", "")
+    assert res.status_code == 403
 

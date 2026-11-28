@@ -161,7 +161,13 @@ def build_pdf_bytes(title: str, subtitle: str, pages_lines: List[List[str]]) -> 
 
 def ensure_flagship_sample_report_seeded(c) -> Optional[str]:
     """Ensure at least 1 flagship published XAU/USD quant research report and 1 draft report exist
-    with real downloadable sample PDF and private full PDF files on disk."""
+    with real downloadable sample PDF and private full PDF files on disk. Idempotent & non-destructive."""
+    rep_id = "rep_xauusd_london_ny_v1"
+    slug = "bao-cao-dinh-luong-xauusd-london-ny-microstructure-v1"
+    existing = c.execute("SELECT id FROM research_reports WHERE id = ? OR slug = ?", (rep_id, slug)).fetchone()
+    if existing:
+        return str(existing[0])
+
     pub_dir = get_public_samples_dir()
     priv_dir = get_private_reports_dir()
 
@@ -311,13 +317,10 @@ def ensure_flagship_sample_report_seeded(c) -> Optional[str]:
 
 
 def ensure_gold_research_suite_v1_seeded(c) -> Optional[str]:
-    """Ensure ZUPIRUS Gold Research Suite v1 is seeded as a draft package in research_reports
-    with complete sample and full PDF files on disk, strictly in DRAFT status awaiting admin review."""
-    from cli.replay import parse_candle_file
-    from app.domains.quant.studies import run_studies
-    from app.domains.quant.methodology import build_methodology
-    from app.domains.quant.pdf_doc import build_methodology_pdf
-
+    """Ensure ZUPIRUS Gold Research Suite v1 is seeded as a draft package in research_reports.
+    Strictly idempotent: if report or files already exist or report is DISCONTINUED,
+    never regenerate, overwrite or mutate files or hashes on disk.
+    """
     pub_dir = get_public_samples_dir()
     priv_dir = get_private_reports_dir()
 
@@ -326,53 +329,68 @@ def ensure_gold_research_suite_v1_seeded(c) -> Optional[str]:
     sample_file = pub_dir / f"{rep_id}-v1.0-sample.pdf"
     full_file = priv_dir / f"{rep_id}-v1.0-full.pdf"
 
-    # Always generate real verifiable PDFs and ledger from single empirical execution
-    sample_csv_path = Path("data/samples/comex_gold_m15_sample.csv")
-    bundle = {}
-    if sample_csv_path.exists():
-        try:
-            candles, _ = parse_candle_file(sample_csv_path)
-            bundle = run_studies(candles, symbol="GC=F", timeframe="M15", strategy_name="breakout_retest")
-            doc = build_methodology(
-                bundle,
-                title_vi="ZUPIRUS Gold Research Suite v1: Breakout & Retest Vàng COMEX M15",
-                title_en="ZUPIRUS Gold Research Suite v1: Breakout & Retest COMEX Gold Futures M15",
-                version="v1.0",
-                author="ZUPIRUS Quant Lab",
+    existing = c.execute("SELECT id, status FROM research_reports WHERE id = ? OR slug = ?", (rep_id, slug)).fetchone()
+    if existing:
+        # Existing record preserved as-is. Never overwrite or re-render files.
+        return str(existing[0])
+
+    if sample_file.exists() and full_file.exists():
+        # Files already present on disk, do not regenerate
+        pass
+    else:
+        from cli.replay import parse_candle_file
+        from app.domains.quant.studies import run_studies
+        from app.domains.quant.methodology import build_methodology
+        from app.domains.quant.pdf_doc import build_methodology_pdf
+
+        sample_csv_path = Path("data/samples/comex_gold_m15_sample.csv")
+        bundle = {}
+        if sample_csv_path.exists():
+            try:
+                candles, _ = parse_candle_file(sample_csv_path)
+                bundle = run_studies(candles, symbol="GC=F", timeframe="M15", strategy_name="breakout_retest")
+                doc = build_methodology(
+                    bundle,
+                    title_vi="ZUPIRUS Gold Research Suite v1: Breakout & Retest Vàng COMEX M15",
+                    title_en="ZUPIRUS Gold Research Suite v1: Breakout & Retest COMEX Gold Futures M15",
+                    version="v1.0",
+                    author="ZUPIRUS Quant Lab",
+                )
+                sample_bytes = build_methodology_pdf(doc, preview=True, lang="vi")
+                full_bytes = build_methodology_pdf(doc, preview=False, lang="vi")
+                if not sample_file.exists():
+                    sample_file.write_bytes(sample_bytes)
+                if not full_file.exists():
+                    full_file.write_bytes(full_bytes)
+            except Exception as e:
+                logger.warning("Could not run quantitative studies on sample CSV: %s", e)
+
+        if not sample_file.exists():
+            sample_bytes = build_pdf_bytes(
+                title="ZUPIRUS GOLD RESEARCH SUITE V1 (SAMPLE PREVIEW)",
+                subtitle="Breakout & Retest on COMEX Gold Futures (GC=F) M15 | Single-Team Trial License",
+                pages_lines=[
+                    [
+                        "# 1. Ban Doc Thu: ZUPIRUS Gold Research Suite v1",
+                        "San pham nghien cuu dinh luong cao cap duoc ZUPIRUS Quant Lab chu dong lua chon,",
+                        "nghien cuu va phat trien truoc de ban mot phien ban dong nhat cho nhieu doi to chuc.",
+                    ]
+                ],
             )
-            sample_bytes = build_methodology_pdf(doc, preview=True, lang="vi")
-            full_bytes = build_methodology_pdf(doc, preview=False, lang="vi")
             sample_file.write_bytes(sample_bytes)
+
+        if not full_file.exists():
+            full_bytes = build_pdf_bytes(
+                title="ZUPIRUS GOLD RESEARCH SUITE V1 - FULL QUANTITATIVE REPORT",
+                subtitle="Breakout & Retest on COMEX Gold Futures (GC=F) M15 | Single-Team License",
+                pages_lines=[
+                    [
+                        "# 1. Executive Summary & Problem Framing",
+                        "ZUPIRUS Gold Research Suite v1 la bo tai lieu nghien cuu dinh luong doc lap.",
+                    ]
+                ],
+            )
             full_file.write_bytes(full_bytes)
-        except Exception as e:
-            logger.warning("Could not run quantitative studies on sample CSV: %s", e)
-
-    if not sample_file.exists():
-        sample_bytes = build_pdf_bytes(
-            title="ZUPIRUS GOLD RESEARCH SUITE V1 (SAMPLE PREVIEW)",
-            subtitle="Breakout & Retest on COMEX Gold Futures (GC=F) M15 | Single-Team Trial License",
-            pages_lines=[
-                [
-                    "# 1. Ban Doc Thu: ZUPIRUS Gold Research Suite v1",
-                    "San pham nghien cuu dinh luong cao cap duoc ZUPIRUS Quant Lab chu dong lua chon,",
-                    "nghien cuu va phat trien truoc de ban mot phien ban dong nhat cho nhieu doi to chuc.",
-                ]
-            ],
-        )
-        sample_file.write_bytes(sample_bytes)
-
-    if not full_file.exists():
-        full_bytes = build_pdf_bytes(
-            title="ZUPIRUS GOLD RESEARCH SUITE V1 - FULL QUANTITATIVE REPORT",
-            subtitle="Breakout & Retest on COMEX Gold Futures (GC=F) M15 | Single-Team License",
-            pages_lines=[
-                [
-                    "# 1. Executive Summary & Problem Framing",
-                    "ZUPIRUS Gold Research Suite v1 la bo tai lieu nghien cuu dinh luong doc lap.",
-                ]
-            ],
-        )
-        full_file.write_bytes(full_bytes)
 
     now = time.time()
     existing = c.execute("SELECT id, status FROM research_reports WHERE id = ? OR slug = ?", (rep_id, slug)).fetchone()

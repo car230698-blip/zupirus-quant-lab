@@ -120,28 +120,6 @@ def main() -> None:
             except Exception as exc:
                 logger.warning("Automated market data sync skipped/failed: %s", exc)
 
-        # Periodic Autonomous Research Cycle (Disabled by default for commercial pivot)
-        enable_auto_pub = os.getenv("ENABLE_AUTO_RESEARCH_SCHEDULE", "").lower() in ("true", "1")
-        if enable_auto_pub:
-            try:
-                from app.db import getkv
-                with tx() as c:
-                    last_run_raw = getkv(c, "quant_auto_research_last_run")
-                last_run = float(last_run_raw) if last_run_raw else 0.0
-                # 604800s = 7 days
-                if (now - last_run > 604800) and (now - last_sync_time < 30):
-                    import threading
-                    from app.domains.ai.autonomous_pipeline import run_autonomous_research_cycle
-                    logger.info("Spawning non-blocking background thread for scheduled weekly Research Cycle...")
-                    threading.Thread(
-                        target=run_autonomous_research_cycle,
-                        kwargs={"force": False, "trigger_type": "SCHEDULED"},
-                        daemon=True,
-                        name="quant-research-scheduled",
-                    ).start()
-            except Exception as exc:
-                logger.debug("Autonomous research cycle worker check note: %s", exc)
-
         time.sleep(10)
 
 

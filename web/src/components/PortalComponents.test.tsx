@@ -21,7 +21,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'landing',
     isAuthRoute: false,
     userPage: 'catalog',
-    adminPage: 'overview',
+    adminPage: 'queue',
   });
 
   assert.deepEqual(resolveRoutePath('/login'), {
@@ -29,7 +29,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'user',
     isAuthRoute: true,
     userPage: 'catalog',
-    adminPage: 'overview',
+    adminPage: 'queue',
   });
 
   assert.deepEqual(resolveRoutePath('/portal/library'), {
@@ -37,7 +37,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'user',
     isAuthRoute: false,
     userPage: 'library',
-    adminPage: 'overview',
+    adminPage: 'queue',
   });
 
   assert.deepEqual(resolveRoutePath('/portal/billing'), {
@@ -45,7 +45,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'user',
     isAuthRoute: false,
     userPage: 'billing',
-    adminPage: 'overview',
+    adminPage: 'queue',
   });
 
   assert.deepEqual(resolveRoutePath('/admin/login'), {
@@ -53,7 +53,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'admin',
     isAuthRoute: true,
     userPage: 'catalog',
-    adminPage: 'overview',
+    adminPage: 'queue',
   });
 
   assert.deepEqual(resolveRoutePath('/admin/research'), {
@@ -61,7 +61,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'admin',
     isAuthRoute: false,
     userPage: 'catalog',
-    adminPage: 'research',
+    adminPage: 'queue',
   });
 
   assert.deepEqual(resolveRoutePath('/admin/orders'), {
@@ -69,7 +69,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'admin',
     isAuthRoute: false,
     userPage: 'catalog',
-    adminPage: 'orders',
+    adminPage: 'all_records',
   });
 
   assert.deepEqual(resolveRoutePath('/admin/users'), {
@@ -77,7 +77,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'admin',
     isAuthRoute: false,
     userPage: 'catalog',
-    adminPage: 'orders',
+    adminPage: 'settings',
     adminSubTab: 'users',
   });
 
@@ -86,7 +86,7 @@ test('resolveRoutePath isolates Landing, User Portal, and Admin Console routes c
     zone: 'admin',
     isAuthRoute: false,
     userPage: 'catalog',
-    adminPage: 'orders',
+    adminPage: 'settings',
     adminSubTab: 'settings',
   });
 });
@@ -160,7 +160,7 @@ test('UserLayout and AdminLayout render strictly separated navigation shells', (
   const adminShellHtml = renderToStaticMarkup(
     withLang(
       React.createElement(AdminLayout, {
-        activePage: 'reports',
+        activePage: 'queue',
         email: 'admin@zupirus.local',
         onNavigate: noop,
         onLogout: noop,

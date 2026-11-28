@@ -4,105 +4,88 @@ import { AdminBillingSettings } from '../../components/admin/AdminBillingSetting
 import { ToastNotification } from '../../components/ToastNotification';
 import { AdminErrorBanner, AdminErrorInfo } from '../../components/AdminErrorBanner';
 import { MetricCard, Panel, StatusBadge } from '../../components/ui/Primitives';
-import { OrderChatModal } from '../../components/research/OrderChatModal';
 import { AdminResearchDossierModal } from '../../components/research/AdminResearchDossierModal';
 import {
   CheckCircle2,
   Clock,
-  DollarSign,
   X,
-  KeyRound,
-  ShieldAlert,
   Plus,
-  MessageSquare,
-  Play,
-  RotateCcw,
   RefreshCw,
   AlertCircle,
   FileText,
+  Database,
+  Cpu,
+  Layers,
+  Play,
 } from 'lucide-react';
 
 export interface AdminOrdersUsersPageProps {
-  initialSubTab?: 'research_orders' | 'orders' | 'trials' | 'users' | 'settings';
+  viewMode?: 'queue' | 'all_records' | 'settings';
+  initialSubTab?: 'users' | 'billing' | 'tools' | string;
 }
 
-export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ initialSubTab }) => {
-  const [summary, setSummary] = useState<any>({ orders: { paid_revenue_usd: 0 } });
-  const [orders, setOrders] = useState<any[]>([]);
-  const [trials, setTrials] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
+export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({
+  viewMode = 'queue',
+  initialSubTab,
+}) => {
+  // Research Requests State (Core of the Research Lab)
   const [researchRequests, setResearchRequests] = useState<any[]>([]);
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState<string | null>(null);
-  const [activeSubTab, setActiveSubTab] = useState<'research_orders' | 'orders' | 'trials' | 'users' | 'settings'>(
-    initialSubTab || 'research_orders'
-  );
-
-  useEffect(() => {
-    if (initialSubTab) {
-      setActiveSubTab(initialSubTab);
-    }
-  }, [initialSubTab]);
-  const [researchStatusFilter, setResearchStatusFilter] = useState<
-    'ACTIONABLE' | 'WAITING_CLIENT' | 'RUNNING' | 'DELIVERED' | 'ALL'
-  >('ACTIONABLE');
+  const [activeDossierRequestId, setActiveDossierRequestId] = useState<string | null>(null);
+  const [searchResearchQuery, setSearchResearchQuery] = useState('');
   const [actionableGroup, setActionableGroup] = useState<
     'ALL_ACTIONABLE' | 'PENDING_REPLY' | 'PENDING_QUOTE' | 'NEEDS_DATA' | 'READY_FOR_REVIEW' | 'ERROR_INTERVENTION'
   >('ALL_ACTIONABLE');
-  const [activeDossierRequestId, setActiveDossierRequestId] = useState<string | null>(null);
-  const [searchResearchQuery, setSearchResearchQuery] = useState('');
-  const [activeChatOrder, setActiveChatOrder] = useState<any | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'PAID'>('ALL');
-  const [searchOrderQuery, setSearchOrderQuery] = useState('');
+  const [allStatusFilter, setAllStatusFilter] = useState<'ALL' | 'WAITING_CLIENT' | 'RUNNING' | 'DELIVERED'>('ALL');
+
+  // Settings & On-Demand State
+  const [settingsSubTab, setSettingsSubTab] = useState<'users' | 'billing' | 'tools'>(
+    initialSubTab === 'users' ? 'users' : initialSubTab === 'tools' ? 'tools' : 'billing'
+  );
+
+  useEffect(() => {
+    if (initialSubTab === 'users' || initialSubTab === 'billing' || initialSubTab === 'tools') {
+      setSettingsSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
+  // Users State (Lazy loaded when in Settings -> users)
+  const [users, setUsers] = useState<any[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
   const [searchUserQuery, setSearchUserQuery] = useState('');
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [msg, setMsg] = useState('');
-  const [errorBanner, setErrorBanner] = useState<AdminErrorInfo | null>(null);
-
-  // Quote Modal State for Custom Research Requests
-  const [quoteTarget, setQuoteTarget] = useState<any | null>(null);
-  const [quotePriceInput, setQuotePriceInput] = useState<number>(10000);
-  const [quoteNotesInput, setQuoteNotesInput] = useState<string>('Bao gồm mô hình truyền dẫn CPI liên thị trường và bộ replay độc lập.');
-  const [quoteSaving, setQuoteSaving] = useState(false);
-
-  // Manual Approval Modal State (Requires tx_hash)
-  const [approveTarget, setApproveTarget] = useState<{ id: string; email: string; amount: number; product: string } | null>(null);
-  const [approveTxHash, setApproveTxHash] = useState('');
-  const [approveSaving, setApproveSaving] = useState(false);
-
-  // Trial Grant Modal State
-  const [showGrantTrialModal, setShowGrantTrialModal] = useState(false);
-  const [trialEmailInput, setTrialEmailInput] = useState('');
-  const [trialReportInput, setTrialReportInput] = useState('gold-m15-breakout-retest-v1');
-  const [trialVersionInput, setTrialVersionInput] = useState('v1.0');
-  const [trialDaysInput, setTrialDaysInput] = useState(30);
-  const [trialNotesInput, setTrialNotesInput] = useState('Institutional Pilot Agreement');
-  const [trialSaving, setTrialSaving] = useState(false);
-
-  // Trial Extend / Revoke / Transfer Modal States
-  const [extendTrialTarget, setExtendTrialTarget] = useState<any | null>(null);
-  const [extendDaysInput, setExtendDaysInput] = useState(30);
-  const [revokeTrialTarget, setRevokeTrialTarget] = useState<any | null>(null);
-  const [revokeReasonInput, setRevokeReasonInput] = useState('Đã hết hạn thỏa thuận dùng thử');
-  const [transferTrialTarget, setTransferTrialTarget] = useState<any | null>(null);
-  const [transferEmailInput, setTransferEmailInput] = useState('');
-
-  // Role Confirmation Modal State
   const [roleChangeTarget, setRoleChangeTarget] = useState<{ id: string; email: string; currentRole: string; newRole: string } | null>(null);
   const [roleSaving, setRoleSaving] = useState(false);
-
-  // Password Reset Modal State
   const [resetTarget, setResetTarget] = useState<{ id: string; email: string } | null>(null);
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [resetSaving, setResetSaving] = useState(false);
-
-  // Create User Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createEmail, setCreateEmail] = useState('');
   const [createPassword, setCreatePassword] = useState('');
   const [createRole, setCreateRole] = useState<'customer' | 'admin'>('customer');
   const [createSaving, setCreateSaving] = useState(false);
 
+  // Billing & Legacy Orders State (Lazy loaded when in Settings -> billing)
+  const [orders, setOrders] = useState<any[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [searchOrderQuery, setSearchOrderQuery] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'ALL' | 'PENDING' | 'PAID' | 'REFUNDED'>('ALL');
+  const [approveTarget, setApproveTarget] = useState<{ id: string; email: string; amount: number; product: string } | null>(null);
+  const [approveTxHash, setApproveTxHash] = useState('');
+  const [approveSaving, setApproveSaving] = useState(false);
+
+  // Tools & Data Sync State
+  const [dataSyncStatus, setDataSyncStatus] = useState<any[]>([]);
+  const [syncingSymbol, setSyncingSymbol] = useState<string | null>(null);
+  const [dryRunRunning, setDryRunRunning] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<any>(null);
+
+  // General Notification / Error State
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
+  const [errorBanner, setErrorBanner] = useState<AdminErrorInfo | null>(null);
+
+  // 1. Load Research Requests
   const loadResearchRequests = useCallback(async () => {
     setResearchLoading(true);
     setResearchError(null);
@@ -117,139 +100,120 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
     }
   }, []);
 
-  const loadBillingAndUsers = useCallback(async () => {
+  // 2. Load Users on-demand
+  const loadUsersOnDemand = useCallback(async () => {
+    setUsersLoading(true);
     try {
-      const [sData, oData, tData, uData] = await Promise.all([
-        api.get('/api/admin/billing/summary'),
-        api.get('/api/admin/billing/orders'),
-        api.get('/api/v1/admin/billing/trials').catch(() => ({ trials: [] })),
-        api.get('/api/admin/users'),
-      ]);
-      if (sData) setSummary(sData);
-      if (oData) setOrders(oData.orders || oData || []);
-      if (tData) setTrials(tData.trials || []);
-      if (uData) setUsers(uData.users || uData || []);
-      setErrorBanner(null);
+      const uData = await api.get('/api/admin/users');
+      setUsers(uData?.users || []);
     } catch (err: any) {
-      setErrorBanner({
-        status: err?.status,
-        message: err?.message || 'Không thể đồng bộ dữ liệu đơn hàng, giấy phép & người dùng.',
-      });
+      setMsg(`Lỗi tải danh sách người dùng: ${err?.message || ''}`);
+    } finally {
+      setUsersLoading(false);
     }
   }, []);
 
-  const loadData = useCallback(async () => {
-    await Promise.allSettled([loadResearchRequests(), loadBillingAndUsers()]);
-  }, [loadResearchRequests, loadBillingAndUsers]);
+  // 3. Load Billing & Legacy Orders on-demand
+  const loadBillingOnDemand = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const oData = await api.get('/api/admin/orders');
+      setOrders(oData?.orders || []);
+    } catch (err: any) {
+      setMsg(`Lỗi tải danh sách đơn hàng: ${err?.message || ''}`);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
 
+  // 4. Load Market Data Status on-demand
+  const loadMarketStatusOnDemand = useCallback(async () => {
+    try {
+      const res: any = await api.get('/api/v1/admin/quant/data/status');
+      if (res?.items) {
+        setDataSyncStatus(res.items);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Auto-sync research requests on mount
   useEffect(() => {
-    loadData();
-    const timer = setInterval(loadData, 20000);
+    loadResearchRequests();
+    const timer = setInterval(loadResearchRequests, 25000);
     return () => clearInterval(timer);
-  }, [loadData]);
+  }, [loadResearchRequests]);
 
-  const executeManualApprove = async (e: React.FormEvent) => {
+  // Load Settings subtab data on-demand
+  useEffect(() => {
+    if (viewMode === 'settings') {
+      if (settingsSubTab === 'users') {
+        loadUsersOnDemand();
+      } else if (settingsSubTab === 'billing') {
+        loadBillingOnDemand();
+      } else if (settingsSubTab === 'tools') {
+        loadMarketStatusOnDemand();
+      }
+    }
+  }, [viewMode, settingsSubTab, loadUsersOnDemand, loadBillingOnDemand, loadMarketStatusOnDemand]);
+
+  // KPI Calculations from Research Requests
+  const actionableCount = researchRequests.filter(
+    (r) =>
+      Number(r.unread_messages_count || 0) > 0 ||
+      ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
+        r.status
+      )
+  ).length;
+  const pendingReplyCount = researchRequests.filter((r) => Number(r.unread_messages_count || 0) > 0).length;
+  const pendingQuoteCount = researchRequests.filter((r) => r.status === 'PENDING_QUOTE').length;
+  const needsDataCount = researchRequests.filter((r) => r.status === 'NEEDS_DATA' || r.status === 'NEEDS_ATTENTION').length;
+  const readyReviewCount = researchRequests.filter((r) => r.status === 'READY_FOR_REVIEW').length;
+  const errorCount = researchRequests.filter((r) => ['FAILED', 'TIMED_OUT', 'ERROR'].includes(r.status)).length;
+
+  const waitingClientCount = researchRequests.filter((r) => ['WAITING_PAYMENT', 'WAITING_CLIENT', 'QUOTED'].includes(r.status)).length;
+  const runningCount = researchRequests.filter((r) => ['CONFIRMED', 'RUNNING'].includes(r.status)).length;
+  const deliveredCount = researchRequests.filter((r) => ['DELIVERED', 'COMPLETED'].includes(r.status)).length;
+
+  // Manual Approval for Legacy USDT Orders
+  const executeApproveOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!approveTarget) return;
-    const cleanTx = approveTxHash.trim();
-    if (cleanTx.length < 8) {
-      setMsg('Vui lòng nhập mã băm giao dịch blockchain (tx_hash) tối thiểu 8 ký tự.');
-      return;
-    }
     setApproveSaving(true);
     try {
-      const res: any = await api.post(`/api/admin/billing/orders/${encodeURIComponent(approveTarget.id)}/approve`, {
-        tx_hash: cleanTx,
+      const res: any = await api.post(`/api/v1/admin/billing/orders/${encodeURIComponent(approveTarget.id)}/approve`, {
+        tx_hash: approveTxHash.trim() || undefined,
       });
-      setMsg(res?.message || `Đã duyệt đơn hàng ${approveTarget.id} thành công với tx_hash.`);
+      setMsg(res?.message || 'Đã đối soát thủ công đơn hàng thành công.');
       setApproveTarget(null);
       setApproveTxHash('');
-      await loadData();
+      await loadBillingOnDemand();
     } catch (err: any) {
-      setMsg(`Lỗi duyệt đơn: ${err?.message || ''}`);
+      setMsg(`Lỗi đối soát: ${err?.message || ''}`);
     } finally {
       setApproveSaving(false);
     }
   };
 
-  const executeGrantTrial = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!trialEmailInput.trim()) return;
-    setTrialSaving(true);
-    try {
-      const res: any = await api.post('/api/v1/admin/billing/trials/grant', {
-        email: trialEmailInput.trim(),
-        report_id: trialReportInput.trim(),
-        version: trialVersionInput.trim(),
-        duration_days: trialDaysInput,
-        notes: trialNotesInput,
-      });
-      setMsg(res?.message || 'Đã cấp giấy phép dùng thử thành công.');
-      setShowGrantTrialModal(false);
-      setTrialEmailInput('');
-      await loadData();
-    } catch (err: any) {
-      setMsg(`Lỗi cấp giấy phép: ${err?.message || ''}`);
-    } finally {
-      setTrialSaving(false);
+  // Refund Legacy Order
+  const executeRefundOrder = async (orderId: string) => {
+    if (!confirm(`Bạn có chắc chắn muốn hoàn tiền cho đơn hàng #${orderId}? Quyền tải PDF sẽ bị thu hồi ngay lập tức.`)) {
+      return;
     }
-  };
-
-  const executeExtendTrial = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!extendTrialTarget) return;
-    setBusyId(`ext_${extendTrialTarget.id}`);
+    setBusyId(`refund_${orderId}`);
     try {
-      const res: any = await api.post(`/api/v1/admin/billing/trials/${encodeURIComponent(extendTrialTarget.id)}/extend`, {
-        extra_days: extendDaysInput,
-      });
-      setMsg(res?.message || 'Đã gia hạn giấy phép thành công.');
-      setExtendTrialTarget(null);
-      await loadData();
+      const res: any = await api.post(`/api/v1/admin/orders/${encodeURIComponent(orderId)}/refund`);
+      setMsg(res?.message || `Đã hoàn tiền đơn hàng #${orderId} và thu hồi quyền tải thành công.`);
+      await loadBillingOnDemand();
     } catch (err: any) {
-      setMsg(`Lỗi gia hạn: ${err?.message || ''}`);
+      setMsg(`Lỗi hoàn tiền: ${err?.message || ''}`);
     } finally {
       setBusyId(null);
     }
   };
 
-  const executeRevokeTrial = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!revokeTrialTarget) return;
-    setBusyId(`rev_${revokeTrialTarget.id}`);
-    try {
-      const res: any = await api.post(`/api/v1/admin/billing/trials/${encodeURIComponent(revokeTrialTarget.id)}/revoke`, {
-        reason: revokeReasonInput,
-      });
-      setMsg(res?.message || 'Đã thu hồi giấy phép dùng thử thành công.');
-      setRevokeTrialTarget(null);
-      await loadData();
-    } catch (err: any) {
-      setMsg(`Lỗi thu hồi: ${err?.message || ''}`);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const executeTransferTrial = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!transferTrialTarget || !transferEmailInput.trim()) return;
-    setBusyId(`trans_${transferTrialTarget.id}`);
-    try {
-      const res: any = await api.post(`/api/v1/admin/billing/trials/${encodeURIComponent(transferTrialTarget.id)}/change-email`, {
-        new_email: transferEmailInput.trim(),
-      });
-      setMsg(res?.message || 'Đã chuyển đổi email người nhận giấy phép.');
-      setTransferTrialTarget(null);
-      setTransferEmailInput('');
-      await loadData();
-    } catch (err: any) {
-      setMsg(`Lỗi chuyển đổi email: ${err?.message || ''}`);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
+  // User Actions
   const executeRoleChange = async () => {
     if (!roleChangeTarget) return;
     setRoleSaving(true);
@@ -259,7 +223,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
       });
       setMsg(`Đã đổi vai trò của ${roleChangeTarget.email} sang ${roleChangeTarget.newRole.toUpperCase()}.`);
       setRoleChangeTarget(null);
-      await loadData();
+      await loadUsersOnDemand();
     } catch (err: any) {
       setMsg(`Lỗi đổi vai trò: ${err?.message || ''}`);
     } finally {
@@ -272,7 +236,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
     try {
       const res: any = await api.post(`/api/admin/users/${encodeURIComponent(userId)}/toggle-suspend`, {});
       setMsg(res?.message || `Đã cập nhật trạng thái hoạt động của ${email}.`);
-      await loadData();
+      await loadUsersOnDemand();
     } catch (err: any) {
       setMsg(`Lỗi cập nhật trạng thái: ${err?.message || ''}`);
     } finally {
@@ -294,72 +258,11 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
       setMsg(`Đã đặt lại mật khẩu cho ${resetTarget.email} thành công.`);
       setResetTarget(null);
       setNewPasswordInput('');
-      await loadData();
+      await loadUsersOnDemand();
     } catch (err: any) {
       setMsg(`Lỗi đổi mật khẩu: ${err?.message || ''}`);
     } finally {
       setResetSaving(false);
-    }
-  };
-
-  const handleRunResearch = async (reqId: string) => {
-    setBusyId(`run_${reqId}`);
-    try {
-      const res: any = await api.post(`/api/v1/admin/research/requests/${encodeURIComponent(reqId)}/run`, {});
-      setMsg(res?.message || 'Đã thực thi nghiên cứu định lượng thành công.');
-      await loadData();
-    } catch (err: any) {
-      setMsg(`Lỗi chạy nghiên cứu: ${err?.message || ''}`);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleApproveResearch = async (reqId: string) => {
-    setBusyId(`app_${reqId}`);
-    try {
-      const res: any = await api.post(`/api/v1/admin/research/requests/${encodeURIComponent(reqId)}/approve`, {});
-      setMsg(res?.message || 'Đã duyệt bàn giao riêng cho khách hàng.');
-      await loadData();
-    } catch (err: any) {
-      setMsg(`Lỗi duyệt bàn giao: ${err?.message || ''}`);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleExecuteQuote = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!quoteTarget) return;
-    setQuoteSaving(true);
-    try {
-      const res: any = await api.post(`/api/v1/admin/research/requests/${encodeURIComponent(quoteTarget.id)}/quote`, {
-        quoted_price_usd: Number(quotePriceInput),
-        scope_notes: quoteNotesInput,
-      });
-      setMsg(res?.message || 'Đã lưu báo giá thành công.');
-      setQuoteTarget(null);
-      await loadData();
-    } catch (err: any) {
-      setMsg(`Lỗi báo giá: ${err?.message || ''}`);
-    } finally {
-      setQuoteSaving(false);
-    }
-  };
-
-  const handleCloseResearch = async (reqId: string) => {
-    if (!confirm('Bạn có chắc chắn muốn đóng yêu cầu nghiên cứu này?')) return;
-    setBusyId(`close_${reqId}`);
-    try {
-      const res: any = await api.post(`/api/v1/admin/research/requests/${encodeURIComponent(reqId)}/close`, {
-        reason: 'Đã đóng theo thỏa thuận quản trị viên.',
-      });
-      setMsg(res?.message || 'Đã đóng yêu cầu nghiên cứu.');
-      await loadData();
-    } catch (err: any) {
-      setMsg(`Lỗi đóng yêu cầu: ${err?.message || ''}`);
-    } finally {
-      setBusyId(null);
     }
   };
 
@@ -376,7 +279,7 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
       setShowCreateModal(false);
       setCreateEmail('');
       setCreatePassword('');
-      await loadData();
+      await loadUsersOnDemand();
     } catch (err: any) {
       setMsg(`Lỗi tạo tài khoản: ${err?.message || ''}`);
     } finally {
@@ -384,1407 +287,971 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
     }
   };
 
-  // Filter orders (Exclude trials from commercial orders view or tag them clearly)
-  const filteredOrders = orders.filter((o: any) => {
-    const isTrial = o.payment_status === 'FREE_TRIAL' || String(o.id || '').startsWith('trial_');
-    if (isTrial) return false; // Trials belong in the dedicated Trials sub-tab
-    const st = String(o.status || '').toUpperCase();
-    if (statusFilter === 'PAID') {
-      if (st !== 'PAID') return false;
-    } else if (statusFilter === 'PENDING') {
-      if (st === 'PAID') return false;
+  // Tools Actions: Market Candle Sync
+  const handleSyncCandles = async (symbol: string) => {
+    setSyncingSymbol(symbol);
+    setMsg('');
+    try {
+      const res: any = await api.post('/api/v1/admin/quant/data/sync', {
+        symbol,
+        timeframe: 'M15',
+        range_str: '5d',
+      });
+      setMsg(res?.message || `Đã đồng bộ nến ${symbol} thành công.`);
+      await loadMarketStatusOnDemand();
+    } catch (err: any) {
+      setMsg(`Lỗi đồng bộ nến ${symbol}: ${err?.message || ''}`);
+    } finally {
+      setSyncingSymbol(null);
     }
-    if (searchOrderQuery.trim()) {
-      const q = searchOrderQuery.toLowerCase();
-      const idMatch = String(o.id || '').toLowerCase().includes(q);
-      const emailMatch = String(o.user_email || '').toLowerCase().includes(q);
-      const txMatch = String(o.tx_hash || '').toLowerCase().includes(q);
-      if (!idMatch && !emailMatch && !txMatch) return false;
+  };
+
+  // Tools Actions: System Diagnostics Dry-run
+  const handleRunDiagnostics = async () => {
+    setDryRunRunning(true);
+    setDryRunResult(null);
+    try {
+      const res: any = await api.post('/api/v1/telemetry/admin-radar/dry-run');
+      setDryRunResult(res);
+      setMsg('Kiểm tra chẩn đoán hệ thống hoàn tất.');
+    } catch (err: any) {
+      setMsg(`Lỗi chẩn đoán: ${err?.message || ''}`);
+    } finally {
+      setDryRunRunning(false);
     }
+  };
+
+  // Filter research requests
+  const filteredResearchRequests = researchRequests.filter((req: any) => {
+    if (searchResearchQuery.trim()) {
+      const q = searchResearchQuery.toLowerCase();
+      const match =
+        String(req.id || '').toLowerCase().includes(q) ||
+        String(req.client_email || '').toLowerCase().includes(q) ||
+        String(req.user_id || '').toLowerCase().includes(q) ||
+        String(req.symbol || '').toLowerCase().includes(q) ||
+        String(req.hypothesis_prompt || '').toLowerCase().includes(q);
+      if (!match) return false;
+    }
+
+    if (viewMode === 'queue') {
+      // Must be actionable
+      const isActionable =
+        Number(req.unread_messages_count || 0) > 0 ||
+        ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
+          req.status
+        );
+      if (!isActionable) return false;
+
+      if (actionableGroup === 'PENDING_REPLY') {
+        return Number(req.unread_messages_count || 0) > 0;
+      }
+      if (actionableGroup === 'PENDING_QUOTE') {
+        return req.status === 'PENDING_QUOTE';
+      }
+      if (actionableGroup === 'NEEDS_DATA') {
+        return req.status === 'NEEDS_DATA' || req.status === 'NEEDS_ATTENTION';
+      }
+      if (actionableGroup === 'READY_FOR_REVIEW') {
+        return req.status === 'READY_FOR_REVIEW';
+      }
+      if (actionableGroup === 'ERROR_INTERVENTION') {
+        return ['FAILED', 'TIMED_OUT', 'ERROR'].includes(req.status);
+      }
+      return true;
+    }
+
+    if (viewMode === 'all_records') {
+      if (allStatusFilter === 'WAITING_CLIENT') {
+        return ['WAITING_PAYMENT', 'WAITING_CLIENT', 'QUOTED'].includes(req.status);
+      }
+      if (allStatusFilter === 'RUNNING') {
+        return ['CONFIRMED', 'RUNNING'].includes(req.status);
+      }
+      if (allStatusFilter === 'DELIVERED') {
+        return ['DELIVERED', 'COMPLETED'].includes(req.status);
+      }
+      return true;
+    }
+
     return true;
-  });
-
-  const paidOrdersCount = orders.filter(
-    (o: any) => String(o.status || '').toUpperCase() === 'PAID' && o.payment_status !== 'FREE_TRIAL' && !String(o.id || '').startsWith('trial_')
-  ).length;
-
-  const pendingOrdersCount = orders.filter(
-    (o: any) => String(o.status || '').toUpperCase() !== 'PAID' && o.payment_status !== 'FREE_TRIAL' && !String(o.id || '').startsWith('trial_')
-  ).length;
-
-  const totalRevenueUsd = Number(summary?.orders?.paid_revenue_usd ?? 0);
-  const activeTrialsCount = trials.filter((t: any) => t.is_active).length;
-
-  const searchedUsers = users.filter((u: any) => {
-    if (!searchUserQuery.trim()) return true;
-    const q = searchUserQuery.toLowerCase();
-    return String(u.email || '').toLowerCase().includes(q) || String(u.role || '').toLowerCase().includes(q);
   });
 
   return (
     <div className="space-y-6">
-      <div className="quant-heading">
-        <div className="space-y-1">
-          <div className="font-mono text-xs uppercase tracking-wider text-cyan-400">
-            TRẠM QUẢN TRỊ · ĐƠN HÀNG, GIẤY PHÉP & NGƯỜI DÙNG
-          </div>
-          <h1>Quản Lý Đơn Hàng USDT & Giấy Phép Nghiên Cứu</h1>
-          <p className="text-sm text-slate-400 m-0">
-            Tách bạch đơn mua thương mại USDT on-chain và giấy phép dùng thử độc lập cho các đội khách hàng.
-          </p>
-        </div>
-      </div>
+      <AdminErrorBanner error={errorBanner} onDismiss={() => setErrorBanner(null)} />
+      {msg && <ToastNotification message={msg} onClose={() => setMsg('')} />}
 
-      <ToastNotification message={msg || null} type="info" onClose={() => setMsg('')} />
-      <AdminErrorBanner error={errorBanner} onRetry={loadData} onDismiss={() => setErrorBanner(null)} />
-
-      {/* TOP 4 KPI CARDS */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <MetricCard
-          label="Doanh Thu Đã Thu"
-          value={`$${totalRevenueUsd.toFixed(2)}`}
-          subtext="USDT On-Chain (Đã đối soát)"
-          icon={<DollarSign className="h-4 w-4" />}
-          tone="emerald"
-        />
-        <MetricCard
-          label="Đơn Đã Mở Khóa"
-          value={paidOrdersCount}
-          subtext="Bản quyền PDF vĩnh viễn"
-          icon={<CheckCircle2 className="h-4 w-4" />}
-          tone="cyan"
-        />
-        <MetricCard
-          label="Đơn Chờ Đối Soát"
-          value={pendingOrdersCount}
-          subtext="Yêu cầu nhập tx_hash"
-          icon={<Clock className="h-4 w-4" />}
-          tone="amber"
-        />
-        <MetricCard
-          label="Giấy Phép Dùng Thử"
-          value={activeTrialsCount}
-          subtext={`${trials.length} tổng giấy phép cấp`}
-          icon={<KeyRound className="h-4 w-4" />}
-          tone="cyan"
-        />
-      </div>
-
-      {/* SUB-TABS NAVIGATION */}
-      <div className="border-b border-slate-800 flex flex-wrap items-center gap-6 text-xs font-semibold">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('research_orders')}
-          className={`pb-3 transition relative cursor-pointer ${
-            activeSubTab === 'research_orders' ? 'text-white border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Đơn Nghiên Cứu ({researchRequests.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('orders')}
-          className={`pb-3 transition relative cursor-pointer ${
-            activeSubTab === 'orders' ? 'text-white border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Đơn Mua USDT ({filteredOrders.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('trials')}
-          className={`pb-3 transition relative cursor-pointer ${
-            activeSubTab === 'trials' ? 'text-white border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Giấy Phép Dùng Thử ({trials.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('users')}
-          className={`pb-3 transition relative cursor-pointer ${
-            activeSubTab === 'users' ? 'text-white border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Người Dùng & Quyền Hạn ({users.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSubTab('settings')}
-          className={`pb-3 transition relative cursor-pointer ${
-            activeSubTab === 'settings' ? 'text-white border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Vận Hành & Cấu Hình Ví
-        </button>
-      </div>
-
-      {/* 0. RESEARCH ORDERS SUB-TAB (DEFAULT - ACTIONABLE QUEUE) */}
-      {activeSubTab === 'research_orders' && (
-        <Panel
-          title="Hàng Đợi Xử Lý Nghiên Cứu Định Lượng"
-          subtitle="Tập trung vào các hồ sơ cần xử lý ngoại lệ và phê duyệt quan trọng. Tự động hóa tối đa các tác vụ thường quy."
-        >
-          <div className="space-y-4">
-            {/* Primary Queue Tabs */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
-              <div className="flex flex-wrap items-center gap-2">
-                {[
-                  {
-                    key: 'ACTIONABLE',
-                    label: 'Cần xử lý',
-                    tone: 'amber',
-                    count: researchRequests.filter(
-                      (r) =>
-                        Number(r.unread_messages_count || 0) > 0 ||
-                        ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
-                          r.status
-                        )
-                    ).length,
-                  },
-                  {
-                    key: 'WAITING_CLIENT',
-                    label: 'Đang chờ khách',
-                    tone: 'slate',
-                    count: researchRequests.filter((r) => ['QUOTED', 'WAITING_PAYMENT'].includes(r.status)).length,
-                  },
-                  {
-                    key: 'RUNNING',
-                    label: 'Đang chạy',
-                    tone: 'cyan',
-                    count: researchRequests.filter((r) => ['CONFIRMED', 'RUNNING'].includes(r.status)).length,
-                  },
-                  {
-                    key: 'DELIVERED',
-                    label: 'Đã bàn giao',
-                    tone: 'emerald',
-                    count: researchRequests.filter((r) => ['DELIVERED', 'COMPLETED'].includes(r.status)).length,
-                  },
-                  {
-                    key: 'ALL',
-                    label: 'Tất cả hồ sơ',
-                    tone: 'slate',
-                    count: researchRequests.length,
-                  },
-                ].map((tab) => {
-                  const isActive = researchStatusFilter === tab.key;
-                  return (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      onClick={() => setResearchStatusFilter(tab.key as any)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-2 ${
-                        isActive
-                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
-                          : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-slate-200'
-                      }`}
-                    >
-                      <span>{tab.label}</span>
-                      <span
-                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                          isActive
-                            ? 'bg-cyan-400 text-slate-950'
-                            : tab.count > 0 && tab.key === 'ACTIONABLE'
-                            ? 'bg-amber-500/30 text-amber-300'
-                            : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {tab.count}
-                      </span>
-                    </button>
-                  );
-                })}
+      {/* VIEW MODE 1: ACTIONABLE QUEUE */}
+      {viewMode === 'queue' && (
+        <div className="space-y-6">
+          <div className="quant-heading">
+            <div className="space-y-1">
+              <div className="font-mono text-xs uppercase tracking-wider text-amber-400 font-semibold">
+                ĐIỀU HÀNH NGHIÊN CỨU THEO ĐƠN · HÀNG ĐỢI XỬ LÝ
               </div>
-
-              {/* Search Bar */}
-              <div className="w-full sm:w-64">
-                <input
-                  type="text"
-                  placeholder="Tìm theo ID, email, mã..."
-                  value={searchResearchQuery}
-                  onChange={(e) => setSearchResearchQuery(e.target.value)}
-                  className="quant-input text-xs w-full py-1.5 px-3"
-                />
-              </div>
-            </div>
-
-            {/* Sub-chips for Actionable Queue */}
-            {researchStatusFilter === 'ACTIONABLE' && (
-              <div className="flex flex-wrap items-center gap-2 pt-1 pb-2">
-                <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Phân nhóm:</span>
-                {[
-                  {
-                    key: 'ALL_ACTIONABLE',
-                    label: 'Tất cả cần xử lý',
-                    count: researchRequests.filter(
-                      (r) =>
-                        Number(r.unread_messages_count || 0) > 0 ||
-                        ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
-                          r.status
-                        )
-                    ).length,
-                  },
-                  {
-                    key: 'PENDING_REPLY',
-                    label: 'Nhắn lại',
-                    count: researchRequests.filter((r) => Number(r.unread_messages_count || 0) > 0).length,
-                  },
-                  {
-                    key: 'PENDING_QUOTE',
-                    label: 'Chờ duyệt báo giá',
-                    count: researchRequests.filter((r) => r.status === 'PENDING_QUOTE').length,
-                  },
-                  {
-                    key: 'NEEDS_DATA',
-                    label: 'Cần bổ sung dữ liệu',
-                    count: researchRequests.filter((r) => r.status === 'NEEDS_DATA' || r.status === 'NEEDS_ATTENTION').length,
-                  },
-                  {
-                    key: 'READY_FOR_REVIEW',
-                    label: 'Chờ duyệt bàn giao',
-                    count: researchRequests.filter((r) => r.status === 'READY_FOR_REVIEW').length,
-                  },
-                  {
-                    key: 'ERROR_INTERVENTION',
-                    label: 'Lỗi / Cần can thiệp',
-                    count: researchRequests.filter((r) => ['FAILED', 'TIMED_OUT', 'ERROR'].includes(r.status)).length,
-                  },
-                ].map((grp) => {
-                  const isGrpActive = actionableGroup === grp.key;
-                  return (
-                    <button
-                      key={grp.key}
-                      type="button"
-                      onClick={() => setActionableGroup(grp.key as any)}
-                      className={`px-2 py-0.8 rounded text-[11px] transition flex items-center gap-1.5 ${
-                        isGrpActive
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
-                          : 'bg-slate-900/60 text-slate-400 border border-slate-800/80 hover:text-slate-300'
-                      }`}
-                    >
-                      <span>{grp.label}</span>
-                      <span className="text-[10px] opacity-75">({grp.count})</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Research Loading State */}
-            {researchLoading && researchRequests.length === 0 && (
-              <div className="p-8 text-center border border-dashed border-cyan-500/30 rounded-xl text-cyan-300 text-xs flex items-center justify-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
-                <span>Đang đồng bộ danh sách đơn nghiên cứu...</span>
-              </div>
-            )}
-
-            {/* Research Error Banner with Retry */}
-            {researchError && (
-              <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                  <span>{researchError}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={loadResearchRequests}
-                  className="quant-button quant-button-secondary text-xs py-1 px-3"
-                >
-                  Thử lại
-                </button>
-              </div>
-            )}
-
-            {/* Request Cards List */}
-            {!researchLoading && !researchError && researchRequests.length === 0 ? (
-              <div className="p-8 text-center border border-dashed border-slate-800 rounded-xl text-slate-500 text-xs">
-                Chưa có đơn nghiên cứu theo yêu cầu nào. Khi khách hàng cá nhân hoặc tổ chức gửi yêu cầu, thông tin sẽ hiển thị tại đây.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {researchRequests
-                  .filter((req: any) => {
-                    // Search query matching
-                    if (searchResearchQuery.trim()) {
-                      const q = searchResearchQuery.trim().toLowerCase();
-                      const matchId = String(req.id || '').toLowerCase().includes(q);
-                      const matchEmail = String(req.client_email || '').toLowerCase().includes(q);
-                      const matchSymbol = String(req.symbol || '').toLowerCase().includes(q);
-                      const matchPrompt = String(req.hypothesis_prompt || req.problem_description || '').toLowerCase().includes(q);
-                      if (!matchId && !matchEmail && !matchSymbol && !matchPrompt) return false;
-                    }
-
-                    // Main Queue filtering
-                    if (researchStatusFilter === 'ALL') return true;
-                    if (researchStatusFilter === 'WAITING_CLIENT') {
-                      return ['QUOTED', 'WAITING_PAYMENT'].includes(req.status);
-                    }
-                    if (researchStatusFilter === 'RUNNING') {
-                      return ['CONFIRMED', 'RUNNING'].includes(req.status);
-                    }
-                    if (researchStatusFilter === 'DELIVERED') {
-                      return ['DELIVERED', 'COMPLETED'].includes(req.status);
-                    }
-
-                    // Actionable sub-filters
-                    if (researchStatusFilter === 'ACTIONABLE') {
-                      const isActionable =
-                        Number(req.unread_messages_count || 0) > 0 ||
-                        ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
-                          req.status
-                        );
-                      if (!isActionable) return false;
-
-                      if (actionableGroup === 'PENDING_REPLY') {
-                        return Number(req.unread_messages_count || 0) > 0;
-                      }
-                      if (actionableGroup === 'PENDING_QUOTE') {
-                        return req.status === 'PENDING_QUOTE';
-                      }
-                      if (actionableGroup === 'NEEDS_DATA') {
-                        return req.status === 'NEEDS_DATA' || req.status === 'NEEDS_ATTENTION';
-                      }
-                      if (actionableGroup === 'READY_FOR_REVIEW') {
-                        return req.status === 'READY_FOR_REVIEW';
-                      }
-                      if (actionableGroup === 'ERROR_INTERVENTION') {
-                        return ['FAILED', 'TIMED_OUT', 'ERROR'].includes(req.status);
-                      }
-                      return true;
-                    }
-                    return true;
-                  })
-                  .map((req: any) => {
-                    const unreadCount = Number(req.unread_messages_count || 0);
-                    return (
-                      <div
-                        key={req.id}
-                        className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700/80 transition space-y-3 shadow-md"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-mono text-cyan-400 font-bold text-xs">{req.id}</span>
-                              <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
-                                {req.product_type}
-                              </span>
-                              <StatusBadge
-                                tone={
-                                  req.status === 'DELIVERED' || req.status === 'COMPLETED'
-                                    ? 'success'
-                                    : req.status === 'READY_FOR_REVIEW'
-                                    ? 'info'
-                                    : req.status === 'FAILED' || req.status === 'REJECTED'
-                                    ? 'danger'
-                                    : 'warning'
-                                }
-                              >
-                                {req.status}
-                              </StatusBadge>
-                              {unreadCount > 0 && (
-                                <span className="px-2 py-0.5 rounded-full bg-cyan-500 text-slate-950 font-bold text-[10px] animate-pulse">
-                                  {unreadCount} tin nhắn mới
-                                </span>
-                              )}
-                              {req.retry_count > 0 && (
-                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40">
-                                  Chạy lại: {req.retry_count}/5
-                                </span>
-                              )}
-                            </div>
-                            <h4 className="text-sm font-semibold text-white">
-                              {req.hypothesis_prompt || req.scope_notes || `Nghiên cứu ${req.symbol} ${req.timeframe}`}
-                            </h4>
-                            <p className="text-xs text-slate-400">
-                              Khách hàng: <span className="text-slate-200">{req.client_email || req.user_id}</span> · Tạo lúc:{' '}
-                              {new Date(req.created_at * 1000).toLocaleString('vi-VN')}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs text-slate-400">Giá báo hợp đồng</div>
-                            <div className="text-base font-bold text-emerald-400 font-mono">
-                              ${Number(req.quoted_price_usd || 0).toLocaleString()} USD
-                            </div>
-                            <div className="text-[11px] text-slate-500">Thời hạn: {req.turnaround_hours || 24}h</div>
-                          </div>
-                        </div>
-
-                        {/* Waiting reason highlighted */}
-                        {req.waiting_reason_vi && (
-                          <div className="text-xs flex items-center gap-1.5 text-cyan-300 bg-cyan-950/30 px-3 py-2 rounded-lg border border-cyan-800/40 font-sans">
-                            <Clock className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
-                            <span>Lý do chờ / Tiến độ: <strong>{req.waiting_reason_vi}</strong></span>
-                          </div>
-                        )}
-
-                        {req.problem_description && (
-                          <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300">
-                            <span className="text-cyan-400 font-semibold">Mô tả bài toán: </span>
-                            {req.problem_description}
-                          </div>
-                        )}
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 py-2 px-3 bg-slate-950/40 rounded-lg border border-slate-800/80 text-xs font-mono">
-                          <div>
-                            <span className="text-slate-500">Mã chính:</span> <span className="text-slate-200 font-bold">{req.symbol}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500">Khung:</span> <span className="text-slate-200">{req.timeframe}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500">Phiên bản:</span> <span className="text-slate-200">v{req.proposal_version || 1}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500">Lượt chạy:</span> <span className="text-slate-300">{req.run_count || 0}</span>
-                          </div>
-                        </div>
-
-                        {/* Bottom Actions Bar */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
-                          <div className="flex items-center gap-2">
-                            {/* 1-click Dossier Modal Button */}
-                            <button
-                              type="button"
-                              onClick={() => setActiveDossierRequestId(req.id)}
-                              className="quant-button quant-button-primary text-xs py-1.5 px-3 flex items-center gap-1.5 shadow-sm"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                              <span>Mở Hồ Sơ Đầy Đủ</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setActiveChatOrder(req)}
-                              className="quant-button quant-button-secondary text-xs py-1.5 px-2.5 flex items-center gap-1.5"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
-                              <span>Trao Đổi</span>
-                              {unreadCount > 0 && (
-                                <span className="px-1.5 py-0.2 rounded-full bg-cyan-500 text-slate-950 font-bold text-[10px]">
-                                  {unreadCount}
-                                </span>
-                              )}
-                            </button>
-
-                            {req.deliverable_pdf_path && (
-                              <a
-                                href={`/api/v1/research/orders/${encodeURIComponent(req.id)}/download-pdf`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="quant-button quant-button-secondary text-xs py-1.5 px-2.5"
-                              >
-                                Xem PDF
-                              </a>
-                            )}
-                            {req.deliverable_bundle_path && (
-                              <a
-                                href={`/api/v1/research/orders/${encodeURIComponent(req.id)}/download-bundle`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="quant-button quant-button-secondary text-xs py-1.5 px-2.5"
-                              >
-                                Tải Bundle ZIP
-                              </a>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {req.status === 'PENDING_QUOTE' && (
-                              <button
-                                type="button"
-                                disabled={busyId === `close_${req.id}`}
-                                onClick={() => handleCloseResearch(req.id)}
-                                className="quant-button text-red-400 hover:bg-red-950/30 text-xs py-1.5 px-2"
-                              >
-                                Đóng
-                              </button>
-                            )}
-
-                            {req.status === 'CONFIRMED' && (
-                              <button
-                                type="button"
-                                disabled={busyId === `run_${req.id}`}
-                                onClick={() => handleRunResearch(req.id)}
-                                className="quant-button quant-button-primary text-xs py-1.5 px-3 flex items-center gap-1 font-semibold"
-                              >
-                                <Play className="w-3 h-3" />
-                                <span>{busyId === `run_${req.id}` ? 'Đang chạy...' : 'Chạy Nghiên Cứu'}</span>
-                              </button>
-                            )}
-
-                            {req.status === 'READY_FOR_REVIEW' && (
-                              <button
-                                type="button"
-                                disabled={busyId === `app_${req.id}`}
-                                onClick={() => handleApproveResearch(req.id)}
-                                className="quant-button bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-1.5 px-3 flex items-center gap-1 font-semibold"
-                              >
-                                <CheckCircle2 className="w-3 h-3" />
-                                <span>{busyId === `app_${req.id}` ? 'Đang duyệt...' : 'Duyệt Bàn Giao'}</span>
-                              </button>
-                            )}
-
-                            {(req.status === 'NEEDS_DATA' || req.status === 'FAILED' || req.status === 'NEEDS_ATTENTION') && (
-                              <button
-                                type="button"
-                                onClick={() => setActiveDossierRequestId(req.id)}
-                                className="quant-button bg-amber-600 hover:bg-amber-500 text-white text-xs py-1.5 px-3 flex items-center gap-1 font-semibold"
-                              >
-                                <RotateCcw className="w-3 h-3" />
-                                <span>Xử Lý / Can Thiệp</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
-          </div>
-        </Panel>
-      )}
-
-      {/* 1. ORDERS SUB-TAB */}
-      {activeSubTab === 'orders' && (
-        <Panel
-          title="Danh Sách Đơn Mua Thương Mại USDT"
-          subtitle="Các đơn mua PDF nghiên cứu qua ví USDT TRC20/BEP20. Không tính đơn dùng thử vào doanh thu."
-        >
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">Trạng thái:</span>
-                <select
-                  value={statusFilter}
-                  onChange={(e: any) => setStatusFilter(e.target.value)}
-                  className="quant-input text-xs py-1.5"
-                >
-                  <option value="ALL">Tất cả ({orders.length})</option>
-                  <option value="PENDING">Chờ đối soát ({pendingOrdersCount})</option>
-                  <option value="PAID">Đã thanh toán ({paidOrdersCount})</option>
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={searchOrderQuery}
-                  onChange={(e) => setSearchOrderQuery(e.target.value)}
-                  placeholder="Tìm theo mã đơn, email, tx_hash..."
-                  className="quant-input text-xs font-mono py-1.5 w-64"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="quant-table text-xs">
-                <thead>
-                  <tr>
-                    <th>Mã Đơn / Ngày Tạo</th>
-                    <th>Khách Hàng</th>
-                    <th>Ấn Phẩm / Phiên Bản</th>
-                    <th>Cổng / Mạng</th>
-                    <th className="text-right">Số Tiền (USDT)</th>
-                    <th>Mã Giao Dịch (Tx Hash)</th>
-                    <th>Trạng Thái</th>
-                    <th className="text-right">Thao Tác</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOrders.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="text-center py-8 text-slate-500 font-mono text-xs">
-                        Không có đơn hàng nào phù hợp với bộ lọc.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredOrders.map((o) => {
-                      const isPaid = String(o.status || '').toUpperCase() === 'PAID';
-                      return (
-                        <tr key={o.id}>
-                          <td>
-                            <div className="font-mono font-semibold text-white">{o.id}</div>
-                            <div className="font-mono text-[11px] text-slate-500">
-                              {o.created_at ? new Date(Number(o.created_at) * 1000).toLocaleString('vi-VN') : '—'}
-                            </div>
-                          </td>
-                          <td>
-                            <div className="font-medium text-slate-200">{o.user_email || '—'}</div>
-                            <div className="font-mono text-[11px] text-slate-500">{o.user_id}</div>
-                          </td>
-                          <td>
-                            <div className="font-semibold text-cyan-300">
-                              {o.report_id || o.plan_tier || 'Gold Research Suite'}
-                            </div>
-                            <div className="font-mono text-[11px] text-amber-300">{o.report_version || 'v1.0'}</div>
-                          </td>
-                          <td className="font-mono text-[11px] text-slate-300">
-                            {o.payment_gateway || 'DIRECT_USDT'}
-                          </td>
-                          <td className="text-right font-mono font-bold text-emerald-400 tabular-nums">
-                            ${Number(o.amount_usd || o.expected_amount_usdt || 0).toFixed(2)}
-                          </td>
-                          <td className="font-mono text-[11px] max-w-[140px] truncate">
-                            {o.tx_hash ? (
-                              <span className="text-cyan-300" title={o.tx_hash}>
-                                {o.tx_hash.slice(0, 8)}...{o.tx_hash.slice(-6)}
-                              </span>
-                            ) : (
-                              <span className="text-slate-600">Chưa ghi nhận</span>
-                            )}
-                          </td>
-                          <td>
-                            <StatusBadge tone={isPaid ? 'success' : 'warning'}>
-                              {isPaid ? 'PAID' : 'PENDING'}
-                            </StatusBadge>
-                          </td>
-                          <td className="text-right">
-                            {!isPaid ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setApproveTarget({
-                                    id: o.id,
-                                    email: o.user_email || '',
-                                    amount: Number(o.amount_usd || o.expected_amount_usdt || 0),
-                                    product: o.report_id || 'Gold Research Suite',
-                                  })
-                                }
-                                className="quant-btn-primary min-h-[30px] px-2.5 py-1 text-[11px]"
-                              >
-                                Duyệt thủ công
-                              </button>
-                            ) : (
-                              <span className="text-[11px] font-mono text-emerald-400">Đã mở quyền</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </Panel>
-      )}
-
-      {/* 2. TRIALS SUB-TAB */}
-      {activeSubTab === 'trials' && (
-        <Panel
-          title="Quản Lý Giấy Phép Dùng Thử (Trial Licenses)"
-          subtitle="Cấp quyền truy cập tài liệu và bộ bằng chứng có thời hạn cho các đội đánh giá trước khi ký hợp đồng"
-          action={
-            <button
-              type="button"
-              onClick={() => setShowGrantTrialModal(true)}
-              className="quant-btn-primary text-xs"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Cấp Giấy Phép Dùng Thử</span>
-            </button>
-          }
-        >
-          <div className="space-y-4">
-            <div className="overflow-x-auto">
-              <table className="quant-table text-xs">
-                <thead>
-                  <tr>
-                    <th>Mã Quyền / Đơn</th>
-                    <th>Email Người Nhận</th>
-                    <th>Ấn Phẩm / Bản</th>
-                    <th>Ngày Cấp</th>
-                    <th>Thời Hạn & Còn Lại</th>
-                    <th className="text-center">Lượt Tải</th>
-                    <th>Trạng Thái</th>
-                    <th className="text-right">Thao Tác</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trials.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="text-center py-8 text-slate-500 font-mono text-xs">
-                        Chưa có giấy phép dùng thử nào được cấp. Bấm &quot;Cấp Giấy Phép Dùng Thử&quot; để tạo mới.
-                      </td>
-                    </tr>
-                  ) : (
-                    trials.map((t) => {
-                      const exp = floatToDate(t.expires_at);
-                      const granted = floatToDate(t.granted_at);
-                      const isExpired = t.expires_at && t.expires_at < Date.now() / 1000;
-                      const isRevoked = Boolean(t.revoked_at || t.status === 'REVOKED');
-                      return (
-                        <tr key={t.id}>
-                          <td>
-                            <div className="font-mono font-semibold text-white">{t.id}</div>
-                            <div className="font-mono text-[11px] text-slate-500">{t.order_id}</div>
-                          </td>
-                          <td>
-                            <div className="font-medium text-slate-200">{t.user_email || '—'}</div>
-                            <div className="font-mono text-[11px] text-slate-500">{t.user_id}</div>
-                          </td>
-                          <td>
-                            <div className="font-semibold text-indigo-300">{t.report_title || t.report_id}</div>
-                            <div className="font-mono text-[11px] text-amber-300">{t.purchased_version || 'v1.0'}</div>
-                          </td>
-                          <td className="font-mono text-slate-400">{granted}</td>
-                          <td>
-                            <div className="font-mono text-slate-300">{exp}</div>
-                            <div className="font-mono text-[11px] text-cyan-400">
-                              {t.is_active ? `Còn ${t.days_remaining} ngày` : 'Hết hạn'}
-                            </div>
-                          </td>
-                          <td className="text-center font-mono font-bold text-white tabular-nums">
-                            {t.download_count || 0}
-                          </td>
-                          <td>
-                            <StatusBadge tone={isRevoked ? 'danger' : isExpired ? 'neutral' : 'success'}>
-                              {isRevoked ? 'REVOKED' : isExpired ? 'EXPIRED' : 'ACTIVE'}
-                            </StatusBadge>
-                          </td>
-                          <td className="text-right">
-                            <div className="inline-flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setExtendTrialTarget(t)}
-                                className="quant-quiet min-h-[30px] px-2 py-1 text-[11px] text-cyan-300"
-                                title="Gia hạn thời gian dùng thử"
-                              >
-                                Gia hạn
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTransferTrialTarget(t);
-                                  setTransferEmailInput(t.user_email || '');
-                                }}
-                                className="quant-quiet min-h-[30px] px-2 py-1 text-[11px] text-slate-300"
-                                title="Chuyển sang email đối tác khác"
-                              >
-                                Đổi email
-                              </button>
-                              {!isRevoked && (
-                                <button
-                                  type="button"
-                                  onClick={() => setRevokeTrialTarget(t)}
-                                  className="quant-quiet min-h-[30px] px-2 py-1 text-[11px] text-rose-400 hover:text-rose-300"
-                                  title="Thu hồi quyền dùng thử ngay lập tức"
-                                >
-                                  Thu hồi
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </Panel>
-      )}
-
-      {/* 3. USERS SUB-TAB */}
-      {activeSubTab === 'users' && (
-        <Panel
-          title="Tài Khoản Người Dùng & Phân Quyền Quản Trị"
-          subtitle="Quản lý vai trò (customer / admin), đặt lại mật khẩu và khóa tài khoản khi cần đình chỉ"
-          action={
-            <button
-              type="button"
-              onClick={() => setShowCreateModal(true)}
-              className="quant-btn-primary text-xs"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Tạo Người Dùng Mới</span>
-            </button>
-          }
-        >
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <input
-                type="text"
-                value={searchUserQuery}
-                onChange={(e) => setSearchUserQuery(e.target.value)}
-                placeholder="Tìm tài khoản theo email hoặc vai trò..."
-                className="quant-input text-xs font-mono py-1.5 w-72"
-              />
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="quant-table text-xs">
-                <thead>
-                  <tr>
-                    <th>Mã / Email</th>
-                    <th>Vai Trò</th>
-                    <th>Trạng Thái</th>
-                    <th className="text-center">Số Ấn Phẩm Có Quyền</th>
-                    <th className="text-center">Phiên Đăng Nhập</th>
-                    <th className="text-right">Thao Tác</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {searchedUsers.map((u) => {
-                    const isAdmin = u.role === 'admin';
-                    const isSusp = Boolean(u.is_suspended);
-                    return (
-                      <tr key={u.id} className={isSusp ? 'opacity-60 bg-rose-950/10' : ''}>
-                        <td>
-                          <div className="font-semibold text-white">{u.email}</div>
-                          <div className="font-mono text-[11px] text-slate-500">{u.id}</div>
-                        </td>
-                        <td>
-                          <StatusBadge tone={isAdmin ? 'info' : 'neutral'}>
-                            {u.role?.toUpperCase()}
-                          </StatusBadge>
-                        </td>
-                        <td>
-                          <StatusBadge tone={isSusp ? 'danger' : 'success'}>
-                            {isSusp ? 'ĐÃ ĐÌNH CHỈ' : 'HOẠT ĐỘNG'}
-                          </StatusBadge>
-                        </td>
-                        <td className="text-center font-mono font-bold text-white tabular-nums">
-                          {u.entitlements_count || 0}
-                        </td>
-                        <td className="text-center font-mono tabular-nums text-slate-300">
-                          {u.active_sessions || 0}
-                        </td>
-                        <td className="text-right">
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setRoleChangeTarget({
-                                  id: u.id,
-                                  email: u.email,
-                                  currentRole: u.role,
-                                  newRole: isAdmin ? 'customer' : 'admin',
-                                })
-                              }
-                              className="quant-quiet min-h-[30px] px-2 py-1 text-[11px] text-amber-300"
-                            >
-                              Đổi vai trò
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setResetTarget({ id: u.id, email: u.email })}
-                              className="quant-quiet min-h-[30px] px-2 py-1 text-[11px] text-cyan-300"
-                            >
-                              Đổi mật khẩu
-                            </button>
-
-                            <button
-                              type="button"
-                              disabled={busyId === `susp_${u.id}`}
-                              onClick={() => handleToggleSuspendUser(u.id, u.email)}
-                              className={`min-h-[30px] px-2 py-1 text-[11px] rounded-lg border font-mono transition ${
-                                isSusp
-                                  ? 'border-emerald-500/40 bg-emerald-950/20 text-emerald-300 hover:bg-emerald-950/40'
-                                  : 'border-rose-500/40 bg-rose-950/20 text-rose-300 hover:bg-rose-950/40'
-                              }`}
-                            >
-                              {isSusp ? 'Mở khóa' : 'Đình chỉ'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </Panel>
-      )}
-
-      {/* 4. SETTINGS SUB-TAB */}
-      {activeSubTab === 'settings' && <AdminBillingSettings />}
-
-      {/* MANUAL APPROVE MODAL (With TX_HASH requirement) */}
-      {approveTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <form
-            onSubmit={executeManualApprove}
-            className="w-full max-w-lg rounded-2xl border border-cyan-500/40 bg-[#060A13] p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-cyan-300 font-semibold text-sm">
-                <ShieldAlert className="h-5 w-5 text-cyan-400" />
-                <span>Duyệt Thủ Công Đơn Mua Nghiên Cứu</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setApproveTarget(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="rounded-xl border border-slate-800 bg-[#0A0F1D] p-3.5 space-y-2 text-xs font-mono">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Mã đơn hàng:</span>
-                <span className="text-white font-bold">{approveTarget.id}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Email khách hàng:</span>
-                <span className="text-cyan-300">{approveTarget.email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Ấn phẩm nghiên cứu:</span>
-                <span className="text-white">{approveTarget.product}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Số tiền đối soát:</span>
-                <span className="text-emerald-400 font-bold">${approveTarget.amount.toFixed(2)} USDT</span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-slate-300">
-                Mã băm giao dịch Blockchain (Tx Hash) *
-              </label>
-              <input
-                type="text"
-                required
-                value={approveTxHash}
-                onChange={(e) => setApproveTxHash(e.target.value)}
-                placeholder="VD: 0x8a7f... hoặc b3c9..."
-                className="quant-input font-mono text-xs"
-              />
-              <p className="text-[11px] text-slate-400 m-0 leading-relaxed">
-                Hệ thống yêu cầu nhập tx_hash thực tế trên mạng TRC20/BEP20 để lưu vào nhật ký audit log. Quyền tải
-                báo cáo sẽ được cấp đúng 1 lần (idempotent).
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                Hồ Sơ Cần Xử Lý ({actionableCount})
+              </h1>
+              <p className="text-xs text-slate-400 m-0">
+                Tập trung các hồ sơ cần admin phản hồi, báo giá, bổ sung dữ liệu, duyệt bàn giao hoặc can thiệp lỗi.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={loadResearchRequests}
+              className="quant-btn-secondary text-xs flex items-center gap-1.5"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${researchLoading ? 'animate-spin' : ''}`} />
+              <span>Đồng bộ</span>
+            </button>
+          </div>
 
-            <div className="flex justify-end gap-3 pt-2">
+          {/* 4 ACTIONABLE KPI CARDS */}
+          {researchError && (
+            <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl text-sm flex items-center justify-between">
+              <span>{researchError}</span>
               <button
                 type="button"
-                onClick={() => setApproveTarget(null)}
+                onClick={loadResearchRequests}
                 className="quant-btn-secondary text-xs"
               >
-                Hủy
-              </button>
-              <button
-                type="submit"
-                disabled={approveSaving}
-                className="quant-btn-primary text-xs"
-              >
-                {approveSaving ? 'Đang duyệt...' : 'Xác Nhận & Mở Quyền Tải'}
+                Thử lại
               </button>
             </div>
-          </form>
-        </div>
-      )}
+          )}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <MetricCard
+              label="Cần Xử Lý Ngay"
+              value={actionableCount}
+              subtext={`${pendingReplyCount} tin nhắn khách chưa đọc`}
+              icon={<AlertCircle className="h-4 w-4" />}
+              tone={actionableCount > 0 ? 'amber' : 'default'}
+            />
+            <MetricCard
+              label="Chờ Duyệt Báo Giá"
+              value={pendingQuoteCount}
+              subtext="Yêu cầu nghiên cứu mới"
+              icon={<Clock className="h-4 w-4" />}
+              tone="cyan"
+            />
+            <MetricCard
+              label="Cần Bổ Sung Dữ Liệu"
+              value={needsDataCount}
+              subtext="Thiếu file CSV hoặc thông số"
+              icon={<Database className="h-4 w-4" />}
+              tone={needsDataCount > 0 ? 'rose' : 'default'}
+            />
+            <MetricCard
+              label="Chờ Duyệt Bàn Giao"
+              value={readyReviewCount}
+              subtext="Worker đã chạy xong kết quả"
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              tone={readyReviewCount > 0 ? 'emerald' : 'default'}
+            />
+          </div>
 
-      {/* GRANT TRIAL MODAL */}
-      {showGrantTrialModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <form
-            onSubmit={executeGrantTrial}
-            className="w-full max-w-lg rounded-2xl border border-indigo-500/40 bg-[#060A13] p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-indigo-300 font-semibold text-sm">
-                <KeyRound className="h-5 w-5 text-indigo-400" />
-                <span>Cấp Giấy Phép Dùng Thử Mới</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowGrantTrialModal(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
+          {/* QUEUE CONTROLS & SUB-CHIPS */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { key: 'ALL_ACTIONABLE', label: 'Tất cả cần xử lý', count: actionableCount },
+                { key: 'PENDING_REPLY', label: 'Nhắn lại', count: pendingReplyCount },
+                { key: 'PENDING_QUOTE', label: 'Chờ duyệt báo giá', count: pendingQuoteCount },
+                { key: 'NEEDS_DATA', label: 'Cần bổ sung dữ liệu', count: needsDataCount },
+                { key: 'READY_FOR_REVIEW', label: 'Chờ duyệt bàn giao', count: readyReviewCount },
+                { key: 'ERROR_INTERVENTION', label: 'Lỗi / Can thiệp', count: errorCount },
+              ].map((grp) => {
+                const isActive = actionableGroup === grp.key;
+                return (
+                  <button
+                    key={grp.key}
+                    type="button"
+                    onClick={() => setActionableGroup(grp.key as any)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 ${
+                      isActive
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                        : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>{grp.label}</span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                        isActive
+                          ? 'bg-amber-400 text-slate-950'
+                          : grp.count > 0
+                          ? 'bg-amber-500/30 text-amber-300'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {grp.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Email đối tác / Quỹ *</label>
-                <input
-                  type="email"
-                  required
-                  value={trialEmailInput}
-                  onChange={(e) => setTrialEmailInput(e.target.value)}
-                  placeholder="quant-team@partner.com"
-                  className="quant-input text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Mã ấn phẩm nghiên cứu</label>
-                <input
-                  type="text"
-                  value={trialReportInput}
-                  onChange={(e) => setTrialReportInput(e.target.value)}
-                  className="quant-input font-mono text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Phiên bản</label>
-                  <input
-                    type="text"
-                    value={trialVersionInput}
-                    onChange={(e) => setTrialVersionInput(e.target.value)}
-                    className="quant-input font-mono text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Thời hạn (ngày)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="180"
-                    value={trialDaysInput}
-                    onChange={(e) => setTrialDaysInput(Number(e.target.value))}
-                    className="quant-input font-mono text-xs"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Ghi chú đối tác</label>
-                <input
-                  type="text"
-                  value={trialNotesInput}
-                  onChange={(e) => setTrialNotesInput(e.target.value)}
-                  className="quant-input text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowGrantTrialModal(false)}
-                className="quant-btn-secondary text-xs"
-              >
-                Hủy
-              </button>
-              <button
-                type="submit"
-                disabled={trialSaving}
-                className="quant-btn-primary text-xs bg-indigo-600 hover:bg-indigo-500 text-white"
-              >
-                {trialSaving ? 'Đang cấp...' : 'Cấp Giấy Phép'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* EXTEND TRIAL MODAL */}
-      {extendTrialTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <form
-            onSubmit={executeExtendTrial}
-            className="w-full max-w-md rounded-2xl border border-cyan-500/40 bg-[#060A13] p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-cyan-300 font-semibold text-sm">Gia Hạn Giấy Phép Dùng Thử</span>
-              <button type="button" onClick={() => setExtendTrialTarget(null)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="text-xs text-slate-300">
-              Đối tác: <strong className="text-white">{extendTrialTarget.user_email}</strong> ({extendTrialTarget.report_id})
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Số ngày gia hạn thêm</label>
-              <input
-                type="number"
-                min="1"
-                max="365"
-                value={extendDaysInput}
-                onChange={(e) => setExtendDaysInput(Number(e.target.value))}
-                className="quant-input font-mono text-xs"
-              />
-            </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setExtendTrialTarget(null)} className="quant-btn-secondary text-xs">Hủy</button>
-              <button type="submit" className="quant-btn-primary text-xs">Xác Nhận Gia Hạn</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* REVOKE TRIAL MODAL */}
-      {revokeTrialTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <form
-            onSubmit={executeRevokeTrial}
-            className="w-full max-w-md rounded-2xl border border-rose-500/40 bg-[#060A13] p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-rose-400 font-semibold text-sm">Thu Hồi Giấy Phép Dùng Thử</span>
-              <button type="button" onClick={() => setRevokeTrialTarget(null)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-300">
-              Bạn có chắc chắn muốn thu hồi quyền tải ấn phẩm của <strong>{revokeTrialTarget.user_email}</strong>?
-            </p>
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Lý do thu hồi</label>
+            <div className="w-full sm:w-64">
               <input
                 type="text"
-                value={revokeReasonInput}
-                onChange={(e) => setRevokeReasonInput(e.target.value)}
-                className="quant-input text-xs"
+                placeholder="Tìm theo ID, email, mã..."
+                value={searchResearchQuery}
+                onChange={(e) => setSearchResearchQuery(e.target.value)}
+                className="quant-input text-xs w-full py-1.5 px-3"
               />
-            </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setRevokeTrialTarget(null)} className="quant-btn-secondary text-xs">Hủy</button>
-              <button type="submit" className="quant-btn-danger text-xs">Thu Hồi Ngay</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* TRANSFER TRIAL MODAL */}
-      {transferTrialTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <form
-            onSubmit={executeTransferTrial}
-            className="w-full max-w-md rounded-2xl border border-slate-700 bg-[#060A13] p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-white font-semibold text-sm">Chuyển Đổi Email Nhận Giấy Phép</span>
-              <button type="button" onClick={() => setTransferTrialTarget(null)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Email mới</label>
-              <input
-                type="email"
-                required
-                value={transferEmailInput}
-                onChange={(e) => setTransferEmailInput(e.target.value)}
-                className="quant-input text-xs"
-              />
-            </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setTransferTrialTarget(null)} className="quant-btn-secondary text-xs">Hủy</button>
-              <button type="submit" className="quant-btn-primary text-xs">Cập Nhật Email</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* CONFIRM ROLE CHANGE MODAL */}
-      {roleChangeTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl border border-amber-500/40 bg-[#060A13] p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <span className="text-amber-300 font-semibold text-sm">Xác Nhận Thay Đổi Vai Trò</span>
-              <button type="button" onClick={() => setRoleChangeTarget(null)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="rounded-xl border border-slate-800 bg-[#0A0F1D] p-3 space-y-2 text-xs font-mono">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Email:</span>
-                <span className="text-white font-bold">{roleChangeTarget.email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Vai trò hiện tại:</span>
-                <span className="text-slate-300 font-bold uppercase">{roleChangeTarget.currentRole}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Vai trò mới:</span>
-                <span className="text-cyan-400 font-bold uppercase">{roleChangeTarget.newRole}</span>
-              </div>
-            </div>
-            <p className="text-xs text-slate-300">
-              Quyền quản trị cho phép xem số liệu nhạy cảm, phê duyệt báo cáo và cấu hình cổng thanh toán. Hãy kiểm tra kỹ trước khi cấp quyền.
-            </p>
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setRoleChangeTarget(null)} className="quant-btn-secondary text-xs">Hủy</button>
-              <button type="button" disabled={roleSaving} onClick={executeRoleChange} className="quant-btn-primary text-xs bg-amber-600 hover:bg-amber-500 text-white">
-                {roleSaving ? 'Đang cập nhật...' : 'Xác Nhận Đổi Vai Trò'}
-              </button>
             </div>
           </div>
+
+          {/* ACTIONABLE REQUEST CARDS LIST */}
+          {researchLoading && researchRequests.length === 0 ? (
+            <div className="quant-panel p-12 text-center text-xs text-slate-400">
+              Đang đồng bộ hàng đợi xử lý...
+            </div>
+          ) : filteredResearchRequests.length === 0 ? (
+            <div className="quant-panel p-12 text-center space-y-2">
+              <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto" />
+              <div className="text-sm font-semibold text-white">Hiện không có hồ sơ nào cần xử lý</div>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                Tất cả đơn nghiên cứu đều đang được khách hàng xem xét, worker tự động chạy hoặc đã bàn giao hoàn tất.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredResearchRequests.map((req: any) => {
+                const unreadCount = Number(req.unread_messages_count || 0);
+                return (
+                  <div
+                    key={req.id}
+                    onClick={() => setActiveDossierRequestId(req.id)}
+                    className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-cyan-500/40 transition space-y-3 shadow-md cursor-pointer group"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-cyan-400 font-bold text-xs group-hover:text-cyan-300 transition">
+                            {req.id}
+                          </span>
+                          <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                            {req.product_type}
+                          </span>
+                          <StatusBadge
+                            tone={
+                              req.status === 'DELIVERED' || req.status === 'COMPLETED'
+                                ? 'success'
+                                : req.status === 'READY_FOR_REVIEW'
+                                ? 'info'
+                                : req.status === 'FAILED' || req.status === 'REJECTED'
+                                ? 'danger'
+                                : 'warning'
+                            }
+                          >
+                            {req.status}
+                          </StatusBadge>
+                          {unreadCount > 0 && (
+                            <span className="px-2 py-0.5 rounded-full bg-cyan-500 text-slate-950 font-bold text-[10px] animate-pulse">
+                              {unreadCount} tin nhắn mới
+                            </span>
+                          )}
+                          {req.retry_count > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40">
+                              Chạy lại: {req.retry_count}/5
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-semibold text-white group-hover:text-cyan-100 transition">
+                          {req.hypothesis_prompt || req.scope_notes || `Nghiên cứu ${req.symbol} ${req.timeframe}`}
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          Khách hàng: <span className="text-slate-200">{req.client_email || req.user_id}</span> · Tạo lúc:{' '}
+                          {new Date(req.created_at * 1000).toLocaleString('vi-VN')}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-slate-400">Giá báo hợp đồng</div>
+                        <div className="text-base font-bold text-emerald-400 font-mono">
+                          ${Number(req.quoted_price_usd || 0).toLocaleString()} USD
+                        </div>
+                        <div className="text-[11px] text-slate-500">Thời hạn: {req.turnaround_hours || 24}h</div>
+                      </div>
+                    </div>
+
+                    {/* Progress Reason Banner */}
+                    {req.waiting_reason_vi && (
+                      <div className="text-xs flex items-center gap-1.5 text-cyan-300 bg-cyan-950/30 px-3 py-2 rounded-lg border border-cyan-800/40 font-sans">
+                        <Clock className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
+                        <span>Tiến độ hiện tại: <strong>{req.waiting_reason_vi}</strong></span>
+                      </div>
+                    )}
+
+                    {req.problem_description && (
+                      <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300">
+                        <span className="text-cyan-400 font-semibold">Mô tả bài toán: </span>
+                        {req.problem_description}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                      <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
+                        <span>Mã: <strong className="text-slate-200">{req.symbol}</strong></span>
+                        <span>Khung: <strong className="text-slate-200">{req.timeframe}</strong></span>
+                        <span>Bản: <strong className="text-slate-200">v{req.proposal_version || 1}</strong></span>
+                        <span>Lần chạy: <strong className="text-slate-300">{req.run_count || 0}</strong></span>
+                      </div>
+
+                      {/* Single Action Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveDossierRequestId(req.id);
+                        }}
+                        className="quant-button quant-button-primary text-xs py-1.5 px-3 flex items-center gap-1.5 shadow-sm"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Mở Hồ Sơ Đầy Đủ</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* RESET PASSWORD MODAL */}
-      {resetTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <form
-            onSubmit={handleResetPassword}
-            className="w-full max-w-md rounded-2xl border border-cyan-500/40 bg-[#060A13] p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-cyan-300 font-semibold text-sm">Đặt Lại Mật Khẩu</span>
-              <button type="button" onClick={() => setResetTarget(null)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
-              </button>
+      {/* VIEW MODE 2: ALL RECORDS */}
+      {viewMode === 'all_records' && (
+        <div className="space-y-6">
+          <div className="quant-heading">
+            <div className="space-y-1">
+              <div className="font-mono text-xs uppercase tracking-wider text-cyan-400 font-semibold">
+                TRẠM QUẢN TRỊ · TẤT CẢ HỒ SƠ NGHIÊN CỨU
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                Toàn Bộ Hồ Sơ Nghiên Cứu ({researchRequests.length})
+              </h1>
+              <p className="text-xs text-slate-400 m-0">
+                Tra cứu toàn diện các nghiên cứu định lượng của khách hàng cá nhân và tổ chức trong toàn hệ thống.
+              </p>
             </div>
-            <div className="text-xs text-slate-300">
-              Tài khoản: <strong className="text-white">{resetTarget.email}</strong>
+            <button
+              type="button"
+              onClick={loadResearchRequests}
+              className="quant-btn-secondary text-xs flex items-center gap-1.5"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${researchLoading ? 'animate-spin' : ''}`} />
+              <span>Đồng bộ</span>
+            </button>
+          </div>
+
+          {/* 4 OVERALL KPI CARDS */}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <MetricCard
+              label="Tổng Hồ Sơ Nghiên Cứu"
+              value={researchRequests.length}
+              subtext="Cá nhân & Tổ chức"
+              icon={<Layers className="h-4 w-4" />}
+              tone="cyan"
+            />
+            <MetricCard
+              label="Đang Chờ Khách"
+              value={waitingClientCount}
+              subtext="Chờ duyệt báo giá hoặc thanh toán"
+              icon={<Clock className="h-4 w-4" />}
+              tone="amber"
+            />
+            <MetricCard
+              label="Worker Đang Chạy"
+              value={runningCount}
+              subtext="Đang thực thi mô phỏng định lượng"
+              icon={<Cpu className="h-4 w-4" />}
+              tone="cyan"
+            />
+            <MetricCard
+              label="Đã Hoàn Tất Bàn Giao"
+              value={deliveredCount}
+              subtext="Đã gửi PDF & bộ bundle ZIP"
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              tone="emerald"
+            />
+          </div>
+
+          {/* STATUS FILTER TABS & SEARCH */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { key: 'ALL', label: 'Tất cả hồ sơ', count: researchRequests.length },
+                { key: 'WAITING_CLIENT', label: 'Đang chờ khách', count: waitingClientCount },
+                { key: 'RUNNING', label: 'Đang chạy', count: runningCount },
+                { key: 'DELIVERED', label: 'Đã bàn giao', count: deliveredCount },
+              ].map((tab) => {
+                const isActive = allStatusFilter === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setAllStatusFilter(tab.key as any)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-2 ${
+                      isActive
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                        : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                        isActive ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">Mật khẩu mới (Tối thiểu 8 ký tự)</label>
+
+            <div className="w-full sm:w-64">
               <input
-                type="password"
-                required
-                value={newPasswordInput}
-                onChange={(e) => setNewPasswordInput(e.target.value)}
-                className="quant-input text-xs font-mono"
+                type="text"
+                placeholder="Tìm theo ID, email, mã..."
+                value={searchResearchQuery}
+                onChange={(e) => setSearchResearchQuery(e.target.value)}
+                className="quant-input text-xs w-full py-1.5 px-3"
               />
             </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setResetTarget(null)} className="quant-btn-secondary text-xs">Hủy</button>
-              <button type="submit" disabled={resetSaving} className="quant-btn-primary text-xs">
-                {resetSaving ? 'Đang lưu...' : 'Đặt Lại Mật Khẩu'}
-              </button>
+          </div>
+
+          {/* REQUEST CARDS LIST */}
+          {researchLoading && researchRequests.length === 0 ? (
+            <div className="quant-panel p-12 text-center text-xs text-slate-400">
+              Đang tải danh sách hồ sơ...
             </div>
-          </form>
+          ) : filteredResearchRequests.length === 0 ? (
+            <div className="quant-panel p-12 text-center text-xs text-slate-500 font-mono">
+              Không có hồ sơ nào phù hợp với bộ lọc hiện tại.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredResearchRequests.map((req: any) => (
+                <div
+                  key={req.id}
+                  onClick={() => setActiveDossierRequestId(req.id)}
+                  className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-cyan-500/40 transition space-y-3 shadow-md cursor-pointer group"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-cyan-400 font-bold text-xs group-hover:text-cyan-300 transition">
+                          {req.id}
+                        </span>
+                        <span className="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                          {req.product_type}
+                        </span>
+                        <StatusBadge
+                          tone={
+                            req.status === 'DELIVERED' || req.status === 'COMPLETED'
+                              ? 'success'
+                              : req.status === 'READY_FOR_REVIEW'
+                              ? 'info'
+                              : req.status === 'FAILED' || req.status === 'REJECTED'
+                              ? 'danger'
+                              : 'warning'
+                          }
+                        >
+                          {req.status}
+                        </StatusBadge>
+                        {Number(req.unread_messages_count || 0) > 0 && (
+                          <span className="px-2 py-0.5 rounded-full bg-cyan-500 text-slate-950 font-bold text-[10px]">
+                            {req.unread_messages_count} tin mới
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="text-sm font-semibold text-white group-hover:text-cyan-100 transition">
+                        {req.hypothesis_prompt || req.scope_notes || `Nghiên cứu ${req.symbol} ${req.timeframe}`}
+                      </h4>
+                      <p className="text-xs text-slate-400">
+                        Khách hàng: <span className="text-slate-200">{req.client_email || req.user_id}</span> · Tạo lúc:{' '}
+                        {new Date(req.created_at * 1000).toLocaleString('vi-VN')}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-slate-400">Giá báo</div>
+                      <div className="text-base font-bold text-emerald-400 font-mono">
+                        ${Number(req.quoted_price_usd || 0).toLocaleString()} USD
+                      </div>
+                    </div>
+                  </div>
+
+                  {req.waiting_reason_vi && (
+                    <div className="text-xs flex items-center gap-1.5 text-slate-300 bg-slate-950/40 px-3 py-1.5 rounded border border-slate-800 font-sans">
+                      <Clock className="w-3 h-3 shrink-0 text-cyan-400" />
+                      <span>{req.waiting_reason_vi}</span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                    <div className="flex items-center gap-3 text-xs font-mono text-slate-400">
+                      <span>Mã: <strong className="text-slate-200">{req.symbol}</strong></span>
+                      <span>Khung: <strong className="text-slate-200">{req.timeframe}</strong></span>
+                      <span>Phiên bản: <strong className="text-slate-200">v{req.proposal_version || 1}</strong></span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveDossierRequestId(req.id);
+                      }}
+                      className="quant-button quant-button-primary text-xs py-1.5 px-3 flex items-center gap-1.5"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Mở Hồ Sơ Đầy Đủ</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* CREATE USER MODAL */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <form
-            onSubmit={handleCreateUser}
-            className="w-full max-w-md rounded-2xl border border-slate-700 bg-[#060A13] p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-white font-semibold text-sm">Tạo Tài Khoản Mới</span>
-              <button type="button" onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white">
-                <X className="h-4 w-4" />
-              </button>
+      {/* VIEW MODE 3: SETTINGS (USERS, BILLING, TOOLS) */}
+      {viewMode === 'settings' && (
+        <div className="space-y-6">
+          <div className="quant-heading">
+            <div className="space-y-1">
+              <div className="font-mono text-xs uppercase tracking-wider text-cyan-400 font-semibold">
+                TRẠM QUẢN TRỊ · CÀI ĐẶT HỆ THỐNG
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                Cài Đặt & Công Cụ Kỹ Thuật
+              </h1>
+              <p className="text-xs text-slate-400 m-0">
+                Quản lý người dùng, cấu hình địa chỉ thanh toán, hoàn tiền đơn cũ và đồng bộ nến thị trường.
+              </p>
             </div>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Email</label>
-                <input
-                  type="email"
-                  required
-                  value={createEmail}
-                  onChange={(e) => setCreateEmail(e.target.value)}
-                  className="quant-input text-xs"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Mật khẩu</label>
-                <input
-                  type="password"
-                  required
-                  value={createPassword}
-                  onChange={(e) => setCreatePassword(e.target.value)}
-                  className="quant-input text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Vai trò</label>
-                <select
-                  value={createRole}
-                  onChange={(e: any) => setCreateRole(e.target.value)}
-                  className="quant-input text-xs"
-                >
-                  <option value="customer">Khách hàng (customer)</option>
-                  <option value="admin">Quản trị viên (admin)</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" onClick={() => setShowCreateModal(false)} className="quant-btn-secondary text-xs">Hủy</button>
-              <button type="submit" disabled={createSaving} className="quant-btn-primary text-xs">
-                {createSaving ? 'Đang tạo...' : 'Tạo Tài Khoản'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-      {/* 5. QUOTE MODAL */}
-      {quoteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md w-full shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">Chỉnh Báo Giá Nghiên Cứu</h3>
-              <button
-                type="button"
-                onClick={() => setQuoteTarget(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <form onSubmit={handleExecuteQuote} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Giá báo hợp đồng (USD)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  value={quotePriceInput}
-                  onChange={(e) => setQuotePriceInput(Number(e.target.value))}
-                  className="quant-input text-xs w-full"
-                  required
-                />
-                <p className="text-[11px] text-slate-500 mt-1">Mức 10.000 USD là mục tiêu cho hợp đồng phù hợp, không phải mặc định bắt buộc.</p>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Ghi chú phạm vi nghiên cứu (Scope Notes)
-                </label>
-                <textarea
-                  rows={3}
-                  value={quoteNotesInput}
-                  onChange={(e) => setQuoteNotesInput(e.target.value)}
-                  className="quant-input text-xs w-full"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+          </div>
+
+          {/* SETTINGS SUB-TABS */}
+          <div className="border-b border-slate-800 flex flex-wrap items-center gap-6 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setSettingsSubTab('users')}
+              className={`pb-3 transition relative cursor-pointer ${
+                settingsSubTab === 'users' ? 'text-white border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Quản Lý Người Dùng
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsSubTab('billing')}
+              className={`pb-3 transition relative cursor-pointer ${
+                settingsSubTab === 'billing' ? 'text-white border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Cấu Hình Ví & Đơn Hàng Cũ
+            </button>
+            <button
+              type="button"
+              onClick={() => setSettingsSubTab('tools')}
+              className={`pb-3 transition relative cursor-pointer ${
+                settingsSubTab === 'tools' ? 'text-white border-b-2 border-cyan-400' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Đồng Bộ Dữ Liệu & Chẩn Đoán Worker
+            </button>
+          </div>
+
+          {/* 1. USERS TAB */}
+          {settingsSubTab === 'users' && (
+            <Panel
+              title="Danh Sách Người Dùng & Phân Quyền"
+              subtitle="Quản lý tài khoản, thay đổi quyền hạn customer / admin, đặt lại mật khẩu hoặc khóa tài khoản"
+              action={
                 <button
                   type="button"
-                  onClick={() => setQuoteTarget(null)}
-                  className="quant-button quant-button-secondary text-xs"
+                  onClick={() => setShowCreateModal(true)}
+                  className="quant-btn-primary min-h-[32px] px-3 py-1 text-xs flex items-center gap-1.5"
                 >
-                  Hủy
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Tạo người dùng mới</span>
                 </button>
-                <button
-                  type="submit"
-                  disabled={quoteSaving}
-                  className="quant-button quant-button-primary text-xs"
-                >
-                  {quoteSaving ? 'Đang lưu...' : 'Lưu Báo Giá'}
-                </button>
+              }
+            >
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <input
+                    type="text"
+                    value={searchUserQuery}
+                    onChange={(e) => setSearchUserQuery(e.target.value)}
+                    placeholder="Tìm theo email, mã người dùng..."
+                    className="quant-input text-xs font-mono py-1.5 w-72"
+                  />
+                  <button
+                    type="button"
+                    onClick={loadUsersOnDemand}
+                    className="quant-btn-secondary text-xs flex items-center gap-1"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${usersLoading ? 'animate-spin' : ''}`} />
+                    <span>Làm mới</span>
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="quant-table text-xs">
+                    <thead>
+                      <tr>
+                        <th>Người Dùng</th>
+                        <th>Vai Trò</th>
+                        <th>Trạng Thái</th>
+                        <th>Ngày Tạo</th>
+                        <th className="text-right">Thao Tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users
+                        .filter((u) => {
+                          if (!searchUserQuery.trim()) return true;
+                          const q = searchUserQuery.toLowerCase();
+                          return (
+                            String(u.email || '').toLowerCase().includes(q) ||
+                            String(u.id || '').toLowerCase().includes(q)
+                          );
+                        })
+                        .map((u) => {
+                          const isSusp = Boolean(u.is_suspended);
+                          return (
+                            <tr key={u.id}>
+                              <td>
+                                <div className="font-semibold text-white">{u.email}</div>
+                                <div className="font-mono text-[11px] text-slate-500">{u.id}</div>
+                              </td>
+                              <td>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                                    u.role === 'admin'
+                                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                      : 'bg-slate-800 text-slate-300'
+                                  }`}
+                                >
+                                  {u.role.toUpperCase()}
+                                </span>
+                              </td>
+                              <td>
+                                <StatusBadge tone={isSusp ? 'danger' : 'success'}>
+                                  {isSusp ? 'ĐÃ KHÓA' : 'HOẠT ĐỘNG'}
+                                </StatusBadge>
+                              </td>
+                              <td className="font-mono text-[11px] text-slate-400">
+                                {u.created_at ? new Date(Number(u.created_at) * 1000).toLocaleDateString('vi-VN') : '—'}
+                              </td>
+                              <td className="text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRoleChangeTarget({
+                                        id: u.id,
+                                        email: u.email,
+                                        currentRole: u.role,
+                                        newRole: u.role === 'admin' ? 'customer' : 'admin',
+                                      })
+                                    }
+                                    className="quant-button quant-button-secondary text-[11px] py-1 px-2"
+                                  >
+                                    Đổi vai trò
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setResetTarget({ id: u.id, email: u.email })}
+                                    className="quant-button quant-button-secondary text-[11px] py-1 px-2"
+                                  >
+                                    Đổi MK
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleSuspendUser(u.id, u.email)}
+                                    className={`quant-button text-[11px] py-1 px-2 ${
+                                      isSusp ? 'text-emerald-400' : 'text-rose-400'
+                                    }`}
+                                  >
+                                    {isSusp ? 'Mở khóa' : 'Khóa'}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </form>
-          </div>
+            </Panel>
+          )}
+
+          {/* 2. BILLING & LEGACY ORDERS TAB */}
+          {settingsSubTab === 'billing' && (
+            <div className="space-y-6">
+              {/* Wallet Configuration Component */}
+              <AdminBillingSettings />
+
+              {/* Legacy Orders Table & Refund Management */}
+              <Panel
+                title="Đơn Mua Cũ & Xử Lý Hoàn Tiền"
+                subtitle="Xem lại các đơn mua trước đây và thực hiện hoàn tiền nếu phát sinh tranh chấp hoặc đơn treo"
+              >
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400">Trạng thái:</span>
+                      <select
+                        value={orderStatusFilter}
+                        onChange={(e: any) => setOrderStatusFilter(e.target.value)}
+                        className="quant-input text-xs py-1.5"
+                      >
+                        <option value="ALL">Tất cả ({orders.length})</option>
+                        <option value="PENDING">Chờ đối soát</option>
+                        <option value="PAID">Đã thanh toán</option>
+                        <option value="REFUNDED">Đã hoàn tiền</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={searchOrderQuery}
+                        onChange={(e) => setSearchOrderQuery(e.target.value)}
+                        placeholder="Tìm theo mã đơn, email..."
+                        className="quant-input text-xs font-mono py-1.5 w-64"
+                      />
+                      <button
+                        type="button"
+                        onClick={loadBillingOnDemand}
+                        className="quant-btn-secondary text-xs flex items-center gap-1"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${ordersLoading ? 'animate-spin' : ''}`} />
+                        <span>Làm mới</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="quant-table text-xs">
+                      <thead>
+                        <tr>
+                          <th>Mã Đơn / Ngày Tạo</th>
+                          <th>Khách Hàng</th>
+                          <th>Mã / Phiên Bản</th>
+                          <th>Cổng / Mạng</th>
+                          <th className="text-right">Số Tiền (USDT)</th>
+                          <th>Trạng Thái</th>
+                          <th className="text-right">Thao Tác</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orders
+                          .filter((o) => {
+                            if (orderStatusFilter !== 'ALL') {
+                              if (orderStatusFilter === 'PENDING' && o.status !== 'PENDING') return false;
+                              if (orderStatusFilter === 'PAID' && o.status !== 'PAID' && o.status !== 'COMPLETED') return false;
+                              if (orderStatusFilter === 'REFUNDED' && o.status !== 'REFUNDED') return false;
+                            }
+                            if (searchOrderQuery.trim()) {
+                              const q = searchOrderQuery.toLowerCase();
+                              return (
+                                String(o.id || '').toLowerCase().includes(q) ||
+                                String(o.user_email || '').toLowerCase().includes(q) ||
+                                String(o.tx_hash || '').toLowerCase().includes(q)
+                              );
+                            }
+                            return true;
+                          })
+                          .map((o) => {
+                            const isPaid = ['PAID', 'COMPLETED'].includes(String(o.status || '').toUpperCase());
+                            const isRefunded = String(o.status || '').toUpperCase() === 'REFUNDED';
+                            return (
+                              <tr key={o.id}>
+                                <td>
+                                  <div className="font-mono font-semibold text-white">{o.id}</div>
+                                  <div className="font-mono text-[11px] text-slate-500">
+                                    {o.created_at ? new Date(Number(o.created_at) * 1000).toLocaleString('vi-VN') : '—'}
+                                  </div>
+                                </td>
+                                <td>
+                                  <div className="font-medium text-slate-200">{o.user_email || o.user_id}</div>
+                                </td>
+                                <td>
+                                  <div className="font-semibold text-cyan-300">{o.report_id || o.plan_tier || 'N/A'}</div>
+                                  <div className="font-mono text-[11px] text-amber-300">{o.report_version || 'v1.0'}</div>
+                                </td>
+                                <td className="font-mono text-[11px] text-slate-300">
+                                  {o.payment_gateway || 'DIRECT_USDT'}
+                                </td>
+                                <td className="text-right font-mono font-bold text-emerald-400 tabular-nums">
+                                  ${Number(o.amount_usd || o.expected_amount_usdt || 0).toFixed(2)}
+                                </td>
+                                <td>
+                                  <StatusBadge tone={isRefunded ? 'danger' : isPaid ? 'success' : 'warning'}>
+                                    {o.status}
+                                  </StatusBadge>
+                                </td>
+                                <td className="text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {!isPaid && !isRefunded && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setApproveTarget({
+                                            id: o.id,
+                                            email: o.user_email || '',
+                                            amount: Number(o.amount_usd || o.expected_amount_usdt || 0),
+                                            product: o.report_id || 'Legacy Report',
+                                          })
+                                        }
+                                        className="quant-btn-primary min-h-[28px] px-2 py-0.5 text-[11px]"
+                                      >
+                                        Duyệt thủ công
+                                      </button>
+                                    )}
+                                    {!isRefunded && (
+                                      <button
+                                        type="button"
+                                        disabled={busyId === `refund_${o.id}`}
+                                        onClick={() => executeRefundOrder(o.id)}
+                                        className="quant-button text-red-400 hover:bg-red-950/30 text-[11px] py-1 px-2"
+                                      >
+                                        {busyId === `refund_${o.id}` ? 'Đang hoàn...' : 'Hoàn tiền'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </Panel>
+            </div>
+          )}
+
+          {/* 3. TOOLS & DATA SYNC TAB */}
+          {settingsSubTab === 'tools' && (
+            <div className="space-y-6">
+              {/* Market Candle Data Sync Panel */}
+              <Panel
+                title="Đồng Bộ Dữ Liệu Nến Thị Trường"
+                subtitle="Cập nhật dữ liệu OHLCV 5 ngày gần nhất cho các cặp tài sản phục vụ kiểm định vi cấu trúc"
+              >
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    {['XAUUSD', 'EURUSD', 'BTCUSD'].map((sym) => (
+                      <button
+                        key={sym}
+                        type="button"
+                        disabled={syncingSymbol === sym}
+                        onClick={() => handleSyncCandles(sym)}
+                        className="quant-button quant-button-primary text-xs py-2 px-3.5 flex items-center gap-2"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${syncingSymbol === sym ? 'animate-spin' : ''}`} />
+                        <span>{syncingSymbol === sym ? `Đang đồng bộ ${sym}...` : `Đồng Bộ Nến ${sym} (5 Ngày)`}</span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={loadMarketStatusOnDemand}
+                      className="quant-button quant-button-secondary text-xs py-2 px-3"
+                    >
+                      Kiểm Tra Trạng Thái Dữ Liệu
+                    </button>
+                  </div>
+
+                  {dataSyncStatus.length > 0 && (
+                    <div className="overflow-x-auto pt-2">
+                      <table className="quant-table text-xs font-mono">
+                        <thead>
+                          <tr>
+                            <th>Mã Tài Sản</th>
+                            <th>Khung Giờ</th>
+                            <th>Số Lượng Nến</th>
+                            <th>Nến Sớm Nhất</th>
+                            <th>Nến Mới Nhất</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dataSyncStatus.map((st: any, idx: number) => (
+                            <tr key={idx}>
+                              <td className="font-bold text-cyan-300">{st.symbol}</td>
+                              <td>{st.timeframe}</td>
+                              <td className="text-emerald-400 font-bold">{st.candles_count}</td>
+                              <td className="text-slate-400">{st.earliest_bar || '—'}</td>
+                              <td className="text-slate-200">{st.latest_bar || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </Panel>
+
+              {/* Worker Diagnostics & Health Check */}
+              <Panel
+                title="Chẩn Đoán Toàn Bộ Tiến Trình Worker"
+                subtitle="Kiểm tra nhịp tim worker, kết nối Redis, cơ sở dữ liệu và hàng đợi xử lý nghiên cứu"
+                action={
+                  <button
+                    type="button"
+                    disabled={dryRunRunning}
+                    onClick={handleRunDiagnostics}
+                    className="quant-btn-primary min-h-[32px] px-3 py-1 text-xs flex items-center gap-1.5"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    <span>{dryRunRunning ? 'Đang kiểm tra...' : 'Chạy Kiểm Tra Ngay'}</span>
+                  </button>
+                }
+              >
+                <div className="space-y-4">
+                  {dryRunResult ? (
+                    <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3 font-mono text-xs">
+                      <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>{dryRunResult.message || 'Hệ thống đang hoạt động an toàn.'}</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-[11px]">
+                        <div>
+                          <span className="text-slate-500">Database:</span>{' '}
+                          <span className="text-emerald-400 font-bold">OK</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Research Worker:</span>{' '}
+                          <span className="text-cyan-400 font-bold">ACTIVE</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Execution Mode:</span>{' '}
+                          <span className="text-slate-300">ON-DEMAND RESEARCH</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Timeout Watchdog:</span>{' '}
+                          <span className="text-emerald-400 font-bold">15 MIN</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      Bấm &quot;Chạy Kiểm Tra Ngay&quot; để thực hiện chẩn đoán luồng xử lý worker và đảm bảo không có job nào bị treo quá hạn 15 phút.
+                    </p>
+                  )}
+                </div>
+              </Panel>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Real-time Order Chat & Attachments Modal for Admin */}
-      {activeChatOrder && (
-        <OrderChatModal
-          requestId={activeChatOrder.id}
-          orderTitle={activeChatOrder.hypothesis_prompt || activeChatOrder.problem_description}
-          currentStatus={activeChatOrder.status}
-          userRole="admin"
-          onClose={() => {
-            setActiveChatOrder(null);
-            loadData();
-          }}
-          onOrderUpdated={loadData}
-        />
-      )}
-
-      {/* Unified Single Dossier Modal for Admin */}
+      {/* UNIFIED DOSSIER MODAL (The Single Place for Chat, Attachments, Quote, Run & Delivery) */}
       {activeDossierRequestId && (
         <AdminResearchDossierModal
           requestId={activeDossierRequestId}
@@ -1792,22 +1259,159 @@ export const AdminOrdersUsersPage: React.FC<AdminOrdersUsersPageProps> = ({ init
             setActiveDossierRequestId(null);
             loadResearchRequests();
           }}
-          onUpdated={() => {
-            loadResearchRequests();
-          }}
+          onUpdated={loadResearchRequests}
         />
+      )}
+
+      {/* Manual Approval Modal for Legacy USDT Orders */}
+      {approveTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-[#0B1220] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">Đối Soát Thủ Công Đơn #{approveTarget.id}</h3>
+              <button type="button" onClick={() => setApproveTarget(null)} className="text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form onSubmit={executeApproveOrder} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-slate-400">Mã giao dịch (Tx Hash) đã xác minh trên Blockchain:</label>
+                <input
+                  type="text"
+                  required
+                  value={approveTxHash}
+                  onChange={(e) => setApproveTxHash(e.target.value)}
+                  placeholder="0x... hoặc chuỗi hash"
+                  className="quant-input w-full font-mono py-2"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setApproveTarget(null)} className="quant-btn-secondary text-xs">
+                  Hủy
+                </button>
+                <button type="submit" disabled={approveSaving} className="quant-btn-primary text-xs">
+                  {approveSaving ? 'Đang xác nhận...' : 'Xác nhận Đã Thu Tiền'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Change User Role Modal */}
+      {roleChangeTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-[#0B1220] p-6 shadow-2xl space-y-4">
+            <h3 className="text-sm font-bold text-white">Xác Nhận Thay Đổi Vai Trò</h3>
+            <p className="text-xs text-slate-300">
+              Bạn có chắc muốn chuyển tài khoản <strong className="text-white">{roleChangeTarget.email}</strong> sang vai trò{' '}
+              <strong className="text-cyan-400 font-mono">{roleChangeTarget.newRole.toUpperCase()}</strong>?
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setRoleChangeTarget(null)} className="quant-btn-secondary text-xs">
+                Hủy
+              </button>
+              <button type="button" disabled={roleSaving} onClick={executeRoleChange} className="quant-btn-primary text-xs">
+                {roleSaving ? 'Đang lưu...' : 'Xác nhận'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-[#0B1220] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">Đặt Lại Mật Khẩu</h3>
+              <button type="button" onClick={() => setResetTarget(null)} className="text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form onSubmit={handleResetPassword} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-slate-400">Mật khẩu mới cho {resetTarget.email}:</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  placeholder="Tối thiểu 8 ký tự"
+                  className="quant-input w-full py-2"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setResetTarget(null)} className="quant-btn-secondary text-xs">
+                  Hủy
+                </button>
+                <button type="submit" disabled={resetSaving} className="quant-btn-primary text-xs">
+                  {resetSaving ? 'Đang lưu...' : 'Lưu mật khẩu'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create User Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-800 bg-[#0B1220] p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-white">Tạo Người Dùng Mới</h3>
+              <button type="button" onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateUser} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-slate-400">Email:</label>
+                <input
+                  type="email"
+                  required
+                  value={createEmail}
+                  onChange={(e) => setCreateEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  className="quant-input w-full py-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-slate-400">Mật khẩu ban đầu:</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={createPassword}
+                  onChange={(e) => setCreatePassword(e.target.value)}
+                  placeholder="Tối thiểu 8 ký tự"
+                  className="quant-input w-full py-2"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-slate-400">Vai trò:</label>
+                <select
+                  value={createRole}
+                  onChange={(e: any) => setCreateRole(e.target.value)}
+                  className="quant-input w-full py-2"
+                >
+                  <option value="customer">Customer (Khách hàng)</option>
+                  <option value="admin">Admin (Quản trị viên)</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowCreateModal(false)} className="quant-btn-secondary text-xs">
+                  Hủy
+                </button>
+                <button type="submit" disabled={createSaving} className="quant-btn-primary text-xs">
+                  {createSaving ? 'Đang tạo...' : 'Tạo tài khoản'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
 };
-
-function floatToDate(val: any): string {
-  if (!val) return '—';
-  try {
-    const num = Number(val);
-    if (isNaN(num) || num <= 0) return '—';
-    return new Date(num * 1000).toLocaleString('vi-VN');
-  } catch {
-    return '—';
-  }
-}

@@ -6,10 +6,9 @@ import { ChangePasswordModal } from '../components/common/ChangePasswordModal';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { AdminPageKey } from '../hooks/useRoute';
 import {
-  Activity,
-  FileCheck2,
-  FlaskConical,
-  CreditCard,
+  Clock,
+  FileText,
+  Settings,
   ArrowLeft,
   Menu,
   X,
@@ -41,12 +40,32 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const [cmdQuery, setCmdQuery] = useState('');
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [actionableCount, setActionableCount] = useState<number>(0);
   const [notifOpen, setNotifOpen] = useState(false);
 
   const isMac =
     typeof navigator !== 'undefined' &&
     /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent || navigator.platform || '');
   const kbdShortcut = isMac ? '⌘K' : 'Ctrl+K';
+
+  const fetchActionableCount = useCallback(async () => {
+    try {
+      const data: any = await api.get('/api/v1/admin/research/requests');
+      const items = data?.items || data?.requests || [];
+      if (Array.isArray(items)) {
+        const count = items.filter(
+          (r: any) =>
+            Number(r.unread_messages_count || 0) > 0 ||
+            ['PENDING_QUOTE', 'NEEDS_DATA', 'NEEDS_ATTENTION', 'READY_FOR_REVIEW', 'FAILED', 'TIMED_OUT', 'ERROR'].includes(
+              r.status
+            )
+        ).length;
+        setActionableCount(count);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -62,9 +81,13 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
 
   useEffect(() => {
     fetchNotifications();
-    const timer = setInterval(fetchNotifications, 25000);
+    fetchActionableCount();
+    const timer = setInterval(() => {
+      fetchNotifications();
+      fetchActionableCount();
+    }, 20000);
     return () => clearInterval(timer);
-  }, [fetchNotifications]);
+  }, [fetchNotifications, fetchActionableCount]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -103,30 +126,25 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
     }
   };
 
-  const navItems: Array<{ key: AdminPageKey; to: string; label: string; icon: ReactNode }> = [
+  const navItems: Array<{ key: AdminPageKey; to: string; label: string; icon: ReactNode; badge?: number }> = [
     {
-      key: 'overview',
+      key: 'queue',
       to: '/admin',
-      label: lang === 'en' ? 'Overview' : 'Tổng quan',
-      icon: <Activity className="h-4 w-4" />,
+      label: lang === 'en' ? 'Actionable Queue' : 'Cần xử lý',
+      icon: <Clock className="h-4 w-4" />,
+      badge: actionableCount > 0 ? actionableCount : undefined,
     },
     {
-      key: 'reports',
-      to: '/admin/reports',
-      label: lang === 'en' ? 'Publications' : 'Ấn phẩm',
-      icon: <FileCheck2 className="h-4 w-4" />,
+      key: 'all_records',
+      to: '/admin/all',
+      label: lang === 'en' ? 'All Records' : 'Tất cả hồ sơ',
+      icon: <FileText className="h-4 w-4" />,
     },
     {
-      key: 'research',
-      to: '/admin/research',
-      label: lang === 'en' ? 'Research' : 'Nghiên cứu',
-      icon: <FlaskConical className="h-4 w-4" />,
-    },
-    {
-      key: 'orders',
-      to: '/admin/orders',
-      label: lang === 'en' ? 'Orders & Licenses' : 'Đơn hàng & Giấy phép',
-      icon: <CreditCard className="h-4 w-4" />,
+      key: 'settings',
+      to: '/admin/settings',
+      label: lang === 'en' ? 'Settings' : 'Cài đặt',
+      icon: <Settings className="h-4 w-4" />,
     },
   ];
 
@@ -197,8 +215,22 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
                 setMobileMenuOpen(false);
               }}
             >
-              <span aria-hidden="true">{item.icon}</span>
-              {!sidebarCollapsed && <strong className="font-medium truncate">{item.label}</strong>}
+              <span aria-hidden="true" className="relative">
+                {item.icon}
+                {sidebarCollapsed && item.badge && item.badge > 0 && (
+                  <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-amber-400" />
+                )}
+              </span>
+              {!sidebarCollapsed && (
+                <div className="flex flex-1 items-center justify-between gap-1 overflow-hidden">
+                  <strong className="font-medium truncate">{item.label}</strong>
+                  {item.badge && item.badge > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/30 text-amber-300 border border-amber-500/40 tabular-nums">
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
+              )}
             </button>
           ))}
         </nav>
@@ -340,11 +372,18 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
               key={item.key}
               type="button"
               onClick={() => onNavigate(item.to)}
-              className={`flex flex-1 flex-col items-center gap-1 rounded-lg py-1.5 text-[11px] font-medium transition cursor-pointer ${
+              className={`flex flex-1 flex-col items-center gap-1 rounded-lg py-1.5 text-[11px] font-medium transition cursor-pointer relative ${
                 isActive ? 'text-cyan-300' : 'text-slate-400'
               }`}
             >
-              {item.icon}
+              <span className="relative">
+                {item.icon}
+                {item.badge && item.badge > 0 && (
+                  <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full text-[9px] font-bold bg-amber-500 text-slate-950 tabular-nums">
+                    {item.badge}
+                  </span>
+                )}
+              </span>
               <span className="truncate max-w-[80px]">{item.label}</span>
             </button>
           );

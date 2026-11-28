@@ -70,18 +70,8 @@ def get_sources(status: Optional[str] = None, _admin=Depends(get_current_admin))
 
 @router.post("/signal-mode")
 def set_signal_mode(req: SetSignalModeRequest, _admin=Depends(get_current_admin)):
-    """Set the system-wide quantitative decision mode (EXTERNAL_FEED, HYBRID_AGENT_SCORER, ZUPIRUS_AGENT)."""
-    mode = req.mode.upper().strip()
-    if mode == "HYBRID":
-        mode = "HYBRID_AGENT_SCORER"
-    from app.domains.signals.sources.curator import VALID_SIGNAL_MODES, set_active_signal_mode
-    if mode not in VALID_SIGNAL_MODES:
-        fail(400, f"Chế độ không hợp lệ. Chọn {', '.join(VALID_SIGNAL_MODES)}.")
-
-    with tx() as c:
-        set_active_signal_mode(c, mode)
-
-    return {"message": f"Đã chuyển sang chế độ {mode}.", "active_signal_mode": mode}
+    """Decommissioned: Signal modes retired."""
+    fail(403, "Chế độ phát tín hiệu giao dịch đã ngừng hoạt động.")
 
 
 class SetAutoPromoteRequest(BaseModel):
@@ -90,21 +80,8 @@ class SetAutoPromoteRequest(BaseModel):
 
 @router.post("/auto-promote")
 def set_auto_promote(req: SetAutoPromoteRequest, _admin=Depends(get_current_admin)):
-    """Toggle 100% autonomous Walk-Forward strategy promotion & stage progression."""
-    val = "true" if req.enabled else "false"
-    with tx() as c:
-        c.execute(
-            """
-            INSERT INTO kv (key, value) VALUES ('AUTO_PROMOTE_QUALIFIED_STRATEGIES', ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """,
-            (val,)
-        )
-    return {
-        "ok": True,
-        "auto_promote_qualified_strategies": req.enabled,
-        "message": "Đã bật chế độ AI tự duyệt & tự tiến hóa 100%." if req.enabled else "Đã chuyển về chế độ Admin duyệt chiến lược thủ công.",
-    }
+    """Decommissioned: Auto-promote retired."""
+    fail(403, "Tính năng Auto-Promote đã ngừng hoạt động trong mô hình nghiên cứu theo đơn.")
 
 
 @router.post("")

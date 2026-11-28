@@ -452,28 +452,6 @@ def get_dynamic_sitemap() -> Response:
   </url>"""
         )
 
-    # Dynamic Published Reports from Database
-    try:
-        with tx() as c:
-            rows = c.execute(
-                "SELECT slug, updated_at FROM research_reports WHERE UPPER(status) = 'PUBLISHED' ORDER BY created_at DESC"
-            ).fetchall()
-            for r in rows:
-                slug_val = str(r["slug"] or "")
-                mod_date = str(r["updated_at"] or PUBLISHED_DATE)[:10]
-                if slug_val:
-                    url_entries.append(
-                        f"""  <url>
-    <loc>https://zupirus.com/bao-cao/{slug_val}</loc>
-    <lastmod>{mod_date}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>"""
-                    )
-    except Exception:
-        # If DB query encounters any issue, keep existing static entries without injecting unverified fake slugs
-        pass
-
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n'
@@ -938,14 +916,6 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
         "url": canonical,
         "category": "Quantitative Research Report",
     }
-    if can_purchase:
-        product_graph["offers"] = {
-            "@type": "Offer",
-            "price": str(vnd_price),
-            "priceCurrency": "VND",
-            "availability": "https://schema.org/InStock",
-            "url": canonical,
-        }
 
     json_ld = {
         "@context": "https://schema.org",
@@ -955,7 +925,7 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
                 "@type": "BreadcrumbList",
                 "itemListElement": [
                     {"@type": "ListItem", "position": 1, "name": "Trang chủ" if not is_en else "Home", "item": "https://zupirus.com/"},
-                    {"@type": "ListItem", "position": 2, "name": "Báo cáo" if not is_en else "Reports", "item": "https://zupirus.com/#reports"},
+                    {"@type": "ListItem", "position": 2, "name": "Báo cáo" if not is_en else "Reports", "item": "https://zupirus.com/#overview"},
                     {"@type": "ListItem", "position": 3, "name": rep_title, "item": canonical},
                 ],
             },
@@ -963,11 +933,11 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
     }
 
     sample_button = f'<a class="cta" href="/api/v1/reports/{rep_id}/sample-pdf" target="_blank" style="background:#0284c7">Đọc Bản Mẫu (PDF)</a>' if has_sample else ''
-    purchase_button = '<a class="cta" href="https://zupirus.com/portal">Mua tại Cổng Khách Hàng →</a>' if can_purchase else '<span style="font-size:12px;color:#94a3b8;align-self:center;padding:8px 12px;background:#1e293b;border-radius:8px">Chưa mở bán trực tuyến (Chỉ đọc thử)</span>'
+    order_bespoke_button = '<a class="cta" href="https://zupirus.com/portal">Đặt Nghiên Cứu Mới Tại Cổng Khách Hàng →</a>'
 
     body = f"""
-      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / <a href="https://zupirus.com/#reports">Danh mục báo cáo</a> / {html.escape(rep_slug)}</div>
-      <span class="badge">PUBLISHED RESEARCH REPORT · VERSION {html.escape(str(report.get('version') or 'v1.0'))}</span>
+      <div class="crumb"><a href="https://zupirus.com/">Trang chủ</a> / <a href="https://zupirus.com/#overview">Nghiên cứu định lượng</a> / {html.escape(rep_slug)}</div>
+      <span class="badge">PUBLISHED RESEARCH ARCHIVE · VERSION {html.escape(str(report.get('version') or 'v1.0'))}</span>
       <h1>{html.escape(rep_title)}</h1>
       <p style="font-size:16px;color:#cbd5e1;line-height:1.8">{html.escape(meta_desc)}</p>
 
@@ -1003,12 +973,12 @@ def seo_report_detail(slug: str, request: Request, lang: Optional[str] = Query(N
       <div class="cta-box">
         <div>
           <div style="font-size:12px;font-family:monospace;color:#fbbf24;font-weight:700">TÀI LIỆU NGHIÊN CỨU ĐỊNH LƯỢNG · COMEX GOLD (GC=F)</div>
-          <strong style="color:#fff;font-size:18px">Đọc Thử Bản Mẫu & Đăng Nhập Cổng Khách Hàng</strong>
-          <p style="margin:4px 0 0;font-size:13.5px">Đăng nhập tài khoản ZUPIRUS để đọc thử bản mẫu miễn phí hoặc nhận quyền dùng thử bộ công cụ nghiên cứu.</p>
+          <strong style="color:#fff;font-size:18px">Tài Liệu Mẫu & Đặt Nghiên Cứu Định Lượng Theo Yêu Cầu</strong>
+          <p style="margin:4px 0 0;font-size:13.5px">Đọc thử bản mẫu nghiên cứu hoặc đăng nhập Cổng Khách Hàng để gửi bài toán nghiên cứu định lượng riêng cho tổ chức.</p>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           {sample_button}
-          {purchase_button}
+          {order_bespoke_button}
         </div>
       </div>
     """

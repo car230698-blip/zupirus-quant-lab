@@ -513,83 +513,8 @@ def list_admin_trials(_admin=Depends(get_current_admin)):
 @router.post("/api/v1/admin/billing/trials/grant")
 @router.post("/api/admin/billing/trials/grant")
 def admin_grant_trial_license(p: GrantTrialPayload, _admin=Depends(get_current_admin)):
-    """Grant new trial license to team/institutional evaluator under pilot agreement."""
-    from app.domains.reports.service import grant_report_entitlement_tx
-    from app.db import audit
-    from app.security import password_hash
-
-    email_clean = p.email.strip().lower()
-    now_ts = time.time()
-    trial_order_id = f"trial_{secrets.token_hex(6)}"
-    exp_ts = now_ts + (p.duration_days * 86400)
-    admin_id = _admin.get("id", "admin") if isinstance(_admin, dict) else "admin"
-
-    with tx() as c:
-        user_row = c.execute("SELECT id, email FROM users WHERE email=?", (email_clean,)).fetchone()
-        if user_row:
-            user_id = user_row["id"]
-        else:
-            user_id = f"usr_{secrets.token_hex(8)}"
-            rand_pw = secrets.token_urlsafe(12)
-            c.execute("INSERT INTO users (id, email, password, role) VALUES (?, ?, ?, 'customer')", (user_id, email_clean, password_hash(rand_pw)))
-
-        from app.domains.reports.service import ensure_gold_research_suite_v1_seeded
-        ensure_gold_research_suite_v1_seeded(c)
-
-        rep_row = c.execute(
-            "SELECT id, title, version FROM research_reports WHERE id=? OR slug=? OR id LIKE ? OR slug LIKE ?",
-            (p.report_id, p.report_id, f"%{p.report_id}%", f"%{p.report_id}%")
-        ).fetchone()
-        if not rep_row:
-            fail(404, f"Không tìm thấy ấn phẩm {p.report_id}")
-        real_rep_id = str(rep_row[0])
-
-        order_stub = {
-            "id": trial_order_id,
-            "user_id": user_id,
-            "amount_usd": 0.0,
-            "amount_vnd": 0,
-            "status": "COMPLETED",
-            "payment_status": "FREE_TRIAL",
-            "entitlement_status": "GRANTED",
-            "payment_gateway": "DIRECT_USDT",
-            "created_at": now_ts,
-            "expires_at": exp_ts,
-            "paid_at": now_ts,
-            "currency": "USDT",
-            "product_type": "PDF_REPORT",
-            "report_id": real_rep_id,
-            "report_version": p.version or "v1.0",
-            "plan_tier": f"report:{real_rep_id}",
-            "notes": p.notes or "Institutional Trial License",
-            "is_trial": 1,
-        }
-
-        c.execute("""
-            INSERT INTO orders (
-                id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
-                plan_tier, cloud_slots_count, status, payment_status, entitlement_status,
-                payment_gateway, created_at, expires_at, paid_at,
-                currency, expected_amount_usdt, product_type, report_id, report_version
-            ) VALUES (?, ?, 0.0, 1.0, 0, ?, 1, 'COMPLETED', 'FREE_TRIAL', 'GRANTED', 'DIRECT_USDT', ?, ?, ?, 'USDT', 0.0, 'PDF_REPORT', ?, ?)
-        """, (
-            trial_order_id, user_id, f"report:{real_rep_id}", now_ts, exp_ts, now_ts, real_rep_id, p.version or "v1.0"
-        ))
-
-        ent = grant_report_entitlement_tx(c, order=order_stub, now_ts=now_ts, is_trial=1, expires_at=exp_ts)
-        audit(c, admin_id, 'trial_license_granted', {
-            'order_id': trial_order_id,
-            'user_email': email_clean,
-            'report_id': real_rep_id,
-            'version': p.version or "v1.0",
-            'duration_days': p.duration_days,
-        })
-
-    return {
-        "ok": True,
-        "message": f"Đã cấp giấy phép dùng thử {real_rep_id} ({p.version}) cho {email_clean} ({p.duration_days} ngày).",
-        "entitlement": ent,
-    }
+    """Decommissioned: ZUPIRUS no longer grants trial licenses for off-the-shelf publications."""
+    fail(403, "Mô hình ấn phẩm bán sẵn đã ngừng hoạt động. Không còn hỗ trợ cấp trial mới. Vui lòng sử dụng mô hình nghiên cứu theo đơn.")
 
 
 @router.post("/api/v1/admin/billing/trials/{entitlement_id}/extend")

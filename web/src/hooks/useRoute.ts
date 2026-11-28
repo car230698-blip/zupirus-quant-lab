@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 
 export type ZoneType = 'landing' | 'user' | 'admin';
 export type UserPageKey = 'catalog' | 'library' | 'billing';
-export type AdminPageKey = 'overview' | 'reports' | 'research' | 'orders';
-export type AdminSubTabKey = 'research_orders' | 'orders' | 'trials' | 'users' | 'settings';
+export type AdminPageKey = 'queue' | 'all_records' | 'settings';
+export type AdminSubTabKey = 'users' | 'settings' | 'tools';
 
 export interface RouteState {
   pathname: string;
@@ -24,40 +24,31 @@ export function resolveRoutePath(
 
   // Subdomain adm.zupirus.com support
   if (cleanHost.startsWith('adm.')) {
-    if (path === '/' || path === '' || path === '/overview') {
+    if (path === '/' || path === '' || path === '/overview' || path === '/queue') {
       return {
         pathname: '/admin',
         zone: 'admin',
         isAuthRoute: false,
         userPage: 'catalog',
-        adminPage: 'overview',
+        adminPage: 'queue',
       };
     }
-    if (path === '/reports') {
+    if (path === '/all' || path === '/orders' || path === '/records') {
       return {
-        pathname: '/admin/reports',
+        pathname: '/admin/all',
         zone: 'admin',
         isAuthRoute: false,
         userPage: 'catalog',
-        adminPage: 'reports',
-      };
-    }
-    if (path === '/research') {
-      return {
-        pathname: '/admin/research',
-        zone: 'admin',
-        isAuthRoute: false,
-        userPage: 'catalog',
-        adminPage: 'research',
+        adminPage: 'all_records',
       };
     }
     if (path === '/users') {
       return {
-        pathname: '/admin/users',
+        pathname: '/admin/settings',
         zone: 'admin',
         isAuthRoute: false,
         userPage: 'catalog',
-        adminPage: 'orders',
+        adminPage: 'settings',
         adminSubTab: 'users',
       };
     }
@@ -67,20 +58,18 @@ export function resolveRoutePath(
         zone: 'admin',
         isAuthRoute: false,
         userPage: 'catalog',
-        adminPage: 'orders',
+        adminPage: 'settings',
         adminSubTab: 'settings',
       };
     }
-    if (path === '/orders') {
-      return {
-        pathname: '/admin/orders',
-        zone: 'admin',
-        isAuthRoute: false,
-        userPage: 'catalog',
-        adminPage: 'orders',
-        adminSubTab: 'orders',
-      };
-    }
+    // Fallback for legacy /reports or /research on adm subdomain
+    return {
+      pathname: '/admin',
+      zone: 'admin',
+      isAuthRoute: false,
+      userPage: 'catalog',
+      adminPage: 'queue',
+    };
   }
 
   // Backward compatibility for legacy ?portal=user | ?portal=admin or subdomain deployments
@@ -90,7 +79,7 @@ export function resolveRoutePath(
       zone: 'admin',
       isAuthRoute: false,
       userPage: 'catalog',
-      adminPage: 'overview',
+      adminPage: 'queue',
     };
   }
   if (queryPortal === 'user' || (cleanHost.startsWith('app.') && path === '/')) {
@@ -99,7 +88,7 @@ export function resolveRoutePath(
       zone: 'user',
       isAuthRoute: false,
       userPage: 'catalog',
-      adminPage: 'overview',
+      adminPage: 'queue',
     };
   }
 
@@ -110,29 +99,25 @@ export function resolveRoutePath(
       zone: 'admin',
       isAuthRoute: true,
       userPage: 'catalog',
-      adminPage: 'overview',
+      adminPage: 'queue',
     };
   }
   if (path === '/admin' || path.startsWith('/admin/')) {
-    let adminPage: AdminPageKey = 'overview';
+    let adminPage: AdminPageKey = 'queue';
     let adminSubTab: AdminSubTabKey | undefined = undefined;
 
-    if (path === '/admin' || path === '/admin/overview') {
-      adminPage = 'overview';
-    } else if (path === '/admin/reports') {
-      adminPage = 'reports';
-    } else if (path === '/admin/research') {
-      adminPage = 'research';
-    } else if (path === '/admin/orders') {
-      adminPage = 'orders';
+    if (path === '/admin' || path === '/admin/overview' || path === '/admin/queue') {
+      adminPage = 'queue';
+    } else if (path === '/admin/all' || path === '/admin/orders' || path === '/admin/records') {
+      adminPage = 'all_records';
     } else if (path === '/admin/users') {
-      adminPage = 'orders';
+      adminPage = 'settings';
       adminSubTab = 'users';
     } else if (path === '/admin/settings') {
-      adminPage = 'orders';
+      adminPage = 'settings';
       adminSubTab = 'settings';
     } else {
-      adminPage = 'orders';
+      adminPage = 'queue';
     }
 
     const ret: RouteState = {
@@ -155,7 +140,7 @@ export function resolveRoutePath(
       zone: 'user',
       isAuthRoute: true,
       userPage: 'catalog',
-      adminPage: 'overview',
+      adminPage: 'queue',
     };
   }
   if (path === '/portal' || path.startsWith('/portal/')) {
@@ -168,7 +153,7 @@ export function resolveRoutePath(
       zone: 'user',
       isAuthRoute: false,
       userPage,
-      adminPage: 'overview',
+      adminPage: 'queue',
     };
   }
 
@@ -178,7 +163,7 @@ export function resolveRoutePath(
     zone: 'landing',
     isAuthRoute: false,
     userPage: 'catalog',
-    adminPage: 'overview',
+    adminPage: 'queue',
   };
 }
 

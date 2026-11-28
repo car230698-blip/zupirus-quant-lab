@@ -165,21 +165,8 @@ def _format_report_row(row: Any, include_private_paths: bool = False) -> Dict[st
 
 
 def list_public_reports() -> List[Dict[str, Any]]:
-    """Return strictly PUBLISHED research reports for public catalog browsing."""
+    """Return strictly PUBLISHED research reports for public catalog browsing. Strictly read-only."""
     with tx() as c:
-        ensure_flagship_sample_report_seeded(c)
-        ensure_gold_research_suite_v1_seeded(c)
-        c.execute("SAVEPOINT sp_launch_guide_seed")
-        try:
-            from app.domains.quant.launch_guide import ensure_launch_guide_seeded
-            ensure_launch_guide_seeded(c)
-            c.execute("RELEASE SAVEPOINT sp_launch_guide_seed")
-        except Exception:
-            c.execute("ROLLBACK TO SAVEPOINT sp_launch_guide_seed")
-            try:
-                c.execute("RELEASE SAVEPOINT sp_launch_guide_seed")
-            except Exception:
-                pass
         rows = c.execute(
             """
             SELECT * FROM research_reports
@@ -191,13 +178,11 @@ def list_public_reports() -> List[Dict[str, Any]]:
 
 
 def get_public_report_detail(report_id_or_slug: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Return detail for a single PUBLISHED report (or DISCONTINUED if user already owns an entitlement)."""
+    """Return detail for a single PUBLISHED report (or DISCONTINUED if user already owns an entitlement). Strictly read-only."""
     key = (report_id_or_slug or "").strip()
     if not key:
         return None
     with tx() as c:
-        ensure_flagship_sample_report_seeded(c)
-        ensure_gold_research_suite_v1_seeded(c)
         row = c.execute(
             "SELECT * FROM research_reports WHERE id = ? OR slug = ? LIMIT 1",
             (key, key),
@@ -228,10 +213,8 @@ def get_public_report_detail(report_id_or_slug: str, user_id: Optional[str] = No
 
 
 def list_admin_reports() -> List[Dict[str, Any]]:
-    """Admin: List all reports across DRAFT, READY_FOR_REVIEW, APPROVED, PUBLISHED, DISCONTINUED."""
+    """Admin: List all reports across DRAFT, READY_FOR_REVIEW, APPROVED, PUBLISHED, DISCONTINUED. Strictly read-only."""
     with tx() as c:
-        ensure_flagship_sample_report_seeded(c)
-        ensure_gold_research_suite_v1_seeded(c)
         rows = c.execute(
             "SELECT * FROM research_reports ORDER BY updated_at DESC, created_at DESC"
         ).fetchall()

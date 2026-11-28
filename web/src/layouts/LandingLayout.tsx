@@ -14,7 +14,7 @@ export const LandingLayout: React.FC<LandingLayoutProps> = ({ onNavigate, childr
 
   const navLinks = [
     { href: '#overview', label: t.nav.about },
-    { href: '#reports', label: t.nav.reports },
+    { href: '#services', label: lang === 'vi' ? 'Sản phẩm nghiên cứu' : 'Research Services' },
     { href: '#method', label: t.nav.method },
     { href: '/guides', label: lang === 'vi' ? 'Tài liệu & Phương pháp' : 'Guides & Methodology' },
     { href: '#faq', label: t.nav.faq },

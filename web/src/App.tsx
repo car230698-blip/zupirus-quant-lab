@@ -22,15 +22,6 @@ const UserLibraryPage = lazy(() =>
 const UserBillingPage = lazy(() =>
   import('./pages/user/UserBillingPage').then((m) => ({ default: m.UserBillingPage }))
 );
-const AdminOverviewPage = lazy(() =>
-  import('./pages/admin/AdminOverviewPage').then((m) => ({ default: m.AdminOverviewPage }))
-);
-const AdminReportsPage = lazy(() =>
-  import('./pages/admin/AdminReportsPage').then((m) => ({ default: m.AdminReportsPage }))
-);
-const AdminResearchPage = lazy(() =>
-  import('./pages/admin/AdminResearchPage').then((m) => ({ default: m.AdminResearchPage }))
-);
 const AdminOrdersUsersPage = lazy(() =>
   import('./pages/admin/AdminOrdersUsersPage').then((m) => ({ default: m.AdminOrdersUsersPage }))
 );
@@ -267,10 +258,9 @@ const AppContent: React.FC = () => {
         onLogout={handleLogout}
       >
         <Suspense fallback={<PageLoader label="Đang tải phân hệ quản trị..." />}>
-          {adminPage === 'overview' && <AdminOverviewPage onNavigate={navigate} />}
-          {adminPage === 'reports' && <AdminReportsPage />}
-          {adminPage === 'research' && <AdminResearchPage />}
-          {adminPage === 'orders' && <AdminOrdersUsersPage initialSubTab={adminSubTab} />}
+          {adminPage === 'queue' && <AdminOrdersUsersPage viewMode="queue" />}
+          {adminPage === 'all_records' && <AdminOrdersUsersPage viewMode="all_records" />}
+          {adminPage === 'settings' && <AdminOrdersUsersPage viewMode="settings" initialSubTab={adminSubTab} />}
         </Suspense>
       </AdminLayout>
     );

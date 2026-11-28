@@ -208,15 +208,8 @@ def api_checkout_report(
     body: ReportCheckoutRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Create a per-report checkout order (Direct USDT Crypto)."""
-    pm = str(body.payment_method or "USDT").upper()
-    if pm in ("CRYPTO", "USDT") and body.network:
-        pm = f"USDT_{body.network.strip().upper()}"
-    return create_report_checkout_order(
-        user_id=str(current_user["id"]),
-        report_id=report_id,
-        payment_method=pm,
-    )
+    """Decommissioned: Off-the-shelf report sales are discontinued."""
+    fail(403, "Mô hình ấn phẩm bán sẵn đã ngừng hoạt động. Vui lòng tạo yêu cầu phân tích kỹ thuật hoặc nghiên cứu định lượng theo đơn.")
 
 
 @router.post("/api/v1/reports/{report_id}/download-token")
@@ -459,30 +452,8 @@ def api_admin_create_report(
     body: AdminReportDraftRequest,
     admin: dict = Depends(get_current_admin),
 ):
-    """Create a new DRAFT quantitative research report."""
-    hl = body.preview_highlights
-    if hl is None and isinstance(body.highlights_json, list):
-        hl = [str(x) for x in body.highlights_json]
-    wfo = body.wfo_metrics
-    if wfo is None and isinstance(body.wfo_metrics_json, dict):
-        wfo = body.wfo_metrics_json
-    try:
-        return create_admin_report_draft(
-            title=body.title,
-            summary=body.summary or body.subtitle or body.title,
-            description=body.description or body.subtitle or body.summary or "",
-            market=body.market,
-            timeframe=body.timeframe,
-            version=body.version,
-            price_usd=body.price_usd,
-            price_vnd=body.price_vnd,
-            preview_highlights=hl,
-            research_candidate_id=body.research_candidate_id,
-            wfo_metrics=wfo,
-            admin_id=str(admin["id"]),
-        )
-    except ValueError as exc:
-        fail(400, f"Không thể tạo bản nháp báo cáo: {exc}")
+    """Decommissioned: Creating off-the-shelf report drafts is stopped."""
+    fail(403, "Chức năng tạo bản nháp ấn phẩm bán sẵn mới đã ngừng hoạt động. Vui lòng sử dụng mô hình nghiên cứu theo đơn.")
 
 
 @router.put("/api/v1/admin/reports/{report_id}")
@@ -494,22 +465,8 @@ def api_admin_update_report(
     body: AdminReportUpdateRequest,
     admin: dict = Depends(get_current_admin),
 ):
-    """Update metadata, pricing, version, or attached WFO candidate of a research report."""
-    updates = body.model_dump(exclude_none=True)
-    if "highlights_json" in updates and "preview_highlights" not in updates:
-        updates["preview_highlights"] = updates.pop("highlights_json")
-    if "wfo_metrics_json" in updates and "wfo_metrics" not in updates:
-        updates["wfo_metrics"] = updates.pop("wfo_metrics_json")
-    if "subtitle" in updates and "description" not in updates:
-        updates["description"] = updates["subtitle"]
-    try:
-        return update_admin_report(
-            report_id=report_id,
-            updates=updates,
-            admin_id=str(admin["id"]),
-        )
-    except ValueError as exc:
-        fail(404 if "Không tìm thấy" in str(exc) else 400, str(exc))
+    """Decommissioned: Updating off-the-shelf report drafts is stopped."""
+    fail(403, "Chức năng chỉnh sửa ấn phẩm bán sẵn đã ngừng hoạt động.")
 
 
 @router.post("/api/v1/admin/reports/{report_id}/upload-pdf")
@@ -522,26 +479,8 @@ async def api_admin_upload_report_pdf(
     sample_pdf: Optional[UploadFile] = File(default=None),
     admin: dict = Depends(get_current_admin),
 ):
-    """Upload full private PDF and/or public sample preview PDF for a report version."""
-    full_bytes: Optional[bytes] = None
-    sample_bytes: Optional[bytes] = None
-    if full_pdf is not None:
-        full_bytes = await full_pdf.read()
-    if sample_pdf is not None:
-        sample_bytes = await sample_pdf.read()
-    if not full_bytes and not sample_bytes:
-        fail(400, "Cần tải lên ít nhất một tệp full_pdf hoặc sample_pdf.")
-
-    try:
-        return attach_report_pdf_files(
-            report_id=report_id,
-            full_pdf_bytes=full_bytes,
-            sample_pdf_bytes=sample_bytes,
-            version_override=version,
-            admin_id=str(admin["id"]),
-        )
-    except ValueError as exc:
-        fail(404 if "Không tìm thấy" in str(exc) else 400, str(exc))
+    """Decommissioned: Uploading PDF for off-the-shelf reports is stopped."""
+    fail(403, "Chức năng tải lên PDF cho ấn phẩm bán sẵn đã ngừng hoạt động.")
 
 
 @router.get("/api/v1/admin/reports/{report_id}/preview-pdf")
@@ -635,26 +574,8 @@ def api_admin_toggle_report_sale(
     report_id: str,
     admin: dict = Depends(get_current_admin),
 ):
-    """Toggle commercial sale open/close for a published report, separate from publication status."""
-    with tx() as c:
-        row = c.execute(
-            "SELECT id, status, is_for_sale FROM research_reports WHERE id = ? OR slug = ?",
-            (report_id, report_id),
-        ).fetchone()
-        if not row:
-            fail(404, "Không tìm thấy báo cáo.")
-        rep_id = str(row["id"])
-        row_keys = row.keys() if hasattr(row, "keys") else []
-        current_sale = bool(row["is_for_sale"]) if "is_for_sale" in row_keys else False
-        new_sale = not current_sale
-        c.execute("UPDATE research_reports SET is_for_sale = ? WHERE id = ?", (1 if new_sale else 0, rep_id))
-        audit(c, admin["id"], "research_report_sale_toggled", {"report_id": rep_id, "is_for_sale": new_sale})
-    return {
-        "ok": True,
-        "report_id": rep_id,
-        "is_for_sale": new_sale,
-        "message": f"Đã {'mở bán' if new_sale else 'tạm dừng bán'} ấn phẩm thương mại.",
-    }
+    """Decommissioned: Toggling sales for off-the-shelf reports is stopped."""
+    fail(403, "Chức năng mở bán ấn phẩm thương mại đã ngừng hoạt động.")
 
 
 @router.post("/api/v1/admin/reports/{report_id}/publish")
@@ -664,18 +585,8 @@ def api_admin_publish_report(
     body: Optional[AdminReportPublishRequest] = None,
     admin: dict = Depends(get_current_admin),
 ):
-    """Approve and publish a report version to the public catalog."""
-    try:
-        ver = body.version if body else None
-        chg = body.changelog if body else None
-        return publish_admin_report(
-            report_id=report_id,
-            version=ver,
-            changelog=chg,
-            admin_id=str(admin["id"]),
-        )
-    except ValueError as exc:
-        fail(404 if "Không tìm thấy" in str(exc) else 400, str(exc))
+    """Decommissioned: Publishing off-the-shelf reports is stopped."""
+    fail(403, "Chức năng xuất bản ấn phẩm bán sẵn đã ngừng hoạt động.")
 
 
 @router.post("/api/v1/admin/reports/{report_id}/discontinue")
@@ -734,75 +645,5 @@ def api_admin_grant_trial_entitlement(
     body: AdminGrantTrialRequest,
     admin: dict = Depends(get_current_admin),
 ):
-    """Admin: Grant a complimentary trial entitlement for institutional team evaluation under license."""
-    import secrets
-    import time
-    target_user_id = body.user_id
-    if not target_user_id and body.email:
-        with tx() as c:
-            u_row = c.execute("SELECT id FROM users WHERE email = ? LIMIT 1", (body.email.strip().lower(),)).fetchone()
-            if u_row:
-                target_user_id = str(u_row[0])
-            else:
-                fail(404, f"Không tìm thấy người dùng với email '{body.email}'.")
-
-    if not target_user_id:
-        fail(400, "Vui lòng cung cấp 'user_id' hoặc 'email' của tài khoản được cấp quyền dùng thử.")
-
-    now = time.time()
-    trial_duration_sec = max(1, int(body.trial_days or 30)) * 86400
-    trial_expires_at = now + trial_duration_sec
-    trial_order_id = f"trial_{secrets.token_hex(6)}"
-
-    with tx() as c:
-        ensure_gold_research_suite_v1_seeded(c)
-        rep_row = c.execute("SELECT id, title, version FROM research_reports WHERE id = ? OR slug = ?", (report_id, report_id)).fetchone()
-        if not rep_row:
-            fail(404, f"Không tìm thấy báo cáo '{report_id}'.")
-        real_rep_id = str(rep_row[0])
-
-        order_stub = {
-            "id": trial_order_id,
-            "user_id": target_user_id,
-            "report_id": real_rep_id,
-            "report_version": body.version or "v1.0",
-            "notes": body.notes,
-            "expires_at": trial_expires_at,
-            "is_trial": 1,
-        }
-
-        c.execute(
-            """
-            INSERT INTO orders (
-                id, user_id, amount_usd, locked_exchange_rate, amount_vnd,
-                plan_tier, cloud_slots_count, status, payment_status, entitlement_status,
-                payment_gateway, created_at, expires_at, paid_at,
-                currency, expected_amount_usdt, product_type, report_id, report_version
-            ) VALUES (?, ?, 0.0, 1.0, 0, ?, 1, 'COMPLETED', 'FREE_TRIAL', 'GRANTED', 'DIRECT_USDT', ?, ?, ?, 'USDT', 0.0, 'PDF_REPORT', ?, ?)
-            """,
-            (
-                trial_order_id,
-                target_user_id,
-                f"report:{real_rep_id}",
-                now,
-                trial_expires_at,
-                now,
-                real_rep_id,
-                body.version or "v1.0",
-            ),
-        )
-        ent = grant_report_entitlement_tx(c, order=order_stub, now_ts=now, is_trial=1, expires_at=trial_expires_at)
-        audit(c, str(admin["id"]), "report_trial_entitlement_granted", {
-            "report_id": real_rep_id,
-            "target_user_id": target_user_id,
-            "version": body.version,
-            "trial_order_id": trial_order_id,
-            "expires_at": trial_expires_at,
-        })
-
-    return {
-        "ok": True,
-        "message": f"Đã cấp quyền dùng thử thành công cho người dùng '{target_user_id}' phiên bản {body.version}.",
-        "trial_order_id": trial_order_id,
-        "entitlement": ent,
-    }
+    """Decommissioned: Granting new trials for off-the-shelf reports is stopped."""
+    fail(403, "Đã ngừng cấp trial cho ấn phẩm bán sẵn. Vui lòng sử dụng mô hình nghiên cứu theo đơn.")

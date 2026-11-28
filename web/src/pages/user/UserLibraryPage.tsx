@@ -26,9 +26,9 @@ export const UserLibraryPage: React.FC<UserLibraryPageProps> = ({ onNavigate }) 
         <button
           type="button"
           onClick={() => onNavigate('/portal')}
-          className="quant-btn-secondary text-xs"
+          className="quant-btn-primary text-xs"
         >
-          {lang === 'en' ? 'Browse Catalog →' : 'Xem Danh Mục Ấn Phẩm →'}
+          {lang === 'en' ? '+ New Research Request' : '+ Tạo Yêu Cầu Mới'}
         </button>
       </div>
 

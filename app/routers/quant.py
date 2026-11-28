@@ -49,34 +49,8 @@ class StudyRequest(BaseModel):
 @router.post("/api/v1/admin/quant/studies")
 @router.post("/api/admin/quant/studies")
 def api_run_study(body: StudyRequest, admin: dict = Depends(get_current_admin)):
-    """Compute a study and save a draft methodology. Does not publish it."""
-    if body.use_stored_candles:
-        rows = load_candles(symbol=body.symbol, timeframe=body.timeframe, source=body.source)
-    else:
-        rows = [item.model_dump() for item in (body.candles or [])]
-    if len(rows) < 2:
-        fail(400, "Cần ít nhất 2 nến OHLC để chạy nghiên cứu.")
-    try:
-        created = create_methodology_from_candles(
-            rows,
-            symbol=body.symbol,
-            timeframe=body.timeframe,
-            strategy_name=body.strategy_name,
-            title_vi=body.title_vi,
-            title_en=body.title_en,
-            price_usd=body.price_usd,
-            price_vnd=body.price_vnd,
-            version=body.version,
-            round_trip_cost_r=body.round_trip_cost_r,
-            source=body.source,
-            admin_id=str(admin.get("id") or "admin"),
-            store_candles=not body.use_stored_candles,
-        )
-    except CandleValidationError as exc:
-        fail(400, str(exc))
-    except ValueError as exc:
-        fail(400, str(exc))
-    return created
+    """Compute a study and save a draft methodology. Commercial draft generation from lab is discontinued."""
+    fail(403, "Chức năng tạo bản nháp thương mại từ phòng lab đã ngừng hoạt động. Vui lòng chuyển sang mô hình nghiên cứu theo đơn.")
 
 
 @router.get("/api/v1/admin/quant/studies")
@@ -290,13 +264,8 @@ class AutonomousTriggerRequest(BaseModel):
 @router.post("/api/v1/admin/quant/autonomous/trigger")
 @router.post("/api/admin/quant/autonomous/trigger")
 def api_trigger_autonomous_cycle(body: AutonomousTriggerRequest, admin: dict = Depends(get_current_admin)):
-    """Trigger the 100% Zero-Touch Autonomous Quant Research & Publishing pipeline on-demand."""
-    from app.domains.ai.autonomous_pipeline import run_autonomous_research_cycle
-    try:
-        summary = run_autonomous_research_cycle(force=body.force)
-        return {"success": True, "summary": summary}
-    except Exception as exc:
-        fail(500, f"Lỗi kích hoạt tiến trình tự hành: {exc}")
+    """Decommissioned: Commercial report auto-generation is stopped."""
+    fail(403, "Tiến trình tự động sinh ấn phẩm thương mại đã ngừng hoạt động. ZUPIRUS chỉ nhận nghiên cứu theo đơn.")
 
 
 @router.get("/api/v1/admin/quant/autonomous/status")

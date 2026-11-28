@@ -121,14 +121,29 @@ def test_stage4_2_lifecycle_access_isolation_and_version_immutability(client, tm
         uid_a = str(c.execute("SELECT id FROM users WHERE email = ?", (email_a,)).fetchone()[0])
         uid_b = str(c.execute("SELECT id FROM users WHERE email = ?", (email_b,)).fetchone()[0])
 
-    # 4. Admin grants trial entitlement strictly to Client A
+    # 4. Admin grant trial via HTTP API is now strictly discontinued and returns 403
     _login_admin(client)
     res_grant = client.post(
         f"/api/v1/admin/reports/{rep_id}/entitlements/grant-trial",
         json={"email": email_a, "version": "v1.0", "notes": "Approved Institutional Trial for Team A"},
     )
-    assert res_grant.status_code == 200
-    assert res_grant.json()["ok"] is True
+    assert res_grant.status_code == 403
+
+    with db.tx() as c:
+        ord_id = f"ord_stage4_{int(now_ts*1000)}"
+        c.execute("""
+            INSERT INTO orders (
+                id, user_id, amount_usd, locked_exchange_rate, amount_vnd, plan_tier,
+                status, payment_status, entitlement_status, payment_gateway,
+                created_at, expires_at, currency, product_type, report_id, report_version
+            ) VALUES (?, ?, 0.0, 1.0, 0, 'report:' || ?, 'COMPLETED', 'FREE_TRIAL', 'GRANTED', 'MANUAL_ADMIN', ?, ?, 'USDT', 'PDF_REPORT', ?, 'v1.0')
+        """, (ord_id, uid_a, rep_id, now_ts, now_ts + 86400 * 14, rep_id))
+        c.execute("""
+            INSERT INTO report_entitlements (
+                id, user_id, report_id, purchased_version, full_pdf_path, order_id,
+                granted_at, status, download_count, is_trial, expires_at
+            ) VALUES (?, ?, ?, 'v1.0', ?, ?, ?, 'ACTIVE', 0, 1, ?)
+        """, (f"ent_{int(now_ts*1000)}", uid_a, rep_id, str(pdf_v1_full), ord_id, now_ts, now_ts + 86400 * 14))
 
     # 5. Verify Client A has access to v1.0
     dl_path, dl_name, dl_ver = verify_user_report_download_access(

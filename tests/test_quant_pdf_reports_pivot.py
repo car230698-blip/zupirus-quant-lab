@@ -63,7 +63,7 @@ def test_1_admin_report_lifecycle_and_public_catalog_visibility(client, monkeypa
             ),
         )
 
-    # Login as Admin and create a DRAFT report attached to cand_xau_ldn_01
+    # Login as Admin: creating new off-the-shelf publications is discontinued (403)
     _login_admin(client)
     create_res = client.post(
         "/api/v1/admin/reports",
@@ -81,62 +81,8 @@ def test_1_admin_report_lifecycle_and_public_catalog_visibility(client, monkeypa
             "highlights_json": ["Win rate OOS 64%", "Profit Factor 1.82"],
         },
     )
-    assert create_res.status_code == 200, create_res.text
-    draft_rep = create_res.json()
-    rep_id = draft_rep["id"]
-    assert draft_rep["status"] == "DRAFT"
-    assert draft_rep["wfo_metrics"]["win_rate"] == 0.64
-
-    # Upload custom full_pdf and sample_pdf via multipart form
-    custom_full_pdf = build_pdf_bytes(
-        title="FULL PRIVATE QUANT REPORT V1.0",
-        subtitle="Authorized Buyer Copy | XAUUSD (M15 / H1)",
-        pages_lines=[["# 1. Full Analysis", "Confidential full research body."]],
-    )
-    custom_sample_pdf = build_pdf_bytes(
-        title="SAMPLE PREVIEW QUANT REPORT V1.0",
-        subtitle="Public Sample Preview | XAUUSD (M15 / H1)",
-        pages_lines=[["# 1. Sample Introduction", "Public sample preview body."]],
-    )
-    up_res = client.post(
-        f"/api/v1/admin/reports/{rep_id}/upload-pdf",
-        data={"version": "v1.0", "changelog": "Initial release"},
-        files={
-            "full_pdf": ("full-v1.pdf", custom_full_pdf, "application/pdf"),
-            "sample_pdf": ("sample-v1.pdf", custom_sample_pdf, "application/pdf"),
-        },
-    )
-    assert up_res.status_code == 200, up_res.text
-
-    # Logout to become an unauthenticated visitor: DRAFT must NOT be visible in catalog or detail
-    client.post("/api/logout")
-    anon_catalog = client.get("/api/v1/reports").json()["items"]
-    assert not any(r["id"] == rep_id for r in anon_catalog)
-    assert client.get(f"/api/v1/reports/{rep_id}").status_code == 404
-    assert client.get(f"/api/v1/reports/{rep_id}/sample-pdf").status_code == 404
-
-    # Admin logs back in and publishes the report
-    _login_admin(client)
-    pub_res = client.post(
-        f"/api/v1/admin/reports/{rep_id}/publish",
-        json={"version": "v1.0", "changelog": "Approved & published"},
-    )
-    assert pub_res.status_code == 200, pub_res.text
-    assert pub_res.json()["status"] == "PUBLISHED"
-
-    # Unauthenticated visitor now sees the published report, its detail, and its sample PDF
-    client.post("/api/logout")
-    anon_catalog_after = client.get("/api/v1/reports").json()["items"]
-    assert any(r["id"] == rep_id for r in anon_catalog_after)
-
-    detail_res = client.get(f"/api/v1/reports/{rep_id}")
-    assert detail_res.status_code == 200
-    assert detail_res.json()["title"].startswith("Báo Cáo Định Lượng XAU/USD Quý 4")
-
-    sample_dl = client.get(f"/api/v1/reports/{rep_id}/sample-pdf")
-    assert sample_dl.status_code == 200
-    assert sample_dl.headers["content-type"].startswith("application/pdf")
-    assert sample_dl.content.startswith(b"%PDF-1.4")
+    assert create_res.status_code == 403, create_res.text
+    assert "ngừng hoạt động" in create_res.json()["detail"]
 
 
 def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control(client, monkeypatch):
@@ -191,49 +137,26 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
     unbought_dl = client.get(f"/api/v1/reports/{rep_id}/download")
     assert unbought_dl.status_code == 403
 
-    # State 1: Checkout strictly blocked when commercial reports sale is disabled
-    monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "false")
-    monkeypatch.setenv("PAYMENT_USDT_ENABLED", "false")
+    # State 1: Checkout strictly blocked for off-the-shelf publications (403)
     blocked_co = client.post(
         f"/api/v1/reports/{rep_id}/checkout",
         json={"payment_method": "USDT"},
     )
-    assert blocked_co.status_code == 400
-    assert "tạm tắt" in blocked_co.text
+    assert blocked_co.status_code == 403
+    assert "ngừng hoạt động" in blocked_co.json().get("detail", "")
 
-    # State 2: Commercial sale enabled but USDT payment gateway is locked/disabled
-    monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "true")
-    monkeypatch.setenv("PAYMENT_USDT_ENABLED", "false")
-    blocked_usdt = client.post(
-        f"/api/v1/reports/{rep_id}/checkout",
-        json={"payment_method": "USDT"},
-    )
-    assert blocked_usdt.status_code == 400
-    assert "chưa được kích hoạt" in blocked_usdt.text or "tạm khóa" in blocked_usdt.text
-
-    # State 3: Both commercial sale and USDT payment are enabled in test environment
-    monkeypatch.setenv("COMMERCIAL_REPORTS_SALE_ENABLED", "true")
-    monkeypatch.setenv("PAYMENT_USDT_ENABLED", "true")
-    from app.domains.billing.crypto_direct import save_crypto_wallets_config
-    save_crypto_wallets_config(
-        enabled=True,
-        bep20_address="0x1111111111111111111111111111111111111111",
-        admin_id="test",
-    )
-
-    # Buyer A creates checkout order for rep_xauusd_london_ny_v1 (v1.0)
-    co_res = client.post(
-        f"/api/v1/reports/{rep_id}/checkout",
-        json={"payment_method": "USDT"},
-    )
-    assert co_res.status_code == 200, co_res.text
-    order_info = co_res.json()
-    order_id = order_info["order_id"]
-    order_code = order_info["order_code"]
-    amount_usd = float(order_info.get("amount_usd", 29.0))
-    assert order_info["product_type"] == "PDF_REPORT"
-    assert order_info["report_version"] == "v1.0"
-    assert "USDT" in order_info.get("payment_gateway", "")
+    # For testing legacy perpetual entitlement and access verification, insert existing order
+    order_id = f"test_ord_{int(time.time()*1000)}"
+    order_code = f"ZUP-REP-{int(time.time())}"
+    now_o = time.time()
+    with db.tx() as c:
+        c.execute("""
+            INSERT INTO orders (
+                id, user_id, amount_usd, locked_exchange_rate, amount_vnd, plan_tier,
+                status, payment_status, entitlement_status, payment_gateway,
+                created_at, expires_at, currency, product_type, report_id, report_version
+            ) VALUES (?, ?, 29.0, 1.0, 750000, 'report:rep_xauusd_london_ny_v1', 'PENDING', 'PENDING', 'PENDING', 'DIRECT_USDT', ?, ?, 'USDT', 'PDF_REPORT', ?, 'v1.0')
+        """, (order_id, uid_a, now_o, now_o + 3600, rep_id))
 
     # Before payment, library is empty (only pending_orders has the order)
     lib_before = client.get("/api/v1/reports/my/library").json()
@@ -309,20 +232,20 @@ def test_2_and_3_purchase_idempotent_webhook_library_download_and_access_control
         data={"version": "v2.0", "changelog": "Major v2.0 update"},
         files={"full_pdf": ("full-v2.pdf", v2_full_pdf, "application/pdf")},
     )
-    assert up_v2.status_code == 200
+    assert up_v2.status_code == 403
     pub_v2 = client.post(f"/api/v1/admin/reports/{rep_id}/publish", json={"version": "v2.0"})
-    assert pub_v2.status_code == 200
+    assert pub_v2.status_code == 403
 
     # Admin discontinues the report (stops new sales)
     disc_res = client.post(f"/api/v1/admin/reports/{rep_id}/discontinue")
     assert disc_res.status_code == 200
     assert disc_res.json()["status"] == "DISCONTINUED"
 
-    # User B tries to purchase the discontinued report -> blocked with HTTP 400
+    # User B tries to purchase the discontinued report -> blocked with HTTP 403
     client.post("/api/logout")
     _register_and_login(client, "intruder_b@example.com")
     co_disc = client.post(f"/api/v1/reports/{rep_id}/checkout", json={"payment_method": "USDT"})
-    assert co_disc.status_code == 400
+    assert co_disc.status_code == 403
 
     # Buyer A logs back in: even though report is DISCONTINUED and current_version is v2.0,
     # Buyer A can still download their purchased v1.0 PDF, and cannot download v2.0 without buying v2.0

@@ -75,9 +75,7 @@ def get_admin_command_radar(_admin=Depends(get_current_admin)):
                 pass
         ai_ready = (active_gemini > 0 or has_custom_ai) and res_ok
 
-        # Research & Report Storage
-        from app.domains.reports.service import ensure_flagship_sample_report_seeded
-        ensure_flagship_sample_report_seeded(c)
+        # Research & Report Storage (strictly read-only)
         report_cnt = c.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0]
 
         # Check Redis connectivity
@@ -314,10 +312,8 @@ def run_system_dry_run_test(_admin=Depends(get_current_admin)):
         shield_detail = f"Lỗi 4 lớp màng lọc: {e}"
     steps.append({"step": "3. Kiểm tra 4 lớp màng lọc an toàn", "ok": shield_ok, "detail": shield_detail})
 
-    # 4. Report Vault & Research Integrity Check
-    from app.domains.reports.service import ensure_flagship_sample_report_seeded
+    # 4. Report Vault & Research Integrity Check (strictly read-only)
     with tx() as c:
-        ensure_flagship_sample_report_seeded(c)
         r_cnt = c.execute("SELECT COUNT(*) FROM research_reports").fetchone()[0]
     steps.append({
         "step": "4. Kho lưu trữ & Báo cáo PDF",
