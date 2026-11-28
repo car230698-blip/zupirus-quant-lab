@@ -1080,19 +1080,35 @@ def list_user_report_library(user_id: str) -> List[Dict[str, Any]]:
     """Return all ACTIVE purchased PDF reports in the authenticated user's personal library.
     Correctly surfaces trial expiration status while preserving perpetual purchased access."""
     with tx() as c:
-        rows = c.execute(
-            """
-            SELECT e.id AS entitlement_id, e.report_id, e.purchased_version, e.full_pdf_path,
-                   e.order_id, e.status AS entitlement_status, e.granted_at, e.expires_at, e.is_trial,
-                   r.slug, r.title, r.summary, r.market, r.timeframe, r.version AS latest_version,
-                   r.status AS report_status, r.price_usd, r.price_vnd
-            FROM report_entitlements e
-            JOIN research_reports r ON r.id = e.report_id
-            WHERE e.user_id = ? AND e.status = 'ACTIVE'
-            ORDER BY e.granted_at DESC
-            """,
-            (user_id,),
-        ).fetchall()
+        try:
+            rows = c.execute(
+                """
+                SELECT e.id AS entitlement_id, e.report_id, e.purchased_version, e.full_pdf_path,
+                       e.order_id, e.status AS entitlement_status, e.granted_at, e.expires_at, e.is_trial,
+                       r.slug, r.title, r.summary, r.market, r.timeframe, r.version AS latest_version,
+                       r.status AS report_status, r.price_usd, r.price_vnd
+                FROM report_entitlements e
+                JOIN research_reports r ON r.id = e.report_id
+                WHERE e.user_id = ? AND e.status = 'ACTIVE'
+                ORDER BY e.granted_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        except Exception as err:
+            logger.warning("Query with expires_at failed (%s), falling back to baseline entitlements columns.", err)
+            rows = c.execute(
+                """
+                SELECT e.id AS entitlement_id, e.report_id, e.purchased_version, e.full_pdf_path,
+                       e.order_id, e.status AS entitlement_status, e.granted_at,
+                       r.slug, r.title, r.summary, r.market, r.timeframe, r.version AS latest_version,
+                       r.status AS report_status, r.price_usd, r.price_vnd
+                FROM report_entitlements e
+                JOIN research_reports r ON r.id = e.report_id
+                WHERE e.user_id = ? AND e.status = 'ACTIVE'
+                ORDER BY e.granted_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
         items = []
         now_ts = time.time()
         for r in rows:

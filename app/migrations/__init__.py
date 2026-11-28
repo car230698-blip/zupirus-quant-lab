@@ -171,6 +171,11 @@ MIGRATIONS = [
         "version": 33,
         "name": "033_custom_research_runs_audit_and_queue",
         "description": "Add custom_research_runs, custom_research_audit_logs, and queue/exception fields"
+    },
+    {
+        "version": 34,
+        "name": "034_ensure_report_entitlements_columns",
+        "description": "Ensure report_entitlements has expires_at, is_trial, and download_count columns in both Postgres and SQLite"
     }
 ]
 
@@ -196,6 +201,7 @@ from .seed_and_fixes import (
     apply_migration_031,
     apply_migration_032,
     apply_migration_033,
+    apply_migration_034,
 )
 
 def run_all_migrations(c, is_pg: bool):
@@ -237,6 +243,7 @@ def run_all_migrations(c, is_pg: bool):
         31: apply_migration_031,
         32: apply_migration_032,
         33: apply_migration_033,
+        34: apply_migration_034,
     }
 
     for m in MIGRATIONS:
@@ -264,6 +271,7 @@ def run_all_migrations(c, is_pg: bool):
             apply_migration_031(c, is_pg=False)
             apply_migration_032(c, is_pg=False)
             apply_migration_033(c, is_pg=False)
+            apply_migration_034(c, is_pg=False)
             c.commit()
         except Exception as e:
             logger.debug(f"SQLite migration 026/027 verification note: {e}")

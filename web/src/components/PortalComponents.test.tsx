@@ -198,3 +198,132 @@ test('UserBillingSection and AdminOverviewPage render without crashes or legacy 
   );
   assert.match(adminOverviewHtml, /ZUPIRUS|Admin|Published|Research/i);
 });
+
+test('resolveRoutePath on adm.zupirus.com resolves /admin, /admin/all, /admin/settings, /admin/login and legacy /all, /settings cleanly', () => {
+  const host = 'adm.zupirus.com';
+
+  // 1. Root and queue
+  assert.deepEqual(resolveRoutePath('/', host), {
+    pathname: '/admin',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'queue',
+  });
+  assert.deepEqual(resolveRoutePath('/admin', host), {
+    pathname: '/admin',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'queue',
+  });
+  assert.deepEqual(resolveRoutePath('/queue', host), {
+    pathname: '/admin',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'queue',
+  });
+
+  // 2. All records and legacy /all, /orders
+  assert.deepEqual(resolveRoutePath('/admin/all', host), {
+    pathname: '/admin/all',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'all_records',
+  });
+  assert.deepEqual(resolveRoutePath('/all', host), {
+    pathname: '/admin/all',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'all_records',
+  });
+  assert.deepEqual(resolveRoutePath('/orders', host), {
+    pathname: '/admin/all',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'all_records',
+  });
+
+  // 3. Settings and legacy /settings, /users
+  assert.deepEqual(resolveRoutePath('/admin/settings', host), {
+    pathname: '/admin/settings',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'settings',
+    adminSubTab: 'settings',
+  });
+  assert.deepEqual(resolveRoutePath('/settings', host), {
+    pathname: '/admin/settings',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'settings',
+    adminSubTab: 'settings',
+  });
+  assert.deepEqual(resolveRoutePath('/admin/users', host), {
+    pathname: '/admin/users',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'settings',
+    adminSubTab: 'users',
+  });
+  assert.deepEqual(resolveRoutePath('/users', host), {
+    pathname: '/admin/settings',
+    zone: 'admin',
+    isAuthRoute: false,
+    userPage: 'catalog',
+    adminPage: 'settings',
+    adminSubTab: 'users',
+  });
+
+  // 4. Admin Login and legacy /login on adm subdomain
+  assert.deepEqual(resolveRoutePath('/admin/login', host), {
+    pathname: '/admin/login',
+    zone: 'admin',
+    isAuthRoute: true,
+    userPage: 'catalog',
+    adminPage: 'queue',
+  });
+  assert.deepEqual(resolveRoutePath('/login', host), {
+    pathname: '/admin/login',
+    zone: 'admin',
+    isAuthRoute: true,
+    userPage: 'catalog',
+    adminPage: 'queue',
+  });
+});
+
+test('AdminLayout renders 3-item navigation, mobile toggle, and search shortcut', () => {
+  const noop = () => {};
+  const html = renderToStaticMarkup(
+    withLang(
+      React.createElement(AdminLayout, {
+        activePage: 'all_records',
+        email: 'ops@zupirus.com',
+        onNavigate: noop,
+        onLogout: noop,
+        children: React.createElement('div', null, 'Queue Content'),
+      })
+    )
+  );
+
+  // Checks 3 nav buttons
+  assert.match(html, /Cần xử lý|Actionable Queue/);
+  assert.match(html, /Tất cả hồ sơ|All Records/);
+  assert.match(html, /Cài đặt|Settings/);
+
+  // Checks mobile toggle button
+  assert.match(html, /aria-label="Toggle sidebar"/);
+
+  // Checks search shortcut
+  assert.match(html, /⌘K|Ctrl\+K/);
+
+  // Checks active page content
+  assert.match(html, /Queue Content/);
+});

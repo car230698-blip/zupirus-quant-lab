@@ -10,7 +10,6 @@ import {
   Clock,
   AlertTriangle,
   ShieldCheck,
-  ExternalLink,
   X,
   QrCode,
   Layers,
@@ -120,14 +119,22 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
   const [activeView, setActiveView] = useState<'requests' | 'catalog' | 'library'>(
     initialSection === 'requests' ? 'requests' : initialSection === 'library' ? 'library' : 'catalog'
   );
+  const [portalSubTab, setPortalSubTab] = useState<'all' | 'in_progress' | 'delivered'>(
+    initialSection === 'library' ? 'delivered' : 'all'
+  );
   const [reports, setReports] = useState<ResearchReportItem[]>([]);
   const [libraryItems, setLibraryItems] = useState<LibraryEntitlementItem[]>([]);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [catalogLoading, setCatalogLoading] = useState<boolean>(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
-  const [libraryLoading, setLibraryLoading] = useState<boolean>(false);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
+
+  // Independent states for Custom Research vs Legacy Library
+  const [requestsLoading, setRequestsLoading] = useState<boolean>(false);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [legacyLibraryLoading, setLegacyLibraryLoading] = useState<boolean>(false);
+  const [legacyLibraryError, setLegacyLibraryError] = useState<{ status: string | number; message: string } | null>(null);
+
   const [selectedReport, setSelectedReport] = useState<ResearchReportItem | null>(null);
   const [checkoutReport, setCheckoutReport] = useState<ResearchReportItem | null>(null);
   const [checkoutOrder, setCheckoutOrder] = useState<any | null>(null);
@@ -155,6 +162,9 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
 
   useEffect(() => {
     setActiveView(initialSection);
+    if (initialSection === 'library') {
+      setPortalSubTab('delivered');
+    }
   }, [initialSection]);
 
   // Handle URL parameters for direct deep-linking into tabs and action modals
@@ -162,8 +172,17 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab');
-      if (tabParam === 'requests' || tabParam === 'library' || tabParam === 'catalog') {
-        setActiveView(tabParam);
+      if (tabParam === 'delivered' || tabParam === 'library') {
+        setPortalSubTab('delivered');
+        setActiveView('requests');
+      } else if (tabParam === 'in_progress') {
+        setPortalSubTab('in_progress');
+        setActiveView('requests');
+      } else if (tabParam === 'all' || tabParam === 'requests') {
+        setPortalSubTab('all');
+        setActiveView('requests');
+      } else if (tabParam === 'catalog') {
+        setActiveView('catalog');
       }
       const actionParam = params.get('action');
       if (actionParam === 'retail') {
@@ -189,63 +208,82 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setCatalogLoading(true);
-    setCatalogError(null);
-
+  // Decoupled loader for on-demand research requests
+  const loadCustomRequests = useCallback(async () => {
+    setRequestsLoading(true);
+    setRequestsError(null);
     try {
-      const catRes = await apiGet<any>('/api/v1/reports');
-      if (catRes?.items && Array.isArray(catRes.items)) {
-        setReports(catRes.items);
+      const customRes = await apiGet<any>('/api/v1/research/my-requests');
+      const customList = customRes?.items || customRes?.requests || [];
+      setCustomRequests(Array.isArray(customList) ? customList : []);
+    } catch (err: any) {
+      if (err?.status !== 401) {
+        const st = err?.status || err?.response?.status || 'Error';
+        const msg = err?.detail || err?.message || (lang === 'en' ? 'Unable to load research requests' : 'Không thể tải danh sách yêu cầu nghiên cứu');
+        setRequestsError(`${st}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
+      }
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [lang]);
+
+  // Decoupled loader for legacy purchased report library
+  const loadLegacyLibrary = useCallback(async () => {
+    setLegacyLibraryLoading(true);
+    setLegacyLibraryError(null);
+    try {
+      const libRes = await apiGet<any>('/api/v1/reports/my/library');
+      if (libRes?.items && Array.isArray(libRes.items)) {
+        setLibraryItems(libRes.items);
       } else {
-        setReports([]);
+        setLibraryItems([]);
+      }
+      if (libRes?.pending_orders && Array.isArray(libRes.pending_orders)) {
+        setPendingOrders(libRes.pending_orders);
+      } else {
+        setPendingOrders([]);
       }
     } catch (err: any) {
-      setCatalogError(
-        lang === 'en'
-          ? 'Unable to load research report catalog. Please check your connection and try again.'
-          : 'Không thể tải danh mục ấn phẩm nghiên cứu. Vui lòng kiểm tra kết nối và thử lại.'
-      );
-      setReports([]);
+      if (err?.status !== 401) {
+        const st = err?.status || err?.response?.status || 500;
+        const msg = err?.detail || err?.message || (lang === 'en' ? 'Internal server error while loading legacy library' : 'Lỗi máy chủ khi tải thư viện ấn phẩm cũ');
+        setLegacyLibraryError({
+          status: st,
+          message: typeof msg === 'string' ? msg : JSON.stringify(msg),
+        });
+      }
     } finally {
-      setCatalogLoading(false);
+      setLegacyLibraryLoading(false);
     }
+  }, [lang]);
 
+  const loadData = useCallback(async () => {
+    setLoading(true);
     if (mode === 'portal') {
-      setLibraryLoading(true);
-      setLibraryError(null);
+      await Promise.allSettled([loadCustomRequests(), loadLegacyLibrary()]);
+    } else {
+      setCatalogLoading(true);
+      setCatalogError(null);
       try {
-        const libRes = await apiGet<any>('/api/v1/reports/my/library');
-        if (libRes?.items && Array.isArray(libRes.items)) {
-          setLibraryItems(libRes.items);
+        const catRes = await apiGet<any>('/api/v1/reports');
+        if (catRes?.items && Array.isArray(catRes.items)) {
+          setReports(catRes.items);
         } else {
-          setLibraryItems([]);
+          setReports([]);
         }
-        if (libRes?.pending_orders && Array.isArray(libRes.pending_orders)) {
-          setPendingOrders(libRes.pending_orders);
-        } else {
-          setPendingOrders([]);
-        }
-
-        const customRes = await apiGet<any>('/api/v1/research/my-requests').catch(() => ({ items: [] }));
-        const customList = customRes?.items || customRes?.requests || [];
-        setCustomRequests(Array.isArray(customList) ? customList : []);
       } catch (err: any) {
-        if (err?.status !== 401) {
-          setLibraryError(
-            lang === 'en'
-              ? 'Unable to load your PDF library (503 Service Unavailable). Please try again.'
-              : 'Không thể tải dữ liệu thư viện báo cáo PDF (Lỗi dịch vụ 503). Vui lòng thử lại.'
-          );
-        }
+        setCatalogError(
+          lang === 'en'
+            ? 'Unable to load research report catalog. Please check your connection and try again.'
+            : 'Không thể tải danh mục ấn phẩm nghiên cứu. Vui lòng kiểm tra kết nối và thử lại.'
+        );
+        setReports([]);
       } finally {
-        setLibraryLoading(false);
+        setCatalogLoading(false);
       }
     }
-
     setLoading(false);
-  }, [lang, mode]);
+  }, [lang, mode, loadCustomRequests, loadLegacyLibrary]);
 
   useEffect(() => {
     loadData();
@@ -545,7 +583,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                 : 'ẤN PHẨM NGHIÊN CỨU XAU/USD'}
             </div>
             <h2 className="mt-1 text-lg sm:text-xl font-bold text-white">
-              {activeView === 'requests'
+              {mode === 'portal'
                 ? lang === 'en'
                   ? 'My Research & Analysis Requests'
                   : 'Yêu Cầu Phân Tích & Nghiên Cứu Của Tôi'
@@ -561,36 +599,14 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
 
           <div className="flex items-center gap-2">
             {mode === 'portal' ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setActiveView('requests')}
-                  className={activeView === 'requests' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                  <span>
-                    {lang === 'en' ? 'My Requests' : 'Yêu Cầu Của Tôi'} ({customRequests.length})
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveView('library')}
-                  className={activeView === 'library' ? 'quant-btn-primary text-xs' : 'quant-btn-secondary text-xs'}
-                >
-                  <Layers className="h-4 w-4" />
-                  <span>
-                    {lang === 'en' ? 'Deliverables & Library' : 'Thư Viện Tài Liệu'} ({libraryItems.length + customRequests.filter((r: any) => r.status === 'DELIVERED' || r.status === 'COMPLETED' || Boolean(r.deliverable_pdf_path) || Boolean(r.download_pdf_url)).length})
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowRequestModal(true)}
-                  className="quant-btn-primary text-xs flex items-center gap-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-slate-950 font-semibold shadow-md shadow-teal-500/20"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>{lang === 'en' ? '+ New Request' : '+ Tạo Yêu Cầu'}</span>
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => setShowRequestModal(true)}
+                className="quant-btn-primary text-xs flex items-center gap-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-slate-950 font-semibold shadow-md shadow-teal-500/20"
+              >
+                <Plus className="h-4 w-4" />
+                <span>{lang === 'en' ? '+ New Request' : '+ Tạo Yêu Cầu Mới'}</span>
+              </button>
             ) : (
               <>
                 <button
@@ -610,7 +626,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                 >
                   <Layers className="h-4 w-4" />
                   <span>
-                    {lang === 'en' ? 'Library' : 'Thư viện'} ({libraryItems.length + customRequests.length})
+                    {lang === 'en' ? 'Library' : 'Thư viện'} ({libraryItems.length})
                   </span>
                 </button>
               </>
@@ -624,6 +640,45 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Portal Filter Sub-Tabs */}
+      {mode === 'portal' && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+          <button
+            type="button"
+            onClick={() => setPortalSubTab('all')}
+            className={portalSubTab === 'all' ? 'quant-btn-primary text-xs flex items-center gap-1.5' : 'quant-btn-secondary text-xs flex items-center gap-1.5'}
+          >
+            <ShieldCheck className="h-4 w-4" />
+            <span>{lang === 'en' ? 'All Requests' : 'Tất cả yêu cầu'}</span>
+            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-300">
+              {customRequests.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPortalSubTab('in_progress')}
+            className={portalSubTab === 'in_progress' ? 'quant-btn-primary text-xs flex items-center gap-1.5' : 'quant-btn-secondary text-xs flex items-center gap-1.5'}
+          >
+            <Clock className="h-4 w-4" />
+            <span>{lang === 'en' ? 'In Progress' : 'Đang xử lý'}</span>
+            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-slate-800 text-slate-300">
+              {customRequests.filter((r: any) => !['DELIVERED', 'COMPLETED', 'REJECTED', 'FAILED', 'ARCHIVED'].includes(r.status)).length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPortalSubTab('delivered')}
+            className={portalSubTab === 'delivered' ? 'quant-btn-primary text-xs flex items-center gap-1.5' : 'quant-btn-secondary text-xs flex items-center gap-1.5'}
+          >
+            <Layers className="h-4 w-4" />
+            <span>{lang === 'en' ? 'Delivered & Library' : 'Đã bàn giao'}</span>
+            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-teal-950 text-teal-300 border border-teal-800/40">
+              {customRequests.filter((r: any) => r.status === 'DELIVERED' || r.status === 'COMPLETED').length + libraryItems.length}
+            </span>
+          </button>
         </div>
       )}
 
@@ -695,248 +750,41 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
         </div>
       )}
 
-      {/* VIEW 1: MY RESEARCH REQUESTS (PORTAL) */}
-      {mode === 'portal' && activeView === 'requests' && (
-        <div className="space-y-4">
-          {libraryLoading && customRequests.length === 0 ? (
+      {/* PORTAL VIEW: INTEGRATED RESEARCH & DELIVERABLES */}
+      {mode === 'portal' && (
+        <div className="space-y-6">
+          {requestsLoading && customRequests.length === 0 ? (
             <div className="quant-panel p-10 text-center text-sm text-slate-400">
               {lang === 'en' ? 'Loading your research requests...' : 'Đang tải danh sách yêu cầu nghiên cứu...'}
             </div>
-          ) : customRequests.length === 0 ? (
-            <EmptyState
-              icon={<ShieldCheck className="h-6 w-6 text-teal-400" />}
-              title={lang === 'en' ? 'No Research Requests Yet' : 'Chưa có yêu cầu nghiên cứu nào'}
-              description={
-                lang === 'en'
-                  ? 'Request on-demand technical analysis (Retail) or submit bespoke quantitative research hypotheses for institutional decision-making.'
-                  : 'Gửi yêu cầu phân tích kỹ thuật chuẩn hóa cho cá nhân (XAUUSD, EURUSD, USDJPY) hoặc gửi bài toán nghiên cứu vĩ mô riêng cho tổ chức.'
-              }
-              action={
-                <button
-                  type="button"
-                  onClick={() => setShowRequestModal(true)}
-                  className="quant-btn-primary text-xs flex items-center gap-1.5"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>{lang === 'en' ? '+ Create First Request' : '+ Tạo Yêu Cầu Đầu Tiên'}</span>
-                </button>
-              }
-            />
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-teal-400" />
-                  <span>
-                    {lang === 'en'
-                      ? 'Private Custom Research & Analysis Orders'
-                      : 'Hồ Sơ Yêu Cầu Phân Tích & Nghiên Cứu Định Lượng'}
-                  </span>
-                </h3>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-slate-400">({customRequests.length} hồ sơ)</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowRequestModal(true)}
-                    className="quant-btn-primary text-xs py-1 px-2.5 flex items-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{lang === 'en' ? 'New Request' : 'Tạo mới'}</span>
-                  </button>
-                </div>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                {customRequests.map((cr: any) => (
-                  <div key={cr.id} className="quant-card-interactive p-5 flex flex-col justify-between gap-3 border-teal-500/30">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-[11px] text-teal-400 font-semibold">{cr.id}</span>
-                        <div className="flex items-center gap-1.5">
-                          {cr.current_step && (
-                            <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                              {cr.current_step}
-                            </span>
-                          )}
-                          <StatusBadge tone={cr.status === 'DELIVERED' || cr.status === 'COMPLETED' ? 'success' : cr.status === 'QUOTED' ? 'info' : 'warning'}>
-                            {cr.status}
-                          </StatusBadge>
-                        </div>
-                      </div>
-                      <h4 className="text-sm font-bold text-white leading-snug">
-                        {cr.problem_description || cr.hypothesis_prompt || `${cr.symbol} · ${cr.timeframe} Technical Analysis`}
-                      </h4>
-                      <p className="text-xs text-slate-400">
-                        {cr.product_type} · {cr.symbol} {cr.timeframe} · {new Date(cr.created_at * 1000).toLocaleDateString('vi-VN')}
-                      </p>
-
-                      {cr.next_action_vi && (
-                        <div className="text-[11px] text-teal-300/90 bg-teal-950/30 px-2.5 py-1.5 rounded border border-teal-800/40 flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5 shrink-0" />
-                          <span>Bước tiếp theo: {cr.next_action_vi}</span>
-                        </div>
-                      )}
-
-                      {/* Quoted Box & Confirm Action */}
-                      {cr.status === 'QUOTED' && (
-                        <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-800/40 space-y-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-slate-400">Báo giá đề xuất (v{cr.proposal_version || 1}):</span>
-                            <span className="font-bold text-cyan-300 font-mono text-sm">
-                              ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            disabled={confirmingQuoteId === cr.id}
-                            onClick={() => handleConfirmQuote(cr.id, cr.proposal_version)}
-                            className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5"
-                          >
-                            {confirmingQuoteId === cr.id ? (
-                              <>
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                <span>Đang xác nhận...</span>
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Xác Nhận Đề Xuất &amp; Báo Giá Này</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Waiting Payment Box */}
-                      {cr.status === 'WAITING_PAYMENT' && (
-                        <div className="p-3 rounded-lg bg-amber-950/30 border border-amber-800/40 space-y-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-amber-300 font-semibold">Đơn hàng chờ thanh toán:</span>
-                            <span className="font-bold text-amber-200 font-mono text-sm">
-                              ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            Đề xuất đã được xác nhận. Quý khách có thể thực hiện thanh toán thử nghiệm qua Sandbox Test để kích hoạt quy trình thực thi mô hình.
-                          </p>
-                          <button
-                            type="button"
-                            disabled={payingSandboxId === cr.id}
-                            onClick={() => handleSandboxPay(cr.id)}
-                            className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-500 to-teal-500 text-slate-950 font-bold"
-                          >
-                            {payingSandboxId === cr.id ? (
-                              <>
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                <span>Đang xử lý thanh toán Sandbox...</span>
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Xác Nhận Thanh Toán Thử Nghiệm (Sandbox Pay)</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => setActiveChatOrder(cr)}
-                        className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>Mở Trao Đổi &amp; Tệp</span>
-                      </button>
-
-                      {(cr.deliverable_pdf_path || cr.download_pdf_url) && (
-                        <a
-                          href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-pdf`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="quant-btn-primary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Tải PDF</span>
-                        </a>
-                      )}
-                      {(cr.deliverable_bundle_path || cr.download_bundle_url) && (
-                        <a
-                          href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-bundle`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Tải Bundle ZIP</span>
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* VIEW 2: MY PURCHASED & DELIVERED LIBRARY (PORTAL) */}
-      {mode === 'portal' && activeView === 'library' && (
-        <div className="space-y-6">
-          {libraryLoading && libraryItems.length === 0 && customRequests.length === 0 ? (
-            <div className="quant-panel p-10 text-center text-sm text-slate-400">
-              {lang === 'en' ? 'Loading your report library...' : 'Đang tải dữ liệu thư viện báo cáo...'}
-            </div>
-          ) : libraryError ? (
+          ) : requestsError ? (
             <div className="quant-panel p-6 border-rose-500/30 bg-rose-500/10 text-center space-y-3">
               <AlertTriangle className="h-6 w-6 text-rose-400 mx-auto" />
-              <div className="text-sm font-semibold text-rose-200">{libraryError}</div>
+              <div className="text-sm font-semibold text-rose-200">{requestsError}</div>
               <button
                 type="button"
-                onClick={() => loadData()}
+                onClick={() => loadCustomRequests()}
                 className="quant-btn-secondary text-xs mx-auto"
               >
                 {lang === 'en' ? 'Retry' : 'Thử lại'}
               </button>
             </div>
-          ) : libraryItems.length === 0 && customRequests.filter((cr: any) => cr.status === 'DELIVERED' || cr.status === 'COMPLETED' || Boolean(cr.deliverable_pdf_path) || Boolean(cr.download_pdf_url)).length === 0 ? (
-            <EmptyState
-              icon={<FileText className="h-5 w-5" />}
-              title={lang === 'en' ? 'Your Deliverables & Library is Empty' : 'Chưa có tài liệu hoặc kết quả nghiên cứu nào'}
-              description={
-                lang === 'en'
-                  ? 'Your completed on-demand research reports and deliverables will appear here with perpetual download access.'
-                  : 'Các kết quả phân tích kỹ thuật và nghiên cứu định lượng hoàn tất của bạn sẽ xuất hiện tại đây cùng bản quyền tải PDF/ZIP vĩnh viễn.'
-              }
-              action={
-                <button
-                  type="button"
-                  onClick={() => setShowRequestModal(true)}
-                  className="quant-btn-primary text-xs flex items-center gap-1.5"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>{lang === 'en' ? '+ Create New Request' : '+ Tạo Yêu Cầu Mới'}</span>
-                </button>
-              }
-            />
-          ) : (
+          ) : portalSubTab === 'delivered' ? (
+            /* TAB: DELIVERED RESEARCH DELIVERABLES & PREVIOUSLY PURCHASED LIBRARY */
             <div className="space-y-6">
-              {/* Completed On-Demand Research Deliverables */}
-              {customRequests.filter((cr: any) => cr.status === 'DELIVERED' || cr.status === 'COMPLETED' || Boolean(cr.deliverable_pdf_path) || Boolean(cr.download_pdf_url)).length > 0 && (
+              {/* Delivered On-Demand Research Deliverables */}
+              {customRequests.filter((cr: any) => cr.status === 'DELIVERED' || cr.status === 'COMPLETED').length > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-sm font-bold text-teal-400 flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4" />
                     <span>
-                      {lang === 'en'
-                        ? 'On-Demand Research Deliverables'
-                        : 'Kết Quả Nghiên Cứu Định Lượng Riêng'} (
-                      {customRequests.filter((cr: any) => cr.status === 'DELIVERED' || cr.status === 'COMPLETED' || Boolean(cr.deliverable_pdf_path) || Boolean(cr.download_pdf_url)).length})
+                      {lang === 'en' ? 'Delivered Custom Research Deliverables' : 'Kết Quả Nghiên Cứu Định Lượng Riêng (Đã Bàn Giao)'} (
+                      {customRequests.filter((cr: any) => cr.status === 'DELIVERED' || cr.status === 'COMPLETED').length})
                     </span>
                   </h3>
                   <div className="grid gap-4 md:grid-cols-2">
                     {customRequests
-                      .filter((cr: any) => cr.status === 'DELIVERED' || cr.status === 'COMPLETED' || Boolean(cr.deliverable_pdf_path) || Boolean(cr.download_pdf_url))
+                      .filter((cr: any) => cr.status === 'DELIVERED' || cr.status === 'COMPLETED')
                       .map((cr: any) => (
                         <div key={cr.id} className="quant-card-interactive p-5 flex flex-col justify-between gap-3 border-teal-500/30">
                           <div className="space-y-2">
@@ -958,7 +806,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                               className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
                             >
                               <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
-                              <span>Mở Trao Đổi</span>
+                              <span>Mở Trao Đổi &amp; Tệp</span>
                             </button>
                             {(cr.deliverable_pdf_path || cr.download_pdf_url) && (
                               <a
@@ -979,7 +827,7 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                                 className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
                               >
                                 <Download className="w-3.5 h-3.5" />
-                                <span>Tải ZIP</span>
+                                <span>Tải Bundle ZIP</span>
                               </a>
                             )}
                           </div>
@@ -990,214 +838,352 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
               )}
 
               {/* Previously Purchased Legacy Publications */}
-              {libraryItems.length > 0 && (
-                <div className="space-y-3 pt-2">
-                  <h3 className="text-sm font-bold text-amber-300 flex items-center gap-2">
-                    <BookOpen className="w-4 h-4" />
-                    <span>
-                      {lang === 'en' ? 'Previously Purchased Publications' : 'Ấn Phẩm Nghiên Cứu Đã Mua Trước Đây'} ({libraryItems.length})
-                    </span>
-                  </h3>
-                  <div className="grid gap-5 md:grid-cols-2">
-              {libraryItems.map((item) => {
-                const isDownloading = downloadingId === `${item.report_id}:${item.purchased_version}`;
-                const isDownloadingBundle = downloadingBundleId === `${item.report_id}:${item.purchased_version}`;
-                const grantedDate = item.granted_at
-                  ? new Date(item.granted_at * 1000).toLocaleDateString('vi-VN')
-                  : '—';
-                const isRevoked = String(item.status || '').toUpperCase() === 'REVOKED';
-                const isExpired = Boolean(item.is_expired);
-                const expiryDate = item.expires_at
-                  ? new Date(item.expires_at * 1000).toLocaleDateString('vi-VN')
-                  : null;
+              <div className="space-y-3 pt-2">
+                {legacyLibraryLoading && (
+                  <div className="quant-panel p-6 text-center text-xs text-slate-400">
+                    <RefreshCw className="h-4 w-4 animate-spin mx-auto mb-2 text-teal-400" />
+                    <span>{lang === 'en' ? 'Checking previously purchased PDF publications...' : 'Đang kiểm tra ấn phẩm đã mua trước đây...'}</span>
+                  </div>
+                )}
+
+                {legacyLibraryError && (
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-rose-300">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
+                      <span>
+                        {lang === 'en'
+                          ? `Legacy library unavailable (${legacyLibraryError.status}): ${legacyLibraryError.message}`
+                          : `Không thể kết nối thư viện ấn phẩm cũ (${legacyLibraryError.status}): ${legacyLibraryError.message}`}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => loadLegacyLibrary()}
+                      className="quant-btn-secondary text-xs py-1 px-3"
+                    >
+                      {lang === 'en' ? 'Retry Loading Legacy Library' : 'Thử lại tải ấn phẩm cũ'}
+                    </button>
+                  </div>
+                )}
+
+                {libraryItems.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-amber-300 flex items-center gap-2">
+                      <BookOpen className="w-4 h-4" />
+                      <span>
+                        {lang === 'en' ? 'Previously Purchased Publications' : 'Tài Liệu & Ấn Phẩm Đã Mua Trước Đây'} ({libraryItems.length})
+                      </span>
+                    </h3>
+                    <div className="grid gap-5 md:grid-cols-2">
+                      {libraryItems.map((item) => {
+                        const isDownloading = downloadingId === `${item.report_id}:${item.purchased_version}`;
+                        const isDownloadingBundle = downloadingBundleId === `${item.report_id}:${item.purchased_version}`;
+                        const grantedDate = item.granted_at ? new Date(item.granted_at * 1000).toLocaleDateString('vi-VN') : '—';
+                        const isRevoked = String(item.status || '').toUpperCase() === 'REVOKED';
+                        const isExpired = Boolean(item.is_expired);
+                        const expiryDate = item.expires_at ? new Date(item.expires_at * 1000).toLocaleDateString('vi-VN') : null;
+
+                        return (
+                          <div
+                            key={item.entitlement_id}
+                            className={`quant-card-interactive p-6 flex flex-col justify-between gap-4 ${
+                              isRevoked || isExpired ? 'opacity-85 border-rose-900/40' : ''
+                            }`}
+                          >
+                            <div className="space-y-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                {isRevoked ? (
+                                  <StatusBadge tone="danger">
+                                    {lang === 'en' ? 'REVOKED' : 'ĐÃ THU HỒI'} · {item.purchased_version}
+                                  </StatusBadge>
+                                ) : isExpired ? (
+                                  <StatusBadge tone="danger">
+                                    {lang === 'en' ? 'TRIAL EXPIRED' : 'HẾT HẠN DÙNG THỬ'} · {item.purchased_version}
+                                  </StatusBadge>
+                                ) : item.is_trial ? (
+                                  <StatusBadge tone="warning">
+                                    {lang === 'en' ? 'TRIAL ACCESS' : 'BẢN DÙNG THỬ'} · {item.purchased_version}
+                                    {expiryDate ? ` (${lang === 'en' ? 'Exp:' : 'Hạn:'} ${expiryDate})` : ''}
+                                  </StatusBadge>
+                                ) : (
+                                  <StatusBadge tone="success">
+                                    {lang === 'en' ? 'OWNED' : 'QUYỀN SỞ HỮU VĨNH VIỄN'} · {item.purchased_version}
+                                  </StatusBadge>
+                                )}
+                                <span className="font-mono text-xs text-slate-400 tabular-nums">
+                                  {item.market} · {item.timeframe} · {grantedDate}
+                                </span>
+                              </div>
+
+                              <h3 className="text-lg font-bold text-white leading-snug">{item.title}</h3>
+                              {item.subtitle && <p className="text-xs font-medium text-amber-300/90">{item.subtitle}</p>}
+                              <p className="text-xs text-slate-300 leading-relaxed">{item.summary}</p>
+                            </div>
+
+                            <div className="pt-3 border-t border-slate-800/80 space-y-3">
+                              <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 tabular-nums">
+                                <span>{lang === 'en' ? 'Order:' : 'Mã đơn:'} {item.order_code || item.order_id || 'VERIFIED'}</span>
+                                <span>{item.page_count || 18} {lang === 'en' ? 'pages' : 'trang'}</span>
+                              </div>
+
+                              {!isRevoked && !isExpired && (
+                                <div className="flex flex-wrap items-center gap-2.5">
+                                  <button
+                                    type="button"
+                                    disabled={isDownloading || isDownloadingBundle}
+                                    onClick={() => handleDownloadPurchasedPdf(item.report_id, item.purchased_version, item.title)}
+                                    className="quant-btn-primary flex-1 text-xs"
+                                  >
+                                    <Download className="h-4 w-4" />
+                                    <span>
+                                      {isDownloading
+                                        ? lang === 'en' ? 'Preparing PDF...' : 'Đang tải PDF...'
+                                        : lang === 'en' ? `Download PDF (${item.purchased_version})` : `Tải PDF (${item.purchased_version})`}
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isDownloading || isDownloadingBundle}
+                                    onClick={() => handleDownloadBundle(item.report_id, item.purchased_version, item.title)}
+                                    className="quant-btn-secondary text-xs"
+                                  >
+                                    <Layers className="h-3.5 w-3.5" />
+                                    <span>
+                                      {isDownloadingBundle
+                                        ? lang === 'en' ? 'Preparing ZIP...' : 'Đang tải ZIP...'
+                                        : lang === 'en' ? `Bundle ZIP (${item.purchased_version})` : `Tải ZIP (${item.purchased_version})`}
+                                    </span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Empty State for Delivered Tab */}
+              {customRequests.filter((cr: any) => cr.status === 'DELIVERED' || cr.status === 'COMPLETED').length === 0 &&
+                libraryItems.length === 0 &&
+                !requestsLoading &&
+                !legacyLibraryLoading && (
+                  <EmptyState
+                    icon={<FileText className="h-5 w-5" />}
+                    title={lang === 'en' ? 'Your Deliverables & Library is Empty' : 'Chưa có tài liệu hoặc kết quả nghiên cứu nào được bàn giao'}
+                    description={
+                      lang === 'en'
+                        ? 'Your completed on-demand research reports and deliverables will appear here with perpetual download access.'
+                        : 'Các kết quả phân tích kỹ thuật và nghiên cứu định lượng hoàn tất của bạn sẽ xuất hiện tại đây cùng bản quyền tải PDF/ZIP vĩnh viễn.'
+                    }
+                    action={
+                      <button
+                        type="button"
+                        onClick={() => setShowRequestModal(true)}
+                        className="quant-btn-primary text-xs flex items-center gap-1.5"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>{lang === 'en' ? '+ Create New Request' : '+ Tạo Yêu Cầu Mới'}</span>
+                      </button>
+                    }
+                  />
+                )}
+            </div>
+          ) : (
+            /* TAB: ALL OR IN_PROGRESS */
+            <div className="space-y-4">
+              {(() => {
+                const filteredRequests = portalSubTab === 'in_progress'
+                  ? customRequests.filter((r: any) => !['DELIVERED', 'COMPLETED', 'REJECTED', 'FAILED', 'ARCHIVED'].includes(r.status))
+                  : customRequests;
+
+                if (filteredRequests.length === 0) {
+                  return (
+                    <EmptyState
+                      icon={<ShieldCheck className="h-6 w-6 text-teal-400" />}
+                      title={
+                        portalSubTab === 'in_progress'
+                          ? lang === 'en' ? 'No In-Progress Requests' : 'Không có yêu cầu nào đang xử lý'
+                          : lang === 'en' ? 'No Research Requests Yet' : 'Chưa có yêu cầu nghiên cứu nào'
+                      }
+                      description={
+                        lang === 'en'
+                          ? 'Request on-demand technical analysis (Retail) or submit bespoke quantitative research hypotheses for institutional decision-making.'
+                          : 'Gửi yêu cầu phân tích kỹ thuật chuẩn hóa cho cá nhân hoặc gửi bài toán nghiên cứu vĩ mô riêng cho tổ chức.'
+                      }
+                      action={
+                        <button
+                          type="button"
+                          onClick={() => setShowRequestModal(true)}
+                          className="quant-btn-primary text-xs flex items-center gap-1.5"
+                        >
+                          <Plus className="h-4 w-4" />
+                          <span>{lang === 'en' ? '+ Create First Request' : '+ Tạo Yêu Cầu Đầu Tiên'}</span>
+                        </button>
+                      }
+                    />
+                  );
+                }
 
                 return (
-                  <div
-                    key={item.entitlement_id}
-                    className={`quant-card-interactive p-6 flex flex-col justify-between gap-4 ${
-                      isRevoked || isExpired ? 'opacity-85 border-rose-900/40' : ''
-                    }`}
-                  >
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        {isRevoked ? (
-                          <StatusBadge tone="danger">
-                            {lang === 'en' ? 'REVOKED' : 'ĐÃ THU HỒI'} · {item.purchased_version}
-                          </StatusBadge>
-                        ) : isExpired ? (
-                          <StatusBadge tone="danger">
-                            {lang === 'en' ? 'TRIAL EXPIRED' : 'HẾT HẠN DÙNG THỬ'} · {item.purchased_version}
-                          </StatusBadge>
-                        ) : item.is_trial ? (
-                          <StatusBadge tone="warning">
-                            {lang === 'en' ? 'TRIAL ACCESS' : 'BẢN DÙNG THỬ'} · {item.purchased_version}
-                            {expiryDate ? ` (${lang === 'en' ? 'Exp:' : 'Hạn:'} ${expiryDate})` : ''}
-                          </StatusBadge>
-                        ) : (
-                          <StatusBadge tone="success">
-                            {lang === 'en' ? 'OWNED' : 'ĐÃ SỞ HỮU'} · {item.purchased_version}
-                          </StatusBadge>
-                        )}
-                        <span className="font-mono text-xs text-slate-400 tabular-nums">
-                          {item.market} · {item.timeframe} · {grantedDate}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-teal-400" />
+                        <span>
+                          {portalSubTab === 'in_progress'
+                            ? lang === 'en' ? 'In-Progress Research Requests' : 'Hồ Sơ Đang Trong Tiến Trình Xử Lý'
+                            : lang === 'en' ? 'Private Custom Research & Analysis Orders' : 'Hồ Sơ Yêu Cầu Phân Tích & Nghiên Cứu Định Lượng'}
                         </span>
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-slate-400">({filteredRequests.length} hồ sơ)</span>
+                        <button
+                          type="button"
+                          onClick={() => setShowRequestModal(true)}
+                          className="quant-btn-primary text-xs py-1 px-2.5 flex items-center gap-1"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{lang === 'en' ? 'New Request' : 'Tạo mới'}</span>
+                        </button>
                       </div>
-
-                      <h3 className="text-lg font-bold text-white leading-snug">{item.title}</h3>
-                      {item.subtitle && <p className="text-xs font-medium text-amber-300/90">{item.subtitle}</p>}
-                      <p className="text-xs text-slate-300 leading-relaxed">{item.summary}</p>
-
-                      {isRevoked ? (
-                        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
-                          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
-                          <span>
-                            {lang === 'en'
-                              ? 'Access to this research report version has been revoked by admin.'
-                              : 'Quyền truy cập phiên bản báo cáo này đã bị quản trị viên thu hồi.'}
-                          </span>
-                        </div>
-                      ) : isExpired ? (
-                        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-center gap-2">
-                          <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400" />
-                          <span>
-                            {lang === 'en'
-                              ? `Trial access expired on ${expiryDate || 'N/A'}. Full deliverables are locked.`
-                              : `Quyền dùng thử đã hết hạn vào ngày ${expiryDate || 'N/A'}. Tài liệu đầy đủ đã bị khóa.`}
-                          </span>
-                        </div>
-                      ) : null}
                     </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {filteredRequests.map((cr: any) => (
+                        <div key={cr.id} className="quant-card-interactive p-5 flex flex-col justify-between gap-3 border-teal-500/30">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-[11px] text-teal-400 font-semibold">{cr.id}</span>
+                              <div className="flex items-center gap-1.5">
+                                {cr.current_step && (
+                                  <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                                    {cr.current_step}
+                                  </span>
+                                )}
+                                <StatusBadge tone={cr.status === 'DELIVERED' || cr.status === 'COMPLETED' ? 'success' : cr.status === 'QUOTED' ? 'info' : 'warning'}>
+                                  {cr.status}
+                                </StatusBadge>
+                              </div>
+                            </div>
+                            <h4 className="text-sm font-bold text-white leading-snug">
+                              {cr.problem_description || cr.hypothesis_prompt || `${cr.symbol} · ${cr.timeframe} Technical Analysis`}
+                            </h4>
+                            <p className="text-xs text-slate-400">
+                              {cr.product_type} · {cr.symbol} {cr.timeframe} · {new Date(cr.created_at * 1000).toLocaleDateString('vi-VN')}
+                            </p>
 
-                    <div className="pt-3 border-t border-slate-800/80 space-y-3">
-                      <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 tabular-nums">
-                        <span>
-                          {lang === 'en' ? 'Order:' : 'Mã đơn:'} {item.order_code || item.order_id || 'VERIFIED'}
-                        </span>
-                        <span>
-                          {item.page_count || 18} {lang === 'en' ? 'pages' : 'trang'} ·{' '}
-                          {lang === 'en' ? 'Downloads:' : 'Lượt tải:'} {item.download_count || 0}
-                        </span>
-                      </div>
+                            {cr.next_action_vi && (
+                              <div className="text-[11px] text-teal-300/90 bg-teal-950/30 px-2.5 py-1.5 rounded border border-teal-800/40 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 shrink-0" />
+                                <span>Bước tiếp theo: {cr.next_action_vi}</span>
+                              </div>
+                            )}
 
-                      {isRevoked ? (
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <button
-                            type="button"
-                            disabled
-                            className="quant-btn-secondary opacity-50 cursor-not-allowed flex-1 text-xs text-rose-300 border-rose-500/30"
-                          >
-                            <AlertTriangle className="h-4 w-4 text-rose-400" />
-                            <span>
-                              {lang === 'en'
-                                ? 'Access Revoked'
-                                : 'Quyền truy cập đã bị thu hồi'}
-                            </span>
-                          </button>
-                          {item.sample_pdf_url && (
-                            <a
-                              href={item.sample_pdf_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="quant-btn-secondary text-xs"
+                            {/* Quoted Box & Confirm Action */}
+                            {cr.status === 'QUOTED' && (
+                              <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-800/40 space-y-2">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-slate-400">Báo giá đề xuất (v{cr.proposal_version || 1}):</span>
+                                  <span className="font-bold text-cyan-300 font-mono text-sm">
+                                    ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={confirmingQuoteId === cr.id}
+                                  onClick={() => handleConfirmQuote(cr.id, cr.proposal_version)}
+                                  className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5"
+                                >
+                                  {confirmingQuoteId === cr.id ? (
+                                    <>
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                      <span>Đang xác nhận...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>Xác Nhận Đề Xuất &amp; Báo Giá Này</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Waiting Payment Box */}
+                            {cr.status === 'WAITING_PAYMENT' && (
+                              <div className="p-3 rounded-lg bg-amber-950/30 border border-amber-800/40 space-y-2">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-amber-300 font-semibold">Đơn hàng chờ thanh toán:</span>
+                                  <span className="font-bold text-amber-200 font-mono text-sm">
+                                    ${Number(cr.quoted_price_usd || 0).toLocaleString()} USD
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-400 leading-relaxed">
+                                  Đề xuất đã được xác nhận. Quý khách có thể thực hiện thanh toán thử nghiệm qua Sandbox Test để kích hoạt quy trình thực thi mô hình.
+                                </p>
+                                <button
+                                  type="button"
+                                  disabled={payingSandboxId === cr.id}
+                                  onClick={() => handleSandboxPay(cr.id)}
+                                  className="w-full quant-btn-primary text-xs py-1.5 flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-500 to-teal-500 text-slate-950 font-bold"
+                                >
+                                  {payingSandboxId === cr.id ? (
+                                    <>
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                      <span>Đang xử lý thanh toán Sandbox...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>Xác Nhận Thanh Toán Thử Nghiệm (Sandbox Pay)</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
+                            <button
+                              type="button"
+                              onClick={() => setActiveChatOrder(cr)}
+                              className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
                             >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
-                            </a>
-                          )}
-                        </div>
-                      ) : isExpired ? (
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <button
-                            type="button"
-                            disabled
-                            className="quant-btn-secondary opacity-50 cursor-not-allowed flex-1 text-xs"
-                          >
-                            <Clock className="h-4 w-4 text-slate-500" />
-                            <span>
-                              {lang === 'en'
-                                ? 'Trial Expired — Contact Admin'
-                                : 'Hết hạn dùng thử — Liên hệ Admin'}
-                            </span>
-                          </button>
-                          {item.sample_pdf_url && (
-                            <a
-                              href={item.sample_pdf_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="quant-btn-secondary text-xs"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
-                            </a>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <button
-                            type="button"
-                            disabled={isDownloading || isDownloadingBundle}
-                            onClick={() =>
-                              handleDownloadPurchasedPdf(item.report_id, item.purchased_version, item.title)
-                            }
-                            className="quant-btn-primary flex-1 text-xs"
-                          >
-                            <Download className="h-4 w-4" />
-                            <span>
-                              {isDownloading
-                                ? lang === 'en'
-                                  ? 'Preparing PDF...'
-                                  : 'Đang xác thực & tải PDF...'
-                                : lang === 'en'
-                                ? `Full PDF (${item.purchased_version})`
-                                : `Tải PDF Đầy Đủ (${item.purchased_version})`}
-                            </span>
-                          </button>
+                              <MessageSquare className="w-3.5 h-3.5 text-cyan-400" />
+                              <span>Mở Trao Đổi &amp; Tệp</span>
+                            </button>
 
-                          <button
-                            type="button"
-                            disabled={isDownloading || isDownloadingBundle}
-                            onClick={() =>
-                              handleDownloadBundle(item.report_id, item.purchased_version, item.title)
-                            }
-                            className="quant-btn-secondary text-xs"
-                            title={
-                              lang === 'en'
-                                ? 'Download complete research suite (ZIP: PDF, CSV ledger, metrics, CLI replay, quickstart, manifests)'
-                                : 'Tải trọn bộ nghiên cứu (ZIP: PDF, nhật ký CSV, metrics, CLI replay, hướng dẫn nhanh, mã băm SHA-256)'
-                            }
-                          >
-                            <Layers className="h-3.5 w-3.5" />
-                            <span>
-                              {isDownloadingBundle
-                                ? lang === 'en'
-                                  ? 'Packaging...'
-                                  : 'Đang đóng gói...'
-                                : lang === 'en'
-                                ? 'Research Suite (ZIP)'
-                                : 'Bộ nghiên cứu (ZIP)'}
-                            </span>
-                          </button>
-
-                          {item.sample_pdf_url && (
-                            <a
-                              href={item.sample_pdf_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="quant-btn-secondary text-xs"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                              <span>{lang === 'en' ? 'Sample' : 'Bản mẫu'}</span>
-                            </a>
-                          )}
+                            {(cr.status === 'DELIVERED' || cr.status === 'COMPLETED') && (cr.deliverable_pdf_path || cr.download_pdf_url) && (
+                              <a
+                                href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-pdf`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="quant-btn-primary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Tải PDF</span>
+                              </a>
+                            )}
+                            {(cr.status === 'DELIVERED' || cr.status === 'COMPLETED') && (cr.deliverable_bundle_path || cr.download_bundle_url) && (
+                              <a
+                                href={`/api/v1/research/orders/${encodeURIComponent(cr.id)}/download-bundle`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="quant-btn-secondary text-xs py-1.5 px-3 flex-1 flex items-center justify-center gap-1"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Tải Bundle ZIP</span>
+                              </a>
+                            )}
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   </div>
                 );
-              })}
-                  </div>
-                </div>
-              )}
+              })()}
             </div>
           )}
         </div>

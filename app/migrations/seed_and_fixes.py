@@ -1384,6 +1384,29 @@ def apply_migration_033(c, is_pg: bool):
             c.execute("ALTER TABLE custom_research_requests ADD COLUMN checkout_locked_at REAL")
 
 
+def apply_migration_034(c, is_pg: bool):
+    """034_ensure_report_entitlements_columns:
+    Guarantees expires_at, is_trial, and download_count columns exist in report_entitlements
+    so list_user_report_library never fails on existing Postgres databases.
+    """
+    if is_pg:
+        c.execute("""
+        ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS expires_at DOUBLE PRECISION;
+        ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS is_trial INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE report_entitlements ADD COLUMN IF NOT EXISTS download_count INTEGER NOT NULL DEFAULT 0;
+        """)
+    else:
+        cols = [row[1] for row in c.execute("PRAGMA table_info(report_entitlements)").fetchall()]
+        if cols:
+            if "expires_at" not in cols:
+                c.execute("ALTER TABLE report_entitlements ADD COLUMN expires_at REAL")
+            if "is_trial" not in cols:
+                c.execute("ALTER TABLE report_entitlements ADD COLUMN is_trial INTEGER NOT NULL DEFAULT 0")
+            if "download_count" not in cols:
+                c.execute("ALTER TABLE report_entitlements ADD COLUMN download_count INTEGER NOT NULL DEFAULT 0")
+
+
+
 
 
 

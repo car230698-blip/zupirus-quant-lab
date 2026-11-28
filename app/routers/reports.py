@@ -129,31 +129,36 @@ def api_list_public_reports(market: Optional[str] = Query(default=None)):
 def api_get_my_report_library(current_user: dict = Depends(get_current_user)):
     """Authenticated customer's purchased PDF report library and pending report orders."""
     uid_str = str(current_user["id"])
-    items = list_user_report_library(uid_str)
-    with tx() as c:
-        pending_rows = c.execute(
-            """
-            SELECT o.id, o.report_id, o.report_version, o.amount_vnd, o.amount_usd, o.currency,
-                   o.payment_gateway, o.status, o.created_at, o.expires_at, r.title
-            FROM orders o
-            LEFT JOIN research_reports r ON r.id = o.report_id
-            WHERE o.user_id = ? AND UPPER(COALESCE(o.product_type, '')) = 'PDF_REPORT'
-              AND UPPER(COALESCE(o.status, '')) = 'PENDING'
-            ORDER BY o.created_at DESC LIMIT 20
-            """,
-            (uid_str,),
-        ).fetchall()
-        pending_orders = []
-        for r in pending_rows:
-            d = dict(r)
-            d["order_code"] = d["id"]
-            d["amount"] = d.get("amount_vnd") if str(d.get("currency") or "VND").upper() == "VND" else d.get("amount_usd")
-            pending_orders.append(d)
-    return {
-        "items": items,
-        "count": len(items),
-        "pending_orders": pending_orders,
-    }
+    try:
+        items = list_user_report_library(uid_str)
+        with tx() as c:
+            pending_rows = c.execute(
+                """
+                SELECT o.id, o.report_id, o.report_version, o.amount_vnd, o.amount_usd, o.currency,
+                       o.payment_gateway, o.status, o.created_at, o.expires_at, r.title
+                FROM orders o
+                LEFT JOIN research_reports r ON r.id = o.report_id
+                WHERE o.user_id = ? AND UPPER(COALESCE(o.product_type, '')) = 'PDF_REPORT'
+                  AND UPPER(COALESCE(o.status, '')) = 'PENDING'
+                ORDER BY o.created_at DESC LIMIT 20
+                """,
+                (uid_str,),
+            ).fetchall()
+            pending_orders = []
+            for r in pending_rows:
+                d = dict(r)
+                d["order_code"] = d["id"]
+                d["amount"] = d.get("amount_vnd") if str(d.get("currency") or "VND").upper() == "VND" else d.get("amount_usd")
+                pending_orders.append(d)
+        return {
+            "items": items,
+            "count": len(items),
+            "pending_orders": pending_orders,
+        }
+    except Exception as e:
+        import logging
+        logging.getLogger("reports").error("Error in api_get_my_report_library: %s", e)
+        fail(500, f"Lỗi truy vấn thư viện báo cáo: {e}")
 
 
 @router.get("/api/v1/reports/{report_id}")
