@@ -389,30 +389,43 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
     setStatusMessage(null);
     try {
       if (requestTab === 'retail') {
-        await apiPost<any>('/api/v1/research/retail/request', {
+        const res: any = await apiPost<any>('/api/v1/research/retail/request', {
           symbol: retailSymbol,
           timeframe: retailTimeframe,
           period_bars: 100,
         });
-        setStatusMessage({
-          type: 'success',
-          text: lang === 'en'
-            ? 'Retail technical analysis completed. PDF is ready for download in your Library!'
-            : 'Đã hoàn tất phân tích kỹ thuật! Bản PDF 2-4 trang đọc trên di động đã sẵn sàng tải về trong Thư viện.',
-        });
+        if (res?.status === 'INSUFFICIENT_DATA' || !res?.download_pdf_url) {
+          setStatusMessage({
+            type: 'error',
+            text: res?.next_action_vi || (lang === 'en'
+              ? `Insufficient candle data for ${retailSymbol} ${retailTimeframe} (INSUFFICIENT_DATA). Please select another symbol (XAUUSD, EURUSD).`
+              : `Nguồn dữ liệu nến cho ${retailSymbol} ${retailTimeframe} chưa đủ hoặc chưa có (INSUFFICIENT_DATA). Vui lòng chọn mã khác (XAUUSD, EURUSD).`),
+          });
+        } else {
+          setStatusMessage({
+            type: 'success',
+            text: lang === 'en'
+              ? 'Retail technical analysis completed. PDF note is ready in My Deliverables!'
+              : 'Đã hoàn tất phân tích kỹ thuật! Bản PDF 2-4 trang đã sẵn sàng trong Tài liệu của tôi.',
+          });
+        }
       } else {
         const res: any = await apiPost<any>('/api/v1/research/institutional/inquiry', {
           problem_description: instPrompt,
           turnaround_hours: Number(instTurnaround),
         });
         setStatusMessage({
-          type: 'success',
-          text: lang === 'en'
-            ? 'Institutional RFP submitted. Initial draft proposal and chat are ready!'
-            : 'Yêu cầu nghiên cứu tổ chức đã được tiếp nhận. Đề xuất sơ bộ đã sẵn sàng trong cuộc trao đổi!',
+          type: res?.status === 'NEEDS_CLARIFICATION' ? 'info' : 'success',
+          text: res?.status === 'NEEDS_CLARIFICATION'
+            ? (lang === 'en'
+              ? 'Institutional inquiry received. Scope clarification needed in chat thread.'
+              : 'Yêu cầu nghiên cứu tổ chức đã tiếp nhận. Vui lòng làm rõ phạm vi bài toán trong khung chat.')
+            : (lang === 'en'
+              ? 'Institutional RFP submitted. Initial draft proposal and chat are ready!'
+              : 'Yêu cầu nghiên cứu tổ chức đã được tiếp nhận. Đề xuất sơ bộ đã sẵn sàng trong cuộc trao đổi!'),
         });
         if (res?.request_id) {
-          setActiveChatOrder({ id: res.request_id, hypothesis_prompt: instPrompt });
+          setActiveChatOrder({ id: res.request_id, hypothesis_prompt: instPrompt, status: res.status });
         }
       }
       setShowRequestModal(false);
@@ -2032,9 +2045,9 @@ export const QuantReportCatalogAndLibrary: React.FC<QuantReportCatalogAndLibrary
                       onChange={(e) => setRetailSymbol(e.target.value)}
                       className="quant-input text-xs w-full"
                     >
-                      <option value="XAUUSD">XAUUSD (Spot Gold / Vàng giao ngay)</option>
-                      <option value="EURUSD">EURUSD (Euro / USD)</option>
-                      <option value="USDJPY">USDJPY (USD / Yên Nhật)</option>
+                      <option value="XAUUSD">XAUUSD (Spot Gold / Vàng giao ngay - M15/H1)</option>
+                      <option value="EURUSD">EURUSD (Euro / USD - H1/H4)</option>
+                      <option value="USDJPY" disabled>USDJPY (Chưa khả dụng - Chưa có tệp nến)</option>
                     </select>
                   </div>
                   <div>

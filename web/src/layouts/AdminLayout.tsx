@@ -248,13 +248,25 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
           <button
             type="button"
             onClick={() => {
-              onNavigate('/');
               setMobileMenuOpen(false);
+              if (typeof window !== 'undefined') {
+                const hostname = window.location.hostname.toLowerCase();
+                if (hostname.endsWith('zupirus.com')) {
+                  window.location.href = 'https://zupirus.com/portal';
+                  return;
+                }
+                if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                  window.location.href = `${window.location.protocol}//${hostname}:${window.location.port || '5173'}/portal`;
+                  return;
+                }
+              }
+              onNavigate('/portal');
             }}
             className="w-full flex items-center justify-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-2 text-xs text-slate-400 hover:text-white transition cursor-pointer"
+            title={lang === 'en' ? 'Open Customer Portal' : 'Về Cổng Khách Hàng'}
           >
             <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
-            {!sidebarCollapsed && <span>{lang === 'en' ? 'Public Landing' : 'Trang chủ'}</span>}
+            {!sidebarCollapsed && <span>{lang === 'en' ? 'Customer Portal' : 'Về cổng khách'}</span>}
           </button>
         </div>
       </aside>

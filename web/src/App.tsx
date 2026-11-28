@@ -196,6 +196,14 @@ const AppContent: React.FC = () => {
 
   // 2. ADMIN CONSOLE (/admin/login, /admin/*)
   if (zone === 'admin') {
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname.toLowerCase();
+      if (hostname.endsWith('zupirus.com') && !hostname.startsWith('adm.')) {
+        window.location.href = `https://adm.zupirus.com${window.location.pathname}${window.location.search}`;
+        return <PageLoader label={lang === 'en' ? 'Redirecting to Admin Portal...' : 'Đang chuyển hướng sang Trạm Quản Trị...'} />;
+      }
+    }
+
     if (!currentUser || isAuthRoute) {
       return (
         <AuthScreen
@@ -275,7 +283,6 @@ const AppContent: React.FC = () => {
         error={authError}
         onSubmit={authenticate}
         onNavigateHome={() => navigate('/')}
-        onSwitchZone={() => navigate('/admin/login')}
       />
     );
   }

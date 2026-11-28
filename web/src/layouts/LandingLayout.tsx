@@ -142,13 +142,6 @@ export const LandingLayout: React.FC<LandingLayoutProps> = ({ onNavigate, childr
               >
                 {t.footer.portalLink}
               </button>
-              <button
-                type="button"
-                onClick={() => onNavigate('/admin/login')}
-                className="text-slate-500 hover:text-cyan-300 transition cursor-pointer font-mono"
-              >
-                {t.footer.adminLink}
-              </button>
             </nav>
           </div>
 

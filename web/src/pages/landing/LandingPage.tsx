@@ -116,7 +116,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
                 </div>
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-[#12B5A6]/30 bg-[#12B5A6]/10 px-2.5 py-0.5 font-mono text-[10px] font-medium text-[#12B5A6]">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#12B5A6] animate-pulse" />
-                  EVALUATION SUITE
+                  {lang === 'en' ? 'REFERENCE SAMPLE STUDY' : 'BẢN MẪU THAM KHẢO'}
                 </span>
               </div>
 
@@ -289,7 +289,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate }) => {
               </div>
               <h3 className="text-xl font-bold text-white">Bản Phân Tích Kỹ Thuật Chuẩn Hóa</h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Khách hàng tự chọn một mã tài sản (XAU/USD, EUR/USD, BTC/USD...), một khung nến và kỳ quan sát. Engine tự động phân tích và xuất bản file PDF 2–4 trang tối ưu hiển thị di động.
+                {lang === 'en'
+                  ? 'Select an asset (XAU/USD, EUR/USD), timeframe, and lookback window. The engine generates a clean 2–4 page mobile-optimized PDF note.'
+                  : 'Khách hàng tự chọn một mã tài sản (XAU/USD, EUR/USD), một khung nến và kỳ quan sát. Engine tự động phân tích và xuất bản file PDF 2–4 trang tối ưu hiển thị di động.'}
               </p>
               <ul className="text-xs text-slate-400 space-y-2 font-mono">
                 <li className="flex items-center gap-2 text-slate-300">

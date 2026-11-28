@@ -414,7 +414,7 @@ def submit_institutional_inquiry(
     if len(desc) < 5:
         _fail(400, "Vui lòng mô tả vấn đề cần giải quyết hoặc rủi ro Quý khách đang quan tâm.")
 
-    is_generic = len(desc) < 15 or any(term in desc.lower() for term in ("cần hỗ trợ", "can ho tro", "help", "hỗ trợ", "tư vấn", "test"))
+    is_generic = len(desc) < 20 or any(term in desc.lower() for term in ("cần hỗ trợ", "can ho tro", "help", "hỗ trợ", "tư vấn", "test", "chào", "hello", "hi"))
     init_status = "NEEDS_CLARIFICATION" if is_generic else "PENDING_QUOTE"
     init_step = "NEEDS_DATA" if is_generic else "PROPOSAL_PENDING"
     init_act_cat = "ACTIONABLE" if is_generic else "WAITING_ADMIN"
@@ -426,40 +426,58 @@ def submit_institutional_inquiry(
 
     symbols_clean = [s.strip().upper() for s in (payload.symbols or []) if s.strip()]
     if not symbols_clean:
-        symbols_clean = ["XAUUSD", "EURUSD", "USDJPY"]
+        symbols_clean = [] if is_generic else ["XAUUSD", "EURUSD"]
 
-    primary_symbol = symbols_clean[0]
+    primary_symbol = symbols_clean[0] if symbols_clean else "STUDY"
     turnaround = payload.turnaround_hours or 48
 
-    # Agent proposal drafting
-    draft_proposal = {
-        "version": 1,
-        "research_question": f"Khảo nghiệm định lượng tác động: {desc[:120]}",
-        "recommended_symbols": symbols_clean,
-        "recommended_event": "Phản ứng vĩ mô / CPI Surprise & Chính sách tiền tệ",
-        "study_windows": ["1 phiên (Intraday)", "5 phiên (Swing)", "20 phiên (Position)"],
-        "data_availability": "VALIDATED (COMEX GC=F / Spot Gold M15/H1 & FX H1)",
-        "deliverables": [
-            "Báo cáo nghiên cứu độc quyền PDF chuyên sâu (20+ trang)",
-            "Nhật ký mô phỏng giao dịch chi tiết (trades_ledger.csv)",
-            "Bộ chỉ số định lượng & suy diễn thống kê (metrics.json)",
-            "Bộ công cụ tái lập độc lập offline (replay.py & QUICKSTART.md)",
-            "Bảng kê mã băm mật mã chứng minh tính toàn vẹn (MANIFEST.sha256)",
-        ],
-        "turnaround_hours": turnaround,
-        "suggested_price_usd": 10000.0,
-    }
-
+    # Agent proposal drafting - verify data coverage without assuming VALIDATED
     if is_generic:
+        draft_proposal = {
+            "version": 1,
+            "research_question": "Cần làm rõ bài toán nghiên cứu từ khách hàng",
+            "recommended_symbols": [],
+            "recommended_event": "Chưa xác định (cần làm rõ mục tiêu)",
+            "study_windows": ["Chờ làm rõ"],
+            "data_availability": "NEEDS_CLARIFICATION (Chưa đủ thông tin để kiểm tra độ phủ dữ liệu)",
+            "deliverables": [
+                "Báo cáo nghiên cứu độc quyền PDF chuyên sâu (20+ trang)",
+                "Nhật ký mô phỏng giao dịch chi tiết (trades_ledger.csv)",
+                "Bộ chỉ số định lượng & suy diễn thống kê (metrics.json)",
+                "Bộ công cụ tái lập độc lập offline (replay.py & QUICKSTART.md)",
+                "Bảng kê mã băm mật mã chứng minh tính toàn vẹn (MANIFEST.sha256)",
+            ],
+            "turnaround_hours": turnaround,
+            "suggested_price_usd": 0.0,
+        }
         welcome_msg = (
             f"Chào Quý khách! ZUPIRUS Quant Lab đã tiếp nhận yêu cầu: **\"{desc}\"**.\n\n"
-            f"Hiện tại mô tả bài toán còn khái quát. Để ban quản trị và đội ngũ Quant có thể xây dựng đề xuất chính xác, Quý khách vui lòng làm rõ thêm:\n"
-            f"1. **Mục tiêu nghiên cứu**: Bạn muốn kiểm định tác động của sự kiện vĩ mô cụ thể nào (ví dụ: CPI, FOMC, NFP, công bố lãi suất)?\n"
-            f"2. **Tài sản trọng tâm**: Bạn quan tâm chủ yếu đến Kim loại quý (Vàng XAU/USD), Ngoại hối (EUR/USD, USD/JPY) hay Chỉ số?\n"
+            f"Hiện tại mô tả bài toán còn khái quát ([NEEDS_CLARIFICATION]). Để ban quản trị và desk định lượng xây dựng đề xuất và báo giá chính xác, Quý khách vui lòng làm rõ thêm:\n"
+            f"1. **Mục tiêu nghiên cứu**: Bạn muốn kiểm định tác động của sự kiện vĩ mô nào (ví dụ: CPI Surprise, FOMC, NFP, lãi suất)?\n"
+            f"2. **Tài sản trọng tâm**: Bạn quan tâm chủ yếu đến Kim loại quý (Vàng XAUUSD / COMEX GC=F), Ngoại hối (EURUSD) hay rổ tài sản khác?\n"
             f"3. **Khung thời gian & kỳ vọng**: Kỳ vọng giữ vị thế ngắn hạn trong ngày (Intraday) hay nhiều tuần (Swing/Position)?\n\n"
             f"Quý khách có thể trả lời trực tiếp tại khung chat này hoặc đính kèm tài liệu mô tả để Admin phản hồi."
         )
     else:
+        has_jpy = any("JPY" in s for s in symbols_clean)
+        data_status = "PARTIAL_DATA (EURUSD & XAUUSD khả dụng; USDJPY cần nạp tệp nến)" if has_jpy else "DATA_AVAILABLE (Nguồn dữ liệu EURUSD H1 / XAUUSD M15 khả dụng)"
+        draft_proposal = {
+            "version": 1,
+            "research_question": f"Khảo nghiệm định lượng tác động: {desc[:120]}",
+            "recommended_symbols": symbols_clean,
+            "recommended_event": "Phản ứng vĩ mô / CPI Surprise & Chính sách tiền tệ",
+            "study_windows": ["1 phiên (Intraday)", "5 phiên (Swing)", "20 phiên (Position)"],
+            "data_availability": data_status,
+            "deliverables": [
+                "Báo cáo nghiên cứu độc quyền PDF chuyên sâu (20+ trang)",
+                "Nhật ký mô phỏng giao dịch chi tiết (trades_ledger.csv)",
+                "Bộ chỉ số định lượng & suy diễn thống kê (metrics.json)",
+                "Bộ công cụ tái lập độc lập offline (replay.py & QUICKSTART.md)",
+                "Bảng kê mã băm mật mã chứng minh tính toàn vẹn (MANIFEST.sha256)",
+            ],
+            "turnaround_hours": turnaround,
+            "suggested_price_usd": 10000.0,
+        }
         welcome_msg = (
             f"Chào Quý khách! ZUPIRUS Quant Lab đã tiếp nhận bài toán nghiên cứu:\n"
             f"**\"{desc}\"**\n\n"
@@ -467,6 +485,7 @@ def submit_institutional_inquiry(
             f"- **Câu hỏi kiểm định**: {draft_proposal['research_question']}\n"
             f"- **Rổ tài sản khảo nghiệm**: {', '.join(symbols_clean)}\n"
             f"- **Cửa sổ so sánh**: 1 phiên, 5 phiên, 20 phiên sau sự kiện\n"
+            f"- **Độ phủ dữ liệu**: {data_status}\n"
             f"- **Bộ sản phẩm bàn giao**: Báo cáo PDF chuyên sâu, Ledger CSV, Metrics JSON, Bộ Replay CLI độc lập và Manifest SHA-256.\n\n"
             f"Quý khách có thể gửi thêm tài liệu, file dữ liệu hoặc đặt câu hỏi trực tiếp tại khung chat này. "
             f"Ban quản trị sẽ xem xét và gửi báo giá / đề xuất chính thức tới Quý khách."

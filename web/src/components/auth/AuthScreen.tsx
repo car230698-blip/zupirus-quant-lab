@@ -140,7 +140,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         <div className="flex items-center justify-between gap-3">
           <BrandMark
             accent={isAdmin ? 'cyan' : 'teal'}
-            subtitle={isAdmin ? 'Admin Console' : 'PDF Library Portal'}
+            subtitle={isAdmin ? 'Admin Console' : 'Customer Portal'}
             onClick={onNavigateHome}
           />
           <div className="flex items-center gap-2">
@@ -181,28 +181,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   : 'Khôi Phục Mật Khẩu'
                 : register
                 ? lang === 'en'
-                  ? 'Create Library Account'
-                  : 'Đăng Ký Tài Khoản Thư Viện'
+                  ? 'Create Research Account'
+                  : 'Đăng Ký Tài Khoản Nghiên Cứu'
                 : lang === 'en'
-                ? 'Sign In to PDF Library'
-                : 'Đăng Nhập Thư Viện PDF'}
+                ? 'Sign In to Customer Portal'
+                : 'Đăng Nhập Cổng Khách Hàng'}
             </h1>
             <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
               {isAdmin
                 ? lang === 'en'
-                  ? 'Restricted workspace for publishing PDF research reports, reviewing WFO studies, and verifying USDT orders.'
-                  : 'Khu vực dành riêng cho quản trị viên xuất bản báo cáo PDF, duyệt kiểm định WFO và đối soát đơn hàng USDT.'
+                  ? 'Restricted workspace for reviewing research inquiries, approving bespoke deliverables, and managing lab operations.'
+                  : 'Khu vực bảo mật dành riêng cho quản trị viên xét duyệt yêu cầu, báo giá và bàn giao nghiên cứu định lượng.'
                 : forgotMode
                 ? lang === 'en'
                   ? 'Enter your registered email to receive a 6-digit password reset code.'
                   : 'Nhập email đã đăng ký để nhận mã OTP đặt lại mật khẩu.'
                 : register
                 ? lang === 'en'
-                  ? 'Verify your email once to purchase reports and keep permanent PDF downloads.'
-                  : 'Xác thực email để mua ấn phẩm và lưu quyền tải PDF vĩnh viễn.'
+                  ? 'Verify your email via OTP to request technical analysis notes and bespoke institutional studies.'
+                  : 'Xác thực email qua OTP để gửi bài toán nghiên cứu và nhận tài liệu bàn giao.'
                 : lang === 'en'
-                ? 'Access your purchased quantitative PDF reports, pending USDT orders, and digital receipts.'
-                : 'Truy cập các báo cáo định lượng PDF đã sở hữu, đơn hàng USDT và biên lai điện tử.'}
+                ? 'Access your quantitative research deliverables, technical analysis notes, and private files.'
+                : 'Truy cập kết quả nghiên cứu định lượng, bản phân tích kỹ thuật và hồ sơ của Quý khách.'}
             </p>
           </div>
 
@@ -406,15 +406,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     : 'Chưa có tài khoản? Đăng ký mới qua OTP →'}
                 </button>
               )}
-              {onSwitchZone && (
-                <button
-                  type="button"
-                  onClick={onSwitchZone}
-                  className="text-[11px] font-mono text-slate-500 hover:text-cyan-300 cursor-pointer"
-                >
-                  {lang === 'en' ? 'Admin login →' : 'Đăng nhập quản trị viên →'}
-                </button>
-              )}
             </div>
           ) : (
             onSwitchZone && (
@@ -439,7 +430,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       {/* Right Context Panel (Visually distinct between User vs Admin) */}
       <div className="hidden lg:flex flex-col justify-between p-12 lg:p-16 bg-[#060A13] relative overflow-hidden">
         <div className="font-mono text-xs text-slate-400">
-          {isAdmin ? 'ADMIN OPERATIONS CONSOLE' : 'ZUPIRUS RESEARCH LIBRARY'}
+          {isAdmin ? 'ADMIN OPERATIONS CONSOLE' : 'ZUPIRUS QUANT LAB'}
         </div>
 
         <div className="space-y-8 max-w-lg">

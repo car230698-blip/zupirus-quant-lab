@@ -120,8 +120,10 @@ test('AuthScreen separates Customer Portal login (OTP registration enabled) from
     )
   );
   assert.match(userAuthHtml, /data-portal="user"/);
-  assert.match(userAuthHtml, /ZUPIRUS RESEARCH LIBRARY/);
+  assert.match(userAuthHtml, /ZUPIRUS QUANT LAB/);
   assert.doesNotMatch(userAuthHtml, /ADMIN OPERATIONS CONSOLE/);
+  assert.doesNotMatch(userAuthHtml, /Admin login/i);
+  assert.doesNotMatch(userAuthHtml, /Đăng nhập quản trị/i);
 
   const adminAuthHtml = renderToStaticMarkup(
     withLang(
